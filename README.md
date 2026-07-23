@@ -42,26 +42,105 @@
 
 ## 安装
 
-将完整的 `copy-design/` 目录复制或链接到 Agent 使用的 skills 目录：
+### 从 GitHub 安装（推荐）
 
-```text
-<agent-skills-dir>/
-└── copy-design/
-    ├── SKILL.md
-    ├── agents/
-    ├── scripts/
-    └── references/
+`copy-design` 遵循开放的 [Agent Skills](https://agentskills.io) 目录规范，可用于 Codex、Claude Code、Cursor、Gemini CLI、OpenCode 等工具。使用通用的 [Agent Skills CLI](https://github.com/vercel-labs/skills) 可以直接从 GitHub 导入完整 Skill，并自动识别已安装的 Agent：
+
+```powershell
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design
 ```
 
-不能只复制 `SKILL.md`，因为 `scripts/` 和 `references/` 也是 Skill 功能的一部分。不同 Agent 的 skills 目录不同，请使用对应 Agent 的 Skill 安装方式。
+命令会让你选择安装目标和作用域。默认安装到当前项目；添加 `--global` 或 `-g` 可安装到用户级目录，在所有项目中使用。
 
-如果 Agent 没有原生 Skill 机制，也可以让它直接读取仓库中的入口文件：
+### 常见 Agent 和 Agent CLI 的安装命令
+
+下面列出一些常见 Agent 的用户级、非交互安装命令。它们安装的是同一份通用 Skill，只是目标目录不同：
+
+```powershell
+# Codex
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent codex --yes
+
+# Claude Code
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent claude-code --yes
+
+# Cursor
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent cursor --yes
+
+# Gemini CLI
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent gemini-cli --yes
+
+# OpenCode
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent opencode --yes
+
+# GitHub Copilot
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent github-copilot --yes
+
+# Kimi Code CLI
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent kimi-code-cli --yes
+
+# Qwen Code
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent qwen-code --yes
+```
+
+安装器会拉取完整的 `copy-design/` 目录，包括 `SKILL.md`、脚本和 references，不会只下载入口文件。
+
+如果你的工具不在上表中，可以省略 `--agent` 让安装器自动检测，也可以查看 [Agent Skills CLI 支持列表](https://github.com/vercel-labs/skills#supported-agents) 获取对应标识。
+
+### X-Code CLI
+
+仓库带有 X-Code CLI 插件清单，可以直接从 GitHub 安装完整 Skill：
+
+```powershell
+xc plugin install github:woai3c/copy-design-skill
+```
+
+安装后重启 `xc`，或在当前 X-Code CLI 会话中执行：
 
 ```text
-请完整读取 <copy-design-repo>/copy-design/SKILL.md，
-按照其中的工作流分析 https://example.com，
-并将设计规范写入当前项目根目录。
+/plugin refresh
 ```
+
+也可以直接在 X-Code CLI 会话中安装并刷新：
+
+```text
+/plugin install github:woai3c/copy-design-skill
+/plugin refresh
+```
+
+`copy-design` 包含脚本和 references，因此不要使用 X-Code CLI 的 `/skill install <url>` 安装本仓库；该命令只下载单个 `SKILL.md`。这里使用插件安装命令，是为了完整拉取仓库并注册其中的 `copy-design` Skill。
+
+更新已安装的版本：
+
+```powershell
+npx skills update copy-design
+```
+
+X-Code CLI 通过插件安装时使用：
+
+```powershell
+xc plugin update copy-design@local
+```
+
+### 让 Agent 帮你安装
+
+支持 GitHub Skill 安装的 Agent 可以直接接收下面这段消息：
+
+```text
+请从 GitHub 安装 copy-design Skill：
+https://github.com/woai3c/copy-design-skill/tree/main/copy-design
+
+使用当前 Agent 支持的 Skill 安装器，安装到用户级目录。
+必须安装完整目录，包括 SKILL.md、scripts、references 和 agents。
+完成后告诉我安装路径。
+```
+
+在 Codex 中也可以明确调用 `$skill-installer`，让它从上面的 GitHub 子目录安装。其他受支持的 Agent 可以使用前面对应的 `npx skills add ... --agent <标识>` 命令；X-Code CLI 使用它自己的 `xc plugin install ...` 命令。
+
+Skill 可以执行本地脚本。安装任何第三方 Skill 前都应先确认仓库来源并审查内容。
+
+### 手动或离线安装
+
+只有在 Agent 不支持 GitHub 导入或机器无法访问 GitHub 时，才需要把完整的 `copy-design/` 目录复制或链接到该 Agent 的 skills 目录。不能只复制 `SKILL.md`，因为脚本和 references 也是 Skill 功能的一部分。
 
 ## 使用
 

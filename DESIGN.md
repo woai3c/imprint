@@ -43,6 +43,9 @@
 - [x] 默认中文 README 和独立英文 README
 - [x] 单元测试、本地响应式 fixture 和真实 Chrome 集成测试
 - [x] `node tests/integration_capture.js --keep` 可视化演示，保留截图、事实 JSON 和最终示例文档
+- [x] GitHub 子目录一键安装说明，并通过通用 `npx skills` 安装器验证 Skill 可被发现
+- [x] Codex、Claude Code、Cursor、Gemini CLI、OpenCode、GitHub Copilot、Kimi Code CLI 和 Qwen Code 的安装命令
+- [x] X-Code CLI 插件分发清单，可从 GitHub 完整安装包含脚本和 references 的 Skill
 
 ### 部分完成
 

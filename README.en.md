@@ -42,26 +42,105 @@ Screenshot-only analysis can use the agent's native image capabilities and does 
 
 ## Installation
 
-Copy or link the complete `copy-design/` directory into the skills directory used by your agent:
+### Install from GitHub (recommended)
 
-```text
-<agent-skills-dir>/
-└── copy-design/
-    ├── SKILL.md
-    ├── agents/
-    ├── scripts/
-    └── references/
+`copy-design` follows the open [Agent Skills](https://agentskills.io) directory conventions and works with tools such as Codex, Claude Code, Cursor, Gemini CLI, and OpenCode. Use the cross-agent [Agent Skills CLI](https://github.com/vercel-labs/skills) to import the complete skill directly from GitHub and detect installed agents:
+
+```powershell
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design
 ```
 
-Do not copy only `SKILL.md`; `scripts/` and `references/` are part of the skill. Skill discovery paths differ between agents, so use the installation method documented by your agent.
+The command lets you choose the target agent and scope. Project scope is the default; add `--global` or `-g` to make the skill available across projects.
 
-If the agent has no native skill mechanism, ask it to read the repository entry point directly:
+### Commands for common agents and agent CLIs
+
+The following commands install the same agent-neutral skill globally and non-interactively. Only the target agent directory differs:
+
+```powershell
+# Codex
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent codex --yes
+
+# Claude Code
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent claude-code --yes
+
+# Cursor
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent cursor --yes
+
+# Gemini CLI
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent gemini-cli --yes
+
+# OpenCode
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent opencode --yes
+
+# GitHub Copilot
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent github-copilot --yes
+
+# Kimi Code CLI
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent kimi-code-cli --yes
+
+# Qwen Code
+npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design --global --agent qwen-code --yes
+```
+
+The installer fetches the complete `copy-design/` directory, including `SKILL.md`, scripts, references, and agent metadata.
+
+If your tool is not listed above, omit `--agent` to let the installer detect it, or find its identifier in the [Agent Skills CLI supported-agent list](https://github.com/vercel-labs/skills#supported-agents).
+
+### X-Code CLI
+
+This repository includes an X-Code CLI plugin manifest, so X-Code can fetch and register the complete skill directly from GitHub:
+
+```powershell
+xc plugin install github:woai3c/copy-design-skill
+```
+
+Restart `xc` after installation, or refresh the current X-Code CLI session:
 
 ```text
-Read <copy-design-repo>/copy-design/SKILL.md completely.
-Follow its workflow to analyze https://example.com
-and write the design guidelines to the current project root.
+/plugin refresh
 ```
+
+You can also install and refresh without leaving the X-Code CLI session:
+
+```text
+/plugin install github:woai3c/copy-design-skill
+/plugin refresh
+```
+
+`copy-design` includes scripts and references, so do not install this repository with X-Code CLI's `/skill install <url>` command; that command downloads only one `SKILL.md`. The plugin command clones the complete repository and registers its `copy-design` skill.
+
+Update an installed copy:
+
+```powershell
+npx skills update copy-design
+```
+
+For an X-Code CLI plugin installation, use:
+
+```powershell
+xc plugin update copy-design@local
+```
+
+### Ask an agent to install it
+
+Agents with GitHub skill installation support can receive this prompt directly:
+
+```text
+Install the copy-design skill from GitHub:
+https://github.com/woai3c/copy-design-skill/tree/main/copy-design
+
+Use this agent's supported skill installer and install it at user scope.
+Install the complete directory, including SKILL.md, scripts, references, and agents.
+Confirm the installed path when finished.
+```
+
+In Codex, you can explicitly invoke `$skill-installer` and ask it to install the GitHub subdirectory above. Other supported agents can use the matching `npx skills add ... --agent <id>` command above; X-Code CLI uses its own `xc plugin install ...` command.
+
+Skills can execute local scripts. Verify the repository source and review its contents before installing any third-party skill.
+
+### Manual or offline fallback
+
+Copy or link the complete `copy-design/` directory into the agent's skills directory only when GitHub import is unavailable. Do not copy only `SKILL.md`; the scripts and references are part of the skill.
 
 ## Usage
 

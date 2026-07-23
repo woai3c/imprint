@@ -88,7 +88,7 @@ npx skills add https://github.com/woai3c/copy-design-skill/tree/main/copy-design
 
 ### X-Code CLI
 
-仓库带有 X-Code CLI 插件清单，可以直接从 GitHub 安装完整 Skill：
+仓库带有 [X-Code CLI](https://github.com/woai3c/x-code-cli) 插件清单，可以直接从 GitHub 安装完整 Skill：
 
 ```powershell
 xc plugin install github:woai3c/copy-design-skill

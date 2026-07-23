@@ -88,7 +88,7 @@ If your tool is not listed above, omit `--agent` to let the installer detect it,
 
 ### X-Code CLI
 
-This repository includes an X-Code CLI plugin manifest, so X-Code can fetch and register the complete skill directly from GitHub:
+This repository includes an [X-Code CLI](https://github.com/woai3c/x-code-cli) plugin manifest, so X-Code can fetch and register the complete skill directly from GitHub:
 
 ```powershell
 xc plugin install github:woai3c/copy-design-skill

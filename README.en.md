@@ -1,83 +1,222 @@
-# Imprint (印象)
+# Imprint
 
-An open-source desktop app that extracts UI design styles from any website URL and exports them as CSS/Tailwind theme files for AI consumption.
+> Extract visual languages from websites and screenshots, and generate reusable design systems.
 
-[中文文档](./README.md)
+Imprint is an open-source desktop application that analyzes websites and UI screenshots, extracts their visual rules (colors, typography, spacing, shadows, radii, component styles, etc.), and converts them into AI-friendly design specifications and code variables.
+
+Make AI Coding more consistent by allowing AI agents to build interfaces based on real-world design systems instead of generating random UI styles.
+
+[中文](./README.md)
+
+---
+
+## Why Imprint?
+
+AI Coding makes building interfaces much easier, but maintaining a consistent product design style is still challenging.
+
+Traditional workflow:
+
+```
+Designer
+↓
+Figma Design
+↓
+Development
+```
+
+AI era workflow:
+
+```
+Website / UI Screenshot
+↓
+Imprint
+↓
+Design System
+↓
+AI Agent
+↓
+Consistent Product UI
+```
+
+Imprint transforms real product visual languages into structured design systems that AI can understand and reuse.
+
+---
 
 ## Features
 
-- **One-click extraction** — Enter a URL to automatically extract colors, fonts, spacing, shadows, border-radius, and more
-- **Code-first** — Style extraction is done entirely by code (zero token cost); LLMs only assist with semantic naming
-- **Multi-format export** — CSS custom properties, Tailwind v4 `@theme`, Markdown design doc, JSON design tokens (DTCG)
-- **Live theming** — Apply extracted styles to the app itself for instant preview
-- **Template demo** — Dashboard, landing page, e-commerce, blog templates rendered with your extracted theme
-- **Built-in themes** — Chinese landscape, cyberpunk, Nordic minimal, glassmorphism, dark mode, and more
-- **Local storage** — All data stored locally in SQLite, no login required, exportable for sharing
-- **AI-friendly** — Exports are designed for AI to directly generate or modify UI
-- **i18n** — Supports Chinese and English interface
+### 🎨 Design Language Extraction
+
+- **Website Analysis** — Analyze visual styles from any URL
+- **Screenshot Analysis** — Extract design patterns from UI screenshots
+- **Design System Generation** — Extract colors, typography, spacing, shadows, radii and other design tokens
+- **Visual Style Analysis** — Understand layouts, components and overall design language
+
+### 🤖 AI Coding Integration
+
+- **AI-friendly Output** — Generate Markdown design specifications that can be used directly as AI context
+- **Code Export** — Export CSS Variables, Tailwind CSS v4 `@theme`, and JSON Design Tokens
+- **Agent Integration** — Works with local AI Agent CLIs such as Claude Code, Codex, Kimi and x-code-cli
+
+### 🖥️ Product Experience
+
+- **Live Theme Preview** — Apply extracted design systems to preview UI changes instantly
+- **Template Showcase** — Preview generated themes with dashboard, landing page, ecommerce and blog templates
+- **Built-in Themes** — Includes premium styles such as Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism and dark themes
+
+### 🔒 Privacy & Local-first
+
+- **Local Storage** — All data is stored locally with SQLite. No account required.
+- **Internationalization** — Supports English and Chinese interfaces
+
+---
+
+## Workflow
+
+```
+Input website URL or screenshot
+```
+
+      ↓
+
+```
+Analyze structure and visual styles
+```
+
+      ↓
+
+```
+Generate Design System
+```
+
+      ↓
+
+```
+Export:
+• DESIGN.md
+• CSS Variables
+• Tailwind Theme
+• JSON Tokens
+```
+
+      ↓
+
+```
+Use with AI Coding or frontend development
+```
+
+---
+
+## Example Output
+
+Imprint generates:
+
+### DESIGN.md
+
+Including:
+
+- Visual style description
+- Color system
+- Typography rules
+- Spacing system
+- Border radius rules
+- Shadow system
+- Component guidelines
+
+### CSS Variables
+
+```css
+:root {
+  --color-primary: #2563eb;
+  --radius-md: 8px;
+  --spacing-lg: 24px;
+}
+```
+
+### Tailwind CSS v4 Theme
+
+```css
+@theme {
+  --color-primary: #2563eb;
+  --radius-md: 8px;
+}
+```
+
+---
 
 ## Tech Stack
 
-| Layer    | Technology                                          |
-| -------- | --------------------------------------------------- |
-| Desktop  | Electron 34 + Electron Forge                        |
-| Frontend | React 19, TypeScript, Vite                          |
-| UI       | Tailwind CSS v4                                     |
-| State    | Zustand v5                                          |
-| Database | SQLite (better-sqlite3)                             |
-| Analysis | Playwright (playwright-core)                        |
-| i18n     | i18next + react-i18next                             |
-| AI       | API Key or local Agent CLI (x-code-cli, kimi, etc.) |
+| Layer                | Technology                                             |
+| -------------------- | ------------------------------------------------------ |
+| Desktop Framework    | Electron 34 + Electron Forge                           |
+| Frontend             | React 19 + TypeScript + Vite                           |
+| UI                   | Tailwind CSS v4                                        |
+| State Management     | Zustand v5                                             |
+| Storage              | SQLite (better-sqlite3)                                |
+| Web Analysis         | Playwright                                             |
+| Internationalization | i18next + react-i18next                                |
+| AI                   | OpenAI / Claude / DeepSeek / Kimi API, Local Agent CLI |
+
+---
+
+## AI Configuration
+
+Imprint supports two AI modes:
+
+### 1. API Key
+
+Configure AI providers:
+
+- OpenAI
+- Claude
+- DeepSeek
+- Kimi
+- Other OpenAI-compatible APIs
+
+### 2. Local Agent CLI
+
+Automatically detects installed AI Agent tools:
+
+- Claude Code
+- Codex
+- Kimi
+- Gemini CLI
+- OpenCode
+- x-code-cli
+
+---
 
 ## Development
 
 ```bash
-# Install dependencies
 pnpm install
 
-# Start development
 pnpm dev
 
-# Package
 pnpm build
 
-# Create installer
 pnpm make
 ```
 
-## AI Configuration
+---
 
-Two options (pick one):
-
-1. **API Key** — Configure an LLM provider's API Key in Settings (DeepSeek, Claude, GPT, Kimi, etc.)
-2. **Local Agent CLI** — Auto-detects installed AI Agent CLIs (x-code-cli, claude, codex, opencode, gemini, kimi)
-
-## Directory Structure
+## Project Structure
 
 ```
 src/
-├── main/                   # Electron main process
-│   ├── index.ts            # Entry, creates window
-│   ├── preload.ts          # Preload script, exposes API
-│   ├── database.ts         # SQLite database
-│   ├── ipc.ts              # IPC handlers
-│   ├── settings.ts         # App settings persistence
-│   ├── export.ts           # CSS/Tailwind/JSON/MD generation
-│   ├── agent-detect.ts     # Detect local AI Agent CLIs
-│   └── analyzer/           # Web analysis engine
-│       ├── index.ts        # Analysis orchestration
-│       ├── style-extractor.ts  # DOM style extraction
-│       ├── color-cluster.ts    # Color clustering algorithm
-│       └── token-builder.ts    # Design token builder
-└── renderer/               # React frontend
-    ├── App.tsx             # Router entry
-    ├── main.tsx            # Render entry
-    ├── i18n/               # Internationalization
-    ├── components/         # Components
-    ├── pages/              # Pages
-    ├── stores/             # Zustand stores
-    └── styles/             # Global styles
+├── main/
+│   ├── analyzer/
+│   ├── export.ts
+│   ├── database.ts
+│   └── agent-detect.ts
+│
+└── renderer/
+    ├── components/
+    ├── pages/
+    ├── stores/
+    └── styles/
 ```
+
+---
 
 ## License
 

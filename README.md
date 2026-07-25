@@ -1,33 +1,193 @@
-# 印象 (Imprint)
+# 印记 (Imprint)
 
-一个开源桌面应用，输入网站 URL 即可提取 UI 设计风格，导出为 CSS/Tailwind 主题文件供 AI 使用。
+> 从网站和截图中提取设计语言，自动生成可复用的设计系统。
+
+Imprint 是一个开源桌面应用，可以分析网站 URL 或 UI 截图，提取其中的视觉规则（颜色、字体、间距、圆角、阴影、组件风格等），并生成 AI 可直接使用的设计规范和代码变量。
+
+让 AI Coding 不再随机生成 UI，而是基于真实产品的设计系统构建一致、高质量的界面。
 
 [English](./README.en.md)
 
+---
+
+## 为什么需要 Imprint？
+
+AI Coding 极大降低了开发 UI 的成本，但让 AI 持续生成符合产品风格的界面仍然很困难。
+
+传统流程：
+
+```
+设计师
+↓
+Figma 设计稿
+↓
+开发实现
+```
+
+AI 时代：
+
+```
+优秀网站 / UI 截图
+↓
+Imprint
+↓
+Design System
+↓
+AI Agent
+↓
+一致性的产品界面
+```
+
+Imprint 将真实产品中的视觉语言转换为 AI 可以理解的设计系统，让 AI 更容易生成符合目标风格的 UI。
+
+---
+
 ## 功能
 
-- **一键提取** — 输入 URL，自动提取颜色、字体、间距、阴影、圆角等设计系统
-- **代码优先** — 样式提取完全由代码完成（零 token 消耗），仅语义化命名借助 LLM
-- **多格式导出** — CSS 自定义属性、Tailwind v4 `@theme`、Markdown 设计文档、JSON 设计令牌
-- **实时换肤** — 将提取的设计风格应用到产品自身 UI，即时体验效果
-- **模板演示** — 后台管理、官网、电商、博客等模板，用提取的主题渲染展示
-- **内置主题** — 国风山水画、赛博朋克、极简北欧、毛玻璃、暗黑系等精品主题
-- **本地存储** — 所有数据保存在本地 SQLite，无需登录，可导出共享
-- **AI 友好** — 导出物专为 AI 设计，可直接用于生成或修改 UI
-- **国际化** — 支持中文和英文界面
+### 🎨 设计语言提取
+
+- **网站分析** — 输入 URL，自动分析网页视觉风格
+- **截图分析** — 从 UI 截图中提取设计规律
+- **设计系统生成** — 提取颜色、字体、间距、阴影、圆角等 Design Tokens
+- **视觉风格分析** — 分析页面布局、组件样式和整体设计语言
+
+### 🤖 AI Coding 集成
+
+- **AI 友好输出** — 生成 Markdown 设计规范，可直接作为 AI Coding 上下文
+- **代码变量导出** — 支持 CSS Variables、Tailwind CSS v4 `@theme`、JSON Design Tokens
+- **Agent 集成** — 支持本地 AI Agent CLI，包括 Claude Code、Codex、Kimi、x-code-cli 等
+
+### 🖥️ 产品体验
+
+- **实时换肤** — 将提取的设计系统应用到应用 UI，实时查看效果
+- **模板演示** — 提供后台管理、官网、电商、博客等模板展示生成效果
+- **内置主题** — 内置国风山水、赛博朋克、极简北欧、毛玻璃、暗黑等设计风格
+
+### 🔒 隐私与本地化
+
+- **本地优先** — 所有数据保存在本地 SQLite，无需注册账号
+- **多语言支持** — 支持中文和英文界面
+
+---
+
+## 使用流程
+
+```
+输入网站 URL 或截图
+```
+
+      ↓
+
+```
+分析网页结构和视觉样式
+```
+
+      ↓
+
+```
+生成 Design System
+```
+
+      ↓
+
+```
+导出：
+• DESIGN.md
+• CSS Variables
+• Tailwind Theme
+• JSON Tokens
+```
+
+      ↓
+
+```
+用于 AI Coding 或前端开发
+```
+
+---
+
+## 示例输出
+
+Imprint 可以生成：
+
+### DESIGN.md
+
+包含：
+
+- 产品视觉风格说明
+- 色彩系统
+- Typography 规范
+- 间距规则
+- 圆角规范
+- 阴影规则
+- 组件设计建议
+
+### CSS Variables
+
+```css
+:root {
+  --color-primary: #2563eb;
+  --radius-md: 8px;
+  --spacing-lg: 24px;
+}
+```
+
+### Tailwind CSS v4 Theme
+
+```css
+@theme {
+  --color-primary: #2563eb;
+  --radius-md: 8px;
+}
+```
+
+---
 
 ## 技术栈
 
-| 层级     | 技术                                                    |
-| -------- | ------------------------------------------------------- |
-| 桌面框架 | Electron 34 + Electron Forge                            |
-| 前端     | React 19, TypeScript, Vite                              |
-| UI       | Tailwind CSS v4                                         |
-| 状态     | Zustand v5                                              |
-| 数据     | SQLite (better-sqlite3)                                 |
-| 分析     | Playwright (playwright-core)                            |
-| 国际化   | i18next + react-i18next                                 |
-| AI       | 支持 API Key 直连或本地 Agent CLI (x-code-cli, kimi 等) |
+| 层级     | 技术                                                  |
+| -------- | ----------------------------------------------------- |
+| 桌面框架 | Electron 34 + Electron Forge                          |
+| 前端     | React 19 + TypeScript + Vite                          |
+| UI       | Tailwind CSS v4                                       |
+| 状态管理 | Zustand v5                                            |
+| 数据存储 | SQLite (better-sqlite3)                               |
+| 网页分析 | Playwright                                            |
+| 国际化   | i18next + react-i18next                               |
+| AI       | OpenAI / Claude / DeepSeek / Kimi API，本地 Agent CLI |
+
+---
+
+## AI 配置
+
+Imprint 支持两种 AI 使用方式：
+
+### 1. API Key
+
+在设置页面配置 AI 服务：
+
+支持：
+
+- OpenAI
+- Claude
+- DeepSeek
+- Kimi
+- 其他兼容 OpenAI API 的服务
+
+### 2. 本地 Agent CLI
+
+自动检测本机已安装的 AI Agent：
+
+支持：
+
+- Claude Code
+- Codex
+- Kimi
+- Gemini CLI
+- OpenCode
+- x-code-cli
+
+---
 
 ## 开发
 
@@ -45,39 +205,29 @@ pnpm build
 pnpm make
 ```
 
-## AI 配置
+---
 
-支持两种方式（二选一）：
-
-1. **API Key** — 在设置页配置 LLM 厂商的 API Key（DeepSeek、Claude、GPT、Kimi 等）
-2. **本地 Agent CLI** — 自动检测已安装的 AI Agent CLI（x-code-cli、claude、codex、opencode、gemini、kimi）
-
-## 目录结构
+## 项目结构
 
 ```
 src/
-├── main/                   # Electron 主进程
-│   ├── index.ts            # 入口，创建窗口
-│   ├── preload.ts          # 预加载脚本，暴露 API
-│   ├── database.ts         # SQLite 数据库
-│   ├── ipc.ts              # IPC 处理程序
-│   ├── settings.ts         # 应用设置持久化
-│   ├── export.ts           # CSS/Tailwind/JSON/MD 生成
-│   ├── agent-detect.ts     # 检测本地 AI Agent CLI
-│   └── analyzer/           # 网页分析引擎
-│       ├── index.ts        # 分析流程编排
-│       ├── style-extractor.ts  # DOM 样式提取
-│       ├── color-cluster.ts    # 颜色聚类算法
-│       └── token-builder.ts    # 设计令牌构建
-└── renderer/               # React 前端
-    ├── App.tsx             # 路由入口
-    ├── main.tsx            # 渲染入口
-    ├── i18n/               # 国际化
-    ├── components/         # 组件
-    ├── pages/              # 页面
-    ├── stores/             # Zustand 状态
-    └── styles/             # 全局样式
+├── main/                    # Electron 主进程
+│   ├── analyzer/            # 网页分析引擎
+│   │   ├── style-extractor.ts
+│   │   ├── color-cluster.ts
+│   │   └── token-builder.ts
+│   ├── export.ts            # Design System 导出
+│   ├── database.ts          # SQLite 数据库
+│   └── agent-detect.ts      # AI Agent 检测
+│
+└── renderer/                # React 前端
+    ├── components/
+    ├── pages/
+    ├── stores/
+    └── styles/
 ```
+
+---
 
 ## License
 

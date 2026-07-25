@@ -40,26 +40,26 @@ Imprint transforms real product visual languages into structured design systems 
 
 ## Features
 
-### 🎨 Design Language Extraction
+### Design Language Extraction
 
 - **Website Analysis** — Analyze visual styles from any URL
 - **Screenshot Analysis** — Extract design patterns from UI screenshots
 - **Design System Generation** — Extract colors, typography, spacing, shadows, radii and other design tokens
 - **Visual Style Analysis** — Understand layouts, components and overall design language
 
-### 🤖 AI Coding Integration
+### AI Coding Integration
 
 - **AI-friendly Output** — Generate Markdown design specifications that can be used directly as AI context
 - **Code Export** — Export CSS Variables, Tailwind CSS v4 `@theme`, and JSON Design Tokens
 - **Agent Integration** — Works with local AI Agent CLIs such as Claude Code, Codex, Kimi and x-code-cli
 
-### 🖥️ Product Experience
+### Product Experience
 
 - **Live Theme Preview** — Apply extracted design systems to preview UI changes instantly
 - **Template Showcase** — Preview generated themes with dashboard, landing page, ecommerce and blog templates
 - **Built-in Themes** — Includes premium styles such as Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism and dark themes
 
-### 🔒 Privacy & Local-first
+### Privacy & Local-first
 
 - **Local Storage** — All data is stored locally with SQLite. No account required.
 - **Internationalization** — Supports English and Chinese interfaces

@@ -21,7 +21,8 @@
     "prepare": "husky"
   },
   "bin": {
-    "imprint": "./dist/cli/index.js"
+    "imprint": "./dist/cli/index.js",
+    "imprint-mcp": "./dist/mcp/server.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

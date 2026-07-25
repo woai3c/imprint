@@ -4,13 +4,17 @@ import path from 'node:path'
 import { type Browser, type Page, chromium } from 'playwright-core'
 
 import { clusterColors } from './color-cluster.js'
+import { type ComponentPattern, detectComponents } from './component-detect.js'
 import { type DarkModeResult, extractDarkMode } from './dark-mode-detect.js'
 import { generateFeatureTags } from './feature-tags.js'
+import { type MotionToken, type ResponsiveBreakpoint, detectBreakpoints, detectMotion } from './responsive-motion.js'
 import { type InteractionStyles, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { buildDesignTokens } from './token-builder.js'
 
 export type { DarkModeResult } from './dark-mode-detect.js'
 export type { InteractionStyles } from './style-extractor.js'
+export type { ComponentPattern } from './component-detect.js'
+export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 
 export interface AnalysisOptions {
   viewports?: string[]
@@ -27,6 +31,9 @@ export interface AnalysisResult {
   interactions: InteractionStyles
   darkMode: DarkModeResult | null
   featureTags: string[]
+  components: ComponentPattern[]
+  breakpoints: ResponsiveBreakpoint[]
+  motion: MotionToken[]
   duration: number
 }
 
@@ -189,6 +196,9 @@ export async function analyze(
     const screenshots: string[] = []
     let allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
     let darkModeResult: DarkModeResult | null = null
+    let components: ComponentPattern[] = []
+    let breakpoints: ResponsiveBreakpoint[] = []
+    let motion: MotionToken[] = []
 
     for (let i = 0; i < viewportNames.length; i++) {
       const vpName = viewportNames[i]
@@ -223,6 +233,13 @@ export async function analyze(
         darkModeResult = await extractDarkMode(page)
       }
 
+      // Detect components, breakpoints, motion (first viewport only)
+      if (i === 0) {
+        components = await detectComponents(page)
+        breakpoints = await detectBreakpoints(page)
+        motion = await detectMotion(page)
+      }
+
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-${vpName}.png`)
       await page.screenshot({ path: screenshotPath, fullPage: true })
       screenshots.push(screenshotPath)
@@ -249,6 +266,9 @@ export async function analyze(
       interactions: allInteractions,
       darkMode: darkModeResult,
       featureTags,
+      components,
+      breakpoints,
+      motion,
       duration: Date.now() - startTime,
     }
   } finally {

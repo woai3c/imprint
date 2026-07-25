@@ -8,8 +8,6 @@ Imprint 是一个开源桌面应用，可以分析网站 URL 或 UI 截图，提
 
 [English](./README.en.md)
 
----
-
 ## 为什么需要 Imprint？
 
 AI Coding 极大降低了开发 UI 的成本，但让 AI 持续生成符合产品风格的界面仍然很困难。
@@ -40,8 +38,6 @@ AI Agent
 
 Imprint 将真实产品中的视觉语言转换为 AI 可以理解的设计系统，让 AI 更容易生成符合目标风格的 UI。
 
----
-
 ## 功能
 
 ### 🎨 设计语言提取
@@ -68,8 +64,6 @@ Imprint 将真实产品中的视觉语言转换为 AI 可以理解的设计系�
 - **本地优先** — 所有数据保存在本地 SQLite，无需注册账号
 - **多语言支持** — 支持中文和英文界面
 
----
-
 ## 使用流程
 
 ```mermaid
@@ -85,8 +79,6 @@ graph TD
     D3 --> E
     D4 --> E
 ```
-
----
 
 ## 示例输出
 
@@ -123,8 +115,6 @@ Imprint 可以生成：
 }
 ```
 
----
-
 ## 技术栈
 
 | 层级     | 技术                                                  |
@@ -137,8 +127,6 @@ Imprint 可以生成：
 | 网页分析 | Playwright                                            |
 | 国际化   | i18next + react-i18next                               |
 | AI       | OpenAI / Claude / DeepSeek / Kimi API，本地 Agent CLI |
-
----
 
 ## AI 配置
 
@@ -169,8 +157,6 @@ Imprint 支持两种 AI 使用方式：
 - OpenCode
 - x-code-cli
 
----
-
 ## 开发
 
 ```bash
@@ -186,8 +172,6 @@ pnpm build
 # 构建安装包
 pnpm make
 ```
-
----
 
 ## 项目结构
 
@@ -208,8 +192,6 @@ src/
     ├── stores/
     └── styles/
 ```
-
----
 
 ## License
 

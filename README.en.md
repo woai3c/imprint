@@ -8,8 +8,6 @@ Make AI Coding more consistent by allowing AI agents to build interfaces based o
 
 [中文](./README.md)
 
----
-
 ## Why Imprint?
 
 AI Coding makes building interfaces much easier, but maintaining a consistent product design style is still challenging.
@@ -40,8 +38,6 @@ Consistent Product UI
 
 Imprint transforms real product visual languages into structured design systems that AI can understand and reuse.
 
----
-
 ## Features
 
 ### 🎨 Design Language Extraction
@@ -68,8 +64,6 @@ Imprint transforms real product visual languages into structured design systems 
 - **Local Storage** — All data is stored locally with SQLite. No account required.
 - **Internationalization** — Supports English and Chinese interfaces
 
----
-
 ## Workflow
 
 ```mermaid
@@ -85,8 +79,6 @@ graph TD
     D3 --> E
     D4 --> E
 ```
-
----
 
 ## Example Output
 
@@ -123,8 +115,6 @@ Including:
 }
 ```
 
----
-
 ## Tech Stack
 
 | Layer                | Technology                                             |
@@ -137,8 +127,6 @@ Including:
 | Web Analysis         | Playwright                                             |
 | Internationalization | i18next + react-i18next                                |
 | AI                   | OpenAI / Claude / DeepSeek / Kimi API, Local Agent CLI |
-
----
 
 ## AI Configuration
 
@@ -165,8 +153,6 @@ Automatically detects installed AI Agent tools:
 - OpenCode
 - x-code-cli
 
----
-
 ## Development
 
 ```bash
@@ -178,8 +164,6 @@ pnpm build
 
 pnpm make
 ```
-
----
 
 ## Project Structure
 
@@ -197,8 +181,6 @@ src/
     ├── stores/
     └── styles/
 ```
-
----
 
 ## License
 

@@ -4,27 +4,18 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 
-interface AnalysisResultData {
-  tokens: Record<string, unknown>
-  cssVariables: string
-  tailwindTheme: string
-  designDoc: string
-  screenshots: string[]
-  duration: number
-  url: string
-  hasDarkMode?: boolean
-  darkModeMethod?: string
-}
+import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 
 type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 
 export function AnalyzePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [url, setUrl] = useState('')
+  const { lastResult, lastUrl, setResult: storeResult } = useAnalysisStore()
+  const [url, setUrl] = useState(lastUrl || '')
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState<{ step: string; percent: number } | null>(null)
-  const [result, setResult] = useState<AnalysisResultData | null>(null)
+  const [result, setResult] = useState<AnalysisResultData | null>(lastResult)
   const [activeTab, setActiveTab] = useState<ExportTab>('markdown')
   const [saved, setSaved] = useState(false)
 
@@ -59,7 +50,9 @@ export function AnalyzePage() {
         setProgress({ step: t('analyze.failed', { message: res.message }), percent: 0 })
         setTimeout(() => setProgress(null), 5000)
       } else {
-        setResult(res as AnalysisResultData)
+        const data = res as AnalysisResultData
+        setResult(data)
+        storeResult(data, url)
         setProgress(null)
       }
     } catch (err) {
@@ -193,7 +186,7 @@ export function AnalyzePage() {
             {result.screenshots[0] && (
               <div className="rounded-lg border border-border overflow-hidden">
                 <img
-                  src={`file://${result.screenshots[0]}`}
+                  src={`imprint-file://${result.screenshots[0]}`}
                   alt={t('analyze.screenshot')}
                   className="w-full h-auto max-h-48 object-cover object-top"
                 />

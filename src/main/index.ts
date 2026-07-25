@@ -1,6 +1,8 @@
+import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
-import { BrowserWindow, app, protocol } from 'electron'
+import { BrowserWindow, app, net, protocol } from 'electron'
 
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
@@ -9,6 +11,13 @@ declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
 
 let mainWindow: BrowserWindow | null = null
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'imprint-file',
+    privileges: { bypassCSP: true, stream: true, supportFetchAPI: true },
+  },
+])
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -38,10 +47,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Register custom protocol for local file access (screenshots)
-  protocol.registerFileProtocol('imprint-file', (request, callback) => {
+  protocol.handle('imprint-file', (request) => {
     const filePath = decodeURIComponent(request.url.replace('imprint-file://', ''))
-    callback({ path: filePath })
+    if (fs.existsSync(filePath)) {
+      return net.fetch(pathToFileURL(filePath).toString())
+    }
+    return new Response('Not found', { status: 404 })
   })
 
   initDatabase()

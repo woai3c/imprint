@@ -108,7 +108,7 @@ export function TemplatesPage() {
                     setTheme(theme.id)
                     setSelectedExtractedId(null)
                   }}
-                  className={`w-7 h-7 rounded-full border-2 transition-all ${
+                  className={`w-5 h-5 rounded-full border-2 transition-all ${
                     currentThemeId === theme.id && !selectedExtractedId
                       ? 'border-primary scale-110'
                       : 'border-transparent hover:border-muted-foreground/30'
@@ -127,7 +127,7 @@ export function TemplatesPage() {
               <div key={theme.id} className="relative group">
                 <button
                   onClick={() => handleApplyExtracted(theme)}
-                  className={`w-7 h-7 rounded-full border-2 transition-all ${
+                  className={`w-5 h-5 rounded-full border-2 transition-all ${
                     selectedExtractedId === theme.id
                       ? 'border-primary scale-110'
                       : 'border-transparent hover:border-muted-foreground/30'

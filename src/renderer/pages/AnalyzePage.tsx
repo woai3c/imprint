@@ -10,20 +10,21 @@ type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 
 export function AnalyzePage() {
   const { t } = useTranslation()
-  const { lastResult, lastUrl, setResult: storeResult } = useAnalysisStore()
-  const [url, setUrl] = useState(lastUrl || '')
-  const [analyzing, setAnalyzing] = useState(false)
-  const [progress, setProgress] = useState<{ step: string; percent: number } | null>(null)
-  const [result, setResult] = useState<AnalysisResultData | null>(lastResult)
+  const store = useAnalysisStore()
+  const [url, setUrl] = useState(store.lastUrl || '')
   const [activeTab, setActiveTab] = useState<ExportTab>('preview')
   const [saved, setSaved] = useState(false)
 
+  const analyzing = store.analyzing
+  const progress = store.progress
+  const result = store.lastResult
+
   useEffect(() => {
     const unsubscribe = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
-      setProgress(p)
+      store.setProgress(p)
     })
     return unsubscribe
-  }, [])
+  }, [store])
 
   const translateStep = (step: string): string => {
     if (step.includes('::')) {
@@ -38,28 +39,26 @@ export function AnalyzePage() {
 
   const handleAnalyze = async () => {
     if (!url.trim()) return
-    setAnalyzing(true)
-    setResult(null)
+    store.setAnalyzing(true)
+    store.setUrl(url)
     setSaved(false)
-    setProgress({ step: t('analyze.preparing'), percent: 0 })
+    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
 
     try {
       const res = await window.electronAPI.analyzeUrl(url)
       if (res.error) {
-        setProgress({ step: t('analyze.failed', { message: res.message }), percent: 0 })
-        setTimeout(() => setProgress(null), 5000)
+        store.setProgress({ step: t('analyze.failed', { message: res.message }), percent: 0 })
+        setTimeout(() => store.setProgress(null), 5000)
       } else {
         const data = res as AnalysisResultData
-        setResult(data)
-        storeResult(data, url)
-        setProgress(null)
+        store.setResult(data, url)
       }
     } catch (err) {
       console.error('Analysis failed:', err)
-      setProgress({ step: t('analyze.error'), percent: 0 })
-      setTimeout(() => setProgress(null), 5000)
+      store.setProgress({ step: t('analyze.error'), percent: 0 })
+      setTimeout(() => store.setProgress(null), 5000)
     } finally {
-      setAnalyzing(false)
+      store.setAnalyzing(false)
     }
   }
 

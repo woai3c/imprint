@@ -72,36 +72,18 @@ Imprint transforms real product visual languages into structured design systems 
 
 ## Workflow
 
-```
-Input website URL or screenshot
-```
-
-      ↓
-
-```
-Analyze structure and visual styles
-```
-
-      ↓
-
-```
-Generate Design System
-```
-
-      ↓
-
-```
-Export:
-• DESIGN.md
-• CSS Variables
-• Tailwind Theme
-• JSON Tokens
-```
-
-      ↓
-
-```
-Use with AI Coding or frontend development
+```mermaid
+graph TD
+    A[Input website URL or screenshot] --> B[Analyze structure and visual styles]
+    B --> C[Generate Design System]
+    C --> D1[DESIGN.md]
+    C --> D2[CSS Variables]
+    C --> D3[Tailwind Theme]
+    C --> D4[JSON Tokens]
+    D1 --> E[Use with AI Coding or frontend development]
+    D2 --> E
+    D3 --> E
+    D4 --> E
 ```
 
 ---

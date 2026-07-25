@@ -72,36 +72,18 @@ Imprint 将真实产品中的视觉语言转换为 AI 可以理解的设计系�
 
 ## 使用流程
 
-```
-输入网站 URL 或截图
-```
-
-      ↓
-
-```
-分析网页结构和视觉样式
-```
-
-      ↓
-
-```
-生成 Design System
-```
-
-      ↓
-
-```
-导出：
-• DESIGN.md
-• CSS Variables
-• Tailwind Theme
-• JSON Tokens
-```
-
-      ↓
-
-```
-用于 AI Coding 或前端开发
+```mermaid
+graph TD
+    A[输入网站 URL 或截图] --> B[分析网页结构和视觉样式]
+    B --> C[生成 Design System]
+    C --> D1[DESIGN.md]
+    C --> D2[CSS Variables]
+    C --> D3[Tailwind Theme]
+    C --> D4[JSON Tokens]
+    D1 --> E[用于 AI Coding 或前端开发]
+    D2 --> E
+    D3 --> E
+    D4 --> E
 ```
 
 ---

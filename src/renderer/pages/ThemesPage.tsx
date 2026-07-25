@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { builtinThemes, useSkinStore } from '../stores/skin-store'
-import type { AppTheme } from '../stores/skin-store'
+import type { AppTheme, ThemeColors } from '../stores/skin-store'
 import { useThemeStore } from '../stores/theme-store'
 
 export function ThemesPage() {
@@ -144,7 +144,7 @@ function ThemeCard({
 }: {
   name: string
   description: string
-  colors: Record<string, string>
+  colors: ThemeColors
   isActive: boolean
   onApply: () => void
   currentLabel: string

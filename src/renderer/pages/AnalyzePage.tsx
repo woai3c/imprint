@@ -26,7 +26,7 @@ export function AnalyzePage() {
   const [activeTab, setActiveTab] = useState<ExportTab>('markdown')
 
   useEffect(() => {
-    const unsubscribe = window.electronAPI.onAnalysisProgress((p) => {
+    const unsubscribe = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
       setProgress(p)
     })
     return unsubscribe

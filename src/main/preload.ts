@@ -8,7 +8,8 @@ const api = {
   toggleFavorite: (id: string) => ipcRenderer.invoke('themes:toggleFavorite', id),
 
   // Analysis
-  analyzeUrl: (url: string, options?: { viewports?: string[] }) => ipcRenderer.invoke('analyze:url', url, options),
+  analyzeUrl: (url: string, options?: { viewports?: string[]; useSession?: boolean }) =>
+    ipcRenderer.invoke('analyze:url', url, options),
 
   // Export
   exportTheme: (id: string, format: string) => ipcRenderer.invoke('export:theme', id, format),

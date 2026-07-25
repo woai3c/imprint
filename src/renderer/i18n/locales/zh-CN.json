@@ -42,7 +42,15 @@
     "dashboard": "后台管理",
     "landing": "官网首页",
     "ecommerce": "电商商城",
-    "blog": "博客文章"
+    "blog": "博客文章",
+    "login": "登录注册",
+    "profile": "个人主页",
+    "pricing": "定价方案",
+    "settings": "设置页面",
+    "chat": "聊天消息",
+    "docs": "文档知识库",
+    "kanban": "看板任务",
+    "analytics": "数据分析"
   },
   "history": {
     "title": "分析历史",

@@ -42,7 +42,15 @@
     "dashboard": "Dashboard",
     "landing": "Landing Page",
     "ecommerce": "E-commerce",
-    "blog": "Blog"
+    "blog": "Blog",
+    "login": "Login",
+    "profile": "Profile",
+    "pricing": "Pricing",
+    "settings": "Settings",
+    "chat": "Chat",
+    "docs": "Docs",
+    "kanban": "Kanban",
+    "analytics": "Analytics"
   },
   "history": {
     "title": "Analysis History",

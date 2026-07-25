@@ -37,6 +37,14 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     }
   }
 
+  // Assign border color from most-used border color
+  const borderColorEntries = Object.entries(styles.usageCount)
+    .filter(([k]) => k.startsWith('borderColor:'))
+    .sort((a, b) => b[1] - a[1])
+  if (borderColorEntries.length > 0) {
+    colors['border'] = borderColorEntries[0][0].replace('borderColor:', '')
+  }
+
   // Add remaining palette colors
   clusteredColors.palette.forEach((item, i) => {
     if (!Object.values(colors).includes(item.hex)) {
@@ -99,6 +107,7 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     radii,
     shadows,
     borders,
+    usageCount: styles.usageCount,
   }
 }
 

@@ -56,65 +56,68 @@ export function registerIpcHandlers() {
   })
 
   // --- Analysis ---
-  ipcMain.handle('analyze:url', async (event, url: string, options?: { viewports?: string[] }) => {
-    const themeId = uuidv4()
-    const now = new Date().toISOString()
-    const db = getDb()
-    const win = BrowserWindow.fromWebContents(event.sender)
+  ipcMain.handle(
+    'analyze:url',
+    async (event, url: string, options?: { viewports?: string[]; useSession?: boolean }) => {
+      const themeId = uuidv4()
+      const now = new Date().toISOString()
+      const db = getDb()
+      const win = BrowserWindow.fromWebContents(event.sender)
 
-    let hostname: string
-    try {
-      hostname = new URL(url).hostname
-    } catch {
-      hostname = url
-    }
-
-    try {
-      const result = await analyzeUrl(url, options, (step, percent) => {
-        win?.webContents.send('analysis:progress', { step, percent })
-      })
-
-      const cssVars = generateCssVariables(result.tokens)
-      const tailwind = generateTailwindTheme(result.tokens)
-      const designDoc = generateDesignDoc(result.tokens, url)
-      const tokensJson = JSON.stringify(result.tokens)
-
-      db.prepare(
-        `INSERT INTO themes (id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        themeId,
-        `Theme from ${hostname}`,
-        url,
-        result.screenshots[0] || null,
-        tokensJson,
-        cssVars,
-        tailwind,
-        designDoc,
-        now,
-        now,
-      )
-
-      const analysisId = uuidv4()
-      db.prepare(
-        `INSERT INTO analyses (id, theme_id, url, viewports, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(analysisId, themeId, url, JSON.stringify(options?.viewports || ['desktop']), result.duration, now)
-
-      return {
-        themeId,
-        analysisId,
-        tokens: result.tokens,
-        cssVariables: cssVars,
-        tailwindTheme: tailwind,
-        designDoc,
-        screenshots: result.screenshots,
-        duration: result.duration,
+      let hostname: string
+      try {
+        hostname = new URL(url).hostname
+      } catch {
+        hostname = url
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      return { error: true, message }
-    }
-  })
+
+      try {
+        const result = await analyzeUrl(url, options, (step, percent) => {
+          win?.webContents.send('analysis:progress', { step, percent })
+        })
+
+        const cssVars = generateCssVariables(result.tokens)
+        const tailwind = generateTailwindTheme(result.tokens)
+        const designDoc = generateDesignDoc(result.tokens, url)
+        const tokensJson = JSON.stringify(result.tokens)
+
+        db.prepare(
+          `INSERT INTO themes (id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          themeId,
+          `Theme from ${hostname}`,
+          url,
+          result.screenshots[0] || null,
+          tokensJson,
+          cssVars,
+          tailwind,
+          designDoc,
+          now,
+          now,
+        )
+
+        const analysisId = uuidv4()
+        db.prepare(
+          `INSERT INTO analyses (id, theme_id, url, viewports, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(analysisId, themeId, url, JSON.stringify(options?.viewports || ['desktop']), result.duration, now)
+
+        return {
+          themeId,
+          analysisId,
+          tokens: result.tokens,
+          cssVariables: cssVars,
+          tailwindTheme: tailwind,
+          designDoc,
+          screenshots: result.screenshots,
+          duration: result.duration,
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { error: true, message }
+      }
+    },
+  )
 
   // --- Export ---
   ipcMain.handle('export:theme', async (_event, id: string, format: string) => {

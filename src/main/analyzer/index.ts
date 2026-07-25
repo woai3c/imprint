@@ -7,18 +7,20 @@ import { type Browser, type Page, chromium } from 'playwright-core'
 
 import type { DesignToken } from '../export.js'
 import { clusterColors } from './color-cluster.js'
-import { extractStyles } from './style-extractor.js'
+import { type InteractionStyles, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { buildDesignTokens } from './token-builder.js'
 
 export interface AnalysisOptions {
   viewports?: string[]
   maxPages?: number
+  useSession?: boolean
 }
 
 export interface AnalysisResult {
   tokens: DesignToken
   screenshots: string[]
   rawStyles: ExtractedStyles
+  interactions: InteractionStyles
   duration: number
 }
 
@@ -35,6 +37,7 @@ export interface ExtractedStyles {
   cssVariables: Record<string, string>
   backgroundColors: string[]
   textColors: string[]
+  usageCount: Record<string, number>
 }
 
 const VIEWPORTS: Record<string, { width: number; height: number }> = {
@@ -74,6 +77,28 @@ function findBrowser(): string | undefined {
   return undefined
 }
 
+function getUserProfilePath(): string | undefined {
+  const isWin = process.platform === 'win32'
+  const isMac = process.platform === 'darwin'
+
+  if (isWin) {
+    const chromePath = path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/User Data')
+    if (fs.existsSync(chromePath)) return chromePath
+    const edgePath = path.join(process.env.LOCALAPPDATA || '', 'Microsoft/Edge/User Data')
+    if (fs.existsSync(edgePath)) return edgePath
+  }
+
+  if (isMac) {
+    const home = process.env.HOME || ''
+    const chromePath = path.join(home, 'Library/Application Support/Google/Chrome')
+    if (fs.existsSync(chromePath)) return chromePath
+    const edgePath = path.join(home, 'Library/Application Support/Microsoft Edge')
+    if (fs.existsSync(edgePath)) return edgePath
+  }
+
+  return undefined
+}
+
 export async function analyzeUrl(
   url: string,
   options: AnalysisOptions = {},
@@ -93,14 +118,56 @@ export async function analyzeUrl(
     throw new Error('未找到 Chrome/Edge 浏览器。请安装 Google Chrome 或 Microsoft Edge。')
   }
 
-  const browser: Browser = await chromium.launch({
-    executablePath,
-    headless: true,
-  })
+  const useSession = options.useSession !== false
+  let browser: Browser | null = null
+  let persistentContext: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | null = null
+
+  if (useSession) {
+    const userProfile = getUserProfilePath()
+    if (userProfile) {
+      const sessionDir = path.join(app.getPath('userData'), 'browser-session')
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true })
+      }
+
+      // Copy cookies from user profile to our session dir for reuse
+      const defaultProfile = path.join(userProfile, 'Default')
+      const cookiesSrc = path.join(defaultProfile, 'Cookies')
+      const cookiesDst = path.join(sessionDir, 'Default', 'Cookies')
+      if (fs.existsSync(cookiesSrc)) {
+        const dstDir = path.dirname(cookiesDst)
+        if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true })
+        try {
+          fs.copyFileSync(cookiesSrc, cookiesDst)
+        } catch {
+          // Cookie file may be locked, proceed without session
+        }
+      }
+
+      try {
+        persistentContext = await chromium.launchPersistentContext(sessionDir, {
+          executablePath,
+          headless: true,
+          args: ['--disable-blink-features=AutomationControlled'],
+        })
+      } catch {
+        // Fallback to regular launch if persistent context fails
+        persistentContext = null
+      }
+    }
+  }
+
+  if (!persistentContext) {
+    browser = await chromium.launch({
+      executablePath,
+      headless: true,
+    })
+  }
 
   try {
     const allStyles: ExtractedStyles[] = []
     const screenshots: string[] = []
+    let allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
 
     for (let i = 0; i < viewportNames.length; i++) {
       const vpName = viewportNames[i]
@@ -109,11 +176,17 @@ export async function analyzeUrl(
 
       onProgress?.(`正在分析 ${vpName} 视口...`, Math.round(progress))
 
-      const page: Page = await browser.newPage({
-        viewport,
-        userAgent:
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-      })
+      const page: Page = persistentContext
+        ? await persistentContext.newPage()
+        : await browser!.newPage({
+            viewport,
+            userAgent:
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+          })
+
+      if (persistentContext) {
+        await page.setViewportSize(viewport)
+      }
 
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
 
@@ -123,6 +196,11 @@ export async function analyzeUrl(
       // Extract styles via page.evaluate
       const styles = await extractStyles(page)
       allStyles.push(styles)
+
+      // Extract interaction styles (only for first viewport)
+      if (i === 0) {
+        allInteractions = await extractInteractionStyles(page)
+      }
 
       // Take screenshot
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-${vpName}.png`)
@@ -151,10 +229,15 @@ export async function analyzeUrl(
       tokens,
       screenshots,
       rawStyles: mergedStyles,
+      interactions: allInteractions,
       duration: Date.now() - startTime,
     }
   } finally {
-    await browser.close()
+    if (persistentContext) {
+      await persistentContext.close()
+    } else if (browser) {
+      await browser.close()
+    }
   }
 }
 
@@ -172,6 +255,7 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     cssVariables: {},
     backgroundColors: [],
     textColors: [],
+    usageCount: {},
   }
 
   for (const styles of stylesList) {
@@ -187,6 +271,9 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     merged.backgroundColors.push(...styles.backgroundColors)
     merged.textColors.push(...styles.textColors)
     Object.assign(merged.cssVariables, styles.cssVariables)
+    for (const [key, count] of Object.entries(styles.usageCount)) {
+      merged.usageCount[key] = (merged.usageCount[key] || 0) + count
+    }
   }
 
   // Deduplicate

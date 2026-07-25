@@ -10,6 +10,7 @@ export interface DesignToken {
   radii: string[]
   shadows: string[]
   borders: string[]
+  usageCount?: Record<string, number>
 }
 
 export interface ThemeExport {
@@ -94,10 +95,14 @@ export function generateDesignDoc(tokens: DesignToken, url?: string): string {
 
   // Colors
   lines.push('## Colors\n')
-  lines.push('| Token | Value |')
-  lines.push('|-------|-------|')
+  lines.push('| Token | Value | Usage |')
+  lines.push('|-------|-------|-------|')
   for (const [name, value] of Object.entries(tokens.colors)) {
-    lines.push(`| \`--color-${name}\` | \`${value}\` |`)
+    const bgCount = tokens.usageCount?.[`bgColor:${value}`] || 0
+    const textCount = tokens.usageCount?.[`textColor:${value}`] || 0
+    const total = bgCount + textCount
+    const context = bgCount > 0 && textCount > 0 ? 'bg+text' : bgCount > 0 ? 'background' : 'text'
+    lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} |`)
   }
 
   // Typography
@@ -108,11 +113,25 @@ export function generateDesignDoc(tokens: DesignToken, url?: string): string {
 
   // Spacing
   lines.push('\n## Spacing\n')
-  lines.push(tokens.spacing.map((s, i) => `- Level ${i + 1}: \`${s}\``).join('\n'))
+  lines.push(
+    tokens.spacing
+      .map((s, i) => {
+        const count = tokens.usageCount?.[`spacing:${s}`] || 0
+        return `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+      })
+      .join('\n'),
+  )
 
   // Radii
   lines.push('\n## Border Radius\n')
-  lines.push(tokens.radii.map((r, i) => `- ${['sm', 'md', 'lg', 'xl', '2xl'][i] || i}: \`${r}\``).join('\n'))
+  lines.push(
+    tokens.radii
+      .map((r, i) => {
+        const count = tokens.usageCount?.[`radius:${r}`] || 0
+        return `- ${['sm', 'md', 'lg', 'xl', '2xl'][i] || i}: \`${r}\`${count > 0 ? ` (${count}×)` : ''}`
+      })
+      .join('\n'),
+  )
 
   // Shadows
   if (tokens.shadows.length > 0) {

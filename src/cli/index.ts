@@ -9,6 +9,8 @@ import {
   generateCssVariables,
   generateDesignDoc,
   generateDtcgJson,
+  generatePdfHtml,
+  generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'
 
@@ -104,7 +106,7 @@ async function main() {
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
-  const formats = options.format === 'all' ? ['design.md', 'tailwind', 'css', 'json'] : [options.format]
+  const formats = options.format === 'all' ? ['design.md', 'tailwind', 'css', 'scss', 'json', 'pdf'] : [options.format]
 
   for (const format of formats) {
     let filename: string
@@ -124,9 +126,17 @@ async function main() {
         filename = 'variables.css'
         content = cssVars
         break
+      case 'scss':
+        filename = 'variables.scss'
+        content = generateScssVariables(result.tokens)
+        break
       case 'json':
         filename = 'design-tokens.json'
         content = dtcgJson
+        break
+      case 'pdf':
+        filename = 'style-guide.html'
+        content = generatePdfHtml(result.tokens, url, result.featureTags)
         break
       default:
         log(`  Unknown format: ${format}`, options.quiet)

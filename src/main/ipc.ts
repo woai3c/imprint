@@ -7,7 +7,13 @@ import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
-import { generateCssVariables, generateDesignDoc, generateDtcgJson, generateTailwindTheme } from './export.js'
+import {
+  generateCssVariables,
+  generateDesignDoc,
+  generateDtcgJson,
+  generateScssVariables,
+  generateTailwindTheme,
+} from './export.js'
 import { getSettings, saveSettings } from './settings.js'
 
 export function registerIpcHandlers() {
@@ -144,6 +150,11 @@ export function registerIpcHandlers() {
         content = generateDtcgJson(JSON.parse(theme.tokens_json as string))
         ext = 'json'
         filterName = 'JSON Files'
+        break
+      case 'scss':
+        content = generateScssVariables(JSON.parse(theme.tokens_json as string))
+        ext = 'scss'
+        filterName = 'SCSS Files'
         break
       case 'markdown':
         content = theme.design_doc as string

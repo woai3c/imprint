@@ -13,7 +13,7 @@ const navItems = [
 
 export function Layout() {
   const { t, i18n } = useTranslation()
-  const { colorMode, setColorMode } = useSkinStore()
+  const { colorMode, setColorMode, currentThemeId } = useSkinStore()
 
   const toggleLanguage = () => {
     const next = i18n.language === 'zh-CN' ? 'en' : 'zh-CN'
@@ -24,6 +24,8 @@ export function Layout() {
   const toggleColorMode = () => {
     setColorMode(colorMode === 'light' ? 'dark' : 'light')
   }
+
+  const isDarkToggleDisabled = currentThemeId !== 'default'
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -59,7 +61,9 @@ export function Layout() {
           <div className="app-no-drag flex items-center gap-3">
             <button
               onClick={toggleColorMode}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              disabled={isDarkToggleDisabled}
+              title={isDarkToggleDisabled ? t('app.darkToggleDisabled') : undefined}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
             >
               {colorMode === 'light' ? '☀' : '☾'}
             </button>

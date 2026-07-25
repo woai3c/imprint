@@ -4,7 +4,10 @@ import fs from 'node:fs'
 
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 
+import { clusterColors } from '../core/analyzer/color-cluster.js'
 import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
+import { buildDesignTokens } from '../core/analyzer/token-builder.js'
+import type { DarkModeExportData } from '../core/export/index.js'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
@@ -94,9 +97,20 @@ export function registerIpcHandlers() {
           }
         }
 
-        const cssVars = generateCssVariables(enhancedTokens)
-        const tailwind = generateTailwindTheme(enhancedTokens)
-        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags)
+        let darkModeExport: DarkModeExportData | undefined
+        if (result.darkMode?.hasDarkMode && result.darkMode.darkStyles) {
+          const darkClustered = clusterColors(result.darkMode.darkStyles.colors)
+          const darkTokens = buildDesignTokens(result.darkMode.darkStyles, darkClustered)
+          darkModeExport = {
+            hasDarkMode: true,
+            darkTokens,
+            method: result.darkMode.method,
+          }
+        }
+
+        const cssVars = generateCssVariables(enhancedTokens, darkModeExport)
+        const tailwind = generateTailwindTheme(enhancedTokens, darkModeExport)
+        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags, darkModeExport)
 
         return {
           tokens: enhancedTokens,
@@ -106,6 +120,8 @@ export function registerIpcHandlers() {
           screenshots: result.screenshots,
           duration: result.duration,
           url,
+          hasDarkMode: result.darkMode?.hasDarkMode ?? false,
+          darkModeMethod: result.darkMode?.method ?? 'none',
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)

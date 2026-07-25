@@ -3,7 +3,8 @@
     "name": "Imprint",
     "tagline": "UI Design Style Extractor",
     "version": "v0.1.0",
-    "footer": "Open Source & Free"
+    "footer": "Open Source & Free",
+    "darkToggleDisabled": "Light/dark toggle only works with the default theme"
   },
   "nav": {
     "analyze": "Analyze",
@@ -36,7 +37,9 @@
     "saveToLibrary": "Save to Library",
     "saved": "Saved",
     "extractedColors": "Extracted Colors",
-    "screenshot": "Page screenshot"
+    "screenshot": "Page screenshot",
+    "darkModeSupported": "Dark mode supported",
+    "darkModeNotDetected": "Dark mode not detected"
   },
   "themes": {
     "title": "Theme Library",

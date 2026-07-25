@@ -1,7 +1,13 @@
 import { generateAgentGuide, generateDosAndDonts } from '../analyzer/agent-guide.js'
 import type { DesignToken } from '../analyzer/index.js'
 
-export function generateCssVariables(tokens: DesignToken): string {
+export interface DarkModeExportData {
+  hasDarkMode: boolean
+  darkTokens?: DesignToken
+  method?: 'media-query' | 'class-toggle' | 'none'
+}
+
+export function generateCssVariables(tokens: DesignToken, darkMode?: DarkModeExportData): string {
   const lines: string[] = [':root {']
 
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -35,10 +41,34 @@ export function generateCssVariables(tokens: DesignToken): string {
   })
 
   lines.push('}')
+
+  if (darkMode?.hasDarkMode && darkMode.darkTokens) {
+    const selector = darkMode.method === 'media-query' ? '@media (prefers-color-scheme: dark)' : '.dark'
+    lines.push('')
+    lines.push(`${selector} {`)
+    if (darkMode.method === 'media-query') lines.push('  :root {')
+    const indent = darkMode.method === 'media-query' ? '    ' : '  '
+
+    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
+      lines.push(`${indent}--color-${name}: ${value};`)
+    }
+
+    if (darkMode.darkTokens.shadows.length > 0) {
+      darkMode.darkTokens.shadows.forEach((val, i) => {
+        const names = ['sm', 'md', 'lg', 'xl']
+        const name = names[i] || `${i + 1}`
+        lines.push(`${indent}--shadow-${name}: ${val};`)
+      })
+    }
+
+    if (darkMode.method === 'media-query') lines.push('  }')
+    lines.push('}')
+  }
+
   return lines.join('\n')
 }
 
-export function generateTailwindTheme(tokens: DesignToken): string {
+export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeExportData): string {
   const lines: string[] = ['@theme {']
 
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -60,10 +90,26 @@ export function generateTailwindTheme(tokens: DesignToken): string {
   })
 
   lines.push('}')
+
+  if (darkMode?.hasDarkMode && darkMode.darkTokens) {
+    lines.push('')
+    lines.push('/* Dark mode overrides */')
+    lines.push('.dark {')
+    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
+      lines.push(`  --color-${name}: ${value};`)
+    }
+    lines.push('}')
+  }
+
   return lines.join('\n')
 }
 
-export function generateDesignDoc(tokens: DesignToken, url?: string, featureTags?: string[]): string {
+export function generateDesignDoc(
+  tokens: DesignToken,
+  url?: string,
+  featureTags?: string[],
+  darkMode?: DarkModeExportData,
+): string {
   const lines: string[] = []
 
   lines.push('# Design System')
@@ -71,6 +117,12 @@ export function generateDesignDoc(tokens: DesignToken, url?: string, featureTags
 
   if (featureTags && featureTags.length > 0) {
     lines.push(`\n**Design Features:** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`)
+  }
+
+  if (darkMode?.hasDarkMode) {
+    lines.push(`\n**Dark Mode:** Supported (detected via ${darkMode.method})`)
+  } else {
+    lines.push(`\n**Dark Mode:** Not detected`)
   }
 
   lines.push('')
@@ -85,6 +137,15 @@ export function generateDesignDoc(tokens: DesignToken, url?: string, featureTags
     const total = bgCount + textCount
     const context = bgCount > 0 && textCount > 0 ? 'bg+text' : bgCount > 0 ? 'background' : 'text'
     lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} |`)
+  }
+
+  if (darkMode?.hasDarkMode && darkMode.darkTokens) {
+    lines.push('\n### Dark Mode Colors\n')
+    lines.push('| Token | Value |')
+    lines.push('|-------|-------|')
+    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
+      lines.push(`| \`--color-${name}\` | \`${value}\` |`)
+    }
   }
 
   // Typography

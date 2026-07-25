@@ -12,6 +12,8 @@ interface AnalysisResultData {
   screenshots: string[]
   duration: number
   url: string
+  hasDarkMode?: boolean
+  darkModeMethod?: string
 }
 
 type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
@@ -215,6 +217,15 @@ export function AnalyzePage() {
             <div className="text-xs text-muted-foreground">
               <p>{t('history.duration', { seconds: (result.duration / 1000).toFixed(1) })}</p>
               <p className="truncate mt-0.5">{url}</p>
+              <p className="mt-1">
+                {result.hasDarkMode ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    ● {t('analyze.darkModeSupported')}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/60">○ {t('analyze.darkModeNotDetected')}</span>
+                )}
+              </p>
             </div>
           </div>
 

@@ -3,7 +3,8 @@
     "name": "印记",
     "tagline": "UI 设计风格提取工具",
     "version": "v0.1.0",
-    "footer": "开源免费"
+    "footer": "开源免费",
+    "darkToggleDisabled": "仅默认主题支持亮/暗切换"
   },
   "nav": {
     "analyze": "分析",
@@ -36,7 +37,9 @@
     "saveToLibrary": "保存到主题库",
     "saved": "已保存",
     "extractedColors": "提取的颜色",
-    "screenshot": "页面截图"
+    "screenshot": "页面截图",
+    "darkModeSupported": "支持暗色模式",
+    "darkModeNotDetected": "未检测到暗色模式"
   },
   "themes": {
     "title": "主题库",

@@ -78,7 +78,7 @@ export function registerIpcHandlers() {
 
         const cssVars = generateCssVariables(result.tokens)
         const tailwind = generateTailwindTheme(result.tokens)
-        const designDoc = generateDesignDoc(result.tokens, url)
+        const designDoc = generateDesignDoc(result.tokens, url, result.featureTags)
         const tokensJson = JSON.stringify(result.tokens)
 
         db.prepare(

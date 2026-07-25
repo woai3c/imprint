@@ -7,6 +7,8 @@ import { type Browser, type Page, chromium } from 'playwright-core'
 
 import type { DesignToken } from '../export.js'
 import { clusterColors } from './color-cluster.js'
+import { type DarkModeResult, extractDarkMode } from './dark-mode-detect.js'
+import { generateFeatureTags } from './feature-tags.js'
 import { type InteractionStyles, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { buildDesignTokens } from './token-builder.js'
 
@@ -14,6 +16,7 @@ export interface AnalysisOptions {
   viewports?: string[]
   maxPages?: number
   useSession?: boolean
+  extractDarkMode?: boolean
 }
 
 export interface AnalysisResult {
@@ -21,6 +24,8 @@ export interface AnalysisResult {
   screenshots: string[]
   rawStyles: ExtractedStyles
   interactions: InteractionStyles
+  darkMode: DarkModeResult | null
+  featureTags: string[]
   duration: number
 }
 
@@ -168,6 +173,7 @@ export async function analyzeUrl(
     const allStyles: ExtractedStyles[] = []
     const screenshots: string[] = []
     let allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
+    let darkModeResult: DarkModeResult | null = null
 
     for (let i = 0; i < viewportNames.length; i++) {
       const vpName = viewportNames[i]
@@ -202,6 +208,11 @@ export async function analyzeUrl(
         allInteractions = await extractInteractionStyles(page)
       }
 
+      // Extract dark mode (only for first viewport, if requested)
+      if (i === 0 && options.extractDarkMode !== false) {
+        darkModeResult = await extractDarkMode(page)
+      }
+
       // Take screenshot
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-${vpName}.png`)
       await page.screenshot({ path: screenshotPath, fullPage: true })
@@ -223,6 +234,9 @@ export async function analyzeUrl(
     onProgress?.('正在生成设计令牌...', 95)
     const tokens = buildDesignTokens(mergedStyles, clusteredColors)
 
+    // Generate feature tags
+    const featureTags = generateFeatureTags(tokens, mergedStyles)
+
     onProgress?.('完成', 100)
 
     return {
@@ -230,6 +244,8 @@ export async function analyzeUrl(
       screenshots,
       rawStyles: mergedStyles,
       interactions: allInteractions,
+      darkMode: darkModeResult,
+      featureTags,
       duration: Date.now() - startTime,
     }
   } finally {

@@ -1,3 +1,5 @@
+import { generateAgentGuide, generateDosAndDonts } from './analyzer/agent-guide.js'
+
 export interface DesignToken {
   colors: Record<string, string>
   typography: {
@@ -86,11 +88,16 @@ export function generateTailwindTheme(tokens: DesignToken): string {
   return lines.join('\n')
 }
 
-export function generateDesignDoc(tokens: DesignToken, url?: string): string {
+export function generateDesignDoc(tokens: DesignToken, url?: string, featureTags?: string[]): string {
   const lines: string[] = []
 
   lines.push('# Design System')
   if (url) lines.push(`\nExtracted from: ${url}`)
+
+  if (featureTags && featureTags.length > 0) {
+    lines.push(`\n**Design Features:** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`)
+  }
+
   lines.push('')
 
   // Colors
@@ -138,6 +145,13 @@ export function generateDesignDoc(tokens: DesignToken, url?: string): string {
     lines.push('\n## Shadows\n')
     lines.push(tokens.shadows.map((s, i) => `- ${['sm', 'md', 'lg', 'xl'][i] || i}: \`${s}\``).join('\n'))
   }
+
+  // Agent Prompt Guide
+  lines.push('\n---\n')
+  lines.push(generateAgentGuide(tokens, url))
+
+  // Do's and Don'ts
+  lines.push(generateDosAndDonts(tokens))
 
   return lines.join('\n')
 }

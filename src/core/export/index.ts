@@ -7,7 +7,11 @@ export interface DarkModeExportData {
   method?: 'media-query' | 'class-toggle' | 'none'
 }
 
-export function generateCssVariables(tokens: DesignToken, darkMode?: DarkModeExportData): string {
+export function generateCssVariables(
+  tokens: DesignToken,
+  darkMode?: DarkModeExportData,
+  breakpoints?: Array<{ width: number; label: string }>,
+): string {
   const lines: string[] = [':root {']
 
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -39,6 +43,32 @@ export function generateCssVariables(tokens: DesignToken, darkMode?: DarkModeExp
     const name = names[i] || `${i + 1}`
     lines.push(`  --shadow-${name}: ${val};`)
   })
+
+  if (tokens.typography.letterSpacings?.length > 0) {
+    const lsNames = ['tight', 'normal', 'wide', 'wider', 'widest']
+    tokens.typography.letterSpacings.forEach((val, i) => {
+      lines.push(`  --letter-spacing-${lsNames[i] || i + 1}: ${val};`)
+    })
+  }
+
+  if (tokens.zIndices?.length > 0) {
+    tokens.zIndices.forEach((val, i) => {
+      lines.push(`  --z-${(i + 1) * 10}: ${val};`)
+    })
+  }
+
+  if (tokens.transitions?.length > 0) {
+    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
+    tokens.transitions.forEach((val, i) => {
+      lines.push(`  --duration-${durNames[i] || i + 1}: ${val};`)
+    })
+  }
+
+  if (breakpoints && breakpoints.length > 0) {
+    breakpoints.forEach((bp) => {
+      lines.push(`  --breakpoint-${bp.label}: ${bp.width}px;`)
+    })
+  }
 
   lines.push('}')
 
@@ -76,7 +106,7 @@ export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeEx
   }
 
   if (tokens.typography.fontFamilies.length > 0) {
-    lines.push(`  --font-sans: ${tokens.typography.fontFamilies[0]};`)
+    lines.push(`  --font-sans: ${tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]};`)
   }
 
   tokens.spacing.forEach((val, i) => {
@@ -88,6 +118,13 @@ export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeEx
     const name = radiusNames[i] || `${i + 1}`
     lines.push(`  --radius-${name}: ${val};`)
   })
+
+  if (tokens.transitions?.length > 0) {
+    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
+    tokens.transitions.forEach((val, i) => {
+      lines.push(`  --duration-${durNames[i] || i + 1}: ${val};`)
+    })
+  }
 
   lines.push('}')
 
@@ -109,6 +146,7 @@ export function generateDesignDoc(
   url?: string,
   featureTags?: string[],
   darkMode?: DarkModeExportData,
+  breakpoints?: Array<{ width: number; label: string }>,
 ): string {
   const lines: string[] = []
 
@@ -151,8 +189,17 @@ export function generateDesignDoc(
   // Typography
   lines.push('\n## Typography\n')
   lines.push(`**Font families:** ${tokens.typography.fontFamilies.join(', ') || 'System default'}`)
+  if (tokens.typography.fontStacks?.length > 0) {
+    lines.push('\n**Full font stacks:**')
+    tokens.typography.fontStacks.forEach((stack) => {
+      lines.push(`- \`${stack}\``)
+    })
+  }
   lines.push(`\n**Font sizes:** ${tokens.typography.fontSizes.join(', ')}`)
   lines.push(`\n**Font weights:** ${tokens.typography.fontWeights.join(', ')}`)
+  if (tokens.typography.letterSpacings?.length > 0) {
+    lines.push(`\n**Letter spacing:** ${tokens.typography.letterSpacings.join(', ')}`)
+  }
 
   // Spacing
   lines.push('\n## Spacing\n')
@@ -182,6 +229,32 @@ export function generateDesignDoc(
     lines.push(tokens.shadows.map((s, i) => `- ${['sm', 'md', 'lg', 'xl'][i] || i}: \`${s}\``).join('\n'))
   }
 
+  // Z-index
+  if (tokens.zIndices?.length > 0) {
+    lines.push('\n## Z-Index Layers\n')
+    lines.push(tokens.zIndices.map((z, i) => `- Layer ${i + 1}: \`${z}\``).join('\n'))
+  }
+
+  // Transitions
+  if (tokens.transitions?.length > 0) {
+    lines.push('\n## Transition Durations\n')
+    lines.push(
+      tokens.transitions
+        .map((t, i) => `- ${['fast', 'normal', 'slow', 'slower', 'slowest'][i] || i}: \`${t}\``)
+        .join('\n'),
+    )
+  }
+
+  // Breakpoints
+  if (breakpoints && breakpoints.length > 0) {
+    lines.push('\n## Responsive Breakpoints\n')
+    lines.push('| Label | Width |')
+    lines.push('|-------|-------|')
+    breakpoints.forEach((bp) => {
+      lines.push(`| ${bp.label} | \`${bp.width}px\` |`)
+    })
+  }
+
   // Agent Prompt Guide
   lines.push('\n---\n')
   lines.push(generateAgentGuide(tokens, url))
@@ -198,6 +271,8 @@ export function generateDtcgJson(tokens: DesignToken): string {
     spacing: {},
     borderRadius: {},
     shadow: {},
+    zIndex: {},
+    transition: {},
   }
 
   const colors = dtcg.color as Record<string, unknown>
@@ -210,9 +285,19 @@ export function generateDtcgJson(tokens: DesignToken): string {
     $type: 'fontFamily',
     $value: tokens.typography.fontFamilies,
   }
+  typo['fontStacks'] = {
+    $type: 'fontFamily',
+    $value: tokens.typography.fontStacks || [],
+  }
   typo['fontSizes'] = {
     $type: 'dimension',
     $value: tokens.typography.fontSizes,
+  }
+  if (tokens.typography.letterSpacings?.length > 0) {
+    typo['letterSpacing'] = {
+      $type: 'dimension',
+      $value: tokens.typography.letterSpacings,
+    }
   }
 
   const spacing = dtcg.spacing as Record<string, unknown>
@@ -232,6 +317,17 @@ export function generateDtcgJson(tokens: DesignToken): string {
     shadow[shadowNames[i] || `${i}`] = { $type: 'shadow', $value: val }
   })
 
+  const zIndex = dtcg.zIndex as Record<string, unknown>
+  tokens.zIndices?.forEach((val, i) => {
+    zIndex[`${(i + 1) * 10}`] = { $type: 'number', $value: parseInt(val) }
+  })
+
+  const transition = dtcg.transition as Record<string, unknown>
+  const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
+  tokens.transitions?.forEach((val, i) => {
+    transition[durNames[i] || `${i}`] = { $type: 'duration', $value: val }
+  })
+
   return JSON.stringify(dtcg, null, 2)
 }
 
@@ -244,7 +340,7 @@ export function generateScssVariables(tokens: DesignToken): string {
   lines.push('')
 
   if (tokens.typography.fontFamilies.length > 0) {
-    lines.push(`$font-sans: ${tokens.typography.fontFamilies[0]};`)
+    lines.push(`$font-sans: ${tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]};`)
   }
   lines.push('')
 
@@ -269,6 +365,21 @@ export function generateScssVariables(tokens: DesignToken): string {
     const names = ['sm', 'md', 'lg', 'xl']
     lines.push(`$shadow-${names[i] || i + 1}: ${val};`)
   })
+
+  if (tokens.zIndices?.length > 0) {
+    lines.push('')
+    tokens.zIndices.forEach((val, i) => {
+      lines.push(`$z-${(i + 1) * 10}: ${val};`)
+    })
+  }
+
+  if (tokens.transitions?.length > 0) {
+    lines.push('')
+    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
+    tokens.transitions.forEach((val, i) => {
+      lines.push(`$duration-${durNames[i] || i + 1}: ${val};`)
+    })
+  }
 
   return lines.join('\n')
 }
@@ -312,8 +423,10 @@ ${featureTags?.length ? `<p>${featureTags.map((t) => `<span class="tag">${t}</sp
 <h2>Typography</h2>
 <div class="section">
   <p><strong>Font families:</strong> ${tokens.typography.fontFamilies.join(', ') || 'System default'}</p>
+  ${tokens.typography.fontStacks?.length ? `<p><strong>Full stacks:</strong></p><ul>${tokens.typography.fontStacks.map((s) => `<li><code>${s}</code></li>`).join('')}</ul>` : ''}
   <p><strong>Font sizes:</strong> ${tokens.typography.fontSizes.join(', ')}</p>
   <p><strong>Font weights:</strong> ${tokens.typography.fontWeights.join(', ')}</p>
+  ${tokens.typography.letterSpacings?.length ? `<p><strong>Letter spacing:</strong> ${tokens.typography.letterSpacings.join(', ')}</p>` : ''}
 </div>
 
 <h2>Spacing</h2>
@@ -338,6 +451,18 @@ ${
 <div class="section">
   ${tokens.shadows.map((s, i) => `<p>${['sm', 'md', 'lg', 'xl'][i] || i}: <code>${s}</code></p>`).join('\n  ')}
 </div>`
+    : ''
+}
+${
+  tokens.zIndices?.length
+    ? `<h2>Z-Index Layers</h2>
+<div class="section"><code>${tokens.zIndices.join(' | ')}</code></div>`
+    : ''
+}
+${
+  tokens.transitions?.length
+    ? `<h2>Transitions</h2>
+<div class="section"><code>${tokens.transitions.join(' | ')}</code></div>`
     : ''
 }
 </body>

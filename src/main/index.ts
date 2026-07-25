@@ -48,7 +48,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
   protocol.handle('imprint-file', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('imprint-file://', ''))
+    let filePath = decodeURIComponent(new URL(request.url).pathname)
+    if (process.platform === 'win32' && filePath.startsWith('/')) {
+      filePath = filePath.slice(1)
+    }
     if (fs.existsSync(filePath)) {
       return net.fetch(pathToFileURL(filePath).toString())
     }

@@ -43,6 +43,7 @@ export interface ExtractedStyles {
   fontSizes: string[]
   fontWeights: string[]
   lineHeights: string[]
+  letterSpacings: string[]
   spacings: string[]
   radii: string[]
   shadows: string[]
@@ -50,6 +51,8 @@ export interface ExtractedStyles {
   cssVariables: Record<string, string>
   backgroundColors: string[]
   textColors: string[]
+  zIndices: string[]
+  transitions: string[]
   usageCount: Record<string, number>
 }
 
@@ -57,14 +60,18 @@ export interface DesignToken {
   colors: Record<string, string>
   typography: {
     fontFamilies: string[]
+    fontStacks: string[]
     fontSizes: string[]
     fontWeights: string[]
     lineHeights: string[]
+    letterSpacings: string[]
   }
   spacing: string[]
   radii: string[]
   shadows: string[]
   borders: string[]
+  zIndices: string[]
+  transitions: string[]
   usageCount?: Record<string, number>
 }
 
@@ -337,6 +344,7 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     fontSizes: [],
     fontWeights: [],
     lineHeights: [],
+    letterSpacings: [],
     spacings: [],
     radii: [],
     shadows: [],
@@ -344,6 +352,8 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     cssVariables: {},
     backgroundColors: [],
     textColors: [],
+    zIndices: [],
+    transitions: [],
     usageCount: {},
   }
 
@@ -353,12 +363,15 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     merged.fontSizes.push(...styles.fontSizes)
     merged.fontWeights.push(...styles.fontWeights)
     merged.lineHeights.push(...styles.lineHeights)
+    merged.letterSpacings.push(...(styles.letterSpacings || []))
     merged.spacings.push(...styles.spacings)
     merged.radii.push(...styles.radii)
     merged.shadows.push(...styles.shadows)
     merged.borders.push(...styles.borders)
     merged.backgroundColors.push(...styles.backgroundColors)
     merged.textColors.push(...styles.textColors)
+    merged.zIndices.push(...(styles.zIndices || []))
+    merged.transitions.push(...(styles.transitions || []))
     Object.assign(merged.cssVariables, styles.cssVariables)
     for (const [key, count] of Object.entries(styles.usageCount)) {
       merged.usageCount[key] = (merged.usageCount[key] || 0) + count

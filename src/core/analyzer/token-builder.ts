@@ -89,24 +89,51 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
   const borderFreq = countFrequency(styles.borders)
   const borders = sortByFrequency(borderFreq).slice(0, 4)
 
-  // Font families - clean up
-  const fontFamilies = styles.fontFamilies
-    .map((f) => f.replace(/"/g, '').split(',')[0].trim())
+  // Font families - keep both primary names and full stacks
+  const fontStacks = styles.fontFamilies
+    .map((f) => f.replace(/"/g, '').trim())
     .filter(uniqueFilter())
-    .slice(0, 3)
+    .slice(0, 5)
+
+  const fontFamilies = fontStacks
+    .map((stack) => stack.split(',')[0].trim())
+    .filter(uniqueFilter())
+    .slice(0, 5)
+
+  // Letter spacing
+  const letterSpacingFreq = countFrequency(styles.letterSpacings || [])
+  const letterSpacings = sortByFrequency(letterSpacingFreq)
+    .filter(uniqueFilter())
+    .slice(0, 6)
+    .sort((a, b) => parseFloat(a) - parseFloat(b))
+
+  // Z-index layers
+  const zIndexFreq = countFrequency(styles.zIndices || [])
+  const zIndices = sortByFrequency(zIndexFreq)
+    .filter(uniqueFilter())
+    .slice(0, 8)
+    .sort((a, b) => parseInt(a) - parseInt(b))
+
+  // Transitions
+  const transitionFreq = countFrequency(styles.transitions || [])
+  const transitions = sortByFrequency(transitionFreq).filter(uniqueFilter()).slice(0, 6)
 
   return {
     colors,
     typography: {
       fontFamilies,
+      fontStacks,
       fontSizes: sortedFontSizes,
       fontWeights: sortedFontWeights,
       lineHeights: sortedLineHeights,
+      letterSpacings,
     },
     spacing: spacings,
     radii,
     shadows,
     borders,
+    zIndices,
+    transitions,
     usageCount: styles.usageCount,
   }
 }

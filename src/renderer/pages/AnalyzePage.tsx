@@ -239,7 +239,7 @@ export function AnalyzePage() {
             {result.screenshots[0] && (
               <div className="rounded-xl border border-border overflow-hidden">
                 <img
-                  src={`imprint-file://${result.screenshots[0]}`}
+                  src={`imprint-file:///${result.screenshots[0].replace(/\\/g, '/')}`}
                   alt={t('analyze.screenshot')}
                   className="w-full h-auto max-h-52 object-cover object-top"
                 />

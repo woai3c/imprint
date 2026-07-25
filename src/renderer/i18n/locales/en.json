@@ -138,6 +138,9 @@
     "statColors": "Colors",
     "statTypes": "Type styles",
     "statSpacing": "Spacing",
-    "statRadii": "Radii"
+    "statRadii": "Radii",
+    "fontStacks": "Font Stacks",
+    "letterSpacing": "Letter Spacing",
+    "transitions": "Transitions"
   }
 }

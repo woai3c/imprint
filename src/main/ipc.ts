@@ -108,9 +108,9 @@ export function registerIpcHandlers() {
           }
         }
 
-        const cssVars = generateCssVariables(enhancedTokens, darkModeExport)
+        const cssVars = generateCssVariables(enhancedTokens, darkModeExport, result.breakpoints)
         const tailwind = generateTailwindTheme(enhancedTokens, darkModeExport)
-        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags, darkModeExport)
+        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags, darkModeExport, result.breakpoints)
 
         return {
           tokens: enhancedTokens,
@@ -124,6 +124,7 @@ export function registerIpcHandlers() {
           darkModeMethod: result.darkMode?.method ?? 'none',
           featureTags: result.featureTags,
           darkTokens: darkModeExport?.darkTokens?.colors ?? null,
+          breakpoints: result.breakpoints,
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)

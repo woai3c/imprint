@@ -4,14 +4,18 @@ interface TokenData {
   colors: Record<string, string>
   typography: {
     fontFamilies: string[]
+    fontStacks?: string[]
     fontSizes: string[]
     fontWeights: string[]
     lineHeights: string[]
+    letterSpacings?: string[]
   }
   spacing: string[]
   radii: string[]
   shadows: string[]
   borders: string[]
+  zIndices?: string[]
+  transitions?: string[]
 }
 
 interface TokenPreviewProps {
@@ -30,6 +34,12 @@ export function TokenPreview({ tokens, darkTokens, hasDarkMode }: TokenPreviewPr
       <SpacingSection spacing={tokens.spacing} t={t} />
       <RadiusSection radii={tokens.radii} t={t} />
       {tokens.shadows.length > 0 && <ShadowSection shadows={tokens.shadows} t={t} />}
+      {tokens.typography.letterSpacings && tokens.typography.letterSpacings.length > 0 && (
+        <LetterSpacingSection spacings={tokens.typography.letterSpacings} t={t} />
+      )}
+      {tokens.transitions && tokens.transitions.length > 0 && (
+        <TransitionSection transitions={tokens.transitions} t={t} />
+      )}
     </div>
   )
 }
@@ -118,6 +128,21 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
 
   return (
     <SectionCard title={t('preview.typography')}>
+      {typography.fontStacks && typography.fontStacks.length > 0 && (
+        <div className="mb-5 pb-4 border-b border-border">
+          <p className="text-xs text-muted-foreground mb-2">{t('preview.fontStacks')}</p>
+          <div className="space-y-1">
+            {typography.fontStacks.map((stack, i) => (
+              <code
+                key={i}
+                className="block text-[11px] text-foreground/80 font-mono bg-secondary/40 px-2 py-1 rounded"
+              >
+                {stack}
+              </code>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-0 divide-y divide-border">
         {combinations.map((combo, i) => (
           <div key={i} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
@@ -228,4 +253,39 @@ function groupColors(colors: Record<string, string>): Record<string, [string, st
   }
 
   return groups
+}
+
+function LetterSpacingSection({ spacings, t }: { spacings: string[]; t: (key: string) => string }) {
+  return (
+    <SectionCard title={t('preview.letterSpacing')}>
+      <div className="space-y-3">
+        {spacings.map((value, i) => (
+          <div key={i} className="flex items-center gap-4">
+            <span className="text-xs text-muted-foreground w-20 shrink-0 font-mono">{value}</span>
+            <p className="text-base truncate" style={{ letterSpacing: value }}>
+              The quick brown fox jumps over the lazy dog
+            </p>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  )
+}
+
+function TransitionSection({ transitions, t }: { transitions: string[]; t: (key: string) => string }) {
+  const names = ['fast', 'normal', 'slow', 'slower', 'slowest']
+  return (
+    <SectionCard title={t('preview.transitions')}>
+      <div className="flex flex-wrap gap-4">
+        {transitions.map((value, i) => (
+          <div key={i} className="flex flex-col items-center gap-2">
+            <div className="w-12 h-12 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-mono text-primary">
+              {value}
+            </div>
+            <span className="text-xs text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  )
 }

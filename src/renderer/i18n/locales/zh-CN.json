@@ -138,6 +138,9 @@
     "statColors": "颜色",
     "statTypes": "字体样式",
     "statSpacing": "间距",
-    "statRadii": "圆角"
+    "statRadii": "圆角",
+    "fontStacks": "完整字体栈",
+    "letterSpacing": "字间距",
+    "transitions": "过渡动画"
   }
 }

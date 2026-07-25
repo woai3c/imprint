@@ -12,6 +12,7 @@ export interface AnalysisResultData {
   darkModeMethod?: string
   featureTags?: string[]
   darkTokens?: Record<string, string> | null
+  breakpoints?: Array<{ width: number; label: string }>
 }
 
 interface AnalysisStore {

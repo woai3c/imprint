@@ -14,6 +14,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       fontSizes: string[]
       fontWeights: string[]
       lineHeights: string[]
+      letterSpacings: string[]
       spacings: string[]
       radii: string[]
       shadows: string[]
@@ -21,6 +22,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       cssVariables: Record<string, string>
       backgroundColors: string[]
       textColors: string[]
+      zIndices: string[]
+      transitions: string[]
       usageCount: Record<string, number>
     } = {
       colors: [],
@@ -28,6 +31,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       fontSizes: [],
       fontWeights: [],
       lineHeights: [],
+      letterSpacings: [],
       spacings: [],
       radii: [],
       shadows: [],
@@ -35,6 +39,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       cssVariables: {},
       backgroundColors: [],
       textColors: [],
+      zIndices: [],
+      transitions: [],
       usageCount: {},
     }
 
@@ -120,6 +126,25 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (lineHeight && lineHeight !== 'normal') {
         styles.lineHeights.push(lineHeight)
         countUsage('lineHeight', lineHeight)
+      }
+
+      // Letter spacing
+      const letterSpacing = computed.letterSpacing
+      if (letterSpacing && letterSpacing !== 'normal' && letterSpacing !== '0px') {
+        styles.letterSpacings.push(letterSpacing)
+        countUsage('letterSpacing', letterSpacing)
+      }
+
+      // Z-index
+      const zIndex = computed.zIndex
+      if (zIndex && zIndex !== 'auto' && zIndex !== '0') {
+        styles.zIndices.push(zIndex)
+      }
+
+      // Transition duration
+      const transitionDuration = computed.transitionDuration
+      if (transitionDuration && transitionDuration !== '0s') {
+        styles.transitions.push(transitionDuration)
       }
 
       // Spacing (margin and padding)

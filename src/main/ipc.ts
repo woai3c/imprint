@@ -122,6 +122,8 @@ export function registerIpcHandlers() {
           url,
           hasDarkMode: result.darkMode?.hasDarkMode ?? false,
           darkModeMethod: result.darkMode?.method ?? 'none',
+          featureTags: result.featureTags,
+          darkTokens: darkModeExport?.darkTokens?.colors ?? null,
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)

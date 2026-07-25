@@ -126,5 +126,18 @@
     "discoveringPages": "正在发现站内页面...",
     "analyzingPage": "正在分析第 {{current}}/{{total}} 页...",
     "done": "完成"
+  },
+  "preview": {
+    "colors": "颜色",
+    "typography": "字体排版",
+    "spacing": "间距",
+    "radius": "圆角",
+    "shadows": "阴影",
+    "lightTheme": "亮色主题",
+    "darkTheme": "暗色主题",
+    "statColors": "颜色",
+    "statTypes": "字体样式",
+    "statSpacing": "间距",
+    "statRadii": "圆角"
   }
 }

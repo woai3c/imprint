@@ -10,6 +10,8 @@ export interface AnalysisResultData {
   url: string
   hasDarkMode?: boolean
   darkModeMethod?: string
+  featureTags?: string[]
+  darkTokens?: Record<string, string> | null
 }
 
 interface AnalysisStore {

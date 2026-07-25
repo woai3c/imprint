@@ -2,21 +2,20 @@ import { Download, Loader2, Save } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 
+import { TokenPreview } from '../components/TokenPreview'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 
 type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 
 export function AnalyzePage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const { lastResult, lastUrl, setResult: storeResult } = useAnalysisStore()
   const [url, setUrl] = useState(lastUrl || '')
   const [analyzing, setAnalyzing] = useState(false)
   const [progress, setProgress] = useState<{ step: string; percent: number } | null>(null)
   const [result, setResult] = useState<AnalysisResultData | null>(lastResult)
-  const [activeTab, setActiveTab] = useState<ExportTab>('markdown')
+  const [activeTab, setActiveTab] = useState<ExportTab>('preview')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -70,11 +69,8 @@ export function AnalyzePage() {
     else if (activeTab === 'tailwind') content = result?.tailwindTheme || ''
     else if (activeTab === 'css') content = result?.cssVariables || ''
     else if (activeTab === 'json') content = JSON.stringify(result?.tokens, null, 2)
+    else if (activeTab === 'preview') content = result?.designDoc || ''
     navigator.clipboard.writeText(content)
-  }
-
-  const handlePreviewClick = () => {
-    navigate('/templates')
   }
 
   const handleSaveToLibrary = async () => {
@@ -94,7 +90,7 @@ export function AnalyzePage() {
     if (!result) return
     let content = ''
     let ext = 'md'
-    if (activeTab === 'markdown') {
+    if (activeTab === 'markdown' || activeTab === 'preview') {
       content = result.designDoc
       ext = 'md'
     } else if (activeTab === 'tailwind') {
@@ -118,13 +114,23 @@ export function AnalyzePage() {
     { id: 'json', label: t('analyze.tabJson') },
   ]
 
-  // Extract colors from tokens for display
-  const colorsList = result?.tokens
-    ? Object.values((result.tokens as Record<string, unknown>).colors || {}).slice(0, 12)
-    : []
+  const tokens = result?.tokens as Record<string, unknown> | undefined
+  const colorCount = tokens?.colors ? Object.keys(tokens.colors as Record<string, string>).length : 0
+  const typographyData = tokens?.typography as { fontSizes?: string[]; fontWeights?: string[] } | undefined
+  const typeStyleCount = typographyData?.fontSizes?.length || 0
+  const spacingCount = (tokens?.spacing as string[] | undefined)?.length || 0
+  const radiiCount = (tokens?.radii as string[] | undefined)?.length || 0
+
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname
+  } catch {
+    hostname = url
+  }
 
   return (
     <div className="h-full flex flex-col">
+      {/* Header: title + input (always visible) */}
       <div className="px-8 pt-4 pb-4">
         <h2 className="text-2xl font-bold">{t('analyze.title')}</h2>
         <p className="text-muted-foreground mt-1">{t('analyze.description')}</p>
@@ -179,38 +185,47 @@ export function AnalyzePage() {
         )}
       </div>
 
+      {/* Results */}
       {result ? (
-        <div className="flex-1 flex mt-4 mx-8 mb-8 gap-4 min-h-0">
-          {/* Left panel: screenshot + colors */}
-          <div className="w-72 shrink-0 flex flex-col gap-4 overflow-auto">
-            {result.screenshots[0] && (
-              <div className="rounded-lg border border-border overflow-hidden">
-                <img
-                  src={`imprint-file://${result.screenshots[0]}`}
-                  alt={t('analyze.screenshot')}
-                  className="w-full h-auto max-h-48 object-cover object-top"
-                />
-              </div>
-            )}
+        <div className="flex-1 flex mt-4 mx-8 mb-8 gap-5 min-h-0">
+          {/* Left: Overview Panel */}
+          <div className="w-80 shrink-0 flex flex-col gap-4 overflow-auto">
+            {/* Website identity */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-base font-bold">{hostname}</h3>
 
-            <div>
-              <p className="text-xs text-muted-foreground font-medium mb-2">{t('analyze.extractedColors')}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(colorsList as string[]).map((color, i) => (
-                  <div
-                    key={i}
-                    className="w-7 h-7 rounded border border-border"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
+              {/* Feature tags */}
+              {result.featureTags && result.featureTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {result.featureTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-secondary/50 text-muted-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-            <div className="text-xs text-muted-foreground">
-              <p>{t('history.duration', { seconds: (result.duration / 1000).toFixed(1) })}</p>
-              <p className="truncate mt-0.5">{url}</p>
-              <p className="mt-1">
+              {/* Stats summary */}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-xs text-muted-foreground">
+                <span>
+                  <strong className="text-foreground">{colorCount}</strong> {t('preview.statColors')}
+                </span>
+                <span>
+                  <strong className="text-foreground">{typeStyleCount}</strong> {t('preview.statTypes')}
+                </span>
+                <span>
+                  <strong className="text-foreground">{spacingCount}</strong> {t('preview.statSpacing')}
+                </span>
+                <span>
+                  <strong className="text-foreground">{radiiCount}</strong> {t('preview.statRadii')}
+                </span>
+              </div>
+
+              {/* Dark mode indicator */}
+              <div className="mt-3 text-xs">
                 {result.hasDarkMode ? (
                   <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                     ● {t('analyze.darkModeSupported')}
@@ -218,23 +233,56 @@ export function AnalyzePage() {
                 ) : (
                   <span className="text-muted-foreground/60">○ {t('analyze.darkModeNotDetected')}</span>
                 )}
+              </div>
+            </div>
+
+            {/* Screenshot */}
+            {result.screenshots[0] && (
+              <div className="rounded-xl border border-border overflow-hidden">
+                <img
+                  src={`imprint-file://${result.screenshots[0]}`}
+                  alt={t('analyze.screenshot')}
+                  className="w-full h-auto max-h-52 object-cover object-top"
+                />
+              </div>
+            )}
+
+            {/* Meta info */}
+            <div className="text-xs text-muted-foreground space-y-1 px-1">
+              <p>{t('history.duration', { seconds: (result.duration / 1000).toFixed(1) })}</p>
+              <p className="truncate" title={url}>
+                {url}
               </p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveToLibrary}
+                disabled={saved}
+                className="flex-1 text-xs py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <Save size={12} />
+                {saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
+              </button>
+              <button
+                onClick={handleExportFile}
+                className="flex-1 text-xs py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Download size={12} />
+                {t('analyze.exportFile')}
+              </button>
             </div>
           </div>
 
-          {/* Right panel: tabs + code */}
-          <div className="flex-1 flex flex-col min-w-0 border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center border-b border-border bg-card px-2">
+          {/* Right: Tabbed content */}
+          <div className="flex-1 flex flex-col min-w-0 border border-border rounded-xl overflow-hidden">
+            {/* Tab bar */}
+            <div className="flex items-center border-b border-border bg-card px-3">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => {
-                    if (tab.id === 'preview') {
-                      handlePreviewClick()
-                    } else {
-                      setActiveTab(tab.id)
-                    }
-                  }}
+                  onClick={() => setActiveTab(tab.id)}
                   className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
                     activeTab === tab.id
                       ? 'border-primary text-primary'
@@ -244,38 +292,33 @@ export function AnalyzePage() {
                   {tab.label}
                 </button>
               ))}
-              <div className="ml-auto flex gap-2 pr-2 items-center">
+              <div className="ml-auto flex gap-2 pr-1 items-center">
                 <button
                   onClick={handleCopy}
                   className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                 >
                   {t('analyze.copy')}
                 </button>
-                <button
-                  onClick={handleExportFile}
-                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors flex items-center gap-1"
-                >
-                  <Download size={11} />
-                  {t('analyze.exportFile')}
-                </button>
-                <button
-                  onClick={handleSaveToLibrary}
-                  disabled={saved}
-                  className="text-xs px-2.5 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1"
-                >
-                  <Save size={11} />
-                  {saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-4 bg-card">
-              <pre className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed">
-                {activeTab === 'markdown' && result.designDoc}
-                {activeTab === 'tailwind' && result.tailwindTheme}
-                {activeTab === 'css' && result.cssVariables}
-                {activeTab === 'json' && JSON.stringify(result.tokens, null, 2)}
-              </pre>
+            {/* Tab content */}
+            <div className="flex-1 overflow-auto bg-card">
+              {activeTab === 'preview' && tokens && (
+                <TokenPreview
+                  tokens={tokens as never}
+                  darkTokens={result.darkTokens}
+                  hasDarkMode={result.hasDarkMode}
+                />
+              )}
+              {activeTab !== 'preview' && (
+                <pre className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4">
+                  {activeTab === 'markdown' && result.designDoc}
+                  {activeTab === 'tailwind' && result.tailwindTheme}
+                  {activeTab === 'css' && result.cssVariables}
+                  {activeTab === 'json' && JSON.stringify(result.tokens, null, 2)}
+                </pre>
+              )}
             </div>
           </div>
         </div>

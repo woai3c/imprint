@@ -126,5 +126,18 @@
     "discoveringPages": "Discovering site pages...",
     "analyzingPage": "Analyzing page {{current}}/{{total}}...",
     "done": "Done"
+  },
+  "preview": {
+    "colors": "Colors",
+    "typography": "Typography",
+    "spacing": "Spacing & Shape",
+    "radius": "Border Radius",
+    "shadows": "Shadows",
+    "lightTheme": "Light Theme",
+    "darkTheme": "Dark Theme",
+    "statColors": "Colors",
+    "statTypes": "Type styles",
+    "statSpacing": "Spacing",
+    "statRadii": "Radii"
   }
 }

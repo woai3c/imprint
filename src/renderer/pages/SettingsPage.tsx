@@ -10,15 +10,28 @@ interface AgentCliInfo {
   available: boolean
 }
 
+interface Settings {
+  aiMode: 'apiKey' | 'agentCli'
+  provider: string
+  apiKey: string
+  baseUrl?: string
+  agentCli: string
+  exportFormat: string
+}
+
 export function SettingsPage() {
   const { t } = useTranslation()
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [customBaseUrl, setCustomBaseUrl] = useState('')
+  const [exportFormat, setExportFormat] = useState('css')
   const [agentClis, setAgentClis] = useState<AgentCliInfo[]>([])
   const [selectedCli, setSelectedCli] = useState('')
   const [detecting, setDetecting] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [loaded, setLoaded] = useState(false)
 
   const providers = [
     { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
@@ -33,25 +46,90 @@ export function SettingsPage() {
   ]
 
   useEffect(() => {
-    if (aiMode === 'agentCli') {
-      const detect = async () => {
+    window.electronAPI.getSettings().then((s: Settings) => {
+      setAiMode(s.aiMode || 'apiKey')
+      setProvider(s.provider || '')
+      setApiKey(s.apiKey || '')
+      setCustomBaseUrl(s.baseUrl || '')
+      setSelectedCli(s.agentCli || '')
+      setExportFormat(s.exportFormat || 'css')
+      setLoaded(true)
+
+      if (s.aiMode === 'agentCli') {
         setDetecting(true)
-        try {
-          const result = await window.electronAPI.detectAgentClis()
-          setAgentClis(result)
-          const firstAvailable = result.find((c: AgentCliInfo) => c.available)
-          if (firstAvailable) {
-            setSelectedCli(firstAvailable.command)
-          }
-        } catch (err) {
-          console.error('Failed to detect agent CLIs:', err)
-        } finally {
-          setDetecting(false)
-        }
+        window.electronAPI
+          .detectAgentClis()
+          .then((result: AgentCliInfo[]) => {
+            setAgentClis(result)
+            if (!s.agentCli) {
+              const firstAvailable = result.find((c) => c.available)
+              if (firstAvailable) {
+                setSelectedCli(firstAvailable.command)
+                window.electronAPI.saveSettings({ agentCli: firstAvailable.command })
+              }
+            }
+          })
+          .catch((err: unknown) => {
+            console.error('Failed to detect agent CLIs:', err)
+          })
+          .finally(() => {
+            setDetecting(false)
+          })
       }
-      detect()
+    })
+  }, [])
+
+  const save = (patch: Partial<Settings>) => {
+    window.electronAPI.saveSettings(patch)
+  }
+
+  const handleAiModeChange = (mode: 'apiKey' | 'agentCli') => {
+    setAiMode(mode)
+    save({ aiMode: mode })
+    if (mode === 'agentCli' && agentClis.length === 0) {
+      handleDetectClis()
     }
-  }, [aiMode])
+  }
+
+  const handleProviderChange = (v: string) => {
+    setProvider(v)
+    setTestResult(null)
+    save({ provider: v })
+  }
+
+  const handleApiKeyChange = (v: string) => {
+    setApiKey(v)
+    setTestResult(null)
+    save({ apiKey: v })
+  }
+
+  const handleBaseUrlChange = (v: string) => {
+    setCustomBaseUrl(v)
+    save({ baseUrl: v } as Partial<Settings>)
+  }
+
+  const handleExportFormatChange = (v: string) => {
+    setExportFormat(v)
+    save({ exportFormat: v })
+  }
+
+  const handleCliSelect = (command: string) => {
+    setSelectedCli(command)
+    save({ agentCli: command })
+  }
+
+  const handleTestConnection = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await window.electronAPI.testApiKey(provider, apiKey)
+      setTestResult(result)
+    } catch {
+      setTestResult({ success: false, message: 'Test failed' })
+    } finally {
+      setTesting(false)
+    }
+  }
 
   const handleDetectClis = async () => {
     setDetecting(true)
@@ -59,8 +137,8 @@ export function SettingsPage() {
       const result = await window.electronAPI.detectAgentClis()
       setAgentClis(result)
       const firstAvailable = result.find((c: AgentCliInfo) => c.available)
-      if (firstAvailable) {
-        setSelectedCli(firstAvailable.command)
+      if (firstAvailable && !selectedCli) {
+        handleCliSelect(firstAvailable.command)
       }
     } catch (err) {
       console.error('Failed to detect agent CLIs:', err)
@@ -68,6 +146,41 @@ export function SettingsPage() {
       setDetecting(false)
     }
   }
+
+  const handleExportAll = async () => {
+    try {
+      const themes = await window.electronAPI.getThemes()
+      const analyses = await window.electronAPI.getAnalyses()
+      const settings = await window.electronAPI.getSettings()
+      const blob = JSON.stringify({ themes, analyses, settings }, null, 2)
+      const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = `imprint-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      console.error('Export failed:', err)
+    }
+  }
+
+  const handleImportData = async () => {
+    await window.electronAPI.importTheme()
+  }
+
+  const handleClearAll = async () => {
+    if (!window.confirm(t('settings.data.confirmClear'))) return
+    const themes = await window.electronAPI.getThemes()
+    for (const theme of themes) {
+      await window.electronAPI.deleteTheme(theme.id)
+    }
+    const analyses = await window.electronAPI.getAnalyses()
+    for (const analysis of analyses) {
+      await window.electronAPI.deleteAnalysis(analysis.id)
+    }
+  }
+
+  if (!loaded) return null
 
   return (
     <div className="h-full flex flex-col overflow-auto">
@@ -83,7 +196,7 @@ export function SettingsPage() {
 
           <div className="flex gap-2 mb-6">
             <button
-              onClick={() => setAiMode('apiKey')}
+              onClick={() => handleAiModeChange('apiKey')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 aiMode === 'apiKey'
                   ? 'bg-primary text-primary-foreground'
@@ -93,7 +206,7 @@ export function SettingsPage() {
               {t('settings.ai.useApiKey')}
             </button>
             <button
-              onClick={() => setAiMode('agentCli')}
+              onClick={() => handleAiModeChange('agentCli')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 aiMode === 'agentCli'
                   ? 'bg-primary text-primary-foreground'
@@ -110,7 +223,7 @@ export function SettingsPage() {
                 <label className="text-sm font-medium block mb-1.5">{t('settings.ai.provider')}</label>
                 <select
                   value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
+                  onChange={(e) => handleProviderChange(e.target.value)}
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
                              focus:outline-none focus:ring-2 focus:ring-ring"
                 >
@@ -135,7 +248,7 @@ export function SettingsPage() {
                     <input
                       type="password"
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(e) => handleApiKeyChange(e.target.value)}
                       placeholder="sk-..."
                       className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
                                  placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -150,7 +263,7 @@ export function SettingsPage() {
                       <input
                         type="text"
                         value={customBaseUrl}
-                        onChange={(e) => setCustomBaseUrl(e.target.value)}
+                        onChange={(e) => handleBaseUrlChange(e.target.value)}
                         placeholder="https://api.example.com/v1"
                         className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
                                    placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -161,12 +274,31 @@ export function SettingsPage() {
               )}
 
               {provider && apiKey && (
-                <button
-                  className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
-                                   hover:bg-accent transition-colors"
-                >
-                  {t('settings.ai.testConnection')}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleTestConnection}
+                    disabled={testing}
+                    className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                               hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    {testing ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin" />
+                        {t('settings.ai.testing')}
+                      </span>
+                    ) : (
+                      t('settings.ai.testConnection')
+                    )}
+                  </button>
+                  {testResult && (
+                    <span
+                      className={`text-xs flex items-center gap-1 ${testResult.success ? 'text-green-600' : 'text-destructive'}`}
+                    >
+                      {testResult.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                      {testResult.message}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           ) : (
@@ -194,7 +326,7 @@ export function SettingsPage() {
                         name="agentCli"
                         value={cli.command}
                         checked={selectedCli === cli.command}
-                        onChange={(e) => setSelectedCli(e.target.value)}
+                        onChange={(e) => handleCliSelect(e.target.value)}
                         disabled={!cli.available}
                         className="accent-primary"
                       />
@@ -236,6 +368,8 @@ export function SettingsPage() {
             <div>
               <label className="text-sm font-medium block mb-1.5">{t('settings.export.defaultFormat')}</label>
               <select
+                value={exportFormat}
+                onChange={(e) => handleExportFormatChange(e.target.value)}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
                                  focus:outline-none focus:ring-2 focus:ring-ring"
               >
@@ -255,18 +389,21 @@ export function SettingsPage() {
           <div className="p-4 rounded-lg border border-border space-y-3">
             <div className="flex gap-3">
               <button
+                onClick={handleExportAll}
                 className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.exportAll')}
               </button>
               <button
+                onClick={handleImportData}
                 className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.import')}
               </button>
               <button
+                onClick={handleClearAll}
                 className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm
                                  hover:opacity-90 transition-opacity"
               >

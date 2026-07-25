@@ -7,6 +7,7 @@ export interface AppSettings {
   aiMode: 'apiKey' | 'agentCli'
   provider: string
   apiKey: string
+  baseUrl: string
   agentCli: string
   exportFormat: 'css' | 'tailwind' | 'both' | 'json' | 'markdown' | 'all'
 }
@@ -15,6 +16,7 @@ const defaults: AppSettings = {
   aiMode: 'apiKey',
   provider: '',
   apiKey: '',
+  baseUrl: '',
   agentCli: '',
   exportFormat: 'css',
 }

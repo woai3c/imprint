@@ -4,6 +4,7 @@ import fs from 'node:fs'
 
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 
+import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
@@ -82,10 +83,31 @@ export function registerIpcHandlers() {
           win?.webContents.send('analysis:progress', { step, percent })
         })
 
-        const cssVars = generateCssVariables(result.tokens)
-        const tailwind = generateTailwindTheme(result.tokens)
-        const designDoc = generateDesignDoc(result.tokens, url, result.featureTags)
-        const tokensJson = JSON.stringify(result.tokens)
+        // LLM semantic enhancement (optional, only if AI is configured)
+        const settings = getSettings()
+        const enhancedTokens = result.tokens
+        if (settings.aiMode === 'apiKey' && settings.provider && settings.apiKey) {
+          win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
+          const enhancement = await enhanceWithLlm(result.tokens, url, {
+            provider: settings.provider,
+            apiKey: settings.apiKey,
+            baseUrl: settings.baseUrl || undefined,
+          })
+          if (enhancement) {
+            for (const [oldName, newName] of Object.entries(enhancement.colorNames)) {
+              if (enhancedTokens.colors[oldName]) {
+                const value = enhancedTokens.colors[oldName]
+                delete enhancedTokens.colors[oldName]
+                enhancedTokens.colors[newName] = value
+              }
+            }
+          }
+        }
+
+        const cssVars = generateCssVariables(enhancedTokens)
+        const tailwind = generateTailwindTheme(enhancedTokens)
+        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags)
+        const tokensJson = JSON.stringify(enhancedTokens)
 
         db.prepare(
           `INSERT INTO themes (id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
@@ -111,7 +133,7 @@ export function registerIpcHandlers() {
         return {
           themeId,
           analysisId,
-          tokens: result.tokens,
+          tokens: enhancedTokens,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
           designDoc,
@@ -220,7 +242,7 @@ export function registerIpcHandlers() {
       }
     }
 
-    return { success: false, message: 'ZIP import not yet implemented' }
+    return { success: false, message: 'Only JSON format is currently supported' }
   })
 
   // --- Settings ---
@@ -236,8 +258,37 @@ export function registerIpcHandlers() {
     return detectAgentClis()
   })
 
-  ipcMain.handle('settings:testApiKey', async (_event, _provider: string, _apiKey: string) => {
-    // Phase 2: will use @x-code-cli/core to test
-    return { success: false, message: 'API test not yet implemented' }
+  ipcMain.handle('settings:testApiKey', async (_event, provider: string, apiKey: string) => {
+    const baseUrls: Record<string, string> = {
+      openai: 'https://api.openai.com/v1',
+      anthropic: 'https://api.anthropic.com/v1',
+      deepseek: 'https://api.deepseek.com/v1',
+      moonshotai: 'https://api.moonshot.cn/v1',
+      zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+      alibaba: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      google: 'https://generativelanguage.googleapis.com/v1beta',
+      xai: 'https://api.x.ai/v1',
+      custom: '',
+    }
+
+    const baseUrl = baseUrls[provider] || baseUrls['openai']
+    if (!baseUrl) {
+      return { success: false, message: 'Custom provider requires a base URL' }
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      if (res.ok) {
+        return { success: true, message: 'Connection successful' }
+      }
+      const text = await res.text().catch(() => '')
+      return { success: false, message: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { success: false, message: msg }
+    }
   })
 }

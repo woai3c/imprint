@@ -23,7 +23,17 @@
     "failed": "失败: {{message}}",
     "error": "分析异常",
     "emptyTitle": "输入网站 URL 开始分析",
-    "emptyDescription": "支持任意公开网页。分析完成后可导出为 CSS 变量、Tailwind 主题、设计文档等格式，供 AI 生成或修改 UI 使用。"
+    "emptyDescription": "支持任意公开网页。分析完成后可导出为 CSS 变量、Tailwind 主题、设计文档等格式，供 AI 生成或修改 UI 使用。",
+    "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
+    "browserNotFound": "未找到 Chrome 或 Edge 浏览器，请先安装",
+    "tabPreview": "预览",
+    "tabMarkdown": "DESIGN.md",
+    "tabTailwind": "Tailwind v4",
+    "tabCss": "CSS 变量",
+    "tabJson": "Tokens JSON",
+    "copy": "复制",
+    "extractedColors": "提取的颜色",
+    "screenshot": "页面截图"
   },
   "themes": {
     "title": "主题库",

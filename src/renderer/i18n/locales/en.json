@@ -23,7 +23,17 @@
     "failed": "Failed: {{message}}",
     "error": "Analysis error",
     "emptyTitle": "Enter a URL to start analyzing",
-    "emptyDescription": "Supports any public webpage. After analysis, export as CSS variables, Tailwind themes, design docs, and more — ready for AI to generate or modify UI."
+    "emptyDescription": "Supports any public webpage. After analysis, export as CSS variables, Tailwind themes, design docs, and more — ready for AI to generate or modify UI.",
+    "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
+    "browserNotFound": "Chrome or Edge browser not found. Please install one first.",
+    "tabPreview": "Preview",
+    "tabMarkdown": "DESIGN.md",
+    "tabTailwind": "Tailwind v4",
+    "tabCss": "CSS Variables",
+    "tabJson": "Tokens JSON",
+    "copy": "Copy",
+    "extractedColors": "Extracted Colors",
+    "screenshot": "Page screenshot"
   },
   "themes": {
     "title": "Theme Library",

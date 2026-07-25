@@ -52,7 +52,7 @@ export function TemplatesPage() {
               <button
                 key={tpl.id}
                 onClick={() => setActiveTemplate(tpl.id)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                   activeTemplate === tpl.id ? 'bg-background shadow-sm' : 'text-muted-foreground'
                 }`}
               >
@@ -69,7 +69,7 @@ export function TemplatesPage() {
               <div key={theme.id} className="relative group">
                 <button
                   onClick={() => setTheme(theme.id)}
-                  className={`w-7 h-7 rounded-full border-2 transition-all ${
+                  className={`w-7 h-7 rounded-full border-2 transition-all cursor-pointer ${
                     currentThemeId === theme.id
                       ? 'border-primary scale-110'
                       : 'border-transparent hover:border-muted-foreground/30'

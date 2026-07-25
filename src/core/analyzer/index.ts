@@ -143,7 +143,7 @@ export async function analyze(
     fs.mkdirSync(screenshotDir, { recursive: true })
   }
 
-  onProgress?.('Launching browser...', 5)
+  onProgress?.('progress.launchingBrowser', 5)
 
   const executablePath = findBrowser()
   if (!executablePath) {
@@ -205,7 +205,7 @@ export async function analyze(
       const viewport = VIEWPORTS[vpName] || VIEWPORTS.desktop
       const progress = 10 + (i / viewportNames.length) * 70
 
-      onProgress?.(`Analyzing ${vpName} viewport...`, Math.round(progress))
+      onProgress?.(`progress.analyzingViewport::${vpName}`, Math.round(progress))
 
       const page: Page = persistentContext
         ? await persistentContext.newPage()
@@ -247,17 +247,17 @@ export async function analyze(
       await page.close()
     }
 
-    onProgress?.('Analyzing design patterns...', 85)
+    onProgress?.('progress.analyzingPatterns', 85)
     const mergedStyles = mergeStyles(allStyles)
 
-    onProgress?.('Clustering colors...', 90)
+    onProgress?.('progress.clusteringColors', 90)
     const clusteredColors = clusterColors(mergedStyles.colors)
 
-    onProgress?.('Generating design tokens...', 95)
+    onProgress?.('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(mergedStyles, clusteredColors)
     const featureTags = generateFeatureTags(tokens, mergedStyles)
 
-    onProgress?.('Done', 100)
+    onProgress?.('progress.done', 100)
 
     return {
       tokens,

@@ -32,6 +32,14 @@ export function AnalyzePage() {
     return unsubscribe
   }, [])
 
+  const translateStep = (step: string): string => {
+    if (step.includes('::')) {
+      const [key, param] = step.split('::')
+      return t(key, { viewport: param })
+    }
+    return t(step, { defaultValue: step })
+  }
+
   const handleAnalyze = async () => {
     if (!url.trim()) return
     setAnalyzing(true)
@@ -73,11 +81,11 @@ export function AnalyzePage() {
   }
 
   const tabs: { id: ExportTab; label: string }[] = [
-    { id: 'preview', label: 'Preview' },
-    { id: 'markdown', label: 'DESIGN.md' },
-    { id: 'tailwind', label: 'Tailwind v4' },
-    { id: 'css', label: 'CSS Variables' },
-    { id: 'json', label: 'Tokens JSON' },
+    { id: 'preview', label: t('analyze.tabPreview') },
+    { id: 'markdown', label: t('analyze.tabMarkdown') },
+    { id: 'tailwind', label: t('analyze.tabTailwind') },
+    { id: 'css', label: t('analyze.tabCss') },
+    { id: 'json', label: t('analyze.tabJson') },
   ]
 
   // Extract colors from tokens for display
@@ -112,7 +120,7 @@ export function AnalyzePage() {
             disabled={analyzing || !url.trim()}
             className="h-12 px-6 rounded-lg bg-primary text-primary-foreground font-medium
                        hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed
-                       flex items-center gap-2"
+                       flex items-center gap-2 cursor-pointer"
           >
             {analyzing ? (
               <>
@@ -128,7 +136,7 @@ export function AnalyzePage() {
         {progress && (
           <div className="mt-4">
             <div className="flex justify-between text-sm mb-1.5">
-              <span className="text-muted-foreground">{progress.step}</span>
+              <span className="text-muted-foreground">{translateStep(progress.step)}</span>
               <span className="text-muted-foreground">{progress.percent}%</span>
             </div>
             <div className="h-2 rounded-full bg-secondary overflow-hidden">
@@ -149,14 +157,14 @@ export function AnalyzePage() {
               <div className="rounded-lg border border-border overflow-hidden">
                 <img
                   src={`file://${result.screenshots[0]}`}
-                  alt="Page screenshot"
+                  alt={t('analyze.screenshot')}
                   className="w-full h-auto max-h-48 object-cover object-top"
                 />
               </div>
             )}
 
             <div>
-              <p className="text-xs text-muted-foreground font-medium mb-2">Extracted Colors</p>
+              <p className="text-xs text-muted-foreground font-medium mb-2">{t('analyze.extractedColors')}</p>
               <div className="flex flex-wrap gap-1.5">
                 {(colorsList as string[]).map((color, i) => (
                   <div
@@ -188,7 +196,7 @@ export function AnalyzePage() {
                       setActiveTab(tab.id)
                     }
                   }}
-                  className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+                  className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
                     activeTab === tab.id
                       ? 'border-primary text-primary'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -200,9 +208,9 @@ export function AnalyzePage() {
               <div className="ml-auto flex gap-2 pr-2">
                 <button
                   onClick={handleCopy}
-                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
                 >
-                  Copy
+                  {t('analyze.copy')}
                 </button>
               </div>
             </div>
@@ -223,6 +231,7 @@ export function AnalyzePage() {
             <div className="text-center max-w-md">
               <h3 className="text-lg font-semibold">{t('analyze.emptyTitle')}</h3>
               <p className="text-muted-foreground text-sm mt-2">{t('analyze.emptyDescription')}</p>
+              <p className="text-muted-foreground/70 text-xs mt-3">{t('analyze.noAiHint')}</p>
             </div>
           </div>
         )

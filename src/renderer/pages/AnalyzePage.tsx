@@ -190,8 +190,8 @@ export function AnalyzePage() {
           {/* Left: Overview Panel */}
           <div className="w-80 shrink-0 flex flex-col gap-4 overflow-auto">
             {/* Website identity */}
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="text-base font-bold">{hostname}</h3>
+            <div className="rounded-xl border border-border/60 bg-card/50 p-5">
+              <h3 className="text-base font-semibold">{hostname}</h3>
 
               {/* Feature tags */}
               {result.featureTags && result.featureTags.length > 0 && (
@@ -237,7 +237,7 @@ export function AnalyzePage() {
 
             {/* Screenshot */}
             {result.screenshots[0] && (
-              <div className="rounded-xl border border-border overflow-hidden">
+              <div className="rounded-xl border border-border/60 overflow-hidden">
                 <img
                   src={`imprint-file:///${result.screenshots[0].replace(/\\/g, '/')}`}
                   alt={t('analyze.screenshot')}
@@ -275,9 +275,9 @@ export function AnalyzePage() {
           </div>
 
           {/* Right: Tabbed content */}
-          <div className="flex-1 flex flex-col min-w-0 border border-border rounded-xl overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 border border-border/60 rounded-xl overflow-hidden">
             {/* Tab bar */}
-            <div className="flex items-center border-b border-border bg-card px-3">
+            <div className="flex items-center border-b border-border/60 bg-muted/20 px-3">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}

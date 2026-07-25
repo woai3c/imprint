@@ -46,8 +46,8 @@ export function TokenPreview({ tokens, darkTokens, hasDarkMode }: TokenPreviewPr
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-6">
-      <h3 className="text-lg font-semibold mb-5">{title}</h3>
+    <div className="rounded-xl border border-border/60 bg-card/50 p-6">
+      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-5">{title}</h3>
       {children}
     </div>
   )
@@ -103,16 +103,16 @@ function ColorSection({
 
 function ColorSwatch({ name, value, dark }: { name: string; value: string; dark?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1.5 w-20">
+    <div className="flex flex-col items-center gap-1 w-18">
       <div
-        className="w-16 h-16 rounded-lg border border-border shadow-sm"
-        style={{ backgroundColor: value, ...(dark ? { outline: '1px solid rgba(255,255,255,0.1)' } : {}) }}
+        className="w-full h-10 rounded-md border border-black/5 dark:border-white/10"
+        style={{ backgroundColor: value, ...(dark ? { outline: '1px solid rgba(255,255,255,0.08)' } : {}) }}
       />
       <span className="text-[10px] text-muted-foreground text-center leading-tight truncate w-full" title={name}>
         {name}
       </span>
-      <span className="text-[10px] text-muted-foreground/70 font-mono">
-        {value.length > 9 ? value.slice(0, 9) : value}
+      <span className="text-[9px] text-muted-foreground/60 font-mono truncate w-full text-center" title={value}>
+        {value}
       </span>
     </div>
   )
@@ -129,13 +129,15 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
   return (
     <SectionCard title={t('preview.typography')}>
       {typography.fontStacks && typography.fontStacks.length > 0 && (
-        <div className="mb-5 pb-4 border-b border-border">
-          <p className="text-xs text-muted-foreground mb-2">{t('preview.fontStacks')}</p>
+        <div className="mb-5 pb-4 border-b border-border/50">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+            {t('preview.fontStacks')}
+          </p>
           <div className="space-y-1">
             {typography.fontStacks.map((stack, i) => (
               <code
                 key={i}
-                className="block text-[11px] text-foreground/80 font-mono bg-secondary/40 px-2 py-1 rounded"
+                className="block text-[11px] text-foreground/70 font-mono bg-muted/40 px-2.5 py-1 rounded-md"
               >
                 {stack}
               </code>
@@ -143,12 +145,12 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
           </div>
         </div>
       )}
-      <div className="space-y-0 divide-y divide-border">
+      <div className="space-y-0 divide-y divide-border/40">
         {combinations.map((combo, i) => (
-          <div key={i} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+          <div key={i} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
             <div className="flex-1 min-w-0 mr-4">
               <p
-                className="truncate"
+                className="truncate text-foreground/85"
                 style={{
                   fontFamily: combo.family,
                   fontSize: combo.size,
@@ -159,11 +161,10 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
                 The quick brown fox jumps
               </p>
             </div>
-            <div className="text-right text-xs text-muted-foreground shrink-0 space-y-0.5">
-              <p className="font-medium">{combo.family.split(',')[0]}</p>
-              <p>
-                {combo.size} · {combo.weight} · {combo.lineHeight}
-              </p>
+            <div className="text-right text-[11px] text-muted-foreground/70 shrink-0 font-mono">
+              <span>{combo.size}</span>
+              <span className="mx-1 text-muted-foreground/30">·</span>
+              <span>{combo.weight}</span>
             </div>
           </div>
         ))}
@@ -177,17 +178,17 @@ function SpacingSection({ spacing, t }: { spacing: string[]; t: (key: string) =>
 
   return (
     <SectionCard title={t('preview.spacing')}>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {spacing.map((value, i) => {
           const px = parseFloat(value)
           const percent = isNaN(px) ? 0 : (px / maxValue) * 100
           return (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-16 shrink-0 font-mono">space-{i + 1}</span>
-              <div className="flex-1 h-5 bg-secondary/50 rounded overflow-hidden">
-                <div className="h-full bg-foreground/60 rounded" style={{ width: `${percent}%` }} />
+              <span className="text-[10px] text-muted-foreground/70 w-14 shrink-0 font-mono">space-{i + 1}</span>
+              <div className="flex-1 h-4 bg-muted/30 rounded-sm overflow-hidden">
+                <div className="h-full bg-foreground/15 rounded-sm" style={{ width: `${percent}%` }} />
               </div>
-              <span className="text-xs text-muted-foreground w-12 text-right font-mono">{value}</span>
+              <span className="text-[10px] text-muted-foreground/70 w-10 text-right font-mono">{value}</span>
             </div>
           )
         })}
@@ -201,11 +202,10 @@ function RadiusSection({ radii, t }: { radii: string[]; t: (key: string) => stri
 
   return (
     <SectionCard title={t('preview.radius')}>
-      <div className="flex flex-wrap gap-5">
+      <div className="flex flex-wrap gap-4">
         {radii.map((value, i) => (
-          <div key={i} className="flex flex-col items-center gap-2">
-            <div className="w-14 h-14 border-2 border-foreground/30 bg-secondary/30" style={{ borderRadius: value }} />
-            <span className="text-xs font-medium">radius-{names[i] || i + 1}</span>
+          <div key={i} className="flex flex-col items-center gap-1.5">
+            <div className="w-12 h-12 border border-foreground/15 bg-muted/30" style={{ borderRadius: value }} />
             <span className="text-[10px] text-muted-foreground font-mono">{value}</span>
           </div>
         ))}
@@ -222,8 +222,8 @@ function ShadowSection({ shadows, t }: { shadows: string[]; t: (key: string) => 
       <div className="flex flex-wrap gap-5">
         {shadows.map((value, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
-            <div className="w-20 h-20 rounded-lg bg-card border border-border" style={{ boxShadow: value }} />
-            <span className="text-xs font-medium">shadow-{names[i] || i + 1}</span>
+            <div className="w-16 h-16 rounded-lg bg-background" style={{ boxShadow: value }} />
+            <span className="text-[10px] text-muted-foreground font-mono">shadow-{names[i] || i + 1}</span>
           </div>
         ))}
       </div>
@@ -258,11 +258,11 @@ function groupColors(colors: Record<string, string>): Record<string, [string, st
 function LetterSpacingSection({ spacings, t }: { spacings: string[]; t: (key: string) => string }) {
   return (
     <SectionCard title={t('preview.letterSpacing')}>
-      <div className="space-y-3">
+      <div className="space-y-2">
         {spacings.map((value, i) => (
-          <div key={i} className="flex items-center gap-4">
-            <span className="text-xs text-muted-foreground w-20 shrink-0 font-mono">{value}</span>
-            <p className="text-base truncate" style={{ letterSpacing: value }}>
+          <div key={i} className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground/70 w-14 shrink-0 font-mono">{value}</span>
+            <p className="text-sm truncate text-foreground/75" style={{ letterSpacing: value }}>
               The quick brown fox jumps over the lazy dog
             </p>
           </div>
@@ -276,13 +276,13 @@ function TransitionSection({ transitions, t }: { transitions: string[]; t: (key:
   const names = ['fast', 'normal', 'slow', 'slower', 'slowest']
   return (
     <SectionCard title={t('preview.transitions')}>
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap gap-3">
         {transitions.map((value, i) => (
-          <div key={i} className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center text-[10px] font-mono text-primary">
-              {value}
+          <div key={i} className="flex flex-col items-center gap-1.5">
+            <div className="min-w-14 h-10 px-2 rounded-md bg-secondary/60 border border-border flex items-center justify-center">
+              <span className="text-[10px] font-mono text-foreground/70 truncate max-w-20">{value}</span>
             </div>
-            <span className="text-xs text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
+            <span className="text-[10px] text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
           </div>
         ))}
       </div>

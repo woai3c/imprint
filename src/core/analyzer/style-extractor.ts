@@ -144,7 +144,12 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       // Transition duration
       const transitionDuration = computed.transitionDuration
       if (transitionDuration && transitionDuration !== '0s') {
-        styles.transitions.push(transitionDuration)
+        const durations = transitionDuration.split(',').map((d) => d.trim())
+        for (const d of durations) {
+          if (d && d !== '0s') {
+            styles.transitions.push(d)
+          }
+        }
       }
 
       // Spacing (margin and padding)

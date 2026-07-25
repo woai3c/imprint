@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+export type ColorMode = 'light' | 'dark'
+
 export interface ThemeColors {
   background: string
   foreground: string
@@ -29,31 +31,52 @@ export interface AppTheme {
   fontFamily?: string
 }
 
-// Built-in themes
+const LIGHT_DEFAULTS: ThemeColors = {
+  background: 'oklch(100% 0 0)',
+  foreground: 'oklch(14.5% 0.02 250)',
+  primary: 'oklch(55% 0.24 265)',
+  'primary-foreground': 'oklch(100% 0 0)',
+  secondary: 'oklch(96% 0.01 250)',
+  'secondary-foreground': 'oklch(20% 0.02 250)',
+  muted: 'oklch(96% 0.01 250)',
+  'muted-foreground': 'oklch(55% 0.02 250)',
+  accent: 'oklch(96% 0.01 250)',
+  'accent-foreground': 'oklch(20% 0.02 250)',
+  card: 'oklch(100% 0 0)',
+  'card-foreground': 'oklch(14.5% 0.02 250)',
+  border: 'oklch(90% 0.01 250)',
+  ring: 'oklch(55% 0.24 265)',
+  sidebar: 'oklch(97% 0.01 250)',
+  'sidebar-foreground': 'oklch(30% 0.02 250)',
+  'sidebar-accent': 'oklch(94% 0.02 265)',
+}
+
+const DARK_DEFAULTS: ThemeColors = {
+  background: 'oklch(15% 0.01 250)',
+  foreground: 'oklch(92% 0.01 250)',
+  primary: 'oklch(65% 0.2 250)',
+  'primary-foreground': 'oklch(100% 0 0)',
+  secondary: 'oklch(22% 0.015 250)',
+  'secondary-foreground': 'oklch(85% 0.01 250)',
+  muted: 'oklch(22% 0.015 250)',
+  'muted-foreground': 'oklch(60% 0.01 250)',
+  accent: 'oklch(25% 0.02 250)',
+  'accent-foreground': 'oklch(85% 0.01 250)',
+  card: 'oklch(18% 0.012 250)',
+  'card-foreground': 'oklch(92% 0.01 250)',
+  border: 'oklch(28% 0.015 250)',
+  ring: 'oklch(65% 0.2 250)',
+  sidebar: 'oklch(13% 0.01 250)',
+  'sidebar-foreground': 'oklch(85% 0.01 250)',
+  'sidebar-accent': 'oklch(22% 0.025 250)',
+}
+
 export const builtinThemes: AppTheme[] = [
   {
     id: 'default',
     name: '默认',
     description: '清晰简洁的默认主题',
-    colors: {
-      background: 'oklch(100% 0 0)',
-      foreground: 'oklch(14.5% 0.02 250)',
-      primary: 'oklch(55% 0.24 265)',
-      'primary-foreground': 'oklch(100% 0 0)',
-      secondary: 'oklch(96% 0.01 250)',
-      'secondary-foreground': 'oklch(20% 0.02 250)',
-      muted: 'oklch(96% 0.01 250)',
-      'muted-foreground': 'oklch(55% 0.02 250)',
-      accent: 'oklch(96% 0.01 250)',
-      'accent-foreground': 'oklch(20% 0.02 250)',
-      card: 'oklch(100% 0 0)',
-      'card-foreground': 'oklch(14.5% 0.02 250)',
-      border: 'oklch(90% 0.01 250)',
-      ring: 'oklch(55% 0.24 265)',
-      sidebar: 'oklch(97% 0.01 250)',
-      'sidebar-foreground': 'oklch(30% 0.02 250)',
-      'sidebar-accent': 'oklch(94% 0.02 265)',
-    },
+    colors: LIGHT_DEFAULTS,
     radius: '0.5rem',
   },
   {
@@ -157,43 +180,21 @@ export const builtinThemes: AppTheme[] = [
     },
     radius: '1rem',
   },
-  {
-    id: 'dark',
-    name: '暗黑系',
-    description: '深邃优雅，护眼舒适',
-    colors: {
-      background: 'oklch(15% 0.01 250)',
-      foreground: 'oklch(92% 0.01 250)',
-      primary: 'oklch(65% 0.2 250)',
-      'primary-foreground': 'oklch(100% 0 0)',
-      secondary: 'oklch(22% 0.015 250)',
-      'secondary-foreground': 'oklch(85% 0.01 250)',
-      muted: 'oklch(22% 0.015 250)',
-      'muted-foreground': 'oklch(60% 0.01 250)',
-      accent: 'oklch(25% 0.02 250)',
-      'accent-foreground': 'oklch(85% 0.01 250)',
-      card: 'oklch(18% 0.012 250)',
-      'card-foreground': 'oklch(92% 0.01 250)',
-      border: 'oklch(28% 0.015 250)',
-      ring: 'oklch(65% 0.2 250)',
-      sidebar: 'oklch(13% 0.01 250)',
-      'sidebar-foreground': 'oklch(85% 0.01 250)',
-      'sidebar-accent': 'oklch(22% 0.025 250)',
-    },
-    radius: '0.5rem',
-  },
 ]
 
 interface SkinStore {
   currentThemeId: string
+  colorMode: ColorMode
   setTheme: (id: string) => void
+  setColorMode: (mode: ColorMode) => void
   applyTheme: (theme: AppTheme) => void
   applyCustomCss: (cssVars: string) => void
   reset: () => void
 }
 
-export const useSkinStore = create<SkinStore>((set) => ({
+export const useSkinStore = create<SkinStore>((set, get) => ({
   currentThemeId: 'default',
+  colorMode: (localStorage.getItem('colorMode') as ColorMode) || 'light',
 
   setTheme: (id) => {
     const theme = builtinThemes.find((t) => t.id === id)
@@ -201,6 +202,18 @@ export const useSkinStore = create<SkinStore>((set) => ({
       set({ currentThemeId: id })
       applyThemeToDOM(theme)
     }
+  },
+
+  setColorMode: (mode) => {
+    set({ colorMode: mode })
+    localStorage.setItem('colorMode', mode)
+    const { currentThemeId } = get()
+
+    if (currentThemeId === 'default') {
+      applyColorsToDOM(mode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
+    }
+
+    document.documentElement.classList.toggle('dark', mode === 'dark')
   },
 
   applyTheme: (theme) => {
@@ -214,17 +227,22 @@ export const useSkinStore = create<SkinStore>((set) => ({
   },
 
   reset: () => {
+    const { colorMode } = get()
     set({ currentThemeId: 'default' })
-    const defaultTheme = builtinThemes[0]
-    applyThemeToDOM(defaultTheme)
+    applyColorsToDOM(colorMode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
   },
 }))
 
-function applyThemeToDOM(theme: AppTheme) {
+function applyColorsToDOM(colors: ThemeColors) {
   const root = document.documentElement
-  for (const [key, value] of Object.entries(theme.colors)) {
+  for (const [key, value] of Object.entries(colors)) {
     root.style.setProperty(`--color-${key}`, value)
   }
+}
+
+function applyThemeToDOM(theme: AppTheme) {
+  applyColorsToDOM(theme.colors)
+  const root = document.documentElement
   root.style.setProperty('--radius-md', theme.radius)
   if (theme.fontFamily) {
     root.style.setProperty('--font-body', theme.fontFamily)
@@ -236,11 +254,18 @@ function applyThemeToDOM(theme: AppTheme) {
 }
 
 function applyCssVarsToDOM(cssVars: string) {
-  // Parse CSS variable declarations and apply them
   const regex = /--([\w-]+)\s*:\s*([^;]+)/g
   let match
   const root = document.documentElement
   while ((match = regex.exec(cssVars)) !== null) {
     root.style.setProperty(`--${match[1]}`, match[2].trim())
+  }
+}
+
+export function initColorMode() {
+  const mode = (localStorage.getItem('colorMode') as ColorMode) || 'light'
+  document.documentElement.classList.toggle('dark', mode === 'dark')
+  if (mode === 'dark') {
+    applyColorsToDOM(DARK_DEFAULTS)
   }
 }

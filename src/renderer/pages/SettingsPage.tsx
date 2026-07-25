@@ -71,7 +71,6 @@ export function SettingsPage() {
 
   return (
     <div className="h-full flex flex-col overflow-auto">
-      <div className="h-8 app-drag-region" />
       <div className="px-8 pt-4 pb-6">
         <h2 className="text-2xl font-bold">{t('settings.title')}</h2>
         <p className="text-muted-foreground mt-1">{t('settings.description')}</p>

@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet } from 'react-router-dom'
 
+import { useSkinStore } from '../stores/skin-store'
+
 const navItems = [
   { to: '/', labelKey: 'nav.analyze' },
   { to: '/themes', labelKey: 'nav.themes' },
@@ -11,11 +13,16 @@ const navItems = [
 
 export function Layout() {
   const { t, i18n } = useTranslation()
+  const { colorMode, setColorMode } = useSkinStore()
 
   const toggleLanguage = () => {
     const next = i18n.language === 'zh-CN' ? 'en' : 'zh-CN'
     i18n.changeLanguage(next)
     localStorage.setItem('language', next)
+  }
+
+  const toggleColorMode = () => {
+    setColorMode(colorMode === 'light' ? 'dark' : 'light')
   }
 
   return (
@@ -45,20 +52,30 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-
-        <div className="px-4 py-3 border-t border-border flex justify-end">
-          <button
-            onClick={toggleLanguage}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {i18n.language === 'zh-CN' ? 'EN' : '中'}
-          </button>
-        </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="h-8 app-drag-region flex items-center justify-end pr-4 shrink-0">
+          <div className="app-no-drag flex items-center gap-3">
+            <button
+              onClick={toggleColorMode}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {colorMode === 'light' ? '☀' : '☾'}
+            </button>
+            <button
+              onClick={toggleLanguage}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {i18n.language === 'zh-CN' ? 'EN' : '中'}
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

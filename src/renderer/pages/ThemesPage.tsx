@@ -29,7 +29,6 @@ export function ThemesPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="h-8 app-drag-region" />
       <div className="px-8 pt-4 pb-4">
         <h2 className="text-2xl font-bold">{t('themes.title')}</h2>
         <p className="text-muted-foreground mt-1">{t('themes.description')}</p>

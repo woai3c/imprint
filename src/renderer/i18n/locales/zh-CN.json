@@ -32,6 +32,9 @@
     "tabCss": "CSS 变量",
     "tabJson": "Tokens JSON",
     "copy": "复制",
+    "exportFile": "导出文件",
+    "saveToLibrary": "保存到主题库",
+    "saved": "已保存",
     "extractedColors": "提取的颜色",
     "screenshot": "页面截图"
   },
@@ -117,6 +120,8 @@
     "clusteringColors": "正在聚类颜色...",
     "generatingTokens": "正在生成设计令牌...",
     "enhancingWithAi": "AI 语义增强...",
+    "discoveringPages": "正在发现站内页面...",
+    "analyzingPage": "正在分析第 {{current}}/{{total}} 页...",
     "done": "完成"
   }
 }

@@ -66,17 +66,7 @@ export function registerIpcHandlers() {
   ipcMain.handle(
     'analyze:url',
     async (event, url: string, options?: { viewports?: string[]; useSession?: boolean }) => {
-      const themeId = uuidv4()
-      const now = new Date().toISOString()
-      const db = getDb()
       const win = BrowserWindow.fromWebContents(event.sender)
-
-      let hostname: string
-      try {
-        hostname = new URL(url).hostname
-      } catch {
-        hostname = url
-      }
 
       try {
         const result = await analyzeUrl(url, options, (step, percent) => {
@@ -107,38 +97,15 @@ export function registerIpcHandlers() {
         const cssVars = generateCssVariables(enhancedTokens)
         const tailwind = generateTailwindTheme(enhancedTokens)
         const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags)
-        const tokensJson = JSON.stringify(enhancedTokens)
-
-        db.prepare(
-          `INSERT INTO themes (id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          themeId,
-          `Theme from ${hostname}`,
-          url,
-          result.screenshots[0] || null,
-          tokensJson,
-          cssVars,
-          tailwind,
-          designDoc,
-          now,
-          now,
-        )
-
-        const analysisId = uuidv4()
-        db.prepare(
-          `INSERT INTO analyses (id, theme_id, url, viewports, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(analysisId, themeId, url, JSON.stringify(options?.viewports || ['desktop']), result.duration, now)
 
         return {
-          themeId,
-          analysisId,
           tokens: enhancedTokens,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
           designDoc,
           screenshots: result.screenshots,
           duration: result.duration,
+          url,
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
@@ -146,6 +113,67 @@ export function registerIpcHandlers() {
       }
     },
   )
+
+  // --- Save theme to library (user-initiated) ---
+  ipcMain.handle(
+    'themes:save',
+    async (
+      _event,
+      data: {
+        url: string
+        tokens: Record<string, unknown>
+        cssVariables: string
+        tailwindTheme: string
+        designDoc: string
+        screenshots: string[]
+      },
+    ) => {
+      const db = getDb()
+      const themeId = uuidv4()
+      const now = new Date().toISOString()
+
+      let hostname: string
+      try {
+        hostname = new URL(data.url).hostname
+      } catch {
+        hostname = data.url
+      }
+
+      db.prepare(
+        `INSERT INTO themes (id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        themeId,
+        `Theme from ${hostname}`,
+        data.url,
+        data.screenshots[0] || null,
+        JSON.stringify(data.tokens),
+        data.cssVariables,
+        data.tailwindTheme,
+        data.designDoc,
+        now,
+        now,
+      )
+
+      const analysisId = uuidv4()
+      db.prepare(
+        `INSERT INTO analyses (id, theme_id, url, viewports, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(analysisId, themeId, data.url, '["desktop"]', 0, now)
+
+      return { success: true, themeId, analysisId }
+    },
+  )
+
+  // --- Export file directly (from analysis result, not saved theme) ---
+  ipcMain.handle('export:file', async (_event, content: string, defaultName: string, ext: string) => {
+    const result = await dialog.showSaveDialog({
+      defaultPath: defaultName,
+      filters: [{ name: `${ext.toUpperCase()} Files`, extensions: [ext] }],
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    fs.writeFileSync(result.filePath, content, 'utf-8')
+    return { success: true, filePath: result.filePath }
+  })
 
   // --- Export ---
   ipcMain.handle('export:theme', async (_event, id: string, format: string) => {

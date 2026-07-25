@@ -32,6 +32,9 @@
     "tabCss": "CSS Variables",
     "tabJson": "Tokens JSON",
     "copy": "Copy",
+    "exportFile": "Export",
+    "saveToLibrary": "Save to Library",
+    "saved": "Saved",
     "extractedColors": "Extracted Colors",
     "screenshot": "Page screenshot"
   },
@@ -117,6 +120,8 @@
     "clusteringColors": "Clustering colors...",
     "generatingTokens": "Generating design tokens...",
     "enhancingWithAi": "AI semantic enhancement...",
+    "discoveringPages": "Discovering site pages...",
+    "analyzingPage": "Analyzing page {{current}}/{{total}}...",
     "done": "Done"
   }
 }

@@ -247,6 +247,56 @@ export async function analyze(
       await page.close()
     }
 
+    // Multi-page analysis: discover and visit sub-pages for richer token extraction
+    const maxPages = options.maxPages ?? 3
+    if (maxPages > 0) {
+      const mainViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
+      const discoveryPage: Page = persistentContext
+        ? await persistentContext.newPage()
+        : await browser!.newPage({
+            viewport: mainViewport,
+            userAgent:
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+          })
+
+      if (persistentContext) {
+        await discoveryPage.setViewportSize(mainViewport)
+      }
+
+      await discoveryPage.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+      onProgress?.('progress.discoveringPages', 75)
+
+      const subPages = await discoverSubPages(discoveryPage, url, maxPages)
+      await discoveryPage.close()
+
+      for (let i = 0; i < subPages.length; i++) {
+        const subUrl = subPages[i]
+        onProgress?.(`progress.analyzingPage::${i + 1}::${subPages.length}`, 76 + ((i + 1) / subPages.length) * 8)
+
+        const subPage: Page = persistentContext
+          ? await persistentContext.newPage()
+          : await browser!.newPage({
+              viewport: mainViewport,
+              userAgent:
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            })
+
+        if (persistentContext) {
+          await subPage.setViewportSize(mainViewport)
+        }
+
+        try {
+          await subPage.goto(subUrl, { waitUntil: 'networkidle', timeout: 15000 })
+          const subStyles = await extractStyles(subPage)
+          allStyles.push(subStyles)
+        } catch {
+          // Sub-page failed to load, skip it
+        } finally {
+          await subPage.close()
+        }
+      }
+    }
+
     onProgress?.('progress.analyzingPatterns', 85)
     const mergedStyles = mergeStyles(allStyles)
 
@@ -328,4 +378,37 @@ function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
   merged.textColors = [...new Set(merged.textColors)]
 
   return merged
+}
+
+async function discoverSubPages(page: Page, baseUrl: string, max: number): Promise<string[]> {
+  const origin = new URL(baseUrl).origin
+  const links: string[] = await page.evaluate((orig: string) => {
+    const anchors = Array.from(
+      document.querySelectorAll('nav a, header a, [role="navigation"] a, .nav a, .sidebar a, a'),
+    )
+    const hrefs = anchors
+      .map((a) => a.getAttribute('href'))
+      .filter(Boolean)
+      .map((href) => {
+        try {
+          return new URL(href!, orig).href
+        } catch {
+          return null
+        }
+      })
+      .filter((h): h is string => h !== null && h.startsWith(orig))
+      .filter(
+        (h) =>
+          !h.includes('#') &&
+          !h.includes('logout') &&
+          !h.includes('signout') &&
+          !h.includes('/api/') &&
+          !h.includes('/auth/') &&
+          !h.endsWith('.pdf') &&
+          !h.endsWith('.zip'),
+      )
+    return [...new Set(hrefs)]
+  }, origin)
+
+  return links.filter((l) => l !== baseUrl && l !== baseUrl + '/').slice(0, max)
 }

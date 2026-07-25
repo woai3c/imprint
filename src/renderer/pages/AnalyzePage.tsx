@@ -1,17 +1,17 @@
-import { Loader2 } from 'lucide-react'
+import { Download, Loader2, Save } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 
 interface AnalysisResultData {
-  themeId: string
   tokens: Record<string, unknown>
   cssVariables: string
   tailwindTheme: string
   designDoc: string
   screenshots: string[]
   duration: number
+  url: string
 }
 
 type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
@@ -24,6 +24,7 @@ export function AnalyzePage() {
   const [progress, setProgress] = useState<{ step: string; percent: number } | null>(null)
   const [result, setResult] = useState<AnalysisResultData | null>(null)
   const [activeTab, setActiveTab] = useState<ExportTab>('markdown')
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     const unsubscribe = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
@@ -34,8 +35,11 @@ export function AnalyzePage() {
 
   const translateStep = (step: string): string => {
     if (step.includes('::')) {
-      const [key, param] = step.split('::')
-      return t(key, { viewport: param })
+      const parts = step.split('::')
+      if (parts.length === 3) {
+        return t(parts[0], { current: parts[1], total: parts[2] })
+      }
+      return t(parts[0], { viewport: parts[1] })
     }
     return t(step, { defaultValue: step })
   }
@@ -44,6 +48,7 @@ export function AnalyzePage() {
     if (!url.trim()) return
     setAnalyzing(true)
     setResult(null)
+    setSaved(false)
     setProgress({ step: t('analyze.preparing'), percent: 0 })
 
     try {
@@ -74,10 +79,40 @@ export function AnalyzePage() {
   }
 
   const handlePreviewClick = () => {
-    if (result?.cssVariables) {
-      window.electronAPI.exportTheme(result.themeId, 'css')
-    }
     navigate('/templates')
+  }
+
+  const handleSaveToLibrary = async () => {
+    if (!result) return
+    await window.electronAPI.saveTheme({
+      url: result.url,
+      tokens: result.tokens,
+      cssVariables: result.cssVariables,
+      tailwindTheme: result.tailwindTheme,
+      designDoc: result.designDoc,
+      screenshots: result.screenshots,
+    })
+    setSaved(true)
+  }
+
+  const handleExportFile = async () => {
+    if (!result) return
+    let content = ''
+    let ext = 'md'
+    if (activeTab === 'markdown') {
+      content = result.designDoc
+      ext = 'md'
+    } else if (activeTab === 'tailwind') {
+      content = result.tailwindTheme
+      ext = 'css'
+    } else if (activeTab === 'css') {
+      content = result.cssVariables
+      ext = 'css'
+    } else if (activeTab === 'json') {
+      content = JSON.stringify(result.tokens, null, 2)
+      ext = 'json'
+    }
+    await window.electronAPI.exportFile(content, `design-tokens.${ext}`, ext)
   }
 
   const tabs: { id: ExportTab; label: string }[] = [
@@ -205,12 +240,27 @@ export function AnalyzePage() {
                   {tab.label}
                 </button>
               ))}
-              <div className="ml-auto flex gap-2 pr-2">
+              <div className="ml-auto flex gap-2 pr-2 items-center">
                 <button
                   onClick={handleCopy}
-                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
+                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                 >
                   {t('analyze.copy')}
+                </button>
+                <button
+                  onClick={handleExportFile}
+                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors flex items-center gap-1"
+                >
+                  <Download size={11} />
+                  {t('analyze.exportFile')}
+                </button>
+                <button
+                  onClick={handleSaveToLibrary}
+                  disabled={saved}
+                  className="text-xs px-2.5 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Save size={11} />
+                  {saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
                 </button>
               </div>
             </div>

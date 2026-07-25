@@ -13,7 +13,19 @@ const api = {
 
   // Export
   exportTheme: (id: string, format: string) => ipcRenderer.invoke('export:theme', id, format),
+  exportFile: (content: string, defaultName: string, ext: string) =>
+    ipcRenderer.invoke('export:file', content, defaultName, ext),
   importTheme: () => ipcRenderer.invoke('import:theme'),
+
+  // Save theme to library
+  saveTheme: (data: {
+    url: string
+    tokens: Record<string, unknown>
+    cssVariables: string
+    tailwindTheme: string
+    designDoc: string
+    screenshots: string[]
+  }) => ipcRenderer.invoke('themes:save', data),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

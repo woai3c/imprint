@@ -55,7 +55,7 @@ export function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-8 app-drag-region flex items-center justify-end pr-4 shrink-0">
+        <header className="h-8 app-drag-region flex items-center justify-end pr-4 shrink-0 border-b border-border">
           <div className="app-no-drag flex items-center gap-3">
             <button
               onClick={toggleColorMode}

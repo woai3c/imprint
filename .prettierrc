@@ -1,0 +1,10 @@
+{
+  "singleQuote": true,
+  "semi": false,
+  "printWidth": 120,
+  "trailingComma": "all",
+  "plugins": ["@trivago/prettier-plugin-sort-imports"],
+  "importOrder": ["^node:", "^react", "^electron", "^playwright", "^better-sqlite3", "^[./]"],
+  "importOrderSeparation": true,
+  "importOrderSortSpecifiers": true
+}

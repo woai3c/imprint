@@ -1,4 +1,0 @@
-interface:
-  display_name: "Copy Web Design"
-  short_description: "Extract website UI systems into project design rules"
-  default_prompt: "Use $copy-design to analyze a reference website and update this project's design rules."

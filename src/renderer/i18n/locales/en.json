@@ -1,0 +1,101 @@
+{
+  "app": {
+    "name": "Imprint",
+    "tagline": "UI Design Style Extractor",
+    "version": "v0.1.0",
+    "footer": "Open Source & Free"
+  },
+  "nav": {
+    "analyze": "Analyze",
+    "themes": "Themes",
+    "templates": "Templates",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "analyze": {
+    "title": "Extract Design Styles",
+    "description": "Enter a target URL to automatically extract the UI design system (colors, fonts, spacing, shadows, etc.)",
+    "placeholder": "https://example.com",
+    "button": "Analyze",
+    "analyzing": "Analyzing",
+    "preparing": "Preparing...",
+    "complete": "Complete",
+    "failed": "Failed: {{message}}",
+    "error": "Analysis error",
+    "emptyTitle": "Enter a URL to start analyzing",
+    "emptyDescription": "Supports any public webpage. After analysis, export as CSS variables, Tailwind themes, design docs, and more — ready for AI to generate or modify UI."
+  },
+  "themes": {
+    "title": "Theme Library",
+    "description": "Browse built-in themes or select from extraction history. Click to apply to the current interface.",
+    "builtin": "Built-in Themes",
+    "extracted": "Extracted Themes",
+    "apply": "Apply",
+    "current": "Current",
+    "resetDefault": "Reset to Default",
+    "noExtracted": "No extracted themes yet",
+    "noExtractedTip": "Go to the Analyze page to extract website design styles"
+  },
+  "templates": {
+    "title": "Template Demo",
+    "description": "Render different page templates with the current theme to preview the actual effect",
+    "dashboard": "Dashboard",
+    "landing": "Landing Page",
+    "ecommerce": "E-commerce",
+    "blog": "Blog"
+  },
+  "history": {
+    "title": "Analysis History",
+    "description": "View all past URL analysis records",
+    "search": "Search URL...",
+    "duration": "Duration: {{seconds}}s",
+    "viewports": "Viewports",
+    "delete": "Delete",
+    "noResults": "No analysis records yet",
+    "noResultsTip": "Go to the Analyze page to start extracting design styles"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Configure AI engine and export preferences",
+    "ai": {
+      "title": "AI Engine Configuration",
+      "description": "Semantic analysis of design styles requires AI support. Choose one of the following:",
+      "useApiKey": "Use API Key",
+      "useAgentCli": "Use Local AI Agent CLI",
+      "provider": "LLM Provider",
+      "selectProvider": "Select provider...",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "testConnection": "Test Connection",
+      "detecting": "Detecting...",
+      "detectDescription": "Detect AI Agent CLIs installed on your system:",
+      "redetect": "Re-detect",
+      "noCli": "Click \"Use Local AI Agent CLI\" above to auto-detect"
+    },
+    "export": {
+      "title": "Export Preferences",
+      "defaultFormat": "Default Export Format",
+      "css": "CSS Custom Properties (recommended, most universal)",
+      "tailwind": "Tailwind CSS v4 @theme",
+      "both": "Both CSS + Tailwind",
+      "json": "Design Token JSON (DTCG)",
+      "markdown": "Markdown Design Doc",
+      "all": "All Formats"
+    },
+    "data": {
+      "title": "Data Management",
+      "exportAll": "Export All Data",
+      "import": "Import Data",
+      "clearAll": "Clear All Data",
+      "tip": "Data is stored locally. Export as .zip to share with others."
+    }
+  },
+  "progress": {
+    "launchingBrowser": "Launching browser...",
+    "analyzingViewport": "Analyzing {{viewport}} viewport...",
+    "analyzingPatterns": "Analyzing design patterns...",
+    "clusteringColors": "Clustering colors...",
+    "generatingTokens": "Generating design tokens...",
+    "done": "Done"
+  }
+}

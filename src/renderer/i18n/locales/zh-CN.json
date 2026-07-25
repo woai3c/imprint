@@ -1,0 +1,101 @@
+{
+  "app": {
+    "name": "印象",
+    "tagline": "UI 设计风格提取工具",
+    "version": "v0.1.0",
+    "footer": "开源免费"
+  },
+  "nav": {
+    "analyze": "分析",
+    "themes": "主题库",
+    "templates": "模板",
+    "history": "历史",
+    "settings": "设置"
+  },
+  "analyze": {
+    "title": "提取设计风格",
+    "description": "输入目标网站 URL，自动提取 UI 设计系统（颜色、字体、间距、阴影等）",
+    "placeholder": "https://example.com",
+    "button": "分析",
+    "analyzing": "分析中",
+    "preparing": "准备中...",
+    "complete": "完成",
+    "failed": "失败: {{message}}",
+    "error": "分析异常",
+    "emptyTitle": "输入网站 URL 开始分析",
+    "emptyDescription": "支持任意公开网页。分析完成后可导出为 CSS 变量、Tailwind 主题、设计文档等格式，供 AI 生成或修改 UI 使用。"
+  },
+  "themes": {
+    "title": "主题库",
+    "description": "浏览内置主题或从提取历史中选择，点击即可应用到当前界面",
+    "builtin": "内置主题",
+    "extracted": "提取的主题",
+    "apply": "应用",
+    "current": "当前",
+    "resetDefault": "恢复默认",
+    "noExtracted": "还没有提取的主题",
+    "noExtractedTip": "前往「分析」页面提取网站设计风格"
+  },
+  "templates": {
+    "title": "模板演示",
+    "description": "用当前主题渲染不同类型的页面模板，预览实际效果",
+    "dashboard": "后台管理",
+    "landing": "官网首页",
+    "ecommerce": "电商商城",
+    "blog": "博客文章"
+  },
+  "history": {
+    "title": "分析历史",
+    "description": "查看所有过往的 URL 分析记录",
+    "search": "搜索 URL...",
+    "duration": "耗时 {{seconds}}s",
+    "viewports": "视口",
+    "delete": "删除",
+    "noResults": "暂无分析记录",
+    "noResultsTip": "前往「分析」页面开始提取设计风格"
+  },
+  "settings": {
+    "title": "设置",
+    "description": "配置 AI 引擎和导出偏好",
+    "ai": {
+      "title": "AI 引擎配置",
+      "description": "设计风格的语义化分析需要 AI 支持。请选择以下方式之一：",
+      "useApiKey": "使用 API Key",
+      "useAgentCli": "使用本地 AI Agent CLI",
+      "provider": "LLM 厂商",
+      "selectProvider": "选择厂商...",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "testConnection": "测试连接",
+      "detecting": "正在检测...",
+      "detectDescription": "检测系统中已安装的 AI Agent CLI：",
+      "redetect": "重新检测",
+      "noCli": "点击上方「使用本地 AI Agent CLI」后自动检测"
+    },
+    "export": {
+      "title": "导出偏好",
+      "defaultFormat": "默认导出格式",
+      "css": "CSS 自定义属性（推荐，最通用）",
+      "tailwind": "Tailwind CSS v4 @theme",
+      "both": "同时导出 CSS + Tailwind",
+      "json": "设计令牌 JSON (DTCG)",
+      "markdown": "Markdown 设计文档",
+      "all": "全部格式"
+    },
+    "data": {
+      "title": "数据管理",
+      "exportAll": "导出全部数据",
+      "import": "导入数据",
+      "clearAll": "清除所有数据",
+      "tip": "数据存储在本地，可导出为 .zip 文件与他人共享"
+    }
+  },
+  "progress": {
+    "launchingBrowser": "正在启动浏览器...",
+    "analyzingViewport": "正在分析 {{viewport}} 视口...",
+    "analyzingPatterns": "正在分析设计模式...",
+    "clusteringColors": "正在聚类颜色...",
+    "generatingTokens": "正在生成设计令牌...",
+    "done": "完成"
+  }
+}

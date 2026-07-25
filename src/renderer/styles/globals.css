@@ -1,0 +1,71 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-background: oklch(100% 0 0);
+  --color-foreground: oklch(14.5% 0.02 250);
+  --color-card: oklch(100% 0 0);
+  --color-card-foreground: oklch(14.5% 0.02 250);
+  --color-primary: oklch(55% 0.24 265);
+  --color-primary-foreground: oklch(100% 0 0);
+  --color-secondary: oklch(96% 0.01 250);
+  --color-secondary-foreground: oklch(20% 0.02 250);
+  --color-muted: oklch(96% 0.01 250);
+  --color-muted-foreground: oklch(55% 0.02 250);
+  --color-accent: oklch(96% 0.01 250);
+  --color-accent-foreground: oklch(20% 0.02 250);
+  --color-destructive: oklch(55% 0.22 25);
+  --color-destructive-foreground: oklch(100% 0 0);
+  --color-border: oklch(90% 0.01 250);
+  --color-input: oklch(90% 0.01 250);
+  --color-ring: oklch(55% 0.24 265);
+  --color-sidebar: oklch(97% 0.01 250);
+  --color-sidebar-foreground: oklch(30% 0.02 250);
+  --color-sidebar-accent: oklch(94% 0.02 265);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      'Inter',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      sans-serif;
+  }
+
+  .app-drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted-foreground);
+  }
+}

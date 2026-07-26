@@ -6,14 +6,18 @@ import type { ForgeConfig } from '@electron-forge/shared-types'
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    extraResource: ['assets/icons'],
+    icon: 'assets/icons/icon',
     name: 'Imprint',
     executableName: 'imprint',
   },
   makers: [
     new MakerSquirrel({
       name: 'imprint',
+      setupIcon: 'assets/icons/icon.ico',
     }),
     new MakerDMG({
+      icon: 'assets/icons/icon.icns',
       name: 'imprint',
     }),
   ],

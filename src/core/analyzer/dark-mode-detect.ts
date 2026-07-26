@@ -42,7 +42,6 @@ export async function extractDarkMode(page: Page): Promise<DarkModeResult> {
 
   // Strategy 2: Check for class-based dark mode
   const classToggleResult = await page.evaluate(() => {
-    const html = document.documentElement
     const selectors = ['.dark', '[data-theme="dark"]', '[data-color-mode="dark"]', '[data-mode="dark"]']
 
     for (const sheet of document.styleSheets) {

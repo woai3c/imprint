@@ -1,4 +1,8 @@
+import { useTranslation } from 'react-i18next'
+
 export function LoginTemplate() {
+  const { t } = useTranslation()
+
   return (
     <div className="min-h-[600px] bg-background text-foreground flex items-center justify-center">
       <div className="w-full max-w-sm mx-auto">
@@ -7,13 +11,13 @@ export function LoginTemplate() {
             <div className="w-12 h-12 rounded-xl bg-primary mx-auto flex items-center justify-center mb-4">
               <span className="text-primary-foreground text-xl font-bold">A</span>
             </div>
-            <h1 className="text-xl font-bold">欢迎回来</h1>
-            <p className="text-sm text-muted-foreground mt-1">登录您的账户以继续</p>
+            <h1 className="text-xl font-bold">{t('templates.examples.login.title')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('templates.examples.login.description')}</p>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium block mb-1.5">邮箱</label>
+              <label className="text-sm font-medium block mb-1.5">{t('templates.examples.login.email')}</label>
               <input
                 type="email"
                 placeholder="name@example.com"
@@ -21,7 +25,7 @@ export function LoginTemplate() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1.5">密码</label>
+              <label className="text-sm font-medium block mb-1.5">{t('templates.examples.login.password')}</label>
               <input
                 type="password"
                 placeholder="••••••••"
@@ -32,24 +36,27 @@ export function LoginTemplate() {
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="accent-primary" />
-                记住我
+                {t('templates.examples.login.remember')}
               </label>
-              <a className="text-sm text-primary hover:underline">忘记密码?</a>
+              <a className="text-sm text-primary hover:underline">{t('templates.examples.login.forgot')}</a>
             </div>
 
             <button className="w-full h-10 rounded-md bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity">
-              登录
+              {t('templates.examples.login.submit')}
             </button>
           </div>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-muted-foreground">
-              还没有账户? <a className="text-primary hover:underline">注册</a>
+              {t('templates.examples.login.noAccount')}{' '}
+              <a className="text-primary hover:underline">{t('templates.examples.login.signUp')}</a>
             </p>
           </div>
 
           <div className="mt-6 pt-6 border-t border-border">
-            <p className="text-xs text-muted-foreground text-center mb-3">或使用以下方式登录</p>
+            <p className="text-xs text-muted-foreground text-center mb-3">
+              {t('templates.examples.login.alternatives')}
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <button className="h-9 rounded-md border border-border bg-background text-sm hover:bg-accent transition-colors">
                 Google

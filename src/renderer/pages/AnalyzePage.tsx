@@ -3,14 +3,17 @@ import { Download, Loader2, Save } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { PageHeader } from '../components/PageHeader'
 import { TokenPreview } from '../components/TokenPreview'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
+import { useFeedbackStore } from '../stores/feedback-store'
 
 type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 
 export function AnalyzePage() {
   const { t } = useTranslation()
   const store = useAnalysisStore()
+  const notify = useFeedbackStore((state) => state.show)
   const [url, setUrl] = useState(store.lastUrl || '')
   const [activeTab, setActiveTab] = useState<ExportTab>('preview')
   const [saved, setSaved] = useState(false)
@@ -62,27 +65,37 @@ export function AnalyzePage() {
     }
   }
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     let content = ''
     if (activeTab === 'markdown') content = result?.designDoc || ''
     else if (activeTab === 'tailwind') content = result?.tailwindTheme || ''
     else if (activeTab === 'css') content = result?.cssVariables || ''
     else if (activeTab === 'json') content = JSON.stringify(result?.tokens, null, 2)
     else if (activeTab === 'preview') content = result?.designDoc || ''
-    navigator.clipboard.writeText(content)
+    try {
+      await navigator.clipboard.writeText(content)
+      notify(t('feedback.copied'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const handleSaveToLibrary = async () => {
     if (!result) return
-    await window.electronAPI.saveTheme({
-      url: result.url,
-      tokens: result.tokens,
-      cssVariables: result.cssVariables,
-      tailwindTheme: result.tailwindTheme,
-      designDoc: result.designDoc,
-      screenshots: result.screenshots,
-    })
-    setSaved(true)
+    try {
+      await window.electronAPI.saveTheme({
+        url: result.url,
+        tokens: result.tokens,
+        cssVariables: result.cssVariables,
+        tailwindTheme: result.tailwindTheme,
+        designDoc: result.designDoc,
+        screenshots: result.screenshots,
+      })
+      setSaved(true)
+      notify(t('feedback.savedToLibrary'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const handleExportFile = async () => {
@@ -102,7 +115,13 @@ export function AnalyzePage() {
       content = JSON.stringify(result.tokens, null, 2)
       ext = 'json'
     }
-    await window.electronAPI.exportFile(content, `design-tokens.${ext}`, ext)
+    try {
+      const exportResult = await window.electronAPI.exportFile(content, `design-tokens.${ext}`, ext)
+      if (exportResult.success) notify(t('feedback.exported'))
+      else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const tabs: { id: ExportTab; label: string }[] = [
@@ -129,11 +148,7 @@ export function AnalyzePage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header: title + input (always visible) */}
-      <div className="px-8 pt-4 pb-4">
-        <h2 className="text-2xl font-bold">{t('analyze.title')}</h2>
-        <p className="text-muted-foreground mt-1">{t('analyze.description')}</p>
-      </div>
+      <PageHeader title={t('analyze.title')} description={t('analyze.description')} />
 
       <div className="px-8">
         <div className="flex gap-3">
@@ -169,12 +184,19 @@ export function AnalyzePage() {
         </div>
 
         {progress && (
-          <div className="mt-4">
+          <div className="mt-4" aria-live="polite">
             <div className="flex justify-between text-sm mb-1.5">
               <span className="text-muted-foreground">{translateStep(progress.step)}</span>
               <span className="text-muted-foreground">{progress.percent}%</span>
             </div>
-            <div className="h-2 rounded-full bg-secondary overflow-hidden">
+            <div
+              className="h-2 overflow-hidden rounded-full bg-secondary"
+              role="progressbar"
+              aria-label={translateStep(progress.step)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress.percent}
+            >
               <div
                 className="h-full bg-primary rounded-full transition-all duration-300"
                 style={{ width: `${progress.percent}%` }}
@@ -186,7 +208,7 @@ export function AnalyzePage() {
 
       {/* Results */}
       {result ? (
-        <div className="flex-1 flex mt-4 mx-8 mb-8 gap-5 min-h-0">
+        <div className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5">
           {/* Left: Overview Panel */}
           <div className="w-80 shrink-0 flex flex-col gap-4 overflow-auto">
             {/* Website identity */}
@@ -199,7 +221,7 @@ export function AnalyzePage() {
                   {result.featureTags.map((tag) => (
                     <span
                       key={tag}
-                      className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-secondary/50 text-muted-foreground"
+                      className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-xs text-muted-foreground"
                     >
                       {tag}
                     </span>
@@ -282,6 +304,7 @@ export function AnalyzePage() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
+                  aria-pressed={activeTab === tab.id}
                   className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
                     activeTab === tab.id
                       ? 'border-primary text-primary'
@@ -302,7 +325,7 @@ export function AnalyzePage() {
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-auto bg-card">
+            <div key={activeTab} className="ui-enter flex-1 overflow-auto bg-card">
               {activeTab === 'preview' && tokens && (
                 <TokenPreview
                   tokens={tokens as never}

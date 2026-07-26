@@ -4,7 +4,10 @@
     "tagline": "UI 设计风格提取工具",
     "version": "v0.1.0",
     "footer": "开源免费",
-    "darkToggleDisabled": "仅默认主题支持亮/暗切换"
+    "darkToggleDisabled": "仅默认主题支持亮/暗切换",
+    "switchToDark": "切换到暗色模式",
+    "switchToLight": "切换到亮色模式",
+    "switchLanguage": "切换界面语言"
   },
   "nav": {
     "analyze": "分析",
@@ -12,6 +15,19 @@
     "templates": "模板",
     "history": "历史",
     "settings": "设置"
+  },
+  "feedback": {
+    "dismiss": "关闭提示",
+    "copied": "已复制到剪贴板",
+    "savedToLibrary": "已保存到主题库",
+    "exported": "文件已导出",
+    "themeApplied": "已应用“{{theme}}”",
+    "themeExported": "已导出“{{theme}}”",
+    "dataExported": "备份数据已导出",
+    "importFinished": "数据导入完成",
+    "dataCleared": "本地数据已清除",
+    "historyDeleted": "历史记录已删除",
+    "actionFailed": "操作失败，请重试"
   },
   "analyze": {
     "title": "提取设计风格",
@@ -49,6 +65,9 @@
     "apply": "应用",
     "current": "当前",
     "resetDefault": "恢复默认",
+    "export": "导出",
+    "addFavorite": "收藏“{{theme}}”",
+    "removeFavorite": "取消收藏“{{theme}}”",
     "noExtracted": "还没有提取的主题",
     "noExtractedTip": "前往「分析」页面提取网站设计风格",
     "presets": {
@@ -66,9 +85,9 @@
       },
       "cyberpunk": {
         "name": "赛博朋克",
-        "description": "霓虹网格，信息在暗夜中发光",
-        "values": ["聚焦", "速度", "信号"],
-        "patterns": ["霓虹状态", "网格定位", "暗场高亮"]
+        "description": "深色信息舱，青色与琥珀信号克制发光",
+        "values": ["秩序", "信号", "节制"],
+        "patterns": ["分层暗面", "局部发光", "青琥珀信号"]
       },
       "nordic": {
         "name": "北欧晨雾",
@@ -129,7 +148,359 @@
     "chat": "聊天消息",
     "docs": "文档知识库",
     "kanban": "看板任务",
-    "analytics": "数据分析"
+    "analytics": "数据分析",
+    "applyTheme": "应用“{{theme}}”主题",
+    "currentTheme": "当前：{{theme}}",
+    "examples": {
+      "dashboard": {
+        "title": "管理仪表盘",
+        "navigation": {
+          "overview": "概览",
+          "users": "用户管理",
+          "orders": "订单",
+          "analytics": "数据分析",
+          "settings": "设置"
+        },
+        "stats": {
+          "users": { "label": "总用户", "value": "12,345" },
+          "active": { "label": "今日活跃", "value": "1,234" },
+          "revenue": { "label": "收入", "value": "¥89,012" },
+          "conversion": { "label": "转化率", "value": "3.2%" }
+        },
+        "recentOrders": "最近订单",
+        "table": {
+          "order": "订单号",
+          "customer": "客户",
+          "amount": "金额",
+          "status": "状态"
+        },
+        "customers": {
+          "first": "张三",
+          "second": "李四",
+          "third": "王五"
+        },
+        "amounts": {
+          "first": "¥299",
+          "second": "¥599",
+          "third": "¥1,299"
+        },
+        "statuses": {
+          "complete": "已完成",
+          "processing": "处理中",
+          "shipped": "已发货"
+        }
+      },
+      "landing": {
+        "brand": "品牌",
+        "navigation": {
+          "product": "产品",
+          "pricing": "定价",
+          "docs": "文档",
+          "blog": "博客"
+        },
+        "getStarted": "开始使用",
+        "hero": {
+          "title": "构建更好的产品",
+          "highlight": "从设计开始",
+          "description": "一站式设计系统提取工具，帮助你快速复用优秀网站的设计语言，让 AI 更好地理解你的设计意图。",
+          "primaryAction": "免费开始",
+          "secondaryAction": "查看演示"
+        },
+        "featuresTitle": "核心特性",
+        "features": {
+          "extract": {
+            "title": "一键提取",
+            "description": "输入 URL 即可提取完整设计系统"
+          },
+          "export": {
+            "title": "多格式导出",
+            "description": "CSS 变量、Tailwind、JSON 令牌"
+          },
+          "preview": {
+            "title": "实时预览",
+            "description": "即时查看主题切换效果"
+          }
+        },
+        "cta": {
+          "title": "准备好了吗？",
+          "description": "免费开源，无需注册",
+          "action": "立即下载"
+        }
+      },
+      "ecommerce": {
+        "shop": "商城",
+        "categories": {
+          "all": "全部",
+          "electronics": "电子",
+          "home": "家居",
+          "accessories": "配件"
+        },
+        "search": "搜索商品...",
+        "cart": "购物车",
+        "featured": "精选商品",
+        "addToCart": "加入购物车",
+        "products": {
+          "lamp": { "name": "极简台灯", "price": "¥299", "tag": "新品" },
+          "charger": { "name": "无线充电器", "price": "¥159", "tag": "热销" },
+          "keyboard": { "name": "机械键盘", "price": "¥899", "tag": "" },
+          "headphones": { "name": "降噪耳机", "price": "¥1,499", "tag": "限时" },
+          "speaker": { "name": "便携音箱", "price": "¥399", "tag": "" },
+          "watch": { "name": "智能手表", "price": "¥2,299", "tag": "新品" }
+        }
+      },
+      "blog": {
+        "title": "开发者博客",
+        "navigation": {
+          "articles": "文章",
+          "tutorials": "教程",
+          "about": "关于"
+        },
+        "readMore": "阅读更多",
+        "posts": {
+          "designSystem": {
+            "title": "如何构建可扩展的设计系统",
+            "tag": "设计",
+            "excerpt": "设计系统不仅是颜色和字体的集合，更是团队协作的基础设施..."
+          },
+          "tailwind": {
+            "title": "Tailwind CSS v4 完全指南",
+            "tag": "前端",
+            "excerpt": "Tailwind v4 带来了 CSS-first 架构，让设计令牌管理变得前所未有的简单..."
+          },
+          "aiWorkflow": {
+            "title": "AI 驱动的 UI 开发工作流",
+            "tag": "AI",
+            "excerpt": "通过提取设计系统并交给 AI，你可以实现快速的 UI 开发迭代..."
+          }
+        }
+      },
+      "login": {
+        "title": "欢迎回来",
+        "description": "登录您的账户以继续",
+        "email": "邮箱",
+        "password": "密码",
+        "remember": "记住我",
+        "forgot": "忘记密码？",
+        "submit": "登录",
+        "noAccount": "还没有账户？",
+        "signUp": "注册",
+        "alternatives": "或使用以下方式登录"
+      },
+      "profile": {
+        "name": "张三",
+        "role": "全栈开发工程师 · 北京",
+        "edit": "编辑资料",
+        "tabs": {
+          "activity": "动态",
+          "articles": "文章",
+          "projects": "项目",
+          "saved": "收藏"
+        },
+        "stats": {
+          "articles": "文章",
+          "followers": "关注者",
+          "following": "关注中"
+        },
+        "posts": {
+          "react": { "title": "构建高性能 React 应用", "time": "2 小时前" },
+          "typescript": { "title": "TypeScript 5.0 新特性解读", "time": "1 天前" },
+          "designSystem": { "title": "从零搭建设计系统", "time": "3 天前" }
+        }
+      },
+      "pricing": {
+        "title": "选择适合您的方案",
+        "description": "简单透明的定价，无隐藏费用",
+        "popular": "最受欢迎",
+        "footnote": "所有方案均包含 14 天免费试用 · 随时取消",
+        "plans": {
+          "free": {
+            "name": "免费版",
+            "price": "¥0",
+            "period": "永久免费",
+            "features": ["5 个项目", "基础分析", "社区支持", "1GB 存储"],
+            "cta": "开始使用"
+          },
+          "pro": {
+            "name": "专业版",
+            "price": "¥99",
+            "period": "/月",
+            "features": ["无限项目", "高级分析", "优先支持", "100GB 存储", "API 访问", "团队协作"],
+            "cta": "升级专业版"
+          },
+          "enterprise": {
+            "name": "企业版",
+            "price": "¥399",
+            "period": "/月",
+            "features": ["一切专业版功能", "专属客户经理", "SLA 保障", "无限存储", "SSO 单点登录", "私有部署"],
+            "cta": "联系销售"
+          }
+        }
+      },
+      "settings": {
+        "title": "设置",
+        "profile": "个人信息",
+        "changeAvatar": "更换头像",
+        "name": "姓名",
+        "email": "邮箱",
+        "notificationsTitle": "通知设置",
+        "notifications": {
+          "email": { "label": "邮件通知", "description": "接收重要更新和通知" },
+          "push": { "label": "推送通知", "description": "浏览器推送消息" },
+          "weekly": { "label": "周报摘要", "description": "每周一发送活动摘要" }
+        },
+        "dangerZone": "危险区域",
+        "deleteAccount": "删除账户",
+        "deleteDescription": "永久删除您的账户和所有数据"
+      },
+      "chat": {
+        "search": "搜索对话...",
+        "time": {
+          "yesterday": "昨天",
+          "monday": "周一"
+        },
+        "conversations": {
+          "product": { "name": "产品组", "message": "明天开会讨论需求" },
+          "alex": { "name": "张三", "message": "文档已经更新了" },
+          "design": { "name": "设计团队", "message": "[图片]" },
+          "sam": { "name": "李四", "message": "收到，谢谢！" },
+          "support": { "name": "客户支持", "message": "工单已处理" }
+        },
+        "groupName": "产品组",
+        "members": "{{memberCount}} 位成员",
+        "messages": {
+          "first": {
+            "sender": "张三",
+            "body": "大家好，明天下午 2 点开会，讨论 Q3 的需求规划"
+          },
+          "second": {
+            "sender": "李四",
+            "body": "收到，我准备一下用户调研数据"
+          },
+          "mine": "好的，我把上次的 PRD 文档更新一下带过去"
+        },
+        "you": "你",
+        "messagePlaceholder": "输入消息...",
+        "send": "发送"
+      },
+      "docs": {
+        "title": "文档",
+        "navigation": {
+          "gettingStarted": {
+            "title": "快速开始",
+            "items": {
+              "install": "安装",
+              "configure": "配置",
+              "firstProject": "第一个项目"
+            }
+          },
+          "concepts": {
+            "title": "核心概念",
+            "items": {
+              "components": "组件",
+              "state": "状态管理",
+              "routing": "路由"
+            }
+          },
+          "api": {
+            "title": "API 参考",
+            "items": {
+              "hooks": "Hooks",
+              "utilities": "工具函数",
+              "types": "类型定义"
+            }
+          }
+        },
+        "breadcrumb": "核心概念",
+        "articleTitle": "组件",
+        "introduction": "组件是构建用户界面的基本单元。每个组件封装一段可复用的 UI 逻辑，可以接受参数（props）并返回描述屏幕内容的元素。",
+        "codeExample": "示例代码",
+        "properties": {
+          "title": "组件属性",
+          "description": "通过 props 传递数据给子组件。Props 是只读的，组件不能修改自身的 props。",
+          "property": "属性",
+          "type": "类型",
+          "details": "说明",
+          "rows": {
+            "children": { "type": "ReactNode", "description": "子元素内容" },
+            "variant": { "type": "string", "description": "样式变体" },
+            "disabled": { "type": "boolean", "description": "是否禁用" }
+          }
+        },
+        "previous": "上一篇：路由",
+        "next": "下一篇：状态管理",
+        "contents": "目录",
+        "tableOfContents": {
+          "components": "组件",
+          "properties": "组件属性",
+          "lifecycle": "生命周期",
+          "events": "事件处理"
+        }
+      },
+      "kanban": {
+        "title": "项目看板",
+        "newTask": "新建任务",
+        "columns": {
+          "todo": "待办",
+          "progress": "进行中",
+          "testing": "测试中",
+          "done": "已完成"
+        },
+        "cards": {
+          "homepage": "设计首页原型",
+          "apiDocs": "编写 API 文档",
+          "feedback": "用户反馈收集",
+          "login": "实现登录功能",
+          "database": "优化数据库查询",
+          "payment": "支付流程测试",
+          "initialization": "项目初始化",
+          "review": "需求评审"
+        },
+        "tags": {
+          "design": "设计",
+          "docs": "文档",
+          "product": "产品",
+          "development": "开发",
+          "backend": "后端",
+          "qa": "QA"
+        },
+        "priorities": {
+          "high": "高",
+          "medium": "中",
+          "low": "低"
+        }
+      },
+      "analytics": {
+        "title": "数据分析",
+        "ranges": {
+          "seven": "最近 7 天",
+          "thirty": "最近 30 天",
+          "ninety": "最近 90 天"
+        },
+        "metrics": {
+          "views": "页面访问量",
+          "visitors": "独立访客",
+          "bounce": "跳出率",
+          "duration": "平均停留"
+        },
+        "trend": "流量趋势",
+        "month": "{{month}}月",
+        "trafficSources": "流量来源",
+        "sources": {
+          "search": "搜索引擎",
+          "direct": "直接访问",
+          "social": "社交媒体",
+          "referral": "外部链接"
+        },
+        "topPages": "热门页面",
+        "viewAll": "查看全部",
+        "table": {
+          "page": "页面",
+          "views": "访问量",
+          "bounce": "跳出率",
+          "duration": "平均停留"
+        }
+      }
+    }
   },
   "history": {
     "title": "分析历史",
@@ -138,12 +509,20 @@
     "duration": "耗时 {{seconds}}s",
     "viewports": "视口",
     "delete": "删除",
+    "loading": "正在加载历史记录...",
+    "untitled": "未命名主题",
+    "tokenCount": "{{count}} 个令牌",
+    "openSource": "在浏览器中打开原网站",
+    "deleteRecord": "删除这条历史记录",
+    "confirmDelete": "确定删除这条历史记录吗？",
     "noResults": "暂无分析记录",
     "noResultsTip": "前往「分析」页面开始提取设计风格"
   },
   "settings": {
     "title": "设置",
     "description": "配置 AI 引擎和导出偏好",
+    "loading": "正在加载设置...",
+    "autoSave": "更改自动保存",
     "ai": {
       "title": "AI 引擎配置",
       "description": "设计风格的语义化分析需要 AI 支持。请选择以下方式之一：",
@@ -154,6 +533,7 @@
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "testConnection": "测试连接",
+      "testFailed": "连接测试失败",
       "testing": "测试中...",
       "detecting": "正在检测...",
       "detectDescription": "检测系统中已安装的 AI Agent CLI：",
@@ -204,6 +584,15 @@
     "statRadii": "圆角",
     "fontStacks": "完整字体栈",
     "letterSpacing": "字间距",
-    "transitions": "过渡动画"
+    "transitions": "过渡动画",
+    "typeSampleShort": "敏捷的棕狐轻轻跃过",
+    "typeSampleLong": "敏捷的棕狐跃过安静的树影",
+    "colorGroups": {
+      "surface": "表面",
+      "text": "文字",
+      "brand": "品牌",
+      "border": "边框",
+      "palette": "色板"
+    }
   }
 }

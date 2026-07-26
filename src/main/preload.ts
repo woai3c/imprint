@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
+  platform: process.platform,
+
   // Theme operations
   getThemes: () => ipcRenderer.invoke('themes:list'),
   getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),

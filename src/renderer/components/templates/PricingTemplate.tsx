@@ -1,39 +1,29 @@
+import { useTranslation } from 'react-i18next'
+
 export function PricingTemplate() {
+  const { t } = useTranslation()
+  const planKeys = ['free', 'pro', 'enterprise'] as const
+  const plans = planKeys.map((key) => ({
+    name: t(`templates.examples.pricing.plans.${key}.name`),
+    price: t(`templates.examples.pricing.plans.${key}.price`),
+    period: t(`templates.examples.pricing.plans.${key}.period`),
+    features: [0, 1, 2, 3, 4, 5]
+      .map((index) => t(`templates.examples.pricing.plans.${key}.features.${index}`, { defaultValue: '' }))
+      .filter(Boolean),
+    cta: t(`templates.examples.pricing.plans.${key}.cta`),
+    highlighted: key === 'pro',
+  }))
+
   return (
     <div className="min-h-[600px] bg-background text-foreground py-12 px-6">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold">选择适合您的方案</h1>
-          <p className="text-muted-foreground mt-2">简单透明的定价，无隐藏费用</p>
+          <h1 className="text-3xl font-bold">{t('templates.examples.pricing.title')}</h1>
+          <p className="text-muted-foreground mt-2">{t('templates.examples.pricing.description')}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-6">
-          {[
-            {
-              name: '免费版',
-              price: '¥0',
-              period: '永久免费',
-              features: ['5 个项目', '基础分析', '社区支持', '1GB 存储'],
-              cta: '开始使用',
-              highlighted: false,
-            },
-            {
-              name: '专业版',
-              price: '¥99',
-              period: '/月',
-              features: ['无限项目', '高级分析', '优先支持', '100GB 存储', 'API 访问', '团队协作'],
-              cta: '升级专业版',
-              highlighted: true,
-            },
-            {
-              name: '企业版',
-              price: '¥399',
-              period: '/月',
-              features: ['一切专业版功能', '专属客户经理', 'SLA 保障', '无限存储', 'SSO 单点登录', '私有部署'],
-              cta: '联系销售',
-              highlighted: false,
-            },
-          ].map((plan) => (
+          {plans.map((plan) => (
             <div
               key={plan.name}
               className={`rounded-xl border p-6 flex flex-col ${
@@ -44,7 +34,7 @@ export function PricingTemplate() {
             >
               {plan.highlighted && (
                 <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full w-fit mb-3">
-                  最受欢迎
+                  {t('templates.examples.pricing.popular')}
                 </span>
               )}
               <h3 className="text-lg font-bold">{plan.name}</h3>
@@ -74,7 +64,7 @@ export function PricingTemplate() {
         </div>
 
         <div className="mt-12 text-center">
-          <p className="text-sm text-muted-foreground">所有方案均包含 14 天免费试用 · 随时取消</p>
+          <p className="text-sm text-muted-foreground">{t('templates.examples.pricing.footnote')}</p>
         </div>
       </div>
     </div>

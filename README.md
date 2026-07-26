@@ -1,5 +1,9 @@
 # 印记 (Imprint)
 
+<p align="center">
+  <img src="./assets/brand/imprint-lockup-bilingual-on-paper.png" alt="印记 · Imprint" width="720" />
+</p>
+
 > 从网站和截图中提取设计语言，自动生成可复用的设计系统。
 
 Imprint 是一个开源桌面应用，可以分析网站 URL 或 UI 截图，提取其中的视觉规则（颜色、字体、间距、圆角、阴影、组件风格等），并生成 AI 可直接使用的设计规范和代码变量。

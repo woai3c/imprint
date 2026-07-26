@@ -2,12 +2,33 @@
  * Dashboard template - a classic admin panel layout.
  * All styling uses CSS variables so theme switching works instantly.
  */
+import { useTranslation } from 'react-i18next'
+
 export function DashboardTemplate() {
+  const { t } = useTranslation()
+  const navigation = ['overview', 'users', 'orders', 'analytics', 'settings'].map((key) =>
+    t(`templates.examples.dashboard.navigation.${key}`),
+  )
+  const stats = ['users', 'active', 'revenue', 'conversion'].map((key) => ({
+    label: t(`templates.examples.dashboard.stats.${key}.label`),
+    value: t(`templates.examples.dashboard.stats.${key}.value`),
+  }))
+  const orders = [
+    { id: '#1001', customerKey: 'first', amountKey: 'first', statusKey: 'complete' },
+    { id: '#1002', customerKey: 'second', amountKey: 'second', statusKey: 'processing' },
+    { id: '#1003', customerKey: 'third', amountKey: 'third', statusKey: 'shipped' },
+  ].map(({ id, customerKey, amountKey, statusKey }) => ({
+    id,
+    customer: t(`templates.examples.dashboard.customers.${customerKey}`),
+    amount: t(`templates.examples.dashboard.amounts.${amountKey}`),
+    status: t(`templates.examples.dashboard.statuses.${statusKey}`),
+  }))
+
   return (
     <div className="min-h-[600px] bg-background text-foreground">
       {/* Top bar */}
       <header className="h-14 border-b border-border flex items-center px-6 bg-card">
-        <h1 className="text-lg font-bold text-foreground">Admin Dashboard</h1>
+        <h1 className="text-lg font-bold text-foreground">{t('templates.examples.dashboard.title')}</h1>
         <div className="ml-auto flex items-center gap-4">
           <span className="text-sm text-muted-foreground">admin@example.com</span>
           <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
@@ -20,7 +41,7 @@ export function DashboardTemplate() {
         {/* Sidebar */}
         <aside className="w-52 border-r border-border min-h-[550px] bg-sidebar p-4">
           <nav className="space-y-1">
-            {['概览', '用户管理', '订单', '数据分析', '设置'].map((item, i) => (
+            {navigation.map((item, i) => (
               <div
                 key={item}
                 className={`px-3 py-2 rounded-md text-sm ${
@@ -39,12 +60,7 @@ export function DashboardTemplate() {
         <main className="flex-1 p-6">
           {/* Stats cards */}
           <div className="grid grid-cols-4 gap-4 mb-6">
-            {[
-              { label: '总用户', value: '12,345' },
-              { label: '今日活跃', value: '1,234' },
-              { label: '收入', value: '¥89,012' },
-              { label: '转化率', value: '3.2%' },
-            ].map((stat) => (
+            {stats.map((stat) => (
               <div key={stat.label} className="bg-card border border-border rounded-lg p-4">
                 <p className="text-sm text-muted-foreground">{stat.label}</p>
                 <p className="text-2xl font-bold mt-1">{stat.value}</p>
@@ -55,24 +71,20 @@ export function DashboardTemplate() {
           {/* Table */}
           <div className="bg-card border border-border rounded-lg">
             <div className="p-4 border-b border-border">
-              <h3 className="font-semibold">最近订单</h3>
+              <h3 className="font-semibold">{t('templates.examples.dashboard.recentOrders')}</h3>
             </div>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  {['订单号', '客户', '金额', '状态'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-sm text-muted-foreground font-medium">
-                      {h}
+                  {['order', 'customer', 'amount', 'status'].map((key) => (
+                    <th key={key} className="px-4 py-3 text-left text-sm text-muted-foreground font-medium">
+                      {t(`templates.examples.dashboard.table.${key}`)}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { id: '#1001', customer: '张三', amount: '¥299', status: '已完成' },
-                  { id: '#1002', customer: '李四', amount: '¥599', status: '处理中' },
-                  { id: '#1003', customer: '王五', amount: '¥1,299', status: '已发货' },
-                ].map((row) => (
+                {orders.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 text-sm">{row.id}</td>
                     <td className="px-4 py-3 text-sm">{row.customer}</td>

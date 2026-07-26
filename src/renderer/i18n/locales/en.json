@@ -4,7 +4,10 @@
     "tagline": "UI Design Style Extractor",
     "version": "v0.1.0",
     "footer": "Open Source & Free",
-    "darkToggleDisabled": "Light/dark toggle only works with the default theme"
+    "darkToggleDisabled": "Light/dark toggle only works with the default theme",
+    "switchToDark": "Switch to dark mode",
+    "switchToLight": "Switch to light mode",
+    "switchLanguage": "Switch interface language"
   },
   "nav": {
     "analyze": "Analyze",
@@ -12,6 +15,19 @@
     "templates": "Templates",
     "history": "History",
     "settings": "Settings"
+  },
+  "feedback": {
+    "dismiss": "Dismiss notification",
+    "copied": "Copied to clipboard",
+    "savedToLibrary": "Saved to the theme library",
+    "exported": "File exported",
+    "themeApplied": "Applied “{{theme}}”",
+    "themeExported": "Exported “{{theme}}”",
+    "dataExported": "Backup data exported",
+    "importFinished": "Import complete",
+    "dataCleared": "Local data cleared",
+    "historyDeleted": "History record deleted",
+    "actionFailed": "Action failed. Please try again."
   },
   "analyze": {
     "title": "Extract Design Styles",
@@ -49,6 +65,9 @@
     "apply": "Apply",
     "current": "Current",
     "resetDefault": "Reset to Default",
+    "export": "Export",
+    "addFavorite": "Add “{{theme}}” to favorites",
+    "removeFavorite": "Remove “{{theme}}” from favorites",
     "noExtracted": "No extracted themes yet",
     "noExtractedTip": "Go to the Analyze page to extract website design styles",
     "presets": {
@@ -66,9 +85,9 @@
       },
       "cyberpunk": {
         "name": "Cyberpunk",
-        "description": "A neon grid where information glows after dark",
-        "values": ["Focus", "Speed", "Signal"],
-        "patterns": ["Neon states", "Grid positioning", "Dark-field emphasis"]
+        "description": "A dark information deck with restrained cyan and amber signals",
+        "values": ["Order", "Signal", "Restraint"],
+        "patterns": ["Layered dark surfaces", "Localized emission", "Cyan–amber signals"]
       },
       "nordic": {
         "name": "Nordic Mist",
@@ -129,7 +148,373 @@
     "chat": "Chat",
     "docs": "Docs",
     "kanban": "Kanban",
-    "analytics": "Analytics"
+    "analytics": "Analytics",
+    "applyTheme": "Apply the “{{theme}}” theme",
+    "currentTheme": "Current: {{theme}}",
+    "examples": {
+      "dashboard": {
+        "title": "Admin Dashboard",
+        "navigation": {
+          "overview": "Overview",
+          "users": "Users",
+          "orders": "Orders",
+          "analytics": "Analytics",
+          "settings": "Settings"
+        },
+        "stats": {
+          "users": { "label": "Total users", "value": "12,345" },
+          "active": { "label": "Active today", "value": "1,234" },
+          "revenue": { "label": "Revenue", "value": "$89,012" },
+          "conversion": { "label": "Conversion", "value": "3.2%" }
+        },
+        "recentOrders": "Recent orders",
+        "table": {
+          "order": "Order",
+          "customer": "Customer",
+          "amount": "Amount",
+          "status": "Status"
+        },
+        "customers": {
+          "first": "Alex Chen",
+          "second": "Jordan Lee",
+          "third": "Taylor Morgan"
+        },
+        "amounts": {
+          "first": "$299",
+          "second": "$599",
+          "third": "$1,299"
+        },
+        "statuses": {
+          "complete": "Completed",
+          "processing": "Processing",
+          "shipped": "Shipped"
+        }
+      },
+      "landing": {
+        "brand": "Brand",
+        "navigation": {
+          "product": "Product",
+          "pricing": "Pricing",
+          "docs": "Docs",
+          "blog": "Blog"
+        },
+        "getStarted": "Get started",
+        "hero": {
+          "title": "Build better products",
+          "highlight": "Start with design",
+          "description": "Extract complete design systems in one place, reuse the visual language of great websites, and help AI understand your design intent.",
+          "primaryAction": "Start for free",
+          "secondaryAction": "View demo"
+        },
+        "featuresTitle": "Core features",
+        "features": {
+          "extract": {
+            "title": "One-click extraction",
+            "description": "Enter a URL to extract a complete design system"
+          },
+          "export": {
+            "title": "Multiple formats",
+            "description": "CSS variables, Tailwind, and JSON tokens"
+          },
+          "preview": {
+            "title": "Live preview",
+            "description": "See theme changes instantly"
+          }
+        },
+        "cta": {
+          "title": "Ready to begin?",
+          "description": "Free, open source, and no sign-up required",
+          "action": "Download now"
+        }
+      },
+      "ecommerce": {
+        "shop": "Shop",
+        "categories": {
+          "all": "All",
+          "electronics": "Electronics",
+          "home": "Home",
+          "accessories": "Accessories"
+        },
+        "search": "Search products...",
+        "cart": "Cart",
+        "featured": "Featured products",
+        "addToCart": "Add to cart",
+        "products": {
+          "lamp": { "name": "Minimal Desk Lamp", "price": "$39", "tag": "New" },
+          "charger": { "name": "Wireless Charger", "price": "$29", "tag": "Best seller" },
+          "keyboard": { "name": "Mechanical Keyboard", "price": "$129", "tag": "" },
+          "headphones": { "name": "Noise-cancelling Headphones", "price": "$199", "tag": "Limited" },
+          "speaker": { "name": "Portable Speaker", "price": "$59", "tag": "" },
+          "watch": { "name": "Smart Watch", "price": "$249", "tag": "New" }
+        }
+      },
+      "blog": {
+        "title": "Developer Blog",
+        "navigation": {
+          "articles": "Articles",
+          "tutorials": "Tutorials",
+          "about": "About"
+        },
+        "readMore": "Read more",
+        "posts": {
+          "designSystem": {
+            "title": "How to build a scalable design system",
+            "tag": "Design",
+            "excerpt": "A design system is more than a set of colors and fonts. It is infrastructure for team collaboration..."
+          },
+          "tailwind": {
+            "title": "The complete guide to Tailwind CSS v4",
+            "tag": "Frontend",
+            "excerpt": "Tailwind v4 introduces a CSS-first architecture that makes design token management simpler than ever..."
+          },
+          "aiWorkflow": {
+            "title": "An AI-driven UI development workflow",
+            "tag": "AI",
+            "excerpt": "Extracting a design system for AI enables much faster UI development and iteration..."
+          }
+        }
+      },
+      "login": {
+        "title": "Welcome back",
+        "description": "Sign in to your account to continue",
+        "email": "Email",
+        "password": "Password",
+        "remember": "Remember me",
+        "forgot": "Forgot password?",
+        "submit": "Sign in",
+        "noAccount": "Don't have an account?",
+        "signUp": "Sign up",
+        "alternatives": "Or continue with"
+      },
+      "profile": {
+        "name": "Alex Chen",
+        "role": "Full-stack engineer · San Francisco",
+        "edit": "Edit profile",
+        "tabs": {
+          "activity": "Activity",
+          "articles": "Articles",
+          "projects": "Projects",
+          "saved": "Saved"
+        },
+        "stats": {
+          "articles": "Articles",
+          "followers": "Followers",
+          "following": "Following"
+        },
+        "posts": {
+          "react": { "title": "Building high-performance React apps", "time": "2 hours ago" },
+          "typescript": { "title": "What's new in TypeScript 5.0", "time": "1 day ago" },
+          "designSystem": { "title": "Building a design system from scratch", "time": "3 days ago" }
+        }
+      },
+      "pricing": {
+        "title": "Choose the plan that fits",
+        "description": "Simple, transparent pricing with no hidden fees",
+        "popular": "Most popular",
+        "footnote": "Every plan includes a 14-day free trial · Cancel anytime",
+        "plans": {
+          "free": {
+            "name": "Free",
+            "price": "$0",
+            "period": "Forever",
+            "features": ["5 projects", "Basic analytics", "Community support", "1 GB storage"],
+            "cta": "Get started"
+          },
+          "pro": {
+            "name": "Pro",
+            "price": "$19",
+            "period": "/month",
+            "features": [
+              "Unlimited projects",
+              "Advanced analytics",
+              "Priority support",
+              "100 GB storage",
+              "API access",
+              "Team collaboration"
+            ],
+            "cta": "Upgrade to Pro"
+          },
+          "enterprise": {
+            "name": "Enterprise",
+            "price": "$79",
+            "period": "/month",
+            "features": [
+              "Everything in Pro",
+              "Dedicated account manager",
+              "SLA guarantee",
+              "Unlimited storage",
+              "Single sign-on",
+              "Private deployment"
+            ],
+            "cta": "Contact sales"
+          }
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "profile": "Profile",
+        "changeAvatar": "Change avatar",
+        "name": "Name",
+        "email": "Email",
+        "notificationsTitle": "Notifications",
+        "notifications": {
+          "email": { "label": "Email notifications", "description": "Receive important updates and notifications" },
+          "push": { "label": "Push notifications", "description": "Receive browser push messages" },
+          "weekly": { "label": "Weekly summary", "description": "Get an activity summary every Monday" }
+        },
+        "dangerZone": "Danger zone",
+        "deleteAccount": "Delete account",
+        "deleteDescription": "Permanently delete your account and all its data"
+      },
+      "chat": {
+        "search": "Search conversations...",
+        "time": {
+          "yesterday": "Yesterday",
+          "monday": "Monday"
+        },
+        "conversations": {
+          "product": { "name": "Product team", "message": "Let's review the requirements tomorrow" },
+          "alex": { "name": "Alex Chen", "message": "The document has been updated" },
+          "design": { "name": "Design team", "message": "[Image]" },
+          "sam": { "name": "Sam Lee", "message": "Got it, thanks!" },
+          "support": { "name": "Customer support", "message": "The ticket has been resolved" }
+        },
+        "groupName": "Product team",
+        "members": "{{memberCount}} members",
+        "messages": {
+          "first": {
+            "sender": "Alex Chen",
+            "body": "Hi everyone, let's meet tomorrow at 2 PM to discuss the Q3 roadmap."
+          },
+          "second": {
+            "sender": "Sam Lee",
+            "body": "Got it. I'll prepare the user research data."
+          },
+          "mine": "Great, I'll update the previous PRD and bring it along."
+        },
+        "you": "You",
+        "messagePlaceholder": "Type a message...",
+        "send": "Send"
+      },
+      "docs": {
+        "title": "Docs",
+        "navigation": {
+          "gettingStarted": {
+            "title": "Getting started",
+            "items": {
+              "install": "Installation",
+              "configure": "Configuration",
+              "firstProject": "Your first project"
+            }
+          },
+          "concepts": {
+            "title": "Core concepts",
+            "items": {
+              "components": "Components",
+              "state": "State management",
+              "routing": "Routing"
+            }
+          },
+          "api": {
+            "title": "API reference",
+            "items": {
+              "hooks": "Hooks",
+              "utilities": "Utilities",
+              "types": "Type definitions"
+            }
+          }
+        },
+        "breadcrumb": "Core concepts",
+        "articleTitle": "Components",
+        "introduction": "Components are the building blocks of user interfaces. Each component encapsulates reusable UI logic, accepts inputs called props, and returns elements that describe the screen.",
+        "codeExample": "Code example",
+        "properties": {
+          "title": "Component properties",
+          "description": "Props pass data to child components. They are read-only, so a component cannot modify its own props.",
+          "property": "Property",
+          "type": "Type",
+          "details": "Description",
+          "rows": {
+            "children": { "type": "ReactNode", "description": "Child content" },
+            "variant": { "type": "string", "description": "Visual variant" },
+            "disabled": { "type": "boolean", "description": "Whether the component is disabled" }
+          }
+        },
+        "previous": "Previous: Routing",
+        "next": "Next: State management",
+        "contents": "On this page",
+        "tableOfContents": {
+          "components": "Components",
+          "properties": "Component properties",
+          "lifecycle": "Lifecycle",
+          "events": "Event handling"
+        }
+      },
+      "kanban": {
+        "title": "Project board",
+        "newTask": "New task",
+        "columns": {
+          "todo": "To do",
+          "progress": "In progress",
+          "testing": "Testing",
+          "done": "Done"
+        },
+        "cards": {
+          "homepage": "Design the homepage prototype",
+          "apiDocs": "Write API documentation",
+          "feedback": "Collect user feedback",
+          "login": "Implement sign-in",
+          "database": "Optimize database queries",
+          "payment": "Test the payment flow",
+          "initialization": "Initialize the project",
+          "review": "Review requirements"
+        },
+        "tags": {
+          "design": "Design",
+          "docs": "Docs",
+          "product": "Product",
+          "development": "Development",
+          "backend": "Backend",
+          "qa": "QA"
+        },
+        "priorities": {
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low"
+        }
+      },
+      "analytics": {
+        "title": "Analytics",
+        "ranges": {
+          "seven": "Last 7 days",
+          "thirty": "Last 30 days",
+          "ninety": "Last 90 days"
+        },
+        "metrics": {
+          "views": "Page views",
+          "visitors": "Unique visitors",
+          "bounce": "Bounce rate",
+          "duration": "Avg. duration"
+        },
+        "trend": "Traffic trend",
+        "month": "{{month}}",
+        "trafficSources": "Traffic sources",
+        "sources": {
+          "search": "Organic search",
+          "direct": "Direct",
+          "social": "Social media",
+          "referral": "Referrals"
+        },
+        "topPages": "Top pages",
+        "viewAll": "View all",
+        "table": {
+          "page": "Page",
+          "views": "Views",
+          "bounce": "Bounce rate",
+          "duration": "Avg. duration"
+        }
+      }
+    }
   },
   "history": {
     "title": "Analysis History",
@@ -138,12 +523,20 @@
     "duration": "Duration: {{seconds}}s",
     "viewports": "Viewports",
     "delete": "Delete",
+    "loading": "Loading history...",
+    "untitled": "Untitled theme",
+    "tokenCount": "{{count}} tokens",
+    "openSource": "Open the source website in a browser",
+    "deleteRecord": "Delete this history record",
+    "confirmDelete": "Delete this history record?",
     "noResults": "No analysis records yet",
     "noResultsTip": "Go to the Analyze page to start extracting design styles"
   },
   "settings": {
     "title": "Settings",
     "description": "Configure AI engine and export preferences",
+    "loading": "Loading settings...",
+    "autoSave": "Changes save automatically",
     "ai": {
       "title": "AI Engine Configuration",
       "description": "Semantic analysis of design styles requires AI support. Choose one of the following:",
@@ -154,6 +547,7 @@
       "apiKey": "API Key",
       "baseUrl": "Base URL",
       "testConnection": "Test Connection",
+      "testFailed": "Connection test failed",
       "testing": "Testing...",
       "detecting": "Detecting...",
       "detectDescription": "Detect AI Agent CLIs installed on your system:",
@@ -204,6 +598,15 @@
     "statRadii": "Radii",
     "fontStacks": "Font Stacks",
     "letterSpacing": "Letter Spacing",
-    "transitions": "Transitions"
+    "transitions": "Transitions",
+    "typeSampleShort": "The quick brown fox jumps",
+    "typeSampleLong": "The quick brown fox jumps over the lazy dog",
+    "colorGroups": {
+      "surface": "Surface",
+      "text": "Text",
+      "brand": "Brand",
+      "border": "Border",
+      "palette": "Palette"
+    }
   }
 }

@@ -1,14 +1,31 @@
+import { useTranslation } from 'react-i18next'
+
 export function DocsTemplate() {
+  const { t } = useTranslation()
+  const sections = [
+    { key: 'gettingStarted', items: ['install', 'configure', 'firstProject'], active: false },
+    { key: 'concepts', items: ['components', 'state', 'routing'], active: true },
+    { key: 'api', items: ['hooks', 'utilities', 'types'], active: false },
+  ].map(({ key, items, active }) => ({
+    title: t(`templates.examples.docs.navigation.${key}.title`),
+    items: items.map((item) => t(`templates.examples.docs.navigation.${key}.items.${item}`)),
+    active,
+  }))
+  const propertyRows = ['children', 'variant', 'disabled'].map((key) => ({
+    property: key,
+    type: t(`templates.examples.docs.properties.rows.${key}.type`),
+    description: t(`templates.examples.docs.properties.rows.${key}.description`),
+  }))
+  const tableOfContents = ['components', 'properties', 'lifecycle', 'events'].map((key) =>
+    t(`templates.examples.docs.tableOfContents.${key}`),
+  )
+
   return (
     <div className="min-h-[600px] bg-background text-foreground flex">
       <aside className="w-56 border-r border-border bg-sidebar p-4">
-        <h2 className="text-sm font-bold mb-3">文档</h2>
+        <h2 className="text-sm font-bold mb-3">{t('templates.examples.docs.title')}</h2>
         <nav className="space-y-0.5">
-          {[
-            { title: '快速开始', active: false, items: ['安装', '配置', '第一个项目'] },
-            { title: '核心概念', active: true, items: ['组件', '状态管理', '路由'] },
-            { title: 'API 参考', active: false, items: ['Hooks', '工具函数', '类型定义'] },
-          ].map((section) => (
+          {sections.map((section) => (
             <div key={section.title} className="mb-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 px-2">
                 {section.title}
@@ -32,18 +49,15 @@ export function DocsTemplate() {
 
       <main className="flex-1 p-8 max-w-3xl">
         <div className="mb-6">
-          <p className="text-xs text-muted-foreground mb-1">核心概念</p>
-          <h1 className="text-2xl font-bold">组件</h1>
+          <p className="text-xs text-muted-foreground mb-1">{t('templates.examples.docs.breadcrumb')}</p>
+          <h1 className="text-2xl font-bold">{t('templates.examples.docs.articleTitle')}</h1>
         </div>
 
         <div className="prose-sm space-y-4">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            组件是构建用户界面的基本单元。每个组件封装了一段可复用的 UI 逻辑，
-            可以接受参数（props）并返回描述屏幕内容的元素。
-          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed">{t('templates.examples.docs.introduction')}</p>
 
           <div className="bg-card border border-border rounded-lg p-4">
-            <p className="text-xs text-muted-foreground mb-2 font-medium">示例代码</p>
+            <p className="text-xs text-muted-foreground mb-2 font-medium">{t('templates.examples.docs.codeExample')}</p>
             <pre className="text-xs font-mono bg-secondary rounded p-3 overflow-x-auto">
               <code>{`function Button({ children, variant }) {
   return (
@@ -55,30 +69,28 @@ export function DocsTemplate() {
             </pre>
           </div>
 
-          <h2 className="text-lg font-semibold pt-4">组件属性</h2>
+          <h2 className="text-lg font-semibold pt-4">{t('templates.examples.docs.properties.title')}</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            通过 props 传递数据给子组件。Props 是只读的，组件不能修改自身的 props。
+            {t('templates.examples.docs.properties.description')}
           </p>
 
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-secondary">
-                  <th className="px-4 py-2 text-left font-medium">属性</th>
-                  <th className="px-4 py-2 text-left font-medium">类型</th>
-                  <th className="px-4 py-2 text-left font-medium">说明</th>
+                  <th className="px-4 py-2 text-left font-medium">
+                    {t('templates.examples.docs.properties.property')}
+                  </th>
+                  <th className="px-4 py-2 text-left font-medium">{t('templates.examples.docs.properties.type')}</th>
+                  <th className="px-4 py-2 text-left font-medium">{t('templates.examples.docs.properties.details')}</th>
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { prop: 'children', type: 'ReactNode', desc: '子元素内容' },
-                  { prop: 'variant', type: 'string', desc: '样式变体' },
-                  { prop: 'disabled', type: 'boolean', desc: '是否禁用' },
-                ].map((row) => (
-                  <tr key={row.prop} className="border-t border-border">
-                    <td className="px-4 py-2 font-mono text-xs text-primary">{row.prop}</td>
+                {propertyRows.map((row) => (
+                  <tr key={row.property} className="border-t border-border">
+                    <td className="px-4 py-2 font-mono text-xs text-primary">{row.property}</td>
                     <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{row.type}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{row.desc}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{row.description}</td>
                   </tr>
                 ))}
               </tbody>
@@ -86,17 +98,17 @@ export function DocsTemplate() {
           </div>
 
           <div className="flex items-center gap-2 pt-4 border-t border-border">
-            <span className="text-xs text-muted-foreground">上一篇: 路由</span>
+            <span className="text-xs text-muted-foreground">{t('templates.examples.docs.previous')}</span>
             <span className="flex-1" />
-            <span className="text-xs text-primary">下一篇: 状态管理 →</span>
+            <span className="text-xs text-primary">{t('templates.examples.docs.next')} →</span>
           </div>
         </div>
       </main>
 
       <aside className="w-44 border-l border-border p-4 hidden xl:block">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">目录</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">{t('templates.examples.docs.contents')}</p>
         <nav className="space-y-1">
-          {['组件', '组件属性', '生命周期', '事件处理'].map((item, i) => (
+          {tableOfContents.map((item, i) => (
             <a
               key={item}
               className={`block text-xs py-1 transition-colors ${

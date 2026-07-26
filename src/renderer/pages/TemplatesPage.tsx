@@ -3,6 +3,7 @@ import { Download } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
 import { ChatTemplate } from '../components/templates/ChatTemplate'
@@ -15,7 +16,8 @@ import { LoginTemplate } from '../components/templates/LoginTemplate'
 import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
-import { builtinThemes, useSkinStore } from '../stores/skin-store'
+import { useFeedbackStore } from '../stores/feedback-store'
+import { builtinThemes, generateThemeCss, useSkinStore } from '../stores/skin-store'
 
 interface ExtractedTheme {
   id: string
@@ -29,6 +31,7 @@ export function TemplatesPage() {
   const { t } = useTranslation()
   const [activeTemplate, setActiveTemplate] = useState('dashboard')
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
+  const notify = useFeedbackStore((state) => state.show)
   const [extractedThemes, setExtractedThemes] = useState<ExtractedTheme[]>([])
   const [selectedExtractedId, setSelectedExtractedId] = useState<string | null>(null)
 
@@ -62,10 +65,22 @@ export function TemplatesPage() {
   }
 
   const handleExportSelected = async () => {
-    if (selectedExtractedId) {
-      await window.electronAPI.exportTheme(selectedExtractedId, 'css')
-    } else if (currentThemeId) {
-      await window.electronAPI.exportTheme(currentThemeId, 'css')
+    try {
+      let result: { success?: boolean; canceled?: boolean; error?: boolean }
+      if (selectedExtractedId) {
+        result = await window.electronAPI.exportTheme(selectedExtractedId, 'css')
+      } else {
+        const theme = builtinThemes.find((item) => item.id === currentThemeId) || builtinThemes[0]
+        result = await window.electronAPI.exportFile(generateThemeCss(theme), `imprint-${theme.id}.css`, 'css')
+      }
+
+      if (result.success) {
+        notify(t('feedback.exported'))
+      } else if (result.error) {
+        notify(t('feedback.actionFailed'), 'error')
+      }
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
     }
   }
 
@@ -89,33 +104,44 @@ export function TemplatesPage() {
     }
   }
 
+  const selectedExtractedTheme = extractedThemes.find((theme) => theme.id === selectedExtractedId)
+  const selectedBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId)
+  const currentThemeName = selectedExtractedTheme
+    ? getThemeLabel(selectedExtractedTheme)
+    : t(`themes.presets.${selectedBuiltinTheme?.id || 'default'}.name`, {
+        defaultValue: selectedBuiltinTheme?.name || builtinThemes[0].name,
+      })
+
   return (
     <div className="h-full flex flex-col">
-      <div className="px-8 pt-4 pb-4">
-        <h2 className="text-2xl font-bold">{t('templates.title')}</h2>
-        <p className="text-muted-foreground mt-1">{t('templates.description')}</p>
-      </div>
+      <PageHeader title={t('templates.title')} description={t('templates.description')} />
 
       <div className="px-8 pb-4 space-y-3">
         {/* Row 1: Themes */}
         <div className="flex items-center gap-3">
-          <label className="text-xs text-muted-foreground shrink-0">{t('nav.themes')}</label>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('nav.themes')}</span>
           <div className="flex flex-wrap gap-2 items-center">
             {builtinThemes.map((theme) => (
               <div key={theme.id} className="relative group">
                 <button
+                  type="button"
                   onClick={() => {
                     setTheme(theme.id)
                     setSelectedExtractedId(null)
                   }}
-                  className={`w-5 h-5 rounded-full border-2 transition-all ${
+                  className={`h-7 w-7 rounded-full border-2 transition-all ${
                     currentThemeId === theme.id && !selectedExtractedId
-                      ? 'border-primary scale-110'
+                      ? 'border-primary ring-2 ring-primary/20'
                       : 'border-transparent hover:border-muted-foreground/30'
                   }`}
                   style={{ backgroundColor: theme.colors.primary }}
+                  aria-label={t('templates.applyTheme', {
+                    theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
+                  })}
+                  aria-pressed={currentThemeId === theme.id && !selectedExtractedId}
+                  title={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
                 />
-                <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[10px] bg-foreground text-background whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[11px] text-background opacity-0 transition-opacity group-hover:opacity-100">
                   {t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
                 </span>
               </div>
@@ -126,22 +152,31 @@ export function TemplatesPage() {
             {extractedThemes.map((theme) => (
               <div key={theme.id} className="relative group">
                 <button
+                  type="button"
                   onClick={() => handleApplyExtracted(theme)}
-                  className={`w-5 h-5 rounded-full border-2 transition-all ${
+                  className={`h-7 w-7 rounded-full border-2 transition-all ${
                     selectedExtractedId === theme.id
-                      ? 'border-primary scale-110'
+                      ? 'border-primary ring-2 ring-primary/20'
                       : 'border-transparent hover:border-muted-foreground/30'
                   }`}
                   style={{ backgroundColor: getPrimaryColor(theme) }}
+                  aria-label={t('templates.applyTheme', { theme: getThemeLabel(theme) })}
+                  aria-pressed={selectedExtractedId === theme.id}
+                  title={getThemeLabel(theme)}
                 />
-                <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[10px] bg-foreground text-background whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[11px] text-background opacity-0 transition-opacity group-hover:opacity-100">
                   {getThemeLabel(theme)}
                 </span>
               </div>
             ))}
           </div>
 
+          <span className="max-w-44 truncate text-xs font-medium" title={currentThemeName}>
+            {t('templates.currentTheme', { theme: currentThemeName })}
+          </span>
+
           <button
+            type="button"
             onClick={handleExportSelected}
             className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
           >
@@ -152,12 +187,14 @@ export function TemplatesPage() {
 
         {/* Row 2: Templates */}
         <div className="flex items-center gap-3">
-          <label className="text-xs text-muted-foreground shrink-0">{t('nav.templates')}</label>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('nav.templates')}</span>
           <div className="flex flex-wrap gap-1">
             {templates.map((tpl) => (
               <button
+                type="button"
                 key={tpl.id}
                 onClick={() => setActiveTemplate(tpl.id)}
+                aria-pressed={activeTemplate === tpl.id}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                   activeTemplate === tpl.id
                     ? 'bg-primary text-primary-foreground'
@@ -171,7 +208,10 @@ export function TemplatesPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto mx-8 mb-8 rounded-xl border border-border shadow-sm">
+      <div
+        key={`${activeTemplate}-${currentThemeId}-${selectedExtractedId || ''}`}
+        className="ui-enter mx-8 mb-8 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
+      >
         <ActiveComponent />
       </div>
     </div>

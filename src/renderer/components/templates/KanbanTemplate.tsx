@@ -1,48 +1,53 @@
+import { useTranslation } from 'react-i18next'
+
 export function KanbanTemplate() {
+  const { t } = useTranslation()
+  const card = (key: string, tags: string[], priority: 'high' | 'medium' | 'low') => ({
+    title: t(`templates.examples.kanban.cards.${key}`),
+    tags: tags.map((tag) => t(`templates.examples.kanban.tags.${tag}`)),
+    priority,
+    priorityLabel: t(`templates.examples.kanban.priorities.${priority}`),
+  })
+  const columns = [
+    {
+      title: t('templates.examples.kanban.columns.todo'),
+      color: 'bg-muted-foreground',
+      cards: [
+        card('homepage', ['design'], 'high'),
+        card('apiDocs', ['docs'], 'medium'),
+        card('feedback', ['product'], 'low'),
+      ],
+    },
+    {
+      title: t('templates.examples.kanban.columns.progress'),
+      color: 'bg-primary',
+      cards: [card('login', ['development', 'backend'], 'high'), card('database', ['development'], 'medium')],
+    },
+    {
+      title: t('templates.examples.kanban.columns.testing'),
+      color: 'bg-accent-foreground',
+      cards: [card('payment', ['qa'], 'high')],
+    },
+    {
+      title: t('templates.examples.kanban.columns.done'),
+      color: 'bg-primary',
+      cards: [card('initialization', ['development'], 'low'), card('review', ['product'], 'medium')],
+    },
+  ]
+
   return (
     <div className="min-h-[600px] bg-background text-foreground">
       <header className="h-14 border-b border-border flex items-center px-6 bg-card">
-        <h1 className="text-lg font-bold">项目看板</h1>
+        <h1 className="text-lg font-bold">{t('templates.examples.kanban.title')}</h1>
         <div className="ml-auto flex items-center gap-3">
           <button className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium">
-            + 新建任务
+            + {t('templates.examples.kanban.newTask')}
           </button>
         </div>
       </header>
 
       <div className="p-6 flex gap-5 overflow-x-auto">
-        {[
-          {
-            title: '待办',
-            color: 'bg-muted-foreground',
-            cards: [
-              { title: '设计首页原型', tags: ['设计'], priority: '高' },
-              { title: '编写 API 文档', tags: ['文档'], priority: '中' },
-              { title: '用户反馈收集', tags: ['产品'], priority: '低' },
-            ],
-          },
-          {
-            title: '进行中',
-            color: 'bg-primary',
-            cards: [
-              { title: '实现登录功能', tags: ['开发', '后端'], priority: '高' },
-              { title: '优化数据库查询', tags: ['开发'], priority: '中' },
-            ],
-          },
-          {
-            title: '测试中',
-            color: 'bg-accent-foreground',
-            cards: [{ title: '支付流程测试', tags: ['QA'], priority: '高' }],
-          },
-          {
-            title: '已完成',
-            color: 'bg-primary',
-            cards: [
-              { title: '项目初始化', tags: ['开发'], priority: '低' },
-              { title: '需求评审', tags: ['产品'], priority: '中' },
-            ],
-          },
-        ].map((column) => (
+        {columns.map((column) => (
           <div key={column.title} className="w-64 shrink-0">
             <div className="flex items-center gap-2 mb-3">
               <div className={`w-2.5 h-2.5 rounded-full ${column.color}`} />
@@ -61,21 +66,21 @@ export function KanbanTemplate() {
                     {card.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground"
+                        className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-secondary-foreground"
                       >
                         {tag}
                       </span>
                     ))}
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded ml-auto ${
-                        card.priority === '高'
+                      className={`ml-auto rounded px-1.5 py-0.5 text-[11px] ${
+                        card.priority === 'high'
                           ? 'bg-destructive/10 text-destructive'
-                          : card.priority === '中'
+                          : card.priority === 'medium'
                             ? 'bg-primary/10 text-primary'
                             : 'bg-muted text-muted-foreground'
                       }`}
                     >
-                      {card.priority}
+                      {card.priorityLabel}
                     </span>
                   </div>
                 </div>

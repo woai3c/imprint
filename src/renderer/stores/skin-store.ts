@@ -306,25 +306,25 @@ export const builtinThemes: AppTheme[] = [
   {
     id: 'cyberpunk',
     name: '赛博朋克',
-    description: '霓虹网格，信息在暗夜中发光',
+    description: '深色信息舱，青色与琥珀信号克制发光',
     colors: {
-      background: 'oklch(10% 0.02 280)',
-      foreground: 'oklch(92% 0.02 200)',
-      primary: 'oklch(70% 0.25 330)',
-      'primary-foreground': 'oklch(10% 0.02 280)',
-      secondary: 'oklch(20% 0.03 280)',
-      'secondary-foreground': 'oklch(85% 0.02 200)',
-      muted: 'oklch(18% 0.02 280)',
-      'muted-foreground': 'oklch(60% 0.03 200)',
-      accent: 'oklch(75% 0.2 190)',
-      'accent-foreground': 'oklch(10% 0.02 280)',
-      card: 'oklch(14% 0.025 280)',
-      'card-foreground': 'oklch(92% 0.02 200)',
-      border: 'oklch(25% 0.04 280)',
-      ring: 'oklch(70% 0.25 330)',
-      sidebar: 'oklch(12% 0.025 280)',
-      'sidebar-foreground': 'oklch(85% 0.02 200)',
-      'sidebar-accent': 'oklch(20% 0.06 330)',
+      background: 'oklch(12% 0.018 250)',
+      foreground: 'oklch(90% 0.018 210)',
+      primary: 'oklch(70% 0.11 205)',
+      'primary-foreground': 'oklch(12% 0.02 250)',
+      secondary: 'oklch(20% 0.025 245)',
+      'secondary-foreground': 'oklch(84% 0.022 210)',
+      muted: 'oklch(17% 0.018 245)',
+      'muted-foreground': 'oklch(66% 0.028 215)',
+      accent: 'oklch(73% 0.13 85)',
+      'accent-foreground': 'oklch(14% 0.025 250)',
+      card: 'oklch(15% 0.022 247)',
+      'card-foreground': 'oklch(90% 0.018 210)',
+      border: 'oklch(27% 0.035 230)',
+      ring: 'oklch(70% 0.11 205)',
+      sidebar: 'oklch(13.5% 0.021 248)',
+      'sidebar-foreground': 'oklch(84% 0.022 210)',
+      'sidebar-accent': 'oklch(22% 0.045 215)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -351,8 +351,8 @@ export const builtinThemes: AppTheme[] = [
         iconStrokeWidth: '1.5',
       },
       elevation: {
-        sm: '0 0 12px rgb(0 229 255 / 8%)',
-        md: '0 0 26px rgb(255 26 184 / 14%)',
+        sm: '0 0 12px rgb(78 201 210 / 7%)',
+        md: '0 0 24px rgb(214 169 70 / 9%)',
         lg: '0 16px 48px rgb(0 0 0 / 34%)',
         focus: '0 0 0 2px color-mix(in oklab, var(--color-ring) 36%, transparent)',
       },
@@ -364,8 +364,8 @@ export const builtinThemes: AppTheme[] = [
       },
     }),
     identity: {
-      values: ['聚焦', '速度', '信号'],
-      patterns: ['霓虹状态', '网格定位', '暗场高亮'],
+      values: ['秩序', '信号', '节制'],
+      patterns: ['分层暗面', '局部发光', '青琥珀信号'],
     },
   },
   {
@@ -757,6 +757,51 @@ function applyCssVarsToDOM(cssVars: string) {
   while ((match = regex.exec(cssVars)) !== null) {
     root.style.setProperty(`--${match[1]}`, match[2].trim())
   }
+}
+
+export function generateThemeCss(theme: AppTheme): string {
+  const { typography, spacing, layout, shape, elevation, motion } = theme.tokens
+  const variables: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(theme.colors).map(([name, value]) => [`--color-${name}`, value])),
+    '--color-input': theme.colors.border,
+    '--font-body': typography.fontBody,
+    '--font-heading': typography.fontHeading,
+    '--font-mono': typography.fontMono,
+    '--text-xs': typography.sizes.xs,
+    '--text-sm': typography.sizes.sm,
+    '--text-base': typography.sizes.base,
+    '--text-lg': typography.sizes.lg,
+    '--text-xl': typography.sizes.xl,
+    '--text-2xl': typography.sizes['2xl'],
+    '--tracking-body': typography.letterSpacing.body,
+    '--tracking-heading': typography.letterSpacing.heading,
+    '--tracking-label': typography.letterSpacing.label,
+    '--leading-body': typography.lineHeight.body,
+    '--leading-heading': typography.lineHeight.heading,
+    '--spacing': spacing.unit,
+    '--app-sidebar-width': layout.sidebarWidth,
+    '--app-content-max-width': layout.contentMaxWidth,
+    '--radius-sm': `max(0px, calc(${shape.radiusBase} - 0.25rem))`,
+    '--radius-md': shape.radiusBase,
+    '--radius-lg': `calc(${shape.radiusBase} + 0.25rem)`,
+    '--radius-xl': `calc(${shape.radiusBase} + 0.5rem)`,
+    '--border-width': shape.borderWidth,
+    '--icon-stroke-width': shape.iconStrokeWidth,
+    '--shadow-sm': elevation.sm,
+    '--shadow-md': elevation.md,
+    '--shadow-lg': elevation.lg,
+    '--focus-ring-shadow': elevation.focus,
+    '--motion-fast': motion.fast,
+    '--motion-normal': motion.normal,
+    '--motion-slow': motion.slow,
+    '--motion-easing': motion.easing,
+  }
+
+  const declarations = Object.entries(variables)
+    .map(([name, value]) => `  ${name}: ${value};`)
+    .join('\n')
+
+  return `:root {\n${declarations}\n}\n`
 }
 
 export function initColorMode() {

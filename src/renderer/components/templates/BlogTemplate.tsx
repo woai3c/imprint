@@ -2,36 +2,30 @@
  * Blog template - a clean article listing page.
  * All styling uses CSS variables so theme switching works instantly.
  */
+import { useTranslation } from 'react-i18next'
+
 export function BlogTemplate() {
+  const { t } = useTranslation()
   const posts = [
-    {
-      title: '如何构建可扩展的设计系统',
-      date: '2026-07-20',
-      tag: '设计',
-      excerpt: '设计系统不仅是颜色和字体的集合，更是团队协作的基础设施...',
-    },
-    {
-      title: 'Tailwind CSS v4 完全指南',
-      date: '2026-07-15',
-      tag: '前端',
-      excerpt: 'Tailwind v4 带来了革命性的 CSS-first 架构，让设计令牌管理变得前所未有的简单...',
-    },
-    {
-      title: 'AI 驱动的 UI 开发工作流',
-      date: '2026-07-10',
-      tag: 'AI',
-      excerpt: '通过提取设计系统并交给 AI，你可以实现快速的 UI 开发迭代...',
-    },
-  ]
+    { key: 'designSystem', date: '2026-07-20' },
+    { key: 'tailwind', date: '2026-07-15' },
+    { key: 'aiWorkflow', date: '2026-07-10' },
+  ].map(({ key, date }) => ({
+    title: t(`templates.examples.blog.posts.${key}.title`),
+    tag: t(`templates.examples.blog.posts.${key}.tag`),
+    excerpt: t(`templates.examples.blog.posts.${key}.excerpt`),
+    date,
+  }))
+  const navigation = ['articles', 'tutorials', 'about'].map((key) => t(`templates.examples.blog.navigation.${key}`))
 
   return (
     <div className="min-h-[600px] bg-background text-foreground">
       {/* Header */}
       <header className="border-b border-border py-6 px-8">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold">Dev Blog</h1>
+          <h1 className="text-xl font-bold">{t('templates.examples.blog.title')}</h1>
           <nav className="flex gap-5">
-            {['文章', '教程', '关于'].map((item) => (
+            {navigation.map((item) => (
               <span key={item} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
                 {item}
               </span>
@@ -53,7 +47,9 @@ export function BlogTemplate() {
               </div>
               <h2 className="text-xl font-bold hover:text-primary cursor-pointer transition-colors">{post.title}</h2>
               <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{post.excerpt}</p>
-              <span className="text-primary text-sm font-medium mt-3 inline-block cursor-pointer">阅读更多 →</span>
+              <span className="text-primary text-sm font-medium mt-3 inline-block cursor-pointer">
+                {t('templates.examples.blog.readMore')} →
+              </span>
             </article>
           ))}
         </div>

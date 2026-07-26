@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Imprint logo mark</title>
+<path fill="#1D2531" d="M108 56H404a44 44 0 0 1 44 44v28H160a24 24 0 0 0-24 24v176H64V100a44 44 0 0 1 44-44Z"/>
+  <path fill="#D83425" d="M64 360h224v88H108a44 44 0 0 1-44-44v-44Z"/>
+  <path fill="#D83425" d="M360 168h88v216a64 64 0 0 1-64 64h-64v-96a40 40 0 0 1 40-40V168Z"/>
+</svg>

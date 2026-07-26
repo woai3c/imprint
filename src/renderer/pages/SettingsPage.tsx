@@ -3,6 +3,9 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { PageHeader } from '../components/PageHeader'
+import { useFeedbackStore } from '../stores/feedback-store'
+
 interface AgentCliInfo {
   name: string
   command: string
@@ -21,6 +24,7 @@ interface Settings {
 
 export function SettingsPage() {
   const { t } = useTranslation()
+  const notify = useFeedbackStore((state) => state.show)
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -125,7 +129,7 @@ export function SettingsPage() {
       const result = await window.electronAPI.testApiKey(provider, apiKey)
       setTestResult(result)
     } catch {
-      setTestResult({ success: false, message: 'Test failed' })
+      setTestResult({ success: false, message: t('settings.ai.testFailed') })
     } finally {
       setTesting(false)
     }
@@ -159,35 +163,60 @@ export function SettingsPage() {
       a.download = `imprint-backup-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(blobUrl)
-    } catch (err) {
-      console.error('Export failed:', err)
+      notify(t('feedback.dataExported'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
     }
   }
 
   const handleImportData = async () => {
-    await window.electronAPI.importTheme()
+    try {
+      const importResult = await window.electronAPI.importTheme()
+      if (importResult.success) notify(t('feedback.importFinished'))
+      else if (importResult.error) notify(t('feedback.actionFailed'), 'error')
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const handleClearAll = async () => {
     if (!window.confirm(t('settings.data.confirmClear'))) return
-    const themes = await window.electronAPI.getThemes()
-    for (const theme of themes) {
-      await window.electronAPI.deleteTheme(theme.id)
-    }
-    const analyses = await window.electronAPI.getAnalyses()
-    for (const analysis of analyses) {
-      await window.electronAPI.deleteAnalysis(analysis.id)
+    try {
+      const themes = await window.electronAPI.getThemes()
+      for (const theme of themes) {
+        await window.electronAPI.deleteTheme(theme.id)
+      }
+      const analyses = await window.electronAPI.getAnalyses()
+      for (const analysis of analyses) {
+        await window.electronAPI.deleteAnalysis(analysis.id)
+      }
+      notify(t('feedback.dataCleared'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
     }
   }
 
-  if (!loaded) return null
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
+        <Loader2 size={16} className="mr-2 animate-spin" />
+        {t('settings.loading')}
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col overflow-auto">
-      <div className="px-8 pt-4 pb-6">
-        <h2 className="text-2xl font-bold">{t('settings.title')}</h2>
-        <p className="text-muted-foreground mt-1">{t('settings.description')}</p>
-      </div>
+      <PageHeader
+        title={t('settings.title')}
+        description={t('settings.description')}
+        actions={
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
+            <CheckCircle2 size={13} className="text-emerald-600" />
+            {t('settings.autoSave')}
+          </span>
+        }
+      />
 
       <div className="px-8 pb-8 space-y-8 max-w-2xl">
         <section>
@@ -196,7 +225,9 @@ export function SettingsPage() {
 
           <div className="flex gap-2 mb-6">
             <button
+              type="button"
               onClick={() => handleAiModeChange('apiKey')}
+              aria-pressed={aiMode === 'apiKey'}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 aiMode === 'apiKey'
                   ? 'bg-primary text-primary-foreground'
@@ -206,7 +237,9 @@ export function SettingsPage() {
               {t('settings.ai.useApiKey')}
             </button>
             <button
+              type="button"
               onClick={() => handleAiModeChange('agentCli')}
+              aria-pressed={aiMode === 'agentCli'}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 aiMode === 'agentCli'
                   ? 'bg-primary text-primary-foreground'

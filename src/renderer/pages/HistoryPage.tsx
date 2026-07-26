@@ -3,6 +3,9 @@ import { ExternalLink, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { PageHeader } from '../components/PageHeader'
+import { useFeedbackStore } from '../stores/feedback-store'
+
 interface AnalysisRecord {
   id: string
   theme_id: string | null
@@ -18,6 +21,7 @@ interface AnalysisRecord {
 
 export function HistoryPage() {
   const { t, i18n } = useTranslation()
+  const notify = useFeedbackStore((state) => state.show)
   const [records, setRecords] = useState<AnalysisRecord[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -36,8 +40,15 @@ export function HistoryPage() {
   }, [])
 
   const handleDelete = async (id: string) => {
-    await window.electronAPI.deleteAnalysis(id)
-    setRecords(records.filter((r) => r.id !== id))
+    if (!window.confirm(t('history.confirmDelete'))) return
+
+    try {
+      await window.electronAPI.deleteAnalysis(id)
+      setRecords((current) => current.filter((record) => record.id !== id))
+      notify(t('feedback.historyDeleted'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const filtered = records.filter(
@@ -47,10 +58,7 @@ export function HistoryPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-8 pt-4 pb-4">
-        <h2 className="text-2xl font-bold">{t('history.title')}</h2>
-        <p className="text-muted-foreground mt-1">{t('history.description')}</p>
-      </div>
+      <PageHeader title={t('history.title')} description={t('history.description')} />
 
       <div className="px-8 mb-4">
         <input
@@ -66,7 +74,9 @@ export function HistoryPage() {
       <div className="flex-1 overflow-auto px-8 pb-8">
         {loading ? (
           <div className="flex items-center justify-center h-40">
-            <p className="text-muted-foreground">Loading...</p>
+            <p className="text-muted-foreground" role="status">
+              {t('history.loading')}
+            </p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center h-64">
@@ -76,7 +86,7 @@ export function HistoryPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="ui-enter space-y-2">
             {filtered.map((record) => (
               <div
                 key={record.id}
@@ -84,10 +94,10 @@ export function HistoryPage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium text-sm truncate">{record.theme_name || 'Untitled'}</h4>
+                    <h4 className="truncate text-sm font-medium">{record.theme_name || t('history.untitled')}</h4>
                     {record.token_usage > 0 && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-                        {record.token_usage} tokens
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {t('history.tokenCount', { count: record.token_usage })}
                       </span>
                     )}
                   </div>
@@ -107,14 +117,20 @@ export function HistoryPage() {
 
                 <div className="flex gap-1">
                   <button
+                    type="button"
                     onClick={() => window.open(record.url, '_blank')}
-                    className="p-1.5 rounded hover:bg-secondary transition-colors text-muted-foreground"
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    aria-label={t('history.openSource')}
+                    title={t('history.openSource')}
                   >
                     <ExternalLink size={14} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDelete(record.id)}
-                    className="p-1.5 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={t('history.deleteRecord')}
+                    title={t('history.deleteRecord')}
                   >
                     <Trash2 size={14} />
                   </button>

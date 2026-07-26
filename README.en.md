@@ -1,5 +1,9 @@
 # Imprint
 
+<p align="center">
+  <img src="./assets/brand/imprint-lockup-bilingual-on-paper.png" alt="Imprint · 印记" width="720" />
+</p>
+
 > Extract visual languages from websites and screenshots, and generate reusable design systems.
 
 Imprint is an open-source desktop application that analyzes websites and UI screenshots, extracts their visual rules (colors, typography, spacing, shadows, radii, component styles, etc.), and converts them into AI-friendly design specifications and code variables.

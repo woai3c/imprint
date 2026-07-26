@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { type Browser, type Page, chromium } from 'playwright-core'
 
+import { isMacOS, isWindows } from '../../shared/platform.js'
 import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents } from './component-detect.js'
 import { type DarkModeResult, extractDarkMode } from './dark-mode-detect.js'
@@ -82,10 +83,7 @@ const VIEWPORTS: Record<string, { width: number; height: number }> = {
 }
 
 export function findBrowser(): string | undefined {
-  const isWin = process.platform === 'win32'
-  const isMac = process.platform === 'darwin'
-
-  if (isWin) {
+  if (isWindows(process.platform)) {
     const paths = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -98,7 +96,7 @@ export function findBrowser(): string | undefined {
     }
   }
 
-  if (isMac) {
+  if (isMacOS(process.platform)) {
     const paths = [
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -113,17 +111,14 @@ export function findBrowser(): string | undefined {
 }
 
 function getUserProfilePath(): string | undefined {
-  const isWin = process.platform === 'win32'
-  const isMac = process.platform === 'darwin'
-
-  if (isWin) {
+  if (isWindows(process.platform)) {
     const chromePath = path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/User Data')
     if (fs.existsSync(chromePath)) return chromePath
     const edgePath = path.join(process.env.LOCALAPPDATA || '', 'Microsoft/Edge/User Data')
     if (fs.existsSync(edgePath)) return edgePath
   }
 
-  if (isMac) {
+  if (isMacOS(process.platform)) {
     const home = process.env.HOME || ''
     const chromePath = path.join(home, 'Library/Application Support/Google/Chrome')
     if (fs.existsSync(chromePath)) return chromePath

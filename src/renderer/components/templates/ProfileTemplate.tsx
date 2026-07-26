@@ -1,4 +1,23 @@
+import { useTranslation } from 'react-i18next'
+
 export function ProfileTemplate() {
+  const { t } = useTranslation()
+  const tabs = ['activity', 'articles', 'projects', 'saved'].map((key) => t(`templates.examples.profile.tabs.${key}`))
+  const stats = [
+    { key: 'articles', value: '42' },
+    { key: 'followers', value: '1,289' },
+    { key: 'following', value: '186' },
+  ].map(({ key, value }) => ({ label: t(`templates.examples.profile.stats.${key}`), value }))
+  const posts = [
+    { key: 'react', likes: 128 },
+    { key: 'typescript', likes: 256 },
+    { key: 'designSystem', likes: 89 },
+  ].map(({ key, likes }) => ({
+    title: t(`templates.examples.profile.posts.${key}.title`),
+    time: t(`templates.examples.profile.posts.${key}.time`),
+    likes,
+  }))
+
   return (
     <div className="min-h-[600px] bg-background text-foreground">
       <div className="h-32 bg-primary/10" />
@@ -9,16 +28,16 @@ export function ProfileTemplate() {
             <span className="text-primary-foreground text-2xl font-bold">U</span>
           </div>
           <div className="pb-2">
-            <h1 className="text-xl font-bold">张三</h1>
-            <p className="text-sm text-muted-foreground">全栈开发工程师 · 北京</p>
+            <h1 className="text-xl font-bold">{t('templates.examples.profile.name')}</h1>
+            <p className="text-sm text-muted-foreground">{t('templates.examples.profile.role')}</p>
           </div>
           <button className="ml-auto mb-2 px-4 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors">
-            编辑资料
+            {t('templates.examples.profile.edit')}
           </button>
         </div>
 
         <div className="flex gap-6 border-b border-border mb-6">
-          {['动态', '文章', '项目', '收藏'].map((tab, i) => (
+          {tabs.map((tab, i) => (
             <button
               key={tab}
               className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
@@ -33,11 +52,7 @@ export function ProfileTemplate() {
         </div>
 
         <div className="grid grid-cols-3 gap-4 mb-6">
-          {[
-            { label: '文章', value: '42' },
-            { label: '关注者', value: '1,289' },
-            { label: '关注中', value: '186' },
-          ].map((stat) => (
+          {stats.map((stat) => (
             <div key={stat.label} className="bg-card border border-border rounded-lg p-4 text-center">
               <p className="text-2xl font-bold">{stat.value}</p>
               <p className="text-xs text-muted-foreground mt-1">{stat.label}</p>
@@ -46,11 +61,7 @@ export function ProfileTemplate() {
         </div>
 
         <div className="space-y-4">
-          {[
-            { title: '构建高性能 React 应用', time: '2 小时前', likes: 128 },
-            { title: 'TypeScript 5.0 新特性解读', time: '1 天前', likes: 256 },
-            { title: '从零搭建设计系统', time: '3 天前', likes: 89 },
-          ].map((post) => (
+          {posts.map((post) => (
             <div key={post.title} className="bg-card border border-border rounded-lg p-4">
               <h3 className="font-medium">{post.title}</h3>
               <div className="flex items-center gap-4 mt-2">

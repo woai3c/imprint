@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 
 import { BrowserWindow, app, net, protocol } from 'electron'
 
+import { isMacOS, isWindows } from '../shared/platform.js'
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
 
@@ -20,13 +21,18 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 function createWindow() {
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icons', 'icon.png')
+    : path.join(process.cwd(), 'assets', 'icons', 'icon.png')
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: 'Imprint',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    title: '印记 · Imprint',
+    icon: iconPath,
+    titleBarStyle: isMacOS(process.platform) ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -49,7 +55,7 @@ function createWindow() {
 app.whenReady().then(() => {
   protocol.handle('imprint-file', (request) => {
     let filePath = decodeURIComponent(new URL(request.url).pathname)
-    if (process.platform === 'win32' && filePath.startsWith('/')) {
+    if (isWindows(process.platform) && filePath.startsWith('/')) {
       filePath = filePath.slice(1)
     }
     if (fs.existsSync(filePath)) {
@@ -70,7 +76,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (!isMacOS(process.platform)) {
     app.quit()
   }
 })

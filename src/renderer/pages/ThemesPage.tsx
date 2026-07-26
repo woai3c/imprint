@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { PageHeader } from '../components/PageHeader'
+import { useFeedbackStore } from '../stores/feedback-store'
 import { builtinThemes, useSkinStore } from '../stores/skin-store'
 import type { AppTheme, ThemeColors } from '../stores/skin-store'
 import { useThemeStore } from '../stores/theme-store'
@@ -9,7 +11,9 @@ export function ThemesPage() {
   const { t } = useTranslation()
   const { themes, fetchThemes, toggleFavorite } = useThemeStore()
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
+  const notify = useFeedbackStore((state) => state.show)
   const [tab, setTab] = useState<'extracted' | 'builtin'>('builtin')
+  const [appliedExtractedId, setAppliedExtractedId] = useState<string | null>(null)
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
 
   useEffect(() => {
@@ -18,27 +22,40 @@ export function ThemesPage() {
 
   const handleApplyBuiltin = (theme: AppTheme) => {
     setTheme(theme.id)
+    setAppliedExtractedId(null)
+    notify(
+      t('feedback.themeApplied', {
+        theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
+      }),
+    )
   }
 
-  const handleApplyExtracted = (cssVars: string) => {
-    applyCustomCss(cssVars)
+  const handleApplyExtracted = (theme: (typeof themes)[number]) => {
+    applyCustomCss(theme.css_variables)
+    setAppliedExtractedId(theme.id)
+    notify(t('feedback.themeApplied', { theme: theme.name }))
   }
 
-  const handleExport = async (themeId: string, format: string) => {
-    await window.electronAPI.exportTheme(themeId, format)
+  const handleExport = async (themeId: string, themeName: string, format: string) => {
+    try {
+      const exportResult = await window.electronAPI.exportTheme(themeId, format)
+      if (exportResult.success) notify(t('feedback.themeExported', { theme: themeName }))
+      else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-8 pt-4 pb-4">
-        <h2 className="text-2xl font-bold">{t('themes.title')}</h2>
-        <p className="text-muted-foreground mt-1">{t('themes.description')}</p>
-      </div>
+      <PageHeader title={t('themes.title')} description={t('themes.description')} />
 
       <div className="px-8 mb-4">
         <div className="flex gap-1 p-1 bg-secondary rounded-lg w-fit">
           <button
+            type="button"
             onClick={() => setTab('builtin')}
+            aria-pressed={tab === 'builtin'}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === 'builtin' ? 'bg-background shadow-sm' : 'text-muted-foreground'
             }`}
@@ -46,7 +63,9 @@ export function ThemesPage() {
             {t('themes.builtin')}
           </button>
           <button
+            type="button"
             onClick={() => setTab('extracted')}
+            aria-pressed={tab === 'extracted'}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === 'extracted' ? 'bg-background shadow-sm' : 'text-muted-foreground'
             }`}
@@ -73,7 +92,7 @@ export function ThemesPage() {
                 />
               ))}
             </div>
-            <ThemeLanguagePanel theme={activeBuiltinTheme} />
+            <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
           </>
         ) : themes.length === 0 ? (
           <div className="flex items-center justify-center h-64">
@@ -87,7 +106,11 @@ export function ThemesPage() {
             {themes.map((theme) => (
               <div
                 key={theme.id}
-                className="rounded-xl border border-border p-4 hover:border-primary/50 transition-colors"
+                className={`rounded-xl border p-4 transition-colors ${
+                  appliedExtractedId === theme.id
+                    ? 'border-primary ring-2 ring-primary/20'
+                    : 'border-border hover:border-primary/50'
+                }`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -97,8 +120,15 @@ export function ThemesPage() {
                     )}
                   </div>
                   <button
+                    type="button"
                     onClick={() => toggleFavorite(theme.id)}
-                    className={`text-xs ${theme.is_favorite ? 'text-yellow-500' : 'text-muted-foreground hover:text-yellow-500'} transition-colors`}
+                    className={`flex size-8 items-center justify-center rounded-md text-base ${theme.is_favorite ? 'text-yellow-500' : 'text-muted-foreground hover:bg-secondary hover:text-yellow-500'} transition-colors`}
+                    aria-label={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
+                      theme: theme.name,
+                    })}
+                    title={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
+                      theme: theme.name,
+                    })}
                   >
                     {theme.is_favorite ? '★' : '☆'}
                   </button>
@@ -118,16 +148,19 @@ export function ThemesPage() {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => handleApplyExtracted(theme.css_variables)}
+                    type="button"
+                    onClick={() => handleApplyExtracted(theme)}
+                    aria-pressed={appliedExtractedId === theme.id}
                     className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
                   >
-                    {t('themes.apply')}
+                    {appliedExtractedId === theme.id ? t('themes.current') : t('themes.apply')}
                   </button>
                   <button
-                    onClick={() => handleExport(theme.id, 'css')}
+                    type="button"
+                    onClick={() => handleExport(theme.id, theme.name, 'css')}
                     className="text-xs px-3 py-1.5 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                   >
-                    Export
+                    {t('themes.export')}
                   </button>
                 </div>
               </div>
@@ -145,20 +178,20 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
   const fontName = theme.tokens.typography.fontHeading.split(',')[0].replaceAll('"', '')
 
   return (
-    <section className="theme-language-panel mt-5 rounded-xl border border-border bg-card/70 p-5">
+    <section className="theme-language-panel ui-enter mt-5 rounded-xl border border-border bg-card/70 p-5">
       <div className="flex items-start justify-between gap-6">
         <div>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <p className="text-[11px] font-medium uppercase leading-4 tracking-wider text-muted-foreground">
             {t('themes.language.eyebrow')}
           </p>
           <h3 className="mt-1 text-lg font-semibold">
             {t(`${themeKey}.name`, { defaultValue: theme.name })} · {t('themes.language.title')}
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {t(`${themeKey}.description`, { defaultValue: theme.description })}
           </p>
         </div>
-        <div className="text-right text-[10px] text-muted-foreground">
+        <div className="text-right text-xs leading-5 text-muted-foreground">
           <p>{fontName}</p>
           <p className="mt-1">
             {t(`themes.language.density.${theme.tokens.spacing.density}`)} · {theme.tokens.shape.radiusBase}
@@ -166,12 +199,15 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-3 gap-5">
+      <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
         <div>
           <h4 className="text-xs font-semibold">{t('themes.language.values')}</h4>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {theme.identity.values.map((value, index) => (
-              <span key={value} className="rounded-full bg-secondary px-2 py-1 text-[10px] text-secondary-foreground">
+              <span
+                key={value}
+                className="rounded-full bg-secondary px-2.5 py-1 text-xs leading-4 text-secondary-foreground"
+              >
                 {t(`${themeKey}.values.${index}`, { defaultValue: value })}
               </span>
             ))}
@@ -180,7 +216,7 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
 
         <div>
           <h4 className="text-xs font-semibold">{t('themes.language.patterns')}</h4>
-          <ul className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+          <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
             {theme.identity.patterns.map((pattern, index) => (
               <li key={pattern}>— {t(`${themeKey}.patterns.${index}`, { defaultValue: pattern })}</li>
             ))}
@@ -189,7 +225,7 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
 
         <div>
           <h4 className="text-xs font-semibold">{t('themes.language.foundation')}</h4>
-          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs leading-5 text-muted-foreground">
             <dt>{t('themes.language.spacing')}</dt>
             <dd className="text-right text-foreground">{theme.tokens.spacing.unit}</dd>
             <dt>{t('themes.language.layout')}</dt>
@@ -204,7 +240,7 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
         </div>
       </div>
 
-      <div className="mt-5 border-t border-border/60 pt-3 text-[10px] text-muted-foreground">
+      <div className="mt-5 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
         <span className="mr-2 font-medium text-foreground">{t('themes.language.imprintValues')}</span>
         {t('themes.language.imprintValueList')}
       </div>
@@ -231,7 +267,9 @@ function ThemeCard({
 }) {
   return (
     <button
+      type="button"
       onClick={onApply}
+      aria-pressed={isActive}
       className={`theme-card rounded-xl border p-4 text-left transition-all hover:shadow-md ${
         isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/30'
       }`}

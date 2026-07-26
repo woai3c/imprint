@@ -72,7 +72,9 @@ function ColorSection({
 
       {Object.entries(grouped).map(([group, items]) => (
         <div key={group} className="mb-5 last:mb-0">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2.5">{group}</p>
+          <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {t(`preview.colorGroups.${group}`)}
+          </p>
           <div className="flex flex-wrap gap-3">
             {items.map(([name, value]) => (
               <ColorSwatch key={name} name={name} value={value} />
@@ -87,7 +89,9 @@ function ColorSection({
           <h4 className="text-sm font-medium text-muted-foreground mb-3">● {t('preview.darkTheme')}</h4>
           {Object.entries(groupColors(darkColors)).map(([group, items]) => (
             <div key={group} className="mb-5 last:mb-0">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2.5">{group}</p>
+              <p className="mb-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t(`preview.colorGroups.${group}`)}
+              </p>
               <div className="flex flex-wrap gap-3">
                 {items.map(([name, value]) => (
                   <ColorSwatch key={name} name={name} value={value} dark />
@@ -103,15 +107,15 @@ function ColorSection({
 
 function ColorSwatch({ name, value, dark }: { name: string; value: string; dark?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1 w-18">
+    <div className="flex w-20 flex-col items-center gap-1">
       <div
         className="w-full h-10 rounded-md border border-black/5 dark:border-white/10"
         style={{ backgroundColor: value, ...(dark ? { outline: '1px solid rgba(255,255,255,0.08)' } : {}) }}
       />
-      <span className="text-[10px] text-muted-foreground text-center leading-tight truncate w-full" title={name}>
+      <span className="w-full truncate text-center text-xs leading-4 text-muted-foreground" title={name}>
         {name}
       </span>
-      <span className="text-[9px] text-muted-foreground/60 font-mono truncate w-full text-center" title={value}>
+      <span className="w-full truncate text-center font-mono text-[11px] leading-4 text-muted-foreground" title={value}>
         {value}
       </span>
     </div>
@@ -130,15 +134,10 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
     <SectionCard title={t('preview.typography')}>
       {typography.fontStacks && typography.fontStacks.length > 0 && (
         <div className="mb-5 pb-4 border-b border-border/50">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
-            {t('preview.fontStacks')}
-          </p>
+          <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{t('preview.fontStacks')}</p>
           <div className="space-y-1">
             {typography.fontStacks.map((stack, i) => (
-              <code
-                key={i}
-                className="block text-[11px] text-foreground/70 font-mono bg-muted/40 px-2.5 py-1 rounded-md"
-              >
+              <code key={i} className="block rounded-md bg-muted/40 px-2.5 py-1 font-mono text-xs text-foreground/80">
                 {stack}
               </code>
             ))}
@@ -158,10 +157,10 @@ function TypographySection({ typography, t }: { typography: TokenData['typograph
                   lineHeight: combo.lineHeight,
                 }}
               >
-                The quick brown fox jumps
+                {t('preview.typeSampleShort')}
               </p>
             </div>
-            <div className="text-right text-[11px] text-muted-foreground/70 shrink-0 font-mono">
+            <div className="shrink-0 text-right font-mono text-xs text-muted-foreground">
               <span>{combo.size}</span>
               <span className="mx-1 text-muted-foreground/30">·</span>
               <span>{combo.weight}</span>
@@ -184,11 +183,11 @@ function SpacingSection({ spacing, t }: { spacing: string[]; t: (key: string) =>
           const percent = isNaN(px) ? 0 : (px / maxValue) * 100
           return (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-[10px] text-muted-foreground/70 w-14 shrink-0 font-mono">space-{i + 1}</span>
+              <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">space-{i + 1}</span>
               <div className="flex-1 h-4 bg-muted/30 rounded-sm overflow-hidden">
                 <div className="h-full bg-foreground/15 rounded-sm" style={{ width: `${percent}%` }} />
               </div>
-              <span className="text-[10px] text-muted-foreground/70 w-10 text-right font-mono">{value}</span>
+              <span className="w-12 text-right font-mono text-xs text-muted-foreground">{value}</span>
             </div>
           )
         })}
@@ -198,15 +197,13 @@ function SpacingSection({ spacing, t }: { spacing: string[]; t: (key: string) =>
 }
 
 function RadiusSection({ radii, t }: { radii: string[]; t: (key: string) => string }) {
-  const names = ['sm', 'md', 'lg', 'xl', '2xl', 'pill']
-
   return (
     <SectionCard title={t('preview.radius')}>
       <div className="flex flex-wrap gap-4">
         {radii.map((value, i) => (
           <div key={i} className="flex flex-col items-center gap-1.5">
             <div className="w-12 h-12 border border-foreground/15 bg-muted/30" style={{ borderRadius: value }} />
-            <span className="text-[10px] text-muted-foreground font-mono">{value}</span>
+            <span className="font-mono text-xs text-muted-foreground">{value}</span>
           </div>
         ))}
       </div>
@@ -223,7 +220,7 @@ function ShadowSection({ shadows, t }: { shadows: string[]; t: (key: string) => 
         {shadows.map((value, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
             <div className="w-16 h-16 rounded-lg bg-background" style={{ boxShadow: value }} />
-            <span className="text-[10px] text-muted-foreground font-mono">shadow-{names[i] || i + 1}</span>
+            <span className="font-mono text-xs text-muted-foreground">shadow-{names[i] || i + 1}</span>
           </div>
         ))}
       </div>
@@ -237,15 +234,15 @@ function groupColors(colors: Record<string, string>): Record<string, [string, st
   for (const [name, value] of Object.entries(colors)) {
     let group: string
     if (name.includes('background') || name.includes('surface') || name === 'card') {
-      group = 'SURFACE'
+      group = 'surface'
     } else if (name.includes('foreground') || name.includes('text') || name.includes('muted')) {
-      group = 'TEXT'
+      group = 'text'
     } else if (name.includes('primary') || name.includes('secondary') || name.includes('accent')) {
-      group = 'BRAND'
+      group = 'brand'
     } else if (name.includes('border') || name.includes('ring')) {
-      group = 'BORDER'
+      group = 'border'
     } else {
-      group = 'PALETTE'
+      group = 'palette'
     }
 
     if (!groups[group]) groups[group] = []
@@ -261,9 +258,9 @@ function LetterSpacingSection({ spacings, t }: { spacings: string[]; t: (key: st
       <div className="space-y-2">
         {spacings.map((value, i) => (
           <div key={i} className="flex items-center gap-3">
-            <span className="text-[10px] text-muted-foreground/70 w-14 shrink-0 font-mono">{value}</span>
+            <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">{value}</span>
             <p className="text-sm truncate text-foreground/75" style={{ letterSpacing: value }}>
-              The quick brown fox jumps over the lazy dog
+              {t('preview.typeSampleLong')}
             </p>
           </div>
         ))}
@@ -280,9 +277,9 @@ function TransitionSection({ transitions, t }: { transitions: string[]; t: (key:
         {transitions.map((value, i) => (
           <div key={i} className="flex flex-col items-center gap-1.5">
             <div className="min-w-14 h-10 px-2 rounded-md bg-secondary/60 border border-border flex items-center justify-center">
-              <span className="text-[10px] font-mono text-foreground/70 truncate max-w-20">{value}</span>
+              <span className="max-w-24 truncate font-mono text-xs text-foreground/80">{value}</span>
             </div>
-            <span className="text-[10px] text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
+            <span className="text-xs text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
           </div>
         ))}
       </div>

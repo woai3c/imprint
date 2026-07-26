@@ -37,6 +37,11 @@
     cursor: pointer;
   }
 
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
@@ -290,11 +295,11 @@ html[data-app-theme='cyberpunk'] .app-shell::before {
   z-index: -2;
   inset: 0;
   background:
-    radial-gradient(circle at 78% 16%, rgb(255 26 184 / 18%), transparent 27%),
-    radial-gradient(circle at 28% 88%, rgb(0 237 255 / 13%), transparent 30%),
-    linear-gradient(rgb(0 229 255 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(0 229 255 / 4%) 1px, transparent 1px),
-    linear-gradient(145deg, #0e081a, #080a17 58%, #070d18);
+    radial-gradient(circle at 78% 16%, rgb(214 169 70 / 6%), transparent 26%),
+    radial-gradient(circle at 28% 88%, rgb(78 201 210 / 8%), transparent 30%),
+    linear-gradient(rgb(78 201 210 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(78 201 210 / 4%) 1px, transparent 1px),
+    linear-gradient(145deg, #091419, #081116 58%, #071015);
   background-size:
     auto,
     auto,
@@ -320,7 +325,7 @@ html[data-app-theme='cyberpunk'] .app-sidebar {
   border-right-color: color-mix(in oklab, var(--color-accent) 28%, transparent);
   box-shadow:
     14px 0 42px rgb(0 0 0 / 30%),
-    inset -1px 0 rgb(0 230 255 / 7%);
+    inset -1px 0 rgb(78 201 210 / 7%);
   backdrop-filter: blur(18px);
 }
 
@@ -349,14 +354,14 @@ html[data-app-theme='cyberpunk'] .app-topbar {
 }
 
 html[data-app-theme='cyberpunk'] .app-content {
-  background: radial-gradient(circle at 72% 10%, rgb(255 0 184 / 4%), transparent 36%);
+  background: radial-gradient(circle at 72% 10%, rgb(214 169 70 / 3%), transparent 36%);
 }
 
 html[data-app-theme='cyberpunk'] :is(h1, h2, h3, h4) {
   font-family: var(--font-heading);
   line-height: var(--leading-heading);
   letter-spacing: var(--tracking-heading);
-  text-shadow: 0 0 18px color-mix(in oklab, var(--color-accent) 18%, transparent);
+  text-shadow: 0 0 18px color-mix(in oklab, var(--color-primary) 14%, transparent);
 }
 
 html[data-app-theme='cyberpunk'] :is(.bg-card, .bg-background) {
@@ -370,12 +375,12 @@ html[data-app-theme='cyberpunk'] .bg-secondary {
 html[data-app-theme='cyberpunk'] :is(input, textarea, select) {
   background-color: color-mix(in oklab, var(--color-card) 86%, transparent);
   box-shadow:
-    inset 0 0 0 1px rgb(0 229 255 / 4%),
+    inset 0 0 0 1px rgb(78 201 210 / 4%),
     0 12px 36px rgb(0 0 0 / 22%);
 }
 
 html[data-app-theme='cyberpunk'] button.bg-primary {
-  background: linear-gradient(118deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 66%, #8a2fff));
+  background: linear-gradient(118deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 74%, #176f78));
   box-shadow:
     0 0 22px color-mix(in oklab, var(--color-primary) 24%, transparent),
     inset 0 0 0 1px rgb(255 255 255 / 10%);
@@ -804,9 +809,9 @@ html[data-app-theme='blueprint'] :is(.border, [class*='border-border']) {
 /* Theme library previews communicate each theme's spatial language, not just its palette. */
 .theme-card-preview-cyberpunk {
   background:
-    radial-gradient(circle at 80% 20%, rgb(255 23 185 / 44%), transparent 30%),
-    linear-gradient(rgb(0 229 255 / 12%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(0 229 255 / 12%) 1px, transparent 1px), linear-gradient(140deg, #130821, #07131d);
+    radial-gradient(circle at 80% 20%, rgb(214 169 70 / 18%), transparent 30%),
+    linear-gradient(rgb(78 201 210 / 11%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(78 201 210 / 11%) 1px, transparent 1px), linear-gradient(140deg, #0b181d, #07131a);
   background-size:
     auto,
     18px 18px,
@@ -869,6 +874,14 @@ html[data-app-theme='blueprint'] :is(.border, [class*='border-border']) {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .ui-enter {
+    animation: ui-enter var(--motion-normal, 180ms) var(--motion-easing, cubic-bezier(0.2, 0, 0, 1)) both;
+  }
+
+  .app-feedback {
+    animation: feedback-enter var(--motion-normal, 180ms) var(--motion-easing, cubic-bezier(0.2, 0, 0, 1)) both;
+  }
+
   html[data-app-theme='chinese-landscape'] .app-shell::before {
     animation: ink-reveal 700ms ease-out both;
   }
@@ -879,6 +892,36 @@ html[data-app-theme='blueprint'] :is(.border, [class*='border-border']) {
 
   html[data-app-theme='cyberpunk'] .app-shell::after {
     animation: scanline-drift 9s linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell :is(button, a, input, textarea, select, [role='button']) {
+    transition-duration: 0.01ms;
+  }
+}
+
+@keyframes ui-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

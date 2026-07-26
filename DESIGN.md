@@ -152,6 +152,20 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
+## Export semantics
+
+Export choices describe different jobs and must never be presented as interchangeable:
+
+- **DESIGN.md** is the recommended single artifact for an AI that must revise an existing UI. It explains design intent,
+  rules, evidence, and reusable values. Users should provide it together with the current UI screenshot or source code.
+- **CSS variables** are recommended for framework-agnostic web and CSS projects.
+- **Tailwind v4 `@theme`** is recommended when the target project already uses Tailwind v4.
+- **Tokens JSON** is recommended for design-token tooling, automation, and agents that need machine-readable values.
+
+Every export action must name the artifact it will create. Theme-library preferences apply only to theme-card exports;
+the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
+design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
+
 ## Anti-slop guardrails
 
 Visual novelty must remain accountable to the product's extraction and validation workflow:

@@ -3,8 +3,10 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { useFeedbackStore } from '../stores/feedback-store'
+import type { ThemeExportFormat } from '../stores/skin-store'
 
 interface AgentCliInfo {
   name: string
@@ -19,8 +21,10 @@ interface Settings {
   apiKey: string
   baseUrl?: string
   agentCli: string
-  exportFormat: string
+  exportFormat: ThemeExportFormat
 }
+
+const themeExportFormats: ThemeExportFormat[] = ['markdown', 'css', 'tailwind', 'json']
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -29,7 +33,7 @@ export function SettingsPage() {
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [exportFormat, setExportFormat] = useState('css')
+  const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
   const [agentClis, setAgentClis] = useState<AgentCliInfo[]>([])
   const [selectedCli, setSelectedCli] = useState('')
   const [detecting, setDetecting] = useState(false)
@@ -56,7 +60,7 @@ export function SettingsPage() {
       setApiKey(s.apiKey || '')
       setCustomBaseUrl(s.baseUrl || '')
       setSelectedCli(s.agentCli || '')
-      setExportFormat(s.exportFormat || 'css')
+      setExportFormat(themeExportFormats.includes(s.exportFormat) ? s.exportFormat : 'markdown')
       setLoaded(true)
 
       if (s.aiMode === 'agentCli') {
@@ -112,7 +116,7 @@ export function SettingsPage() {
     save({ baseUrl: v } as Partial<Settings>)
   }
 
-  const handleExportFormatChange = (v: string) => {
+  const handleExportFormatChange = (v: ThemeExportFormat) => {
     setExportFormat(v)
     save({ exportFormat: v })
   }
@@ -156,11 +160,12 @@ export function SettingsPage() {
       const themes = await window.electronAPI.getThemes()
       const analyses = await window.electronAPI.getAnalyses()
       const settings = await window.electronAPI.getSettings()
-      const blob = JSON.stringify({ themes, analyses, settings }, null, 2)
+      const { apiKey: _apiKey, ...exportableSettings } = settings
+      const blob = JSON.stringify({ themes, analyses, settings: exportableSettings }, null, 2)
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
       const a = document.createElement('a')
       a.href = blobUrl
-      a.download = `imprint-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `imprint-local-data-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(blobUrl)
       notify(t('feedback.dataExported'))
@@ -173,7 +178,7 @@ export function SettingsPage() {
     try {
       const importResult = await window.electronAPI.importTheme()
       if (importResult.success) notify(t('feedback.importFinished'))
-      else if (importResult.error) notify(t('feedback.actionFailed'), 'error')
+      else if (!importResult.canceled) notify(t('feedback.importFailed'), 'error')
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     }
@@ -399,20 +404,25 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold mb-4">{t('settings.export.title')}</h3>
           <div className="p-4 rounded-lg border border-border space-y-3">
             <div>
-              <label className="text-sm font-medium block mb-1.5">{t('settings.export.defaultFormat')}</label>
+              <div className="mb-1.5 flex items-center gap-1">
+                <label htmlFor="settings-export-format" className="text-sm font-medium">
+                  {t('settings.export.defaultFormat')}
+                </label>
+                <InfoTip text={t('settings.export.help')} />
+              </div>
               <select
+                id="settings-export-format"
                 value={exportFormat}
-                onChange={(e) => handleExportFormatChange(e.target.value)}
+                onChange={(e) => handleExportFormatChange(e.target.value as ThemeExportFormat)}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
                                  focus:outline-none focus:ring-2 focus:ring-ring"
               >
+                <option value="markdown">{t('settings.export.markdown')}</option>
                 <option value="css">{t('settings.export.css')}</option>
                 <option value="tailwind">{t('settings.export.tailwind')}</option>
-                <option value="both">{t('settings.export.both')}</option>
                 <option value="json">{t('settings.export.json')}</option>
-                <option value="markdown">{t('settings.export.markdown')}</option>
-                <option value="all">{t('settings.export.all')}</option>
               </select>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('settings.export.hint')}</p>
             </div>
           </div>
         </section>

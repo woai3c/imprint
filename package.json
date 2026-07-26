@@ -3,6 +3,12 @@
   "productName": "Imprint",
   "version": "0.1.0",
   "description": "Extract website UI design styles and export as CSS/Tailwind themes for AI to use",
+  "author": "woai3c",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woai3c/imprint.git"
+  },
   "main": ".vite/build/index.js",
   "private": true,
   "packageManager": "pnpm@10.7.1",
@@ -14,11 +20,17 @@
     "build": "electron-forge package",
     "build:cli": "tsc -p tsconfig.cli.json",
     "make": "electron-forge make",
+    "test:e2e": "pnpm build && node --test tests/e2e/core-flow.test.mjs",
     "lint": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "ci": "pnpm typecheck && pnpm lint && pnpm build",
+    "release": "node scripts/release.mjs",
+    "release:check": "pnpm typecheck && pnpm exec eslint . && pnpm format:check",
+    "release:verify": "node scripts/verify-release.mjs",
+    "release:notes": "node scripts/extract-release-notes.mjs",
+    "release:collect": "node scripts/collect-release-artifacts.mjs",
     "prepare": "husky"
   },
   "bin": {

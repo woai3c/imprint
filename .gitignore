@@ -2,6 +2,9 @@ node_modules/
 dist/
 out/
 .vite/
+release-assets/
+release-notes.md
+test-results/
 
 # Database
 *.db

@@ -1,12 +1,9 @@
-# Imprint
-
-English / [简体中文](./README.md)
-
-<p align="center">
-  <img src="./assets/brand/imprint-lockup-bilingual-on-paper.png" alt="Imprint · 印记" width="720" />
-</p>
-
-> Extract visual languages from websites and screenshots, and generate reusable design systems.
+<div align="center">
+  <img src="./assets/brand/imprint-mark.svg" alt="Imprint · 印记" width="96" />
+  <h1 align="center">Imprint</h1>
+  <p align="center">English / <a href="./README.md">简体中文</a></p>
+  <p align="center">Extract visual languages from websites and screenshots, and generate reusable design systems.</p>
+</div>
 
 Imprint is an open-source desktop application that analyzes websites and UI screenshots, extracts their visual rules (colors, typography, spacing, shadows, radii, component styles, etc.), and converts them into AI-friendly design specifications and code variables.
 
@@ -88,6 +85,17 @@ graph TD
 
 Imprint generates:
 
+### Which format should I export?
+
+| Goal                                                   | Recommended output    | Include with it                      |
+| ------------------------------------------------------ | --------------------- | ------------------------------------ |
+| Ask AI to revise an existing UI                        | **DESIGN.md**         | Current UI screenshot or source code |
+| Implement directly in a CSS project                    | **CSS Variables**     | The existing style entry file        |
+| Implement directly in a Tailwind v4 project            | **Tailwind `@theme`** | The project's theme stylesheet       |
+| Use a toolchain or an agent that needs structured data | **Tokens JSON**       | A precise automation task            |
+
+If you give AI only one exported file, choose **DESIGN.md**. CSS Variables and Tailwind are implementation artifacts, while Tokens JSON is machine-readable data; none of them replaces the existing UI screenshot or source code.
+
 ### DESIGN.md
 
 Including:
@@ -167,7 +175,23 @@ pnpm dev
 pnpm build
 
 pnpm make
+
+pnpm test:e2e
 ```
+
+## Releasing
+
+Run from a clean, up-to-date `main` branch:
+
+```bash
+pnpm release
+```
+
+The command selects a version, runs release checks, generates `CHANGELOG.md`, creates a release commit and annotated `vX.Y.Z` tag, and atomically pushes both to `origin` after confirmation. The tag triggers native GitHub Actions builds for Windows x64, macOS Apple Silicon, and macOS Intel.
+
+Installers are built and published by [`.github/workflows/release.yml`](./.github/workflows/release.yml). Release-tag builds require macOS Developer ID/notarization credentials and a Windows PFX signing certificate, so missing credentials cannot silently produce an unsigned public release.
+
+For the complete GitHub Actions, certificate, secret, release, and verification procedure, follow the [Chinese deployment guide](./DEPLOYMENT.zh-CN.md).
 
 ## Project Structure
 

@@ -23,9 +23,10 @@
     "exported": "文件已导出",
     "themeApplied": "已应用“{{theme}}”",
     "themeExported": "已导出“{{theme}}”",
-    "dataExported": "备份数据已导出",
+    "dataExported": "本地数据 JSON 已导出",
     "importFinished": "数据导入完成",
-    "dataCleared": "本地数据已清除",
+    "importFailed": "无法导入：请选择 Imprint 导出的主题 Tokens JSON 文件",
+    "dataCleared": "主题与分析记录已清除",
     "historyDeleted": "历史记录已删除",
     "actionFailed": "操作失败，请重试"
   },
@@ -40,7 +41,7 @@
     "failed": "失败: {{message}}",
     "error": "分析异常",
     "emptyTitle": "输入网站 URL 开始分析",
-    "emptyDescription": "支持任意公开网页。分析完成后可导出为 CSS 变量、Tailwind 主题、设计文档等格式，供 AI 生成或修改 UI 使用。",
+    "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
     "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
     "browserNotFound": "未找到 Chrome 或 Edge 浏览器，请先安装",
     "tabPreview": "预览",
@@ -48,8 +49,19 @@
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS 变量",
     "tabJson": "Tokens JSON",
-    "copy": "复制",
-    "exportFile": "导出文件",
+    "copyCurrent": "复制 {{format}}",
+    "exportCurrent": "导出 {{format}}",
+    "artifacts": {
+      "markdown": "DESIGN.md",
+      "tailwind": "Tailwind v4",
+      "css": "CSS 变量",
+      "json": "Tokens JSON"
+    },
+    "aiExport": {
+      "title": "给 AI 修改现有 UI",
+      "summary": "如果只导出一个文件，请选择 DESIGN.md，并把它与当前 UI 截图或源代码一起交给 AI。",
+      "details": "DESIGN.md 推荐给需要理解并修改现有 UI 的 AI；CSS 变量推荐给通用 Web/CSS 项目；Tailwind @theme 推荐给 Tailwind v4 项目；Tokens JSON 推荐给设计工具、自动化流程和需要结构化数据的 Agent。"
+    },
     "saveToLibrary": "保存到主题库",
     "saved": "已保存",
     "extractedColors": "提取的颜色",
@@ -59,13 +71,22 @@
   },
   "themes": {
     "title": "主题库",
-    "description": "浏览内置主题或从提取历史中选择，点击即可应用到当前界面",
+    "description": "浏览、应用或导出内置主题与网站提取主题",
     "builtin": "内置主题",
     "extracted": "提取的主题",
     "apply": "应用",
     "current": "当前",
     "resetDefault": "恢复默认",
     "export": "导出",
+    "exportTheme": "以当前格式导出“{{theme}}”",
+    "exportFormatLabel": "导出格式",
+    "exportHelp": "给 AI 修改已有 UI 时优先导出 DESIGN.md，并同时提供截图或源代码；CSS 变量与 Tailwind 用于直接实现；Tokens JSON 用于工具和自动化。内置主题导出包含可复用的设计规则与令牌，不包含 Imprint 应用专用的背景图片、纹理和外壳样式。",
+    "exportFormats": {
+      "markdown": "DESIGN.md（推荐给 AI）",
+      "css": "CSS 变量（推荐通用 Web）",
+      "tailwind": "Tailwind @theme（推荐 Tailwind v4）",
+      "json": "Tokens JSON（推荐工具与 Agent）"
+    },
     "addFavorite": "收藏“{{theme}}”",
     "removeFavorite": "取消收藏“{{theme}}”",
     "noExtracted": "还没有提取的主题",
@@ -178,6 +199,8 @@
     "analytics": "数据分析",
     "applyTheme": "应用“{{theme}}”主题",
     "currentTheme": "当前：{{theme}}",
+    "exportThemeCss": "导出当前主题 CSS",
+    "exportThemeCssHelp": "验证场景只导出当前主题的 CSS 变量。若需要 DESIGN.md、Tailwind 或 Tokens JSON，请前往主题库选择导出格式。",
     "examples": {
       "dashboard": {
         "title": "管理仪表盘",
@@ -568,22 +591,22 @@
       "noCli": "点击上方「使用本地 AI Agent CLI」后自动检测"
     },
     "export": {
-      "title": "导出偏好",
-      "defaultFormat": "默认导出格式",
-      "css": "CSS 自定义属性（推荐，最通用）",
-      "tailwind": "Tailwind CSS v4 @theme",
-      "both": "同时导出 CSS + Tailwind",
-      "json": "设计令牌 JSON (DTCG)",
-      "markdown": "Markdown 设计文档",
-      "all": "全部格式"
+      "title": "主题库导出",
+      "defaultFormat": "主题卡片默认导出格式",
+      "markdown": "DESIGN.md（推荐给 AI）",
+      "css": "CSS 变量（推荐通用 Web/CSS 项目）",
+      "tailwind": "Tailwind v4 @theme（推荐 Tailwind v4 项目）",
+      "json": "Tokens JSON（推荐工具、自动化与 Agent）",
+      "help": "这个偏好只控制主题库卡片的导出格式，不会改变分析结果页当前标签的导出内容。",
+      "hint": "DESIGN.md 用于 AI 理解和修改 UI；CSS 变量用于通用 Web；Tailwind @theme 用于 Tailwind v4；Tokens JSON 用于工具链、自动化和 Agent。"
     },
     "data": {
       "title": "数据管理",
-      "exportAll": "导出全部数据",
-      "import": "导入数据",
-      "clearAll": "清除所有数据",
-      "confirmClear": "确认要清除所有数据？此操作不可撤销。",
-      "tip": "数据存储在本地，可导出为 .zip 文件与他人共享"
+      "exportAll": "导出本地数据 JSON",
+      "import": "导入主题 Tokens JSON",
+      "clearAll": "清除主题与分析记录",
+      "confirmClear": "确认要清除全部主题与分析记录？设置不会被清除，此操作不可撤销。",
+      "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复；导入只支持单个主题的 Tokens JSON。"
     }
   },
   "progress": {

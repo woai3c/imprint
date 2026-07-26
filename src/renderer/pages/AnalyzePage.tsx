@@ -3,6 +3,7 @@ import { Download, Loader2, Save } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { TokenPreview } from '../components/TokenPreview'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
@@ -21,6 +22,8 @@ export function AnalyzePage() {
   const analyzing = store.analyzing
   const progress = store.progress
   const result = store.lastResult
+  const activeArtifact = activeTab === 'preview' ? 'markdown' : activeTab
+  const activeArtifactLabel = t(`analyze.artifacts.${activeArtifact}`)
 
   useEffect(() => {
     const unsubscribe = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
@@ -101,22 +104,26 @@ export function AnalyzePage() {
   const handleExportFile = async () => {
     if (!result) return
     let content = ''
-    let ext = 'md'
+    let ext: 'md' | 'css' | 'json' = 'md'
+    let filename = 'DESIGN.md'
     if (activeTab === 'markdown' || activeTab === 'preview') {
       content = result.designDoc
       ext = 'md'
     } else if (activeTab === 'tailwind') {
       content = result.tailwindTheme
       ext = 'css'
+      filename = 'tailwind-theme.css'
     } else if (activeTab === 'css') {
       content = result.cssVariables
       ext = 'css'
+      filename = 'theme-variables.css'
     } else if (activeTab === 'json') {
       content = JSON.stringify(result.tokens, null, 2)
       ext = 'json'
+      filename = 'design-tokens.json'
     }
     try {
-      const exportResult = await window.electronAPI.exportFile(content, `design-tokens.${ext}`, ext)
+      const exportResult = await window.electronAPI.exportFile(content, filename, ext)
       if (exportResult.success) notify(t('feedback.exported'))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -154,6 +161,7 @@ export function AnalyzePage() {
         <div className="flex gap-3">
           <div className="flex-1">
             <input
+              data-testid="analyze-url"
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -166,6 +174,7 @@ export function AnalyzePage() {
             />
           </div>
           <button
+            data-testid="analyze-submit"
             onClick={handleAnalyze}
             disabled={analyzing || !url.trim()}
             className="h-12 px-6 rounded-lg bg-primary text-primary-foreground font-medium
@@ -208,12 +217,14 @@ export function AnalyzePage() {
 
       {/* Results */}
       {result ? (
-        <div className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5">
+        <div data-testid="analysis-result" className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5">
           {/* Left: Overview Panel */}
           <div className="w-80 shrink-0 flex flex-col gap-4 overflow-auto">
             {/* Website identity */}
             <div className="rounded-xl border border-border/60 bg-card/50 p-5">
-              <h3 className="text-base font-semibold">{hostname}</h3>
+              <h3 data-testid="analysis-source" className="text-base font-semibold">
+                {hostname}
+              </h3>
 
               {/* Feature tags */}
               {result.featureTags && result.featureTags.length > 0 && (
@@ -276,22 +287,31 @@ export function AnalyzePage() {
               </p>
             </div>
 
+            <div className="rounded-lg border border-border/60 bg-secondary/35 p-3">
+              <div className="flex items-center gap-1">
+                <h4 className="text-xs font-semibold">{t('analyze.aiExport.title')}</h4>
+                <InfoTip text={t('analyze.aiExport.details')} />
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
+            </div>
+
             {/* Action buttons */}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
+                data-testid="save-theme"
                 onClick={handleSaveToLibrary}
                 disabled={saved}
-                className="flex-1 text-xs py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-2 py-2 text-xs text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 <Save size={12} />
                 {saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
               </button>
               <button
                 onClick={handleExportFile}
-                className="flex-1 text-xs py-2 rounded-lg bg-secondary text-secondary-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1.5"
+                className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-secondary px-2 py-2 text-xs text-secondary-foreground transition-colors hover:bg-accent"
               >
                 <Download size={12} />
-                {t('analyze.exportFile')}
+                {t('analyze.exportCurrent', { format: activeArtifactLabel })}
               </button>
             </div>
           </div>
@@ -303,6 +323,7 @@ export function AnalyzePage() {
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
+                  data-testid={`artifact-tab-${tab.id}`}
                   onClick={() => setActiveTab(tab.id)}
                   aria-pressed={activeTab === tab.id}
                   className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
@@ -319,7 +340,7 @@ export function AnalyzePage() {
                   onClick={handleCopy}
                   className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                 >
-                  {t('analyze.copy')}
+                  {t('analyze.copyCurrent', { format: activeArtifactLabel })}
                 </button>
               </div>
             </div>
@@ -334,7 +355,10 @@ export function AnalyzePage() {
                 />
               )}
               {activeTab !== 'preview' && (
-                <pre className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4">
+                <pre
+                  data-testid={`artifact-content-${activeTab}`}
+                  className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4"
+                >
                   {activeTab === 'markdown' && result.designDoc}
                   {activeTab === 'tailwind' && result.tailwindTheme}
                   {activeTab === 'css' && result.cssVariables}

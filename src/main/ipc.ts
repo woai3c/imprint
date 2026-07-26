@@ -11,6 +11,7 @@ import type { DarkModeExportData } from '../core/export/index.js'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
+import type { DesignToken } from './export.js'
 import {
   generateCssVariables,
   generateDesignDoc,
@@ -19,6 +20,94 @@ import {
   generateTailwindTheme,
 } from './export.js'
 import { getSettings, saveSettings } from './settings.js'
+
+type UnknownRecord = Record<string, unknown>
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function readDtcgValues(value: unknown): string[] {
+  if (!isRecord(value)) return []
+
+  return Object.values(value)
+    .map((item) => (isRecord(item) ? item.$value : undefined))
+    .filter((item): item is string | number => typeof item === 'string' || typeof item === 'number')
+    .map(String)
+}
+
+function normalizeImportedTokens(value: unknown): DesignToken {
+  if (!isRecord(value)) throw new Error('The selected file is not a theme token JSON object')
+
+  if (isRecord(value.colors) && isRecord(value.typography)) {
+    const colors = Object.fromEntries(
+      Object.entries(value.colors).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    )
+    const typography = value.typography
+    if (Object.keys(colors).length === 0) throw new Error('The theme does not contain usable color tokens')
+
+    return {
+      colors,
+      typography: {
+        fontFamilies: asStringArray(typography.fontFamilies),
+        fontStacks: asStringArray(typography.fontStacks),
+        fontSizes: asStringArray(typography.fontSizes),
+        fontWeights: asStringArray(typography.fontWeights),
+        lineHeights: asStringArray(typography.lineHeights),
+        letterSpacings: asStringArray(typography.letterSpacings),
+      },
+      spacing: asStringArray(value.spacing),
+      radii: asStringArray(value.radii),
+      shadows: asStringArray(value.shadows),
+      borders: asStringArray(value.borders),
+      zIndices: asStringArray(value.zIndices),
+      transitions: asStringArray(value.transitions),
+      usageCount: isRecord(value.usageCount)
+        ? Object.fromEntries(
+            Object.entries(value.usageCount).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
+          )
+        : {},
+    }
+  }
+
+  if (isRecord(value.color) && isRecord(value.typography)) {
+    const colors = Object.fromEntries(
+      Object.entries(value.color)
+        .map(([name, token]) => [name, isRecord(token) ? token.$value : undefined])
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    )
+    if (Object.keys(colors).length === 0) throw new Error('The theme does not contain usable color tokens')
+
+    return {
+      colors,
+      typography: {
+        fontFamilies: asStringArray(
+          isRecord(value.typography.fontFamilies) ? value.typography.fontFamilies.$value : [],
+        ),
+        fontStacks: asStringArray(isRecord(value.typography.fontStacks) ? value.typography.fontStacks.$value : []),
+        fontSizes: asStringArray(isRecord(value.typography.fontSizes) ? value.typography.fontSizes.$value : []),
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: asStringArray(
+          isRecord(value.typography.letterSpacing) ? value.typography.letterSpacing.$value : [],
+        ),
+      },
+      spacing: readDtcgValues(value.spacing),
+      radii: readDtcgValues(value.borderRadius),
+      shadows: readDtcgValues(value.shadow),
+      borders: [],
+      zIndices: readDtcgValues(value.zIndex),
+      transitions: readDtcgValues(value.transition),
+      usageCount: {},
+    }
+  }
+
+  throw new Error('The selected JSON does not contain Imprint or DTCG theme tokens')
+}
 
 export function registerIpcHandlers() {
   // --- Themes ---
@@ -203,39 +292,45 @@ export function registerIpcHandlers() {
     let content: string
     let ext: string
     let filterName: string
+    let defaultName: string
 
     switch (format) {
       case 'css':
         content = theme.css_variables as string
         ext = 'css'
         filterName = 'CSS Files'
+        defaultName = 'theme-variables.css'
         break
       case 'tailwind':
         content = theme.tailwind_theme as string
         ext = 'css'
         filterName = 'CSS Files'
+        defaultName = 'tailwind-theme.css'
         break
       case 'json':
         content = generateDtcgJson(JSON.parse(theme.tokens_json as string))
         ext = 'json'
         filterName = 'JSON Files'
+        defaultName = 'design-tokens.json'
         break
       case 'scss':
         content = generateScssVariables(JSON.parse(theme.tokens_json as string))
         ext = 'scss'
         filterName = 'SCSS Files'
+        defaultName = 'theme-variables.scss'
         break
       case 'markdown':
         content = theme.design_doc as string
         ext = 'md'
         filterName = 'Markdown Files'
+        defaultName = 'DESIGN.md'
         break
       default:
         return { error: true, message: `Unknown format: ${format}` }
     }
 
     const result = await dialog.showSaveDialog({
-      defaultPath: `design-tokens.${ext}`,
+      defaultPath: defaultName,
       filters: [{ name: filterName, extensions: [ext] }],
     })
 
@@ -257,7 +352,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('import:theme', async () => {
     const result = await dialog.showOpenDialog({
-      filters: [{ name: 'Design Package', extensions: ['zip', 'json'] }],
+      filters: [{ name: 'Theme Tokens JSON', extensions: ['json'] }],
       properties: ['openFile'],
     })
 
@@ -265,23 +360,25 @@ export function registerIpcHandlers() {
       return { success: false, canceled: true }
     }
 
-    // For now, handle JSON import
     const filePath = result.filePaths[0]
     if (filePath.endsWith('.json')) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8')
-        const tokens = JSON.parse(content)
+        const importedData = JSON.parse(content) as unknown
+        const tokens = normalizeImportedTokens(importedData)
         const db = getDb()
         const themeId = uuidv4()
         const now = new Date().toISOString()
         const cssVars = generateCssVariables(tokens)
         const tailwind = generateTailwindTheme(tokens)
         const designDoc = generateDesignDoc(tokens)
+        const meta = isRecord(importedData) && isRecord(importedData.meta) ? importedData.meta : undefined
+        const themeName = typeof meta?.name === 'string' && meta.name.trim() ? meta.name : 'Imported theme'
 
         db.prepare(
           `INSERT INTO themes (id, name, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(themeId, `Imported theme`, JSON.stringify(tokens), cssVars, tailwind, designDoc, now, now)
+        ).run(themeId, themeName, JSON.stringify(tokens), cssVars, tailwind, designDoc, now, now)
 
         return { success: true, themeId }
       } catch (err: unknown) {
@@ -289,7 +386,7 @@ export function registerIpcHandlers() {
       }
     }
 
-    return { success: false, message: 'Only JSON format is currently supported' }
+    return { success: false, message: 'Only theme token JSON is supported' }
   })
 
   // --- Settings ---

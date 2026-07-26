@@ -1,0 +1,280 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Verify release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag, version, and changelog
+        run: pnpm release:verify "${{ github.ref_name }}"
+
+      - name: Run release checks
+        run: pnpm release:check
+
+  build:
+    name: Build ${{ matrix.id }}
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            runner: windows-2025
+            platform: windows
+            arch: x64
+          - id: macos-arm64
+            runner: macos-15
+            platform: macos
+            arch: arm64
+          - id: macos-x64
+            runner: macos-15-intel
+            platform: macos
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare macOS signing credentials
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for name in \
+            MACOS_CERTIFICATE_BASE64 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_API_KEY_BASE64 \
+            APPLE_API_KEY_ID \
+            APPLE_API_ISSUER
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required GitHub Actions secret: ${name}"
+              exit 1
+            fi
+          done
+
+          certificate_path="$RUNNER_TEMP/imprint-signing.p12"
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          keychain_path="$RUNNER_TEMP/imprint-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          echo "IMPRINT_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
+
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$api_key_path"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          signing_identity="$(
+            security find-identity -v -p codesigning "$keychain_path" \
+              | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' \
+              | head -1
+          )"
+          if [ -z "$signing_identity" ]; then
+            echo "::error::The P12 does not contain a usable Developer ID Application identity."
+            exit 1
+          fi
+
+          echo "::add-mask::$signing_identity"
+          {
+            echo "IMPRINT_MACOS_SIGNING=true"
+            echo "APPLE_SIGNING_IDENTITY=$signing_identity"
+            echo "APPLE_API_KEY=$api_key_path"
+            echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+          } >> "$GITHUB_ENV"
+
+          rm -f "$certificate_path"
+
+      - name: Prepare Windows signing credentials
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            throw 'Missing required GitHub Actions secret: WINDOWS_CERTIFICATE_BASE64'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw 'Missing required GitHub Actions secret: WINDOWS_CERTIFICATE_PASSWORD'
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'imprint-code-signing.pfx'
+          try {
+            $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          } catch {
+            throw 'WINDOWS_CERTIFICATE_BASE64 is not valid Base64.'
+          }
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+
+          "IMPRINT_WINDOWS_SIGNING=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build native installer
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: pnpm exec electron-forge make --arch=${{ matrix.arch }}
+
+      - name: Run Electron E2E against the release build
+        if: matrix.platform == 'windows'
+        run: node --test tests/e2e/core-flow.test.mjs
+
+      - name: Notarize and verify macOS DMG
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          app_path="$(find out -type d -name 'Imprint.app' -print -quit)"
+          dmg_path="$(find out/make -type f -name '*.dmg' -print -quit)"
+
+          if [ -z "$app_path" ] || [ -z "$dmg_path" ]; then
+            echo "::error::Signed app or DMG was not produced."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+          bash scripts/notarize-dmg.sh "$dmg_path"
+
+      - name: Verify Windows installer signature
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $installers = @(
+            Get-ChildItem -Path 'out/make' -Recurse -File -Filter '*Setup.exe'
+          )
+          if ($installers.Count -eq 0) {
+            throw 'The Squirrel.Windows Setup.exe was not produced.'
+          }
+
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid Authenticode signature for $($installer.FullName): $($signature.Status)"
+            }
+            Write-Host "Verified Authenticode signature: $($installer.Name)"
+          }
+
+      - name: Collect release artifacts
+        run: pnpm release:collect ${{ matrix.platform }} ${{ matrix.arch }} "${{ github.ref_name }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: imprint-${{ github.ref_name }}-${{ matrix.id }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Clean up macOS signing credentials
+        if: ${{ always() && matrix.platform == 'macos' }}
+        shell: bash
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/imprint-signing.p12" \
+            "$RUNNER_TEMP"/AuthKey_*.p8
+
+          if [ -n "${IMPRINT_SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$IMPRINT_SIGNING_KEYCHAIN" || true
+          fi
+
+      - name: Clean up Windows signing credentials
+        if: ${{ always() && matrix.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'imprint-code-signing.pfx'
+          Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: imprint-${{ github.ref_name }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Extract release notes
+        run: node scripts/extract-release-notes.mjs "${{ github.ref_name }}" release-notes.md
+
+      - name: Generate SHA-256 checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "Imprint ${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
+          else
+            gh release create "${GITHUB_REF_NAME}" release-assets/* \
+              --title "Imprint ${GITHUB_REF_NAME}" \
+              --notes-file release-notes.md
+          fi

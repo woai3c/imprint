@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Imprint E2E Design Fixture</title>
+    <style>
+      :root {
+        --fixture-brand: #2563eb;
+        --fixture-accent: #f59e0b;
+        --fixture-surface: #f8fafc;
+        --fixture-ink: #172033;
+        --fixture-space: 24px;
+        --fixture-radius: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--fixture-surface);
+        color: var(--fixture-ink);
+        font-family: Arial, sans-serif;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 48px auto;
+        padding: var(--fixture-space);
+      }
+
+      .hero {
+        padding: 40px;
+        border: 1px solid #cbd5e1;
+        border-radius: var(--fixture-radius);
+        box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 42px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 18px 0;
+        font-size: 18px;
+        line-height: 1.7;
+      }
+
+      button {
+        padding: 12px 20px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--fixture-brand);
+        color: #fff;
+        transition: transform 0.2s ease;
+      }
+
+      button:hover {
+        background: #1d4ed8;
+        transform: translateY(-2px);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #0f172a;
+          color: #e2e8f0;
+        }
+
+        .hero {
+          border-color: #334155;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Local Design Fixture</h1>
+        <p>A stable offline target for the Imprint extraction flow.</p>
+        <button type="button">Primary action</button>
+      </section>
+    </main>
+  </body>
+</html>

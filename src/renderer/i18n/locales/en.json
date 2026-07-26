@@ -23,9 +23,10 @@
     "exported": "File exported",
     "themeApplied": "Applied “{{theme}}”",
     "themeExported": "Exported “{{theme}}”",
-    "dataExported": "Backup data exported",
+    "dataExported": "Local data JSON exported",
     "importFinished": "Import complete",
-    "dataCleared": "Local data cleared",
+    "importFailed": "Import failed: choose a theme Tokens JSON file exported by Imprint",
+    "dataCleared": "Themes and analysis history cleared",
     "historyDeleted": "History record deleted",
     "actionFailed": "Action failed. Please try again."
   },
@@ -40,7 +41,7 @@
     "failed": "Failed: {{message}}",
     "error": "Analysis error",
     "emptyTitle": "Enter a URL to start analyzing",
-    "emptyDescription": "Supports any public webpage. After analysis, export as CSS variables, Tailwind themes, design docs, and more — ready for AI to generate or modify UI.",
+    "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
     "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
     "browserNotFound": "Chrome or Edge browser not found. Please install one first.",
     "tabPreview": "Preview",
@@ -48,8 +49,19 @@
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS Variables",
     "tabJson": "Tokens JSON",
-    "copy": "Copy",
-    "exportFile": "Export",
+    "copyCurrent": "Copy {{format}}",
+    "exportCurrent": "Export {{format}}",
+    "artifacts": {
+      "markdown": "DESIGN.md",
+      "tailwind": "Tailwind v4",
+      "css": "CSS variables",
+      "json": "Tokens JSON"
+    },
+    "aiExport": {
+      "title": "Revise an existing UI with AI",
+      "summary": "If you export one file, choose DESIGN.md and give it to AI with the current UI screenshot or source code.",
+      "details": "DESIGN.md is recommended when AI must understand and revise an existing UI; CSS variables are recommended for framework-agnostic web projects; Tailwind @theme is recommended for Tailwind v4; Tokens JSON is recommended for design tools, automation, and agents that need structured data."
+    },
     "saveToLibrary": "Save to Library",
     "saved": "Saved",
     "extractedColors": "Extracted Colors",
@@ -59,13 +71,22 @@
   },
   "themes": {
     "title": "Theme Library",
-    "description": "Browse built-in themes or select from extraction history. Click to apply to the current interface.",
+    "description": "Browse, apply, or export built-in themes and themes extracted from websites.",
     "builtin": "Built-in Themes",
     "extracted": "Extracted Themes",
     "apply": "Apply",
     "current": "Current",
     "resetDefault": "Reset to Default",
     "export": "Export",
+    "exportTheme": "Export “{{theme}}” in the selected format",
+    "exportFormatLabel": "Export format",
+    "exportHelp": "For AI revisions to an existing UI, export DESIGN.md first and include screenshots or source code. CSS variables and Tailwind are for direct implementation; Tokens JSON is for tools and automation. Built-in theme exports include reusable rules and tokens, but not Imprint-specific background images, textures, or shell styles.",
+    "exportFormats": {
+      "markdown": "DESIGN.md (recommended for AI)",
+      "css": "CSS variables (general web)",
+      "tailwind": "Tailwind @theme (Tailwind v4)",
+      "json": "Tokens JSON (tools and agents)"
+    },
     "addFavorite": "Add “{{theme}}” to favorites",
     "removeFavorite": "Remove “{{theme}}” from favorites",
     "noExtracted": "No extracted themes yet",
@@ -206,6 +227,8 @@
     "analytics": "Analytics",
     "applyTheme": "Apply the “{{theme}}” theme",
     "currentTheme": "Current: {{theme}}",
+    "exportThemeCss": "Export Current Theme CSS",
+    "exportThemeCssHelp": "The validation page exports only the current theme's CSS variables. For DESIGN.md, Tailwind, or Tokens JSON, choose a format in the Theme Library.",
     "examples": {
       "dashboard": {
         "title": "Admin Dashboard",
@@ -610,22 +633,22 @@
       "noCli": "Click \"Use Local AI Agent CLI\" above to auto-detect"
     },
     "export": {
-      "title": "Export Preferences",
-      "defaultFormat": "Default Export Format",
-      "css": "CSS Custom Properties (recommended, most universal)",
-      "tailwind": "Tailwind CSS v4 @theme",
-      "both": "Both CSS + Tailwind",
-      "json": "Design Token JSON (DTCG)",
-      "markdown": "Markdown Design Doc",
-      "all": "All Formats"
+      "title": "Theme Library Export",
+      "defaultFormat": "Default theme-card export format",
+      "markdown": "DESIGN.md (recommended for AI)",
+      "css": "CSS variables (recommended for general web/CSS)",
+      "tailwind": "Tailwind v4 @theme (recommended for Tailwind v4)",
+      "json": "Tokens JSON (recommended for tools, automation, and agents)",
+      "help": "This preference controls only Theme Library card exports. It does not change what the active tab exports on the analysis result page.",
+      "hint": "Use DESIGN.md for AI understanding and UI revisions, CSS variables for general web projects, Tailwind @theme for Tailwind v4, and Tokens JSON for tools, automation, and agents."
     },
     "data": {
       "title": "Data Management",
-      "exportAll": "Export All Data",
-      "import": "Import Data",
-      "clearAll": "Clear All Data",
-      "confirmClear": "Are you sure you want to clear all data? This cannot be undone.",
-      "tip": "Data is stored locally. Export as .zip to share with others."
+      "exportAll": "Export Local Data JSON",
+      "import": "Import Theme Tokens JSON",
+      "clearAll": "Clear Themes and Analysis History",
+      "confirmClear": "Clear all themes and analysis records? Settings will be kept. This cannot be undone.",
+      "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Import accepts one theme Tokens JSON file."
     }
   },
   "progress": {

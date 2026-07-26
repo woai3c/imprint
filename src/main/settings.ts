@@ -9,7 +9,7 @@ export interface AppSettings {
   apiKey: string
   baseUrl: string
   agentCli: string
-  exportFormat: 'css' | 'tailwind' | 'both' | 'json' | 'markdown' | 'all'
+  exportFormat: 'markdown' | 'css' | 'tailwind' | 'json'
 }
 
 const defaults: AppSettings = {
@@ -18,7 +18,13 @@ const defaults: AppSettings = {
   apiKey: '',
   baseUrl: '',
   agentCli: '',
-  exportFormat: 'css',
+  exportFormat: 'markdown',
+}
+
+const exportFormats: AppSettings['exportFormat'][] = ['markdown', 'css', 'tailwind', 'json']
+
+function isExportFormat(value: unknown): value is AppSettings['exportFormat'] {
+  return exportFormats.includes(value as AppSettings['exportFormat'])
 }
 
 function getSettingsPath(): string {
@@ -28,7 +34,12 @@ function getSettingsPath(): string {
 function readFromDisk(): AppSettings {
   try {
     const raw = fs.readFileSync(getSettingsPath(), 'utf-8')
-    return { ...defaults, ...JSON.parse(raw) }
+    const saved = JSON.parse(raw) as Partial<AppSettings> & { exportFormat?: unknown }
+    return {
+      ...defaults,
+      ...saved,
+      exportFormat: isExportFormat(saved.exportFormat) ? saved.exportFormat : defaults.exportFormat,
+    }
   } catch {
     return { ...defaults }
   }
@@ -47,6 +58,7 @@ export function getSettings(): AppSettings {
 export function saveSettings(update: Partial<AppSettings>): AppSettings {
   const current = readFromDisk()
   const merged = { ...current, ...update }
+  if (!isExportFormat(merged.exportFormat)) merged.exportFormat = defaults.exportFormat
   writeToDisk(merged)
   return merged
 }

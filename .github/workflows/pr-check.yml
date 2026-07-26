@@ -60,6 +60,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
 
+  e2e:
+    name: Electron E2E
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:e2e
+
   commitlint:
     name: Commit Message Check
     runs-on: ubuntu-latest

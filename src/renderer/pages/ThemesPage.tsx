@@ -1,26 +1,47 @@
+import { Download } from 'lucide-react'
+
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { useFeedbackStore } from '../stores/feedback-store'
-import { builtinThemes, useSkinStore } from '../stores/skin-store'
-import type { AppTheme, ThemeCategory, ThemeColors } from '../stores/skin-store'
+import {
+  builtinThemes,
+  generateThemeCss,
+  generateThemeJson,
+  generateThemeMarkdown,
+  generateThemeTailwind,
+  useSkinStore,
+} from '../stores/skin-store'
+import type { AppTheme, ThemeCategory, ThemeColors, ThemeExportFormat } from '../stores/skin-store'
 import { useThemeStore } from '../stores/theme-store'
 
 const themeCategoryOrder: ThemeCategory[] = ['foundation', 'narrative', 'experimental']
+const themeExportFormats: ThemeExportFormat[] = ['markdown', 'css', 'tailwind', 'json']
 
 export function ThemesPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { themes, fetchThemes, toggleFavorite } = useThemeStore()
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
   const notify = useFeedbackStore((state) => state.show)
   const [tab, setTab] = useState<'extracted' | 'builtin'>('builtin')
+  const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
   const [appliedExtractedId, setAppliedExtractedId] = useState<string | null>(null)
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
 
   useEffect(() => {
     fetchThemes()
   }, [fetchThemes])
+
+  useEffect(() => {
+    window.electronAPI.getSettings().then((settings: { exportFormat?: string }) => {
+      const savedFormat = settings.exportFormat
+      if (themeExportFormats.includes(savedFormat as ThemeExportFormat)) {
+        setExportFormat(savedFormat as ThemeExportFormat)
+      }
+    })
+  }, [])
 
   const handleApplyBuiltin = (theme: AppTheme) => {
     setTheme(theme.id)
@@ -38,9 +59,9 @@ export function ThemesPage() {
     notify(t('feedback.themeApplied', { theme: theme.name }))
   }
 
-  const handleExport = async (themeId: string, themeName: string, format: string) => {
+  const handleExportExtracted = async (themeId: string, themeName: string) => {
     try {
-      const exportResult = await window.electronAPI.exportTheme(themeId, format)
+      const exportResult = await window.electronAPI.exportTheme(themeId, exportFormat)
       if (exportResult.success) notify(t('feedback.themeExported', { theme: themeName }))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -48,11 +69,77 @@ export function ThemesPage() {
     }
   }
 
+  const localizeBuiltinTheme = (theme: AppTheme): AppTheme => {
+    const themeKey = `themes.presets.${theme.id}`
+
+    return {
+      ...theme,
+      name: t(`${themeKey}.name`, { defaultValue: theme.name }),
+      description: t(`${themeKey}.description`, { defaultValue: theme.description }),
+      identity: {
+        values: theme.identity.values.map((value, index) =>
+          t(`${themeKey}.values.${index}`, { defaultValue: value }),
+        ) as AppTheme['identity']['values'],
+        patterns: theme.identity.patterns.map((pattern, index) =>
+          t(`${themeKey}.patterns.${index}`, { defaultValue: pattern }),
+        ) as AppTheme['identity']['patterns'],
+        evidence: theme.identity.evidence.map((evidence, index) =>
+          t(`${themeKey}.evidence.${index}`, { defaultValue: evidence }),
+        ) as AppTheme['identity']['evidence'],
+      },
+    }
+  }
+
+  const handleExportBuiltin = async (theme: AppTheme) => {
+    const localizedTheme = localizeBuiltinTheme(theme)
+    const language = i18n.resolvedLanguage?.startsWith('zh') ? 'zh-CN' : 'en'
+    const exports: Record<ThemeExportFormat, { content: string; filename: string; ext: string }> = {
+      markdown: {
+        content: generateThemeMarkdown(localizedTheme, language),
+        filename: `imprint-${theme.id}-DESIGN.md`,
+        ext: 'md',
+      },
+      css: {
+        content: generateThemeCss(localizedTheme),
+        filename: `imprint-${theme.id}-variables.css`,
+        ext: 'css',
+      },
+      tailwind: {
+        content: generateThemeTailwind(localizedTheme),
+        filename: `imprint-${theme.id}-tailwind.css`,
+        ext: 'css',
+      },
+      json: {
+        content: generateThemeJson(localizedTheme),
+        filename: `imprint-${theme.id}-tokens.json`,
+        ext: 'json',
+      },
+    }
+    const selectedExport = exports[exportFormat]
+
+    try {
+      const exportResult = await window.electronAPI.exportFile(
+        selectedExport.content,
+        selectedExport.filename,
+        selectedExport.ext,
+      )
+      if (exportResult.success) notify(t('feedback.themeExported', { theme: localizedTheme.name }))
+      else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
+  }
+
+  const handleExportFormatChange = (format: ThemeExportFormat) => {
+    setExportFormat(format)
+    window.electronAPI.saveSettings({ exportFormat: format })
+  }
+
   return (
     <div className="h-full flex flex-col">
       <PageHeader title={t('themes.title')} description={t('themes.description')} />
 
-      <div className="px-8 mb-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-8">
         <div className="flex gap-1 p-1 bg-secondary rounded-lg w-fit">
           <button
             type="button"
@@ -74,6 +161,25 @@ export function ThemesPage() {
           >
             {t('themes.extracted')} ({themes.length})
           </button>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="theme-export-format" className="text-xs font-medium text-muted-foreground">
+            {t('themes.exportFormatLabel')}
+          </label>
+          <InfoTip text={t('themes.exportHelp')} align="right" />
+          <select
+            id="theme-export-format"
+            value={exportFormat}
+            onChange={(event) => handleExportFormatChange(event.target.value as ThemeExportFormat)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+          >
+            {themeExportFormats.map((format) => (
+              <option key={format} value={format}>
+                {t(`themes.exportFormats.${format}`)}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -105,7 +211,12 @@ export function ThemesPage() {
                           colors={theme.colors}
                           isActive={currentThemeId === theme.id}
                           onApply={() => handleApplyBuiltin(theme)}
+                          onExport={() => handleExportBuiltin(theme)}
                           currentLabel={t('themes.current')}
+                          exportLabel={t('themes.export')}
+                          exportAriaLabel={t('themes.exportTheme', {
+                            theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
+                          })}
                         />
                       ))}
                   </div>
@@ -176,7 +287,7 @@ export function ThemesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleExport(theme.id, theme.name, 'css')}
+                    onClick={() => handleExportExtracted(theme.id, theme.name)}
                     className="text-xs px-3 py-1.5 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
                   >
                     {t('themes.export')}
@@ -279,7 +390,10 @@ function ThemeCard({
   colors,
   isActive,
   onApply,
+  onExport,
   currentLabel,
+  exportLabel,
+  exportAriaLabel,
 }: {
   id: string
   name: string
@@ -287,35 +401,55 @@ function ThemeCard({
   colors: ThemeColors
   isActive: boolean
   onApply: () => void
+  onExport: () => void
   currentLabel: string
+  exportLabel: string
+  exportAriaLabel: string
 }) {
   return (
-    <button
-      type="button"
-      onClick={onApply}
-      aria-pressed={isActive}
+    <article
+      data-selected={isActive}
       className={`theme-card flex h-full min-h-44 flex-col rounded-xl border p-4 text-left transition-colors ${
         isActive ? 'border-primary' : 'border-border hover:border-primary/40'
       }`}
     >
-      <div
-        className={`theme-card-preview theme-card-preview-${id} mb-3 flex shrink-0 items-center gap-1.5 overflow-hidden rounded-lg border border-border/60 p-2.5`}
-        style={{ backgroundColor: colors.background }}
+      <button
+        type="button"
+        onClick={onApply}
+        aria-pressed={isActive}
+        className="flex flex-1 flex-col text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {[colors.primary, colors.background, colors.foreground, colors.accent, colors.secondary].map((color, index) => (
-          <div
-            key={`${color}-${index}`}
-            className="theme-swatch h-6 w-6 rounded-full border border-black/5"
-            style={{ backgroundColor: color }}
-          />
-        ))}
-      </div>
+        <div
+          className={`theme-card-preview theme-card-preview-${id} mb-3 flex shrink-0 items-center gap-1.5 overflow-hidden rounded-lg border border-border/60 p-2.5`}
+          style={{ backgroundColor: colors.background }}
+        >
+          {[colors.primary, colors.background, colors.foreground, colors.accent, colors.secondary].map(
+            (color, index) => (
+              <div
+                key={`${color}-${index}`}
+                className="theme-swatch h-6 w-6 rounded-full border border-black/5"
+                style={{ backgroundColor: color }}
+              />
+            ),
+          )}
+        </div>
 
-      <h4 className="text-sm font-medium">{name}</h4>
-      <p className="mt-1 min-h-8 text-xs leading-4 text-muted-foreground">{description}</p>
-      <span className={`mt-auto pt-1 text-xs font-medium text-primary ${isActive ? '' : 'invisible'}`}>
-        {currentLabel}
-      </span>
-    </button>
+        <h4 className="text-sm font-medium">{name}</h4>
+        <p className="mt-1 min-h-8 text-xs leading-4 text-muted-foreground">{description}</p>
+      </button>
+
+      <div className="mt-auto flex min-h-7 items-end justify-between gap-2 pt-1">
+        <span className={`text-xs font-medium text-primary ${isActive ? '' : 'invisible'}`}>{currentLabel}</span>
+        <button
+          type="button"
+          onClick={onExport}
+          aria-label={exportAriaLabel}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Download size={12} aria-hidden="true" />
+          {exportLabel}
+        </button>
+      </div>
+    </article>
   )
 }

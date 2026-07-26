@@ -83,6 +83,7 @@ export interface ThemeIdentity {
 }
 
 export type ThemeCategory = 'foundation' | 'narrative' | 'experimental'
+export type ThemeExportFormat = 'markdown' | 'css' | 'tailwind' | 'json'
 
 export interface AppTheme {
   id: string
@@ -820,6 +821,161 @@ export function generateThemeCss(theme: AppTheme): string {
     .join('\n')
 
   return `:root {\n${declarations}\n}\n`
+}
+
+export function generateThemeTailwind(theme: AppTheme): string {
+  const { typography, spacing, layout, shape, elevation, motion } = theme.tokens
+  const variables: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(theme.colors).map(([name, value]) => [`--color-${name}`, value])),
+    '--font-sans': typography.fontBody,
+    '--font-heading': typography.fontHeading,
+    '--font-mono': typography.fontMono,
+    '--text-xs': typography.sizes.xs,
+    '--text-sm': typography.sizes.sm,
+    '--text-base': typography.sizes.base,
+    '--text-lg': typography.sizes.lg,
+    '--text-xl': typography.sizes.xl,
+    '--text-2xl': typography.sizes['2xl'],
+    '--text-xs--line-height': typography.lineHeight.body,
+    '--text-sm--line-height': typography.lineHeight.body,
+    '--text-base--line-height': typography.lineHeight.body,
+    '--text-lg--line-height': typography.lineHeight.heading,
+    '--text-xl--line-height': typography.lineHeight.heading,
+    '--text-2xl--line-height': typography.lineHeight.heading,
+    '--tracking-body': typography.letterSpacing.body,
+    '--tracking-heading': typography.letterSpacing.heading,
+    '--tracking-label': typography.letterSpacing.label,
+    '--leading-body': typography.lineHeight.body,
+    '--leading-heading': typography.lineHeight.heading,
+    '--spacing': spacing.unit,
+    '--width-sidebar': layout.sidebarWidth,
+    '--container-content': layout.contentMaxWidth,
+    '--radius-sm': `max(0px, calc(${shape.radiusBase} - 0.25rem))`,
+    '--radius-md': shape.radiusBase,
+    '--radius-lg': `calc(${shape.radiusBase} + 0.25rem)`,
+    '--radius-xl': `calc(${shape.radiusBase} + 0.5rem)`,
+    '--border-width-theme': shape.borderWidth,
+    '--icon-stroke-width': shape.iconStrokeWidth,
+    '--shadow-sm': elevation.sm,
+    '--shadow-md': elevation.md,
+    '--shadow-lg': elevation.lg,
+    '--shadow-focus': elevation.focus,
+    '--duration-fast': motion.fast,
+    '--duration-normal': motion.normal,
+    '--duration-slow': motion.slow,
+    '--ease-theme': motion.easing,
+  }
+
+  const declarations = Object.entries(variables)
+    .map(([name, value]) => `  ${name}: ${value};`)
+    .join('\n')
+
+  return `@theme {\n${declarations}\n}\n`
+}
+
+export function generateThemeJson(theme: AppTheme): string {
+  const { typography, spacing, shape, elevation, motion } = theme.tokens
+
+  return JSON.stringify(
+    {
+      meta: {
+        generator: 'Imprint',
+        name: theme.name,
+        description: theme.description,
+        category: theme.category,
+      },
+      identity: theme.identity,
+      colors: theme.colors,
+      typography: {
+        fontFamilies: [typography.fontBody, typography.fontHeading, typography.fontMono],
+        fontStacks: [typography.fontBody, typography.fontHeading, typography.fontMono],
+        fontSizes: Object.values(typography.sizes),
+        fontWeights: [],
+        letterSpacings: Object.values(typography.letterSpacing),
+        lineHeights: Object.values(typography.lineHeight),
+      },
+      spacing: [spacing.unit],
+      radii: [
+        `max(0px, calc(${shape.radiusBase} - 0.25rem))`,
+        shape.radiusBase,
+        `calc(${shape.radiusBase} + 0.25rem)`,
+        `calc(${shape.radiusBase} + 0.5rem)`,
+      ],
+      shadows: [elevation.sm, elevation.md, elevation.lg],
+      borders: [shape.borderWidth],
+      zIndices: [],
+      transitions: [motion.fast, motion.normal, motion.slow],
+      usageCount: {},
+      imprintTheme: {
+        foundation: theme.tokens,
+      },
+    },
+    null,
+    2,
+  )
+}
+
+export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en'): string {
+  const zh = language === 'zh-CN'
+  const css = generateThemeCss(theme)
+  const category = zh
+    ? { foundation: '基础主题', narrative: '叙事主题', experimental: '实验主题' }[theme.category]
+    : { foundation: 'Foundation', narrative: 'Narrative', experimental: 'Experimental' }[theme.category]
+  const lines: string[] = [
+    `# ${theme.name}`,
+    '',
+    theme.description,
+    '',
+    `> ${zh ? '类别' : 'Category'}: ${category}`,
+    '',
+    `## ${zh ? '设计意图' : 'Design intent'}`,
+    '',
+    `**${zh ? '价值' : 'Values'}:** ${theme.identity.values.join(' · ')}`,
+    '',
+  ]
+
+  theme.identity.patterns.forEach((pattern, index) => {
+    lines.push(`### ${pattern}`, '', theme.identity.evidence[index], '')
+  })
+
+  lines.push(
+    `## ${zh ? '基础令牌' : 'Foundation tokens'}`,
+    '',
+    `- ${zh ? '正文字体' : 'Body font'}: \`${theme.tokens.typography.fontBody}\``,
+    `- ${zh ? '标题字体' : 'Heading font'}: \`${theme.tokens.typography.fontHeading}\``,
+    `- ${zh ? '等宽字体' : 'Monospace font'}: \`${theme.tokens.typography.fontMono}\``,
+    `- ${zh ? '间距基准' : 'Spacing unit'}: \`${theme.tokens.spacing.unit}\``,
+    `- ${zh ? '密度' : 'Density'}: \`${theme.tokens.spacing.density}\``,
+    `- ${zh ? '基础圆角' : 'Base radius'}: \`${theme.tokens.shape.radiusBase}\``,
+    `- ${zh ? '边框宽度' : 'Border width'}: \`${theme.tokens.shape.borderWidth}\``,
+    `- ${zh ? '标准动效' : 'Standard motion'}: \`${theme.tokens.motion.normal}\``,
+    '',
+    `## ${zh ? 'CSS 变量' : 'CSS variables'}`,
+    '',
+    '```css',
+    css.trimEnd(),
+    '```',
+    '',
+    `## ${zh ? '给 AI 的使用说明' : 'Instructions for AI'}`,
+    '',
+    zh
+      ? '- 将本文档作为视觉规则的真源，并结合现有 UI 截图或源代码修改界面。'
+      : '- Treat this document as the source of truth for visual rules, and use it with the existing UI screenshots or source code.',
+    zh
+      ? '- 优先复用这里的语义色、字体、间距、圆角、阴影和动效，不要自行发明近似值。'
+      : '- Reuse these semantic colors, fonts, spacing, radii, shadows, and motion values instead of inventing approximations.',
+    zh
+      ? '- 保留现有产品的信息层级和交互位置，只调整与目标设计语言有关的视觉表达。'
+      : '- Preserve the product hierarchy and interaction locations; change only the visual expression required by this language.',
+    '',
+    `## ${zh ? '导出范围' : 'Export scope'}`,
+    '',
+    zh
+      ? '本文件包含可复用的设计意图与主题令牌，不包含 Imprint 桌面应用专用的背景图片、纹理素材或外壳组件样式。'
+      : 'This file contains reusable design intent and theme tokens. It does not embed background images, texture assets, or shell component styles that are specific to the Imprint desktop app.',
+  )
+
+  return `${lines.join('\n')}\n`
 }
 
 export function initColorMode() {

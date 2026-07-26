@@ -1,12 +1,9 @@
-# 印记 (Imprint)
-
-简体中文 / [English](./README.en.md)
-
-<p align="center">
-  <img src="./assets/brand/imprint-lockup-bilingual-on-paper.png" alt="印记 · Imprint" width="720" />
-</p>
-
-> 从网站和截图中提取设计语言，自动生成可复用的设计系统。
+<div align="center">
+  <img src="./assets/brand/imprint-mark.svg" alt="印记 · Imprint" width="96" />
+  <h1 align="center">印记 · Imprint</h1>
+  <p align="center">简体中文 / <a href="./README.en.md">English</a></p>
+  <p align="center">从网站和截图中提取设计语言，自动生成可复用的设计系统。</p>
+</div>
 
 Imprint 是一个开源桌面应用，可以分析网站 URL 或 UI 截图，提取其中的视觉规则（颜色、字体、间距、圆角、阴影、组件风格等），并生成 AI 可直接使用的设计规范和代码变量。
 
@@ -87,6 +84,17 @@ graph TD
 ## 示例输出
 
 Imprint 可以生成：
+
+### 应该导出哪一种？
+
+| 目标                               | 推荐输出              | 一起提供             |
+| ---------------------------------- | --------------------- | -------------------- |
+| 让 AI 修改已有 UI                  | **DESIGN.md**         | 当前 UI 截图或源代码 |
+| 直接在 CSS 项目中实现              | **CSS Variables**     | 现有样式入口文件     |
+| 直接在 Tailwind v4 项目中实现      | **Tailwind `@theme`** | 项目的主题样式文件   |
+| 交给工具链或需要结构化数据的 Agent | **Tokens JSON**       | 具体的自动化任务说明 |
+
+如果只给 AI 一个导出文件，请选择 **DESIGN.md**。CSS Variables 和 Tailwind 是实现产物，Tokens JSON 是机器可读的结构化数据，它们不能代替现有界面的截图或源代码。
 
 ### DESIGN.md
 
@@ -175,7 +183,24 @@ pnpm build
 
 # 构建安装包
 pnpm make
+
+# 运行无需 LLM 的 Electron E2E
+pnpm test:e2e
 ```
+
+## 发布
+
+从干净且最新的 `main` 分支执行：
+
+```bash
+pnpm release
+```
+
+命令会选择版本、执行发布检查、生成 `CHANGELOG.md`、创建 release commit 与 annotated `vX.Y.Z` tag，并在确认后原子推送到 `origin`。Tag 会触发 GitHub Actions，分别在 Windows 和 macOS 原生环境中生成 Windows x64、macOS Apple Silicon 和 macOS Intel 安装包。
+
+安装包由 [`.github/workflows/release.yml`](./.github/workflows/release.yml) 构建并发布。正式 tag 构建要求 macOS Developer ID / Apple 公证凭据和 Windows PFX 签名凭据，缺少凭据时不会发布未签名正式版本。
+
+第一次配置 GitHub Actions、证书、Secrets、发布命令和安装包验签时，请按 [《桌面应用构建、签名与发布指南》](./DEPLOYMENT.zh-CN.md) 逐步操作。
 
 ## 项目结构
 

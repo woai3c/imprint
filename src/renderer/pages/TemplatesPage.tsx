@@ -3,6 +3,7 @@ import { Download } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -177,14 +178,17 @@ export function TemplatesPage() {
             {t('templates.currentTheme', { theme: currentThemeName })}
           </span>
 
-          <button
-            type="button"
-            onClick={handleExportSelected}
-            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
-          >
-            <Download size={12} />
-            {t('analyze.exportFile')}
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <InfoTip text={t('templates.exportThemeCssHelp')} align="right" />
+            <button
+              type="button"
+              onClick={handleExportSelected}
+              className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
+            >
+              <Download size={12} />
+              {t('templates.exportThemeCss')}
+            </button>
+          </div>
         </div>
 
         {/* Row 2: Validation scenario */}

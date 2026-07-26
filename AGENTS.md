@@ -11,8 +11,11 @@ Imprint — Electron desktop app + standalone CLI + MCP server that extracts a w
 - `pnpm dev` — run the Electron app (electron-forge + Vite)
 - `pnpm build` — package the desktop app (NOT the CLI)
 - `pnpm build:cli` — compile `src/cli`, `src/core`, `src/mcp` to `dist/` via `tsconfig.cli.json`; required before running the `imprint` / `imprint-mcp` bin entries
-- `pnpm ci` — typecheck + lint + build, the full local check
-- There is no test runner configured — don't look for or invent test commands.
+- `pnpm test:e2e` — package and launch Electron, analyze a local fixture without LLM credentials, and verify tokens plus SQLite-backed library/history flows; requires installed Chrome or Edge
+- `pnpm run ci` — typecheck + lint + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
+- `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
+  trigger native Windows x64 and macOS arm64/x64 release builds
+- There is no unit-test runner; the E2E suite uses Node's test runner with `playwright-core`.
 
 ## Architecture
 
@@ -49,4 +52,7 @@ Most files are byte-identical between the two; only `analyzer/index.ts` diverges
 - Relative imports in `.ts` files use `.js` extensions (e.g. `from './database.js'`) — required for the compiled CLI output.
 - ESLint: unused imports are errors; intentionally unused vars/args must be prefixed with `_`.
 - Renderer UI strings go through i18next — add keys to BOTH `src/renderer/i18n/locales/en.json` and `zh-CN.json`.
+- Export actions must name the artifact they create. Recommend `DESIGN.md` + the current screenshot/source for AI UI
+  revisions; CSS/Tailwind are implementation outputs, and Tokens JSON is structured tool input. The saved export-format
+  preference applies only to Theme Library cards.
 - Commits: Conventional Commits enforced by commitlint (husky `commit-msg` hook + PR CI); write commit messages in English. Pre-commit runs lint-staged (eslint --fix + prettier). PR CI will auto-commit lint/format fixes to your branch.

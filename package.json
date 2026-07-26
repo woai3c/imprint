@@ -1,5 +1,6 @@
 {
   "name": "imprint",
+  "productName": "Imprint",
   "version": "0.1.0",
   "description": "Extract website UI design styles and export as CSS/Tailwind themes for AI to use",
   "main": ".vite/build/index.js",

@@ -1,25 +1,35 @@
-import { Moon, Sun } from 'lucide-react'
+import { Clock3, LayoutTemplate, Moon, Palette, ScanSearch, Settings, Sun } from 'lucide-react'
 
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { isMacOS } from '../lib/platform'
 import { useSkinStore } from '../stores/skin-store'
 import { AppFeedback } from './AppFeedback'
-import { LogoMark } from './LogoMark'
 
 const navItems = [
-  { to: '/', labelKey: 'nav.analyze' },
-  { to: '/themes', labelKey: 'nav.themes' },
-  { to: '/templates', labelKey: 'nav.templates' },
-  { to: '/history', labelKey: 'nav.history' },
-  { to: '/settings', labelKey: 'nav.settings' },
+  { to: '/', labelKey: 'nav.analyze', icon: ScanSearch },
+  { to: '/themes', labelKey: 'nav.themes', icon: Palette },
+  { to: '/templates', labelKey: 'nav.templates', icon: LayoutTemplate },
+  { to: '/history', labelKey: 'nav.history', icon: Clock3 },
 ]
+
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `app-nav-link flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+    isActive
+      ? 'bg-sidebar-accent font-medium text-foreground'
+      : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground'
+  }`
 
 export function Layout() {
   const { t, i18n } = useTranslation()
   const { colorMode, setColorMode, currentThemeId } = useSkinStore()
   const macOS = isMacOS()
+
+  useEffect(() => {
+    document.title = t('app.name')
+  }, [i18n.language, t])
 
   const toggleLanguage = () => {
     const next = i18n.language === 'zh-CN' ? 'en' : 'zh-CN'
@@ -39,33 +49,21 @@ export function Layout() {
       <aside className="app-sidebar bg-sidebar text-sidebar-foreground border-r border-border flex flex-col">
         {macOS && <div className="h-8 app-drag-region shrink-0" />}
 
-        <div className="app-brand px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <LogoMark className="size-8 shrink-0 text-foreground" />
-            <div className="min-w-0">
-              <h1 className="text-lg font-bold tracking-tight">{t('app.name')}</h1>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('app.tagline')}</p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 px-2 py-2 space-y-0.5">
-          {navItems.map(({ to, labelKey }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `app-nav-link block px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? 'bg-sidebar-accent text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50'
-                }`
-              }
-            >
-              {t(labelKey)}
+        <nav className="flex-1 space-y-0.5 px-2 pt-3">
+          {navItems.map(({ to, labelKey, icon: Icon }) => (
+            <NavLink key={to} to={to} className={navLinkClass}>
+              <Icon size={16} aria-hidden="true" />
+              <span>{t(labelKey)}</span>
             </NavLink>
           ))}
         </nav>
+
+        <div className="border-t border-border/70 px-2 pb-3 pt-2">
+          <NavLink to="/settings" className={navLinkClass}>
+            <Settings size={16} aria-hidden="true" />
+            <span>{t('nav.settings')}</span>
+          </NavLink>
+        </div>
       </aside>
 
       <div className="app-workspace flex-1 flex flex-col overflow-hidden">

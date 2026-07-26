@@ -27,6 +27,8 @@ interface ExtractedTheme {
   css_variables: string
 }
 
+const scenarioGroups = ['workflow', 'content', 'interaction'] as const
+
 export function TemplatesPage() {
   const { t } = useTranslation()
   const [activeTemplate, setActiveTemplate] = useState('dashboard')
@@ -42,18 +44,18 @@ export function TemplatesPage() {
   }, [])
 
   const templates = [
-    { id: 'dashboard', name: t('templates.dashboard'), component: DashboardTemplate },
-    { id: 'landing', name: t('templates.landing'), component: LandingTemplate },
-    { id: 'ecommerce', name: t('templates.ecommerce'), component: EcommerceTemplate },
-    { id: 'blog', name: t('templates.blog'), component: BlogTemplate },
-    { id: 'login', name: t('templates.login'), component: LoginTemplate },
-    { id: 'profile', name: t('templates.profile'), component: ProfileTemplate },
-    { id: 'pricing', name: t('templates.pricing'), component: PricingTemplate },
-    { id: 'settings', name: t('templates.settings'), component: SettingsTemplate },
-    { id: 'chat', name: t('templates.chat'), component: ChatTemplate },
-    { id: 'docs', name: t('templates.docs'), component: DocsTemplate },
-    { id: 'kanban', name: t('templates.kanban'), component: KanbanTemplate },
-    { id: 'analytics', name: t('templates.analytics'), component: AnalyticsTemplate },
+    { id: 'dashboard', name: t('templates.dashboard'), component: DashboardTemplate, group: 'workflow' },
+    { id: 'ecommerce', name: t('templates.ecommerce'), component: EcommerceTemplate, group: 'workflow' },
+    { id: 'kanban', name: t('templates.kanban'), component: KanbanTemplate, group: 'workflow' },
+    { id: 'analytics', name: t('templates.analytics'), component: AnalyticsTemplate, group: 'workflow' },
+    { id: 'settings', name: t('templates.settings'), component: SettingsTemplate, group: 'workflow' },
+    { id: 'landing', name: t('templates.landing'), component: LandingTemplate, group: 'content' },
+    { id: 'blog', name: t('templates.blog'), component: BlogTemplate, group: 'content' },
+    { id: 'docs', name: t('templates.docs'), component: DocsTemplate, group: 'content' },
+    { id: 'pricing', name: t('templates.pricing'), component: PricingTemplate, group: 'content' },
+    { id: 'login', name: t('templates.login'), component: LoginTemplate, group: 'interaction' },
+    { id: 'profile', name: t('templates.profile'), component: ProfileTemplate, group: 'interaction' },
+    { id: 'chat', name: t('templates.chat'), component: ChatTemplate, group: 'interaction' },
   ]
 
   const ActiveComponent = templates.find((tpl) => tpl.id === activeTemplate)?.component || DashboardTemplate
@@ -185,26 +187,29 @@ export function TemplatesPage() {
           </button>
         </div>
 
-        {/* Row 2: Templates */}
+        {/* Row 2: Validation scenario */}
         <div className="flex items-center gap-3">
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('nav.templates')}</span>
-          <div className="flex flex-wrap gap-1">
-            {templates.map((tpl) => (
-              <button
-                type="button"
-                key={tpl.id}
-                onClick={() => setActiveTemplate(tpl.id)}
-                aria-pressed={activeTemplate === tpl.id}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                  activeTemplate === tpl.id
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tpl.name}
-              </button>
+          <label htmlFor="validation-scenario" className="shrink-0 text-xs font-medium text-muted-foreground">
+            {t('templates.scenarioLabel')}
+          </label>
+          <select
+            id="validation-scenario"
+            value={activeTemplate}
+            onChange={(event) => setActiveTemplate(event.target.value)}
+            className="min-w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-ring"
+          >
+            {scenarioGroups.map((group) => (
+              <optgroup key={group} label={t(`templates.groups.${group}`)}>
+                {templates
+                  .filter((template) => template.group === group)
+                  .map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+              </optgroup>
             ))}
-          </div>
+          </select>
         </div>
       </div>
 

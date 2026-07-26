@@ -12,7 +12,7 @@
   "nav": {
     "analyze": "Analyze",
     "themes": "Themes",
-    "templates": "Templates",
+    "templates": "Scenarios",
     "history": "History",
     "settings": "Settings"
   },
@@ -70,52 +70,101 @@
     "removeFavorite": "Remove “{{theme}}” from favorites",
     "noExtracted": "No extracted themes yet",
     "noExtractedTip": "Go to the Analyze page to extract website design styles",
+    "categories": {
+      "foundation": {
+        "title": "Foundation",
+        "description": "Clear, low-distraction interfaces for sustained work"
+      },
+      "narrative": {
+        "title": "Narrative",
+        "description": "Cultural materials that establish a deliberate visual context"
+      },
+      "experimental": {
+        "title": "Experimental",
+        "description": "High-character languages used to test expressive boundaries"
+      }
+    },
     "presets": {
       "default": {
         "name": "Default",
         "description": "A clear, focused interface",
         "values": ["Clarity", "Consistency", "Efficiency"],
-        "patterns": ["Semantic hierarchy", "Progressive disclosure", "Immediate feedback"]
+        "patterns": ["Semantic hierarchy", "Progressive disclosure", "Immediate feedback"],
+        "evidence": [
+          "Semantic colors define hierarchy and state",
+          "Summaries precede token and export details",
+          "Selection, copy, and export respond in place"
+        ]
       },
       "chinese-landscape": {
         "name": "Ink Landscape",
         "description": "Xuan paper, five shades of ink, and a cinnabar accent",
         "values": ["Negative space", "Restraint", "Spirit"],
-        "patterns": ["Low-contrast material", "Cinnabar focus", "Serif–sans roles"]
+        "patterns": ["Low-contrast material", "Cinnabar focus", "Serif–sans roles"],
+        "evidence": [
+          "Paper texture stays behind content",
+          "Cinnabar is reserved for selection and key states",
+          "Serif headings, sans body, and monospaced code"
+        ]
       },
       "cyberpunk": {
         "name": "Cyberpunk",
         "description": "A dark information deck with restrained cyan and amber signals",
         "values": ["Order", "Signal", "Restraint"],
-        "patterns": ["Layered dark surfaces", "Localized emission", "Cyan–amber signals"]
+        "patterns": ["Layered dark surfaces", "Localized emission", "Cyan–amber signals"],
+        "evidence": [
+          "Shell, cards, and controls use distinct lightness levels",
+          "Emission is limited to focus and key actions",
+          "Cyan indicates action; amber indicates selection"
+        ]
       },
       "nordic": {
         "name": "Nordic Mist",
         "description": "Soft morning light with restrained natural warmth",
         "values": ["Calm", "Natural", "Friendly"],
-        "patterns": ["Soft-light zoning", "Solid white cards", "Warm accents"]
+        "patterns": ["Soft-light zoning", "Solid white cards", "Warm accents"],
+        "evidence": [
+          "Low-chroma fields divide working regions",
+          "Primary content stays on high-opacity surfaces",
+          "Warm color is reserved for small accents"
+        ]
       },
       "glassmorphism": {
         "name": "Aurora Glass",
         "description": "Flowing color behind clear, floating layers",
         "values": ["Layering", "Flow", "Lightness"],
-        "patterns": ["Functional glass layer", "Stable content layer", "Color transmission"]
+        "patterns": ["Functional glass layer", "Stable content layer", "Color transmission"],
+        "evidence": [
+          "Blur is limited to the sidebar and top bar",
+          "Reading cards use near-solid surfaces",
+          "Aurora color remains behind the content plane"
+        ]
       },
       "dunhuang": {
         "name": "Dunhuang Mineral",
         "description": "Weathered plaster warmed by historic mineral pigments",
         "values": ["Continuity", "Restraint", "Patina"],
-        "patterns": ["Mineral accents", "Weathered texture", "Modern typography"]
+        "patterns": ["Mineral accents", "Weathered texture", "Modern typography"],
+        "evidence": [
+          "Ochre and azurite mark only key states",
+          "Weathered texture does not cross reading surfaces",
+          "Historic material retains a modern information hierarchy"
+        ]
       },
       "blueprint": {
         "name": "Midnight Blueprint",
         "description": "A precise coordinate grid for focused creation",
         "values": ["Precision", "Reason", "Traceability"],
-        "patterns": ["Coordinate grid", "Monospaced labels", "Cyan states"]
+        "patterns": ["Coordinate grid", "Monospaced labels", "Cyan states"],
+        "evidence": [
+          "The grid appears only on the working field",
+          "Monospaced type marks values and structure",
+          "Cyan indicates action; drafting yellow frames selection"
+        ]
       }
     },
     "language": {
-      "eyebrow": "THEME DNA",
+      "eyebrow": "Theme specification",
       "title": "Design Language",
       "values": "Theme Values",
       "patterns": "Design Patterns",
@@ -135,8 +184,14 @@
     }
   },
   "templates": {
-    "title": "Template Demo",
-    "description": "Render different page templates with the current theme to preview the actual effect",
+    "title": "Design Validation",
+    "description": "Test the current theme's hierarchy, states, density, and legibility in representative interfaces",
+    "scenarioLabel": "Validation scenario",
+    "groups": {
+      "workflow": "Product workflows",
+      "content": "Content and presentation",
+      "interaction": "Interaction states"
+    },
     "dashboard": "Dashboard",
     "landing": "Landing Page",
     "ecommerce": "E-commerce",

@@ -4,6 +4,9 @@ Imprint is a design-system extraction tool. Its interface should make hidden des
 with the material being analyzed. Themes may change the atmosphere, but they must preserve the same interaction model,
 information hierarchy, and accessibility baseline.
 
+This file is the source of truth for Imprint's own product interface. It is distinct from the `DESIGN.md` artifacts that
+Imprint generates for analyzed websites.
+
 ## Design values
 
 ### Truthful extraction
@@ -54,9 +57,9 @@ weight—so users can transfer learning across pages. Repetition concerns meanin
 
 ### Directness (直截了当)
 
-Let users act on the visible object whenever practical: clicking a theme card applies it, selecting a template replaces
-the preview, and changing a setting updates that setting. Avoid proxy controls and unnecessary confirmation steps for
-reversible actions.
+Let users act on the visible object whenever practical: clicking a theme card applies it, selecting a validation
+scenario replaces the preview, and changing a setting updates that setting. Avoid proxy controls and unnecessary
+confirmation steps for reversible actions.
 
 ### Stay in context (足不出户)
 
@@ -149,6 +152,39 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
+## Anti-slop guardrails
+
+Visual novelty must remain accountable to the product's extraction and validation workflow:
+
+- Curate built-in themes as foundation, narrative, or experimental systems. Do not add a theme unless it has a distinct
+  validation purpose and passes the complete-theme checklist.
+- Limit a theme backdrop to two non-structural ambient color effects. A grid, paper, or mural texture may add one
+  structural material layer when it carries the theme metaphor. Blur belongs only where transparency communicates a
+  functional layer; reading surfaces stay stable and near-solid.
+- Do not run decorative ambient animation. Motion must explain a user action, a state change, or content continuity.
+- Choose a defined edge or elevation for a surface instead of stacking a hairline border, wide shadow, and glow.
+- Every theme value or design-pattern claim must point to an observable token, component rule, or interaction behavior.
+  Poetic language may set context, but it cannot substitute for implementation evidence.
+- Treat the examples in the desktop app as validation scenarios, not bundled website templates. Organize them by product
+  workflow, content and presentation, and interaction states.
+- Avoid generic superlatives, filler metrics, and decorative labels in product copy. Say what the interface verifies or
+  what the user can do.
+
+## Desktop shell conventions
+
+- The native window title uses one localized product name: `印记` in Chinese and `Imprint` in English. Do not combine
+  both names in the constrained title-bar or taskbar label.
+- The operating-system title bar, taskbar, Dock, and tray carry product identity. Keep the in-app sidebar focused on
+  navigation; do not repeat the logo, product name, or marketing tagline there.
+- Use familiar navigation symbols with concise labels. Keep Settings separated at the bottom of the sidebar, following
+  its platform-standard secondary role.
+- Closing the main window hides it to the system tray or macOS menu bar. A primary tray click restores the window, while
+  the context menu provides an explicit Quit command.
+- Selection changes state, not elevation. Theme cards use a stronger border and a visible Current label; they do not
+  move, scale, gain a ring, or rise above neighboring cards.
+- Theme preview swatches use a fixed circular shape, share one vertical centerline, and reserve consistent space for
+  descriptions and state labels across every card.
+
 ## Complete-theme checklist
 
 A built-in theme is complete only when it defines and verifies:
@@ -162,7 +198,7 @@ A built-in theme is complete only when it defines and verifies:
 - fast, normal, and slow motion with easing;
 - background composition and surface material;
 - design values and recurring visual patterns;
-- empty, populated, template, focus, disabled, selected, and reduced-motion states.
+- empty, populated, validation-scenario, focus, disabled, selected, and reduced-motion states.
 
 ## Dark-theme invariants
 

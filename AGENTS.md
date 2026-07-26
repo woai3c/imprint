@@ -24,6 +24,12 @@ Three entry points share the extraction engine:
 
 Data flow: Playwright (playwright-core) loads the target site -> `style-extractor.ts` pulls computed styles from the DOM -> `color-cluster.ts` clusters colors -> `token-builder.ts` builds design tokens -> `export` generates CSS/Tailwind/JSON/MD. In the app, results are stored in SQLite (better-sqlite3, `<userData>/copy-design.db`, schema created in `src/main/database.ts`); LLM is only used for semantic token naming (`llm-enhancer.ts`), never for extraction.
 
+Desktop window, tray, single-instance, and platform lifecycle logic lives in `src/main/index.ts`.
+
+### Product design
+
+`DESIGN.md` is the source of truth for Imprint's own product design, brand, themes, interaction rules, and desktop shell. Read it before renderer visual work and keep it synchronized with material UI changes. Built-in themes are complete systems grouped as foundation, narrative, or experimental; validation scenarios are theme test surfaces, not bundled website templates.
+
 ### Duplicated analyzer code — read before editing
 
 The analyzer/export logic exists TWICE and the copies must be kept in sync manually:

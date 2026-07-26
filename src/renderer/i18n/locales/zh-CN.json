@@ -12,7 +12,7 @@
   "nav": {
     "analyze": "分析",
     "themes": "主题库",
-    "templates": "模板",
+    "templates": "验证场景",
     "history": "历史",
     "settings": "设置"
   },
@@ -70,52 +70,73 @@
     "removeFavorite": "取消收藏“{{theme}}”",
     "noExtracted": "还没有提取的主题",
     "noExtractedTip": "前往「分析」页面提取网站设计风格",
+    "categories": {
+      "foundation": {
+        "title": "基础主题",
+        "description": "适合持续工作的清晰、低干扰界面"
+      },
+      "narrative": {
+        "title": "叙事主题",
+        "description": "以文化材质建立明确的视觉语境"
+      },
+      "experimental": {
+        "title": "实验主题",
+        "description": "用于检验高特征设计语言的表达边界"
+      }
+    },
     "presets": {
       "default": {
         "name": "默认",
         "description": "清晰简洁的默认主题",
         "values": ["清晰", "一致", "高效"],
-        "patterns": ["语义层级", "渐进披露", "即时反馈"]
+        "patterns": ["语义层级", "渐进披露", "即时反馈"],
+        "evidence": ["语义色定义主次和状态", "摘要先于令牌与导出细节", "选择、复制和导出均就地反馈"]
       },
       "chinese-landscape": {
         "name": "国风山水画",
         "description": "宣纸留白，五色墨韵，朱砂点睛",
         "values": ["留白", "含蓄", "气韵"],
-        "patterns": ["低对比材质", "朱砂焦点", "宋黑分工"]
+        "patterns": ["低对比材质", "朱砂焦点", "宋黑分工"],
+        "evidence": ["纸张纹理退居内容之后", "朱砂只承担选择与关键状态", "宋体标题、黑体正文、等宽代码"]
       },
       "cyberpunk": {
         "name": "赛博朋克",
         "description": "深色信息舱，青色与琥珀信号克制发光",
         "values": ["秩序", "信号", "节制"],
-        "patterns": ["分层暗面", "局部发光", "青琥珀信号"]
+        "patterns": ["分层暗面", "局部发光", "青琥珀信号"],
+        "evidence": ["外壳、卡片和控件使用不同明度", "光效仅服务焦点与关键操作", "青色表达操作，琥珀表达选择"]
       },
       "nordic": {
         "name": "北欧晨雾",
         "description": "晨雾柔光，克制自然的北欧质感",
         "values": ["平静", "自然", "友好"],
-        "patterns": ["柔光分区", "实体白卡", "温暖点色"]
+        "patterns": ["柔光分区", "实体白卡", "温暖点色"],
+        "evidence": ["低饱和背景划分工作区域", "主要内容保持高不透明度", "暖色只用于少量强调信息"]
       },
       "glassmorphism": {
         "name": "极光玻璃",
         "description": "流动极光，悬浮而清晰的玻璃层次",
         "values": ["层次", "流动", "轻盈"],
-        "patterns": ["功能层玻璃", "内容层稳定", "色彩透射"]
+        "patterns": ["功能层玻璃", "内容层稳定", "色彩透射"],
+        "evidence": ["模糊仅用于侧栏与顶栏", "阅读卡片使用近实体表面", "极光停留在内容背板之后"]
       },
       "dunhuang": {
         "name": "敦煌壁彩",
         "description": "矿彩入壁，千年风化的温度",
         "values": ["传承", "克制", "时间感"],
-        "patterns": ["矿彩点色", "风化底纹", "现代排版"]
+        "patterns": ["矿彩点色", "风化底纹", "现代排版"],
+        "evidence": ["赭石与石青只标记关键状态", "壁面纹理不穿透正文表面", "传统材质沿用现代信息层级"]
       },
       "blueprint": {
         "name": "午夜蓝图",
         "description": "坐标网格，理性精密的创作画布",
         "values": ["精确", "理性", "可追溯"],
-        "patterns": ["坐标网格", "等宽标记", "青色状态"]
+        "patterns": ["坐标网格", "等宽标记", "青色状态"],
+        "evidence": ["网格只出现在工作底板", "等宽字体用于数值与结构标记", "青色操作、制图黄选择边框"]
       }
     },
     "language": {
-      "eyebrow": "THEME DNA",
+      "eyebrow": "主题规范",
       "title": "设计语言",
       "values": "主题价值",
       "patterns": "设计模式",
@@ -135,8 +156,14 @@
     }
   },
   "templates": {
-    "title": "模板演示",
-    "description": "用当前主题渲染不同类型的页面模板，预览实际效果",
+    "title": "设计验证场景",
+    "description": "在典型界面中检验当前主题的层级、状态、密度与可读性",
+    "scenarioLabel": "验证场景",
+    "groups": {
+      "workflow": "产品工作流",
+      "content": "内容与展示",
+      "interaction": "交互状态"
+    },
     "dashboard": "后台管理",
     "landing": "官网首页",
     "ecommerce": "电商商城",

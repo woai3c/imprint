@@ -79,12 +79,16 @@ export interface ThemeFoundationTokens {
 export interface ThemeIdentity {
   values: [string, string, string]
   patterns: [string, string, string]
+  evidence: [string, string, string]
 }
+
+export type ThemeCategory = 'foundation' | 'narrative' | 'experimental'
 
 export interface AppTheme {
   id: string
   name: string
   description: string
+  category: ThemeCategory
   colors: ThemeColors
   tokens: ThemeFoundationTokens
   identity: ThemeIdentity
@@ -239,17 +243,20 @@ export const builtinThemes: AppTheme[] = [
     id: 'default',
     name: '默认',
     description: '清晰简洁的默认主题',
+    category: 'foundation',
     colors: LIGHT_DEFAULTS,
     tokens: createThemeTokens(),
     identity: {
       values: ['清晰', '一致', '高效'],
       patterns: ['语义层级', '渐进披露', '即时反馈'],
+      evidence: ['语义色定义主次和状态', '摘要先于令牌与导出细节', '选择、复制和导出均就地反馈'],
     },
   },
   {
     id: 'chinese-landscape',
     name: '国风山水画',
     description: '宣纸留白，五色墨韵，朱砂点睛',
+    category: 'narrative',
     colors: {
       background: 'oklch(95.5% 0.014 88)',
       foreground: 'oklch(23% 0.012 65)',
@@ -301,12 +308,14 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['留白', '含蓄', '气韵'],
       patterns: ['低对比材质', '朱砂焦点', '宋黑分工'],
+      evidence: ['纸张纹理退居内容之后', '朱砂只承担选择与关键状态', '宋体标题、黑体正文、等宽代码'],
     },
   },
   {
     id: 'cyberpunk',
     name: '赛博朋克',
     description: '深色信息舱，青色与琥珀信号克制发光',
+    category: 'experimental',
     colors: {
       background: 'oklch(12% 0.018 250)',
       foreground: 'oklch(90% 0.018 210)',
@@ -321,7 +330,7 @@ export const builtinThemes: AppTheme[] = [
       card: 'oklch(15% 0.022 247)',
       'card-foreground': 'oklch(90% 0.018 210)',
       border: 'oklch(27% 0.035 230)',
-      ring: 'oklch(70% 0.11 205)',
+      ring: 'oklch(78% 0.14 85)',
       sidebar: 'oklch(13.5% 0.021 248)',
       'sidebar-foreground': 'oklch(84% 0.022 210)',
       'sidebar-accent': 'oklch(22% 0.045 215)',
@@ -366,12 +375,14 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['秩序', '信号', '节制'],
       patterns: ['分层暗面', '局部发光', '青琥珀信号'],
+      evidence: ['外壳、卡片和控件使用不同明度', '光效仅服务焦点与关键操作', '青色表达操作，琥珀表达选择'],
     },
   },
   {
     id: 'nordic',
     name: '北欧晨雾',
     description: '晨雾柔光，克制自然的北欧质感',
+    category: 'foundation',
     colors: {
       background: 'oklch(97% 0.012 92)',
       foreground: 'oklch(26% 0.025 235)',
@@ -431,12 +442,14 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['平静', '自然', '友好'],
       patterns: ['柔光分区', '实体白卡', '温暖点色'],
+      evidence: ['低饱和背景划分工作区域', '主要内容保持高不透明度', '暖色只用于少量强调信息'],
     },
   },
   {
     id: 'glassmorphism',
     name: '极光玻璃',
     description: '流动极光，悬浮而清晰的玻璃层次',
+    category: 'experimental',
     colors: {
       background: 'oklch(94% 0.025 260)',
       foreground: 'oklch(20% 0.035 270)',
@@ -451,7 +464,7 @@ export const builtinThemes: AppTheme[] = [
       card: 'oklch(98% 0.012 260)',
       'card-foreground': 'oklch(20% 0.035 270)',
       border: 'oklch(86% 0.032 260)',
-      ring: 'oklch(57% 0.205 282)',
+      ring: 'oklch(52% 0.23 292)',
       sidebar: 'oklch(94% 0.025 258)',
       'sidebar-foreground': 'oklch(26% 0.04 270)',
       'sidebar-accent': 'oklch(89% 0.055 273)',
@@ -492,12 +505,14 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['层次', '流动', '轻盈'],
       patterns: ['功能层玻璃', '内容层稳定', '色彩透射'],
+      evidence: ['模糊仅用于侧栏与顶栏', '阅读卡片使用近实体表面', '极光停留在内容背板之后'],
     },
   },
   {
     id: 'dunhuang',
     name: '敦煌壁彩',
     description: '矿彩入壁，千年风化的温度',
+    category: 'narrative',
     colors: {
       background: 'oklch(91.5% 0.046 76)',
       foreground: 'oklch(28% 0.04 58)',
@@ -552,12 +567,14 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['传承', '克制', '时间感'],
       patterns: ['矿彩点色', '风化底纹', '现代排版'],
+      evidence: ['赭石与石青只标记关键状态', '壁面纹理不穿透正文表面', '传统材质沿用现代信息层级'],
     },
   },
   {
     id: 'blueprint',
     name: '午夜蓝图',
     description: '坐标网格，理性精密的创作画布',
+    category: 'experimental',
     colors: {
       background: 'oklch(14% 0.032 246)',
       foreground: 'oklch(91% 0.035 210)',
@@ -572,7 +589,7 @@ export const builtinThemes: AppTheme[] = [
       card: 'oklch(17% 0.04 244)',
       'card-foreground': 'oklch(91% 0.035 210)',
       border: 'oklch(32% 0.072 230)',
-      ring: 'oklch(76% 0.13 210)',
+      ring: 'oklch(82% 0.16 82)',
       sidebar: 'oklch(11.5% 0.03 247)',
       'sidebar-foreground': 'oklch(83% 0.045 214)',
       'sidebar-accent': 'oklch(22% 0.065 230)',
@@ -621,6 +638,7 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['精确', '理性', '可追溯'],
       patterns: ['坐标网格', '等宽标记', '青色状态'],
+      evidence: ['网格只出现在工作底板', '等宽字体用于数值与结构标记', '青色操作、制图黄选择边框'],
     },
   },
 ]

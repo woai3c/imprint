@@ -1,5 +1,7 @@
 # Imprint
 
+English / [简体中文](./README.md)
+
 <p align="center">
   <img src="./assets/brand/imprint-lockup-bilingual-on-paper.png" alt="Imprint · 印记" width="720" />
 </p>
@@ -9,8 +11,6 @@
 Imprint is an open-source desktop application that analyzes websites and UI screenshots, extracts their visual rules (colors, typography, spacing, shadows, radii, component styles, etc.), and converts them into AI-friendly design specifications and code variables.
 
 Make AI Coding more consistent by allowing AI agents to build interfaces based on real-world design systems instead of generating random UI styles.
-
-[中文](./README.md)
 
 ## Why Imprint?
 
@@ -60,7 +60,7 @@ Imprint transforms real product visual languages into structured design systems 
 ### Product Experience
 
 - **Live Theme Preview** — Apply extracted design systems to preview UI changes instantly
-- **Template Showcase** — Preview generated themes with dashboard, landing page, ecommerce and blog templates
+- **Validation Scenarios** — Test theme hierarchy, density, and legibility across workflows, content, and interaction states
 - **Built-in Themes** — Includes premium styles such as Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism and dark themes
 
 ### Privacy & Local-first

@@ -116,7 +116,7 @@ export function TemplatesPage() {
                   style={{ backgroundColor: theme.colors.primary }}
                 />
                 <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[10px] bg-foreground text-background whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                  {theme.name}
+                  {t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
                 </span>
               </div>
             ))}

@@ -50,7 +50,70 @@
     "current": "Current",
     "resetDefault": "Reset to Default",
     "noExtracted": "No extracted themes yet",
-    "noExtractedTip": "Go to the Analyze page to extract website design styles"
+    "noExtractedTip": "Go to the Analyze page to extract website design styles",
+    "presets": {
+      "default": {
+        "name": "Default",
+        "description": "A clear, focused interface",
+        "values": ["Clarity", "Consistency", "Efficiency"],
+        "patterns": ["Semantic hierarchy", "Progressive disclosure", "Immediate feedback"]
+      },
+      "chinese-landscape": {
+        "name": "Ink Landscape",
+        "description": "Xuan paper, five shades of ink, and a cinnabar accent",
+        "values": ["Negative space", "Restraint", "Spirit"],
+        "patterns": ["Low-contrast material", "Cinnabar focus", "Serif–sans roles"]
+      },
+      "cyberpunk": {
+        "name": "Cyberpunk",
+        "description": "A neon grid where information glows after dark",
+        "values": ["Focus", "Speed", "Signal"],
+        "patterns": ["Neon states", "Grid positioning", "Dark-field emphasis"]
+      },
+      "nordic": {
+        "name": "Nordic Mist",
+        "description": "Soft morning light with restrained natural warmth",
+        "values": ["Calm", "Natural", "Friendly"],
+        "patterns": ["Soft-light zoning", "Solid white cards", "Warm accents"]
+      },
+      "glassmorphism": {
+        "name": "Aurora Glass",
+        "description": "Flowing color behind clear, floating layers",
+        "values": ["Layering", "Flow", "Lightness"],
+        "patterns": ["Functional glass layer", "Stable content layer", "Color transmission"]
+      },
+      "dunhuang": {
+        "name": "Dunhuang Mineral",
+        "description": "Weathered plaster warmed by historic mineral pigments",
+        "values": ["Continuity", "Restraint", "Patina"],
+        "patterns": ["Mineral accents", "Weathered texture", "Modern typography"]
+      },
+      "blueprint": {
+        "name": "Midnight Blueprint",
+        "description": "A precise coordinate grid for focused creation",
+        "values": ["Precision", "Reason", "Traceability"],
+        "patterns": ["Coordinate grid", "Monospaced labels", "Cyan states"]
+      }
+    },
+    "language": {
+      "eyebrow": "THEME DNA",
+      "title": "Design Language",
+      "values": "Theme Values",
+      "patterns": "Design Patterns",
+      "foundation": "Foundation Tokens",
+      "spacing": "Spacing Unit",
+      "layout": "Sidebar Width",
+      "border": "Border",
+      "icon": "Icon Stroke",
+      "motion": "Motion",
+      "imprintValues": "Imprint Baseline",
+      "imprintValueList": "Truthful extraction · Visible structure · Portability · Content first",
+      "density": {
+        "compact": "Compact density",
+        "comfortable": "Comfortable density",
+        "spacious": "Spacious density"
+      }
+    }
   },
   "templates": {
     "title": "Template Demo",

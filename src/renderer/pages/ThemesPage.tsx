@@ -10,6 +10,7 @@ export function ThemesPage() {
   const { themes, fetchThemes, toggleFavorite } = useThemeStore()
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
   const [tab, setTab] = useState<'extracted' | 'builtin'>('builtin')
+  const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
 
   useEffect(() => {
     fetchThemes()
@@ -55,21 +56,25 @@ export function ThemesPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-8 pb-8">
+      <div className="flex-1 overflow-auto px-8 pt-1 pb-8">
         {tab === 'builtin' ? (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            {builtinThemes.map((theme) => (
-              <ThemeCard
-                key={theme.id}
-                name={theme.name}
-                description={theme.description}
-                colors={theme.colors}
-                isActive={currentThemeId === theme.id}
-                onApply={() => handleApplyBuiltin(theme)}
-                currentLabel={t('themes.current')}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              {builtinThemes.map((theme) => (
+                <ThemeCard
+                  key={theme.id}
+                  id={theme.id}
+                  name={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
+                  description={t(`themes.presets.${theme.id}.description`, { defaultValue: theme.description })}
+                  colors={theme.colors}
+                  isActive={currentThemeId === theme.id}
+                  onApply={() => handleApplyBuiltin(theme)}
+                  currentLabel={t('themes.current')}
+                />
+              ))}
+            </div>
+            <ThemeLanguagePanel theme={activeBuiltinTheme} />
+          </>
         ) : themes.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -134,7 +139,81 @@ export function ThemesPage() {
   )
 }
 
+function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
+  const { t } = useTranslation()
+  const themeKey = `themes.presets.${theme.id}`
+  const fontName = theme.tokens.typography.fontHeading.split(',')[0].replaceAll('"', '')
+
+  return (
+    <section className="theme-language-panel mt-5 rounded-xl border border-border bg-card/70 p-5">
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('themes.language.eyebrow')}
+          </p>
+          <h3 className="mt-1 text-lg font-semibold">
+            {t(`${themeKey}.name`, { defaultValue: theme.name })} · {t('themes.language.title')}
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t(`${themeKey}.description`, { defaultValue: theme.description })}
+          </p>
+        </div>
+        <div className="text-right text-[10px] text-muted-foreground">
+          <p>{fontName}</p>
+          <p className="mt-1">
+            {t(`themes.language.density.${theme.tokens.spacing.density}`)} · {theme.tokens.shape.radiusBase}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 gap-5">
+        <div>
+          <h4 className="text-xs font-semibold">{t('themes.language.values')}</h4>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {theme.identity.values.map((value, index) => (
+              <span key={value} className="rounded-full bg-secondary px-2 py-1 text-[10px] text-secondary-foreground">
+                {t(`${themeKey}.values.${index}`, { defaultValue: value })}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <h4 className="text-xs font-semibold">{t('themes.language.patterns')}</h4>
+          <ul className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+            {theme.identity.patterns.map((pattern, index) => (
+              <li key={pattern}>— {t(`${themeKey}.patterns.${index}`, { defaultValue: pattern })}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="text-xs font-semibold">{t('themes.language.foundation')}</h4>
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <dt>{t('themes.language.spacing')}</dt>
+            <dd className="text-right text-foreground">{theme.tokens.spacing.unit}</dd>
+            <dt>{t('themes.language.layout')}</dt>
+            <dd className="text-right text-foreground">{theme.tokens.layout.sidebarWidth}</dd>
+            <dt>{t('themes.language.border')}</dt>
+            <dd className="text-right text-foreground">{theme.tokens.shape.borderWidth}</dd>
+            <dt>{t('themes.language.icon')}</dt>
+            <dd className="text-right text-foreground">{theme.tokens.shape.iconStrokeWidth}px</dd>
+            <dt>{t('themes.language.motion')}</dt>
+            <dd className="text-right text-foreground">{theme.tokens.motion.normal}</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-border/60 pt-3 text-[10px] text-muted-foreground">
+        <span className="mr-2 font-medium text-foreground">{t('themes.language.imprintValues')}</span>
+        {t('themes.language.imprintValueList')}
+      </div>
+    </section>
+  )
+}
+
 function ThemeCard({
+  id,
   name,
   description,
   colors,
@@ -142,6 +221,7 @@ function ThemeCard({
   onApply,
   currentLabel,
 }: {
+  id: string
   name: string
   description: string
   colors: ThemeColors
@@ -152,16 +232,21 @@ function ThemeCard({
   return (
     <button
       onClick={onApply}
-      className={`rounded-xl border p-4 text-left transition-all hover:shadow-md ${
+      className={`theme-card rounded-xl border p-4 text-left transition-all hover:shadow-md ${
         isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/30'
       }`}
     >
-      <div className="flex gap-1.5 mb-3">
-        <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: colors.primary }} />
-        <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: colors.background }} />
-        <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: colors.foreground }} />
-        <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: colors.accent }} />
-        <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: colors.secondary }} />
+      <div
+        className={`theme-card-preview theme-card-preview-${id} mb-3 flex items-end gap-1.5 overflow-hidden rounded-lg border border-border/60 p-2`}
+        style={{ backgroundColor: colors.background }}
+      >
+        {[colors.primary, colors.background, colors.foreground, colors.accent, colors.secondary].map((color, index) => (
+          <div
+            key={`${color}-${index}`}
+            className="theme-swatch h-6 w-6 rounded-md border border-black/5"
+            style={{ backgroundColor: color }}
+          />
+        ))}
       </div>
 
       <h4 className="font-medium text-sm">{name}</h4>

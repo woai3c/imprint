@@ -50,7 +50,70 @@
     "current": "当前",
     "resetDefault": "恢复默认",
     "noExtracted": "还没有提取的主题",
-    "noExtractedTip": "前往「分析」页面提取网站设计风格"
+    "noExtractedTip": "前往「分析」页面提取网站设计风格",
+    "presets": {
+      "default": {
+        "name": "默认",
+        "description": "清晰简洁的默认主题",
+        "values": ["清晰", "一致", "高效"],
+        "patterns": ["语义层级", "渐进披露", "即时反馈"]
+      },
+      "chinese-landscape": {
+        "name": "国风山水画",
+        "description": "宣纸留白，五色墨韵，朱砂点睛",
+        "values": ["留白", "含蓄", "气韵"],
+        "patterns": ["低对比材质", "朱砂焦点", "宋黑分工"]
+      },
+      "cyberpunk": {
+        "name": "赛博朋克",
+        "description": "霓虹网格，信息在暗夜中发光",
+        "values": ["聚焦", "速度", "信号"],
+        "patterns": ["霓虹状态", "网格定位", "暗场高亮"]
+      },
+      "nordic": {
+        "name": "北欧晨雾",
+        "description": "晨雾柔光，克制自然的北欧质感",
+        "values": ["平静", "自然", "友好"],
+        "patterns": ["柔光分区", "实体白卡", "温暖点色"]
+      },
+      "glassmorphism": {
+        "name": "极光玻璃",
+        "description": "流动极光，悬浮而清晰的玻璃层次",
+        "values": ["层次", "流动", "轻盈"],
+        "patterns": ["功能层玻璃", "内容层稳定", "色彩透射"]
+      },
+      "dunhuang": {
+        "name": "敦煌壁彩",
+        "description": "矿彩入壁，千年风化的温度",
+        "values": ["传承", "克制", "时间感"],
+        "patterns": ["矿彩点色", "风化底纹", "现代排版"]
+      },
+      "blueprint": {
+        "name": "午夜蓝图",
+        "description": "坐标网格，理性精密的创作画布",
+        "values": ["精确", "理性", "可追溯"],
+        "patterns": ["坐标网格", "等宽标记", "青色状态"]
+      }
+    },
+    "language": {
+      "eyebrow": "THEME DNA",
+      "title": "设计语言",
+      "values": "主题价值",
+      "patterns": "设计模式",
+      "foundation": "基础令牌",
+      "spacing": "间距基准",
+      "layout": "侧栏宽度",
+      "border": "边框",
+      "icon": "图标线宽",
+      "motion": "标准动效",
+      "imprintValues": "Imprint 设计基线",
+      "imprintValueList": "真实提取 · 结构显影 · 可迁移 · 内容优先",
+      "density": {
+        "compact": "紧凑密度",
+        "comfortable": "适中密度",
+        "spacious": "舒展密度"
+      }
+    }
   },
   "templates": {
     "title": "模板演示",

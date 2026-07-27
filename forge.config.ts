@@ -3,6 +3,9 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 
+import fs from 'node:fs'
+import path from 'node:path'
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`${name} is required for a signed release build`)
@@ -12,18 +15,42 @@ function requireEnv(name: string): string {
 const macOSSigningEnabled = process.platform === 'darwin' && process.env.IMPRINT_MACOS_SIGNING === 'true'
 const windowsSigningEnabled = process.platform === 'win32' && process.env.IMPRINT_WINDOWS_SIGNING === 'true'
 
-const appleSigningIdentity = macOSSigningEnabled ? requireEnv('APPLE_SIGNING_IDENTITY') : undefined
-const appleApiKey = macOSSigningEnabled ? requireEnv('APPLE_API_KEY') : undefined
-const appleApiKeyId = macOSSigningEnabled ? requireEnv('APPLE_API_KEY_ID') : undefined
-const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : undefined
-const windowsCertificateFile = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_FILE') : undefined
-const windowsCertificatePassword = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_PASSWORD') : undefined
+const appleSigningIdentity = macOSSigningEnabled ? requireEnv('APPLE_SIGNING_IDENTITY') : ''
+const appleApiKey = macOSSigningEnabled ? requireEnv('APPLE_API_KEY') : ''
+const appleApiKeyId = macOSSigningEnabled ? requireEnv('APPLE_API_KEY_ID') : ''
+const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : ''
+const windowsCertificateFile = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_FILE') : ''
+const windowsCertificatePassword = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_PASSWORD') : ''
+
+const nativeModules = ['better-sqlite3']
+
+function copyNativeModules(
+  buildPath: string,
+  _electronVersion: string,
+  _platform: string,
+  _arch: string,
+  callback: (err?: Error | null) => void,
+) {
+  try {
+    const appNodeModules = path.join(buildPath, 'node_modules')
+    for (const mod of nativeModules) {
+      const src = path.dirname(require.resolve(`${mod}/package.json`))
+      const dest = path.join(appNodeModules, mod)
+      fs.cpSync(src, dest, { recursive: true, dereference: true })
+    }
+    callback()
+  } catch (err) {
+    callback(err as Error)
+  }
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
     appBundleId: 'com.woai3c.imprint',
     appCategoryType: 'public.app-category.developer-tools',
-    asar: true,
+    asar: {
+      unpack: '**/*.node',
+    },
     extraResource: ['assets/icons'],
     icon: 'assets/icons/icon',
     name: 'Imprint',
@@ -34,6 +61,7 @@ const config: ForgeConfig = {
       InternalName: 'Imprint',
       ProductName: 'Imprint',
     },
+    afterCopy: [copyNativeModules],
     ...(macOSSigningEnabled
       ? {
           osxSign: {

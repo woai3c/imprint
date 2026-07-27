@@ -89,10 +89,13 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "appdmg",
       "better-sqlite3",
+      "ds-store",
       "electron",
       "electron-winstaller",
       "esbuild",
+      "fs-xattr",
       "macos-alias"
     ]
   }

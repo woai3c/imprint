@@ -62,7 +62,7 @@ jobs:
 
   e2e:
     name: Electron E2E
-    runs-on: windows-2025
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -74,7 +74,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:e2e
+
+      - name: Run E2E with virtual display
+        run: xvfb-run --auto-servernum pnpm test:e2e
 
   commitlint:
     name: Commit Message Check

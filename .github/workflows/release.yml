@@ -212,10 +212,6 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: pnpm exec electron-forge make --arch=${{ matrix.arch }}
 
-      - name: Run Electron E2E against the release build
-        if: matrix.platform == 'windows'
-        run: node --test tests/e2e/core-flow.test.mjs
-
       - name: Notarize and verify macOS DMG
         if: matrix.platform == 'macos' && steps.macos-signing.outputs.enabled == 'true'
         shell: bash

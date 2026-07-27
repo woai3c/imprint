@@ -6,7 +6,6 @@ export {
   generateCssVariables,
   generateDesignDoc,
   generateDtcgJson,
-  generatePdfHtml,
   generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'

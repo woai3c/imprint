@@ -22,7 +22,7 @@ const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : ''
 const windowsCertificateFile = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_FILE') : ''
 const windowsCertificatePassword = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_PASSWORD') : ''
 
-const nativeModules = ['better-sqlite3']
+const externalPackages = ['better-sqlite3', 'playwright-core']
 
 function copyNativeModules(
   buildPath: string,
@@ -33,7 +33,7 @@ function copyNativeModules(
 ) {
   try {
     const appNodeModules = path.join(buildPath, 'node_modules')
-    for (const mod of nativeModules) {
+    for (const mod of externalPackages) {
       const src = path.dirname(require.resolve(`${mod}/package.json`))
       const dest = path.join(appNodeModules, mod)
       fs.cpSync(src, dest, { recursive: true, dereference: true })

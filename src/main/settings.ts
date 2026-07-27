@@ -62,7 +62,3 @@ export function saveSettings(update: Partial<AppSettings>): AppSettings {
   writeToDisk(merged)
   return merged
 }
-
-export function clearSettings(): void {
-  writeToDisk({ ...defaults })
-}

@@ -31,6 +31,7 @@ function createWindow() {
     title: 'Imprint',
     icon: getIconPath('icon.png'),
     titleBarStyle: isMacOS(process.platform) ? 'hiddenInset' : 'default',
+    autoHideMenuBar: !isMacOS(process.platform),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -45,14 +46,14 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`))
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-
   mainWindow.on('close', (event) => {
     if (isQuitting) return
     event.preventDefault()
     mainWindow?.hide()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   if (isWindows(process.platform)) {
@@ -126,6 +127,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     if (isWindows(process.platform)) app.setAppUserModelId('com.imprint.app')
+    if (!isMacOS(process.platform)) Menu.setApplicationMenu(null)
 
     protocol.handle('imprint-file', (request) => {
       let filePath = decodeURIComponent(new URL(request.url).pathname)

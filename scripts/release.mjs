@@ -129,34 +129,17 @@ function buildChangelogSection(version, commits, contributors = []) {
     feat: 'Added',
     fix: 'Fixed',
     perf: 'Performance',
-    refactor: 'Changed',
-    docs: 'Documentation',
-    build: 'Maintenance',
-    chore: 'Maintenance',
-    ci: 'Maintenance',
-    style: 'Maintenance',
-    test: 'Maintenance',
   }
-  const categoryOrder = [
-    'Breaking Changes',
-    'Added',
-    'Fixed',
-    'Performance',
-    'Changed',
-    'Documentation',
-    'Maintenance',
-    'Other',
-  ]
+  const categoryOrder = ['Breaking Changes', 'Added', 'Fixed', 'Performance']
   const categories = new Map(categoryOrder.map((category) => [category, []]))
 
   for (const commit of commits) {
     const parsed = formatCommitSubject(commit.subject)
-    const category = parsed.breaking ? 'Breaking Changes' : categoryByType[parsed.type] || 'Other'
-    categories.get(category).push(`- ${parsed.text} (${commit.hash})`)
-  }
-
-  if (commits.length === 0) {
-    categories.get('Maintenance').push('- No user-facing changes were recorded.')
+    if (parsed.breaking) {
+      categories.get('Breaking Changes').push(`- ${parsed.text} (${commit.hash})`)
+    } else if (categoryByType[parsed.type]) {
+      categories.get(categoryByType[parsed.type]).push(`- ${parsed.text} (${commit.hash})`)
+    }
   }
 
   const date = new Date().toISOString().slice(0, 10)

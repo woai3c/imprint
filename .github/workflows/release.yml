@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -74,8 +76,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare macOS signing credentials
+      - name: Detect macOS signing configuration
         if: matrix.platform == 'macos'
+        id: macos-signing
         shell: bash
         env:
           MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
@@ -84,19 +87,42 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          for name in \
-            MACOS_CERTIFICATE_BASE64 \
-            MACOS_CERTIFICATE_PASSWORD \
-            APPLE_API_KEY_BASE64 \
-            APPLE_API_KEY_ID \
+          secrets=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            APPLE_API_KEY_BASE64
+            APPLE_API_KEY_ID
             APPLE_API_ISSUER
-          do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing required GitHub Actions secret: ${name}"
-              exit 1
+          )
+
+          present=0
+          for name in "${secrets[@]}"; do
+            if [ -n "${!name}" ]; then
+              present=$((present + 1))
             fi
           done
 
+          if [ "$present" -eq 0 ]; then
+            echo "::warning::Apple signing is not configured. Building an unsigned and unnotarized DMG."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [ "$present" -eq "${#secrets[@]}" ]; then
+            echo "All Apple signing secrets are present."
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Partial Apple signing configuration detected (${present}/${#secrets[@]} secrets). Fix or remove all Apple secrets."
+            exit 1
+          fi
+
+      - name: Prepare macOS signing credentials
+        if: matrix.platform == 'macos' && steps.macos-signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
           certificate_path="$RUNNER_TEMP/imprint-signing.p12"
           api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
           keychain_path="$RUNNER_TEMP/imprint-signing.keychain-db"
@@ -142,20 +168,34 @@ jobs:
 
           rm -f "$certificate_path"
 
-      - name: Prepare Windows signing credentials
+      - name: Detect Windows signing configuration
         if: matrix.platform == 'windows'
+        id: windows-signing
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
-            throw 'Missing required GitHub Actions secret: WINDOWS_CERTIFICATE_BASE64'
-          }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw 'Missing required GitHub Actions secret: WINDOWS_CERTIFICATE_PASSWORD'
+          $hasBase64 = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
+
+          if (-not $hasBase64 -and -not $hasPassword) {
+            Write-Host "::warning::Windows signing is not configured. Building an unsigned installer."
+            "enabled=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } elseif ($hasBase64 -and $hasPassword) {
+            Write-Host "All Windows signing secrets are present."
+            "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            throw "Partial Windows signing configuration detected. Provide both WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD, or remove both."
           }
 
+      - name: Prepare Windows signing credentials
+        if: matrix.platform == 'windows' && steps.windows-signing.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
           $certificatePath = Join-Path $env:RUNNER_TEMP 'imprint-code-signing.pfx'
           try {
             $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
@@ -177,7 +217,7 @@ jobs:
         run: node --test tests/e2e/core-flow.test.mjs
 
       - name: Notarize and verify macOS DMG
-        if: matrix.platform == 'macos'
+        if: matrix.platform == 'macos' && steps.macos-signing.outputs.enabled == 'true'
         shell: bash
         run: |
           app_path="$(find out -type d -name 'Imprint.app' -print -quit)"
@@ -193,7 +233,7 @@ jobs:
           bash scripts/notarize-dmg.sh "$dmg_path"
 
       - name: Verify Windows installer signature
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && steps.windows-signing.outputs.enabled == 'true'
         shell: pwsh
         run: |
           $installers = @(
@@ -250,6 +290,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download installers
         uses: actions/download-artifact@v4
@@ -260,6 +302,35 @@ jobs:
 
       - name: Extract release notes
         run: node scripts/extract-release-notes.mjs "${{ github.ref_name }}" release-notes.md
+
+      - name: Append contributors to release notes
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          prev_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname \
+            | grep -v "^${tag}$" | head -1 || true)"
+          range="${prev_tag:+${prev_tag}..}${tag}"
+
+          contributors="$(
+            git log --no-merges --pretty='format:%aN' "$range" \
+              | sort -uf \
+              | while IFS= read -r name; do
+                  email="$(git log --no-merges --pretty='format:%aE' --author="$name" -1 "$range")"
+                  gh_user="$(
+                    gh api "/search/users?q=${email}+in:email" \
+                      --jq '.items[0].login // empty' 2>/dev/null || true
+                  )"
+                  if [ -n "$gh_user" ]; then
+                    echo "- @${gh_user}"
+                  else
+                    echo "- ${name}"
+                  fi
+                done
+          )"
+
+          if [ -n "$contributors" ]; then
+            printf '\n## Contributors\n\n%s\n' "$contributors" >> release-notes.md
+          fi
 
       - name: Generate SHA-256 checksums
         working-directory: release-assets

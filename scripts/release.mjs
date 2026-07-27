@@ -96,6 +96,20 @@ function readCommits(previousTag) {
   })
 }
 
+function readContributors(previousTag) {
+  const range = previousTag ? `${previousTag}..HEAD` : 'HEAD'
+  const output = git('log', '--no-merges', '--pretty=format:%aN', range)
+  if (!output) return []
+  return [
+    ...new Set(
+      output
+        .split('\n')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+}
+
 function formatCommitSubject(subject) {
   const match = subject.match(/^([a-z]+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/i)
   if (!match) return { type: 'other', breaking: false, text: subject }
@@ -108,7 +122,7 @@ function formatCommitSubject(subject) {
   }
 }
 
-function buildChangelogSection(version, commits) {
+function buildChangelogSection(version, commits, contributors = []) {
   const categoryByType = {
     feat: 'Added',
     fix: 'Fixed',
@@ -149,6 +163,10 @@ function buildChangelogSection(version, commits) {
     const entries = categories.get(category)
     if (entries.length === 0) continue
     lines.push('', `### ${category}`, '', ...entries)
+  }
+
+  if (contributors.length > 0) {
+    lines.push('', '### Contributors', '', ...contributors.map((name) => `- ${name}`))
   }
 
   return `${lines.join('\n')}\n`
@@ -290,7 +308,8 @@ async function main() {
 
   if (dryRun) {
     const commits = readCommits(latestTag)
-    console.log(buildChangelogSection(targetVersion, commits))
+    const contributors = readContributors(latestTag)
+    console.log(buildChangelogSection(targetVersion, commits, contributors))
     console.log('Dry run only: no files, commits, tags, or remotes were changed.')
     return
   }
@@ -309,7 +328,8 @@ async function main() {
   assertCleanWorktree()
 
   const commits = readCommits(latestTag)
-  const section = buildChangelogSection(targetVersion, commits)
+  const contributors = readContributors(latestTag)
+  const section = buildChangelogSection(targetVersion, commits, contributors)
   packageJson.version = targetVersion
   fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
   fs.writeFileSync(changelogPath, `${insertChangelogSection(section).trimEnd()}\n`)

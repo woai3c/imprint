@@ -337,7 +337,7 @@ async function main() {
   fs.writeFileSync(changelogPath, `${insertChangelogSection(section).trimEnd()}\n`)
 
   git('add', 'package.json', 'CHANGELOG.md')
-  git('commit', '-m', `chore(release): ${tag}`)
+  git('commit', '-m', `release: ${tag}`)
   git('tag', '-a', tag, '-m', `Imprint ${tag}`)
 
   if (!noPush) {

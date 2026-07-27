@@ -15,6 +15,13 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+const e2eUserDataDir = process.env.IMPRINT_E2E_USER_DATA_DIR
+if (process.env.IMPRINT_E2E === '1' && e2eUserDataDir) {
+  const resolvedE2eUserDataDir = path.resolve(e2eUserDataDir)
+  app.setPath('userData', resolvedE2eUserDataDir)
+  app.setPath('sessionData', path.join(resolvedE2eUserDataDir, 'session'))
+}
+
 function getIconPath(...segments: string[]) {
   const iconRoot = app.isPackaged
     ? path.join(process.resourcesPath, 'icons')
@@ -108,7 +115,7 @@ function createTray() {
   if (isLinux(process.platform)) tray.setContextMenu(contextMenu)
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
+const hasSingleInstanceLock = process.env.IMPRINT_E2E === '1' || app.requestSingleInstanceLock()
 
 if (!hasSingleInstanceLock) {
   app.quit()

@@ -64,7 +64,7 @@ const TOOLS = [
           enum: ['desktop', 'tablet', 'mobile'],
           description: 'Viewport size (default: desktop)',
         },
-        useSession: { type: 'boolean', description: 'Reuse browser login state (default: true)' },
+        useSession: { type: 'boolean', description: "Reuse Imprint's saved browser session (default: true)" },
       },
       required: ['url'],
     },

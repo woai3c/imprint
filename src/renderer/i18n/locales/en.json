@@ -44,7 +44,7 @@
     "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
     "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
     "browserNotFound": "Chrome or Edge browser not found. Please install one first.",
-    "tabPreview": "Preview",
+    "tabPreview": "Design Tokens",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS Variables",
@@ -58,16 +58,76 @@
       "json": "Tokens JSON"
     },
     "aiExport": {
-      "title": "Revise an existing UI with AI",
-      "summary": "If you export one file, choose DESIGN.md and give it to AI with the current UI screenshot or source code.",
-      "details": "DESIGN.md is recommended when AI must understand and revise an existing UI; CSS variables are recommended for framework-agnostic web projects; Tailwind @theme is recommended for Tailwind v4; Tokens JSON is recommended for design tools, automation, and agents that need structured data."
+      "title": "Use with AI Coding Agents",
+      "summary": "Copy DESIGN.md and paste it into your AI agent (Cursor, Claude, etc.) to apply this design system to your project."
     },
+    "completeTip": "Analysis complete! Copy DESIGN.md and give it to your AI coding agent.",
+    "invalidUrl": "Please enter a valid URL (e.g. https://example.com)",
+    "noAiTip": "No AI API Key or Agent CLI configured — analysis will still work, but token naming may be less descriptive. Configure in Settings.",
     "saveToLibrary": "Save to Library",
     "saved": "Saved",
     "extractedColors": "Extracted Colors",
     "screenshot": "Page screenshot",
+    "pageCount": {
+      "label": "Pages to analyze",
+      "option": "Up to {{count}} pages",
+      "help": "Default: 3 (choose 1–5). Includes this URL and same-site pages; if fewer exist, only those are analyzed."
+    },
+    "evidence": {
+      "title": "Analyzed pages",
+      "summary": "{{pages}} pages · {{screenshots}} screenshots",
+      "screenshotAlt": "Screenshot of {{url}}"
+    },
+    "viewports": {
+      "desktop": "Desktop",
+      "tablet": "Tablet",
+      "mobile": "Mobile"
+    },
+    "sessions": {
+      "open": "Website sign-ins",
+      "title": "Website sign-ins",
+      "description": "Used to access pages visible only after sign-in during analysis. View or remove website sign-ins saved by Imprint here.",
+      "notice": "Signing in is not required: public and sign-in pages remain analyzable, but content available only after sign-in cannot be accessed. States stay in Imprint's isolated browser and never read or affect your everyday Chrome profile.",
+      "close": "Close website sign-ins",
+      "loading": "Loading website sign-ins...",
+      "emptyTitle": "No website sign-ins saved",
+      "emptyDescription": "A website appears here only after you choose to sign in during analysis and Imprint verifies it.",
+      "lastUsed": "Last used {{date}}",
+      "deleteSite": "Remove the saved sign-in for {{site}}",
+      "keep": "Keep",
+      "confirmDelete": "Remove",
+      "clearAll": "Remove all",
+      "clearAllQuestion": "Remove every saved sign-in?",
+      "confirmClearAll": "Remove all",
+      "count_one": "{{count}} saved website",
+      "count_other": "{{count}} saved websites",
+      "error": "The saved sign-in could not be removed. Close any active sign-in browser and try again."
+    },
     "darkModeSupported": "Dark mode supported",
-    "darkModeNotDetected": "Dark mode not detected"
+    "darkModeNotDetected": "Dark mode not detected",
+    "auth": {
+      "requiredTitle": "This website may require sign-in",
+      "requiredDescription": "The target currently shows a sign-in page or blocking sign-in prompt. You can sign in with an isolated Imprint browser, or continue and analyze only the page that is currently visible.",
+      "privacy": "Imprint never reads your everyday Chrome profile. If you sign in, the session is saved only in a separate local browser profile for this website.",
+      "loginAndContinue": "Sign in and continue",
+      "continueAnonymous": "Analyze current page",
+      "cancel": "Cancel analysis",
+      "loginWindowTitle": "Complete sign-in in the browser",
+      "loginWindowDescription": "A separate Chrome window is open. Finish signing in there, then return to Imprint and continue.",
+      "loginIncompleteTitle": "Sign-in still appears to be required",
+      "loginIncompleteDescription": "The target page still shows a sign-in barrier. Finish the remaining steps in Chrome, then try continuing again.",
+      "loginComplete": "I’m signed in — continue",
+      "anonymousWarningTitle": "Visitor result: sign-in barrier detected",
+      "anonymousWarningDescription": "This result only describes the sign-in page or prompt shown to signed-out visitors.",
+      "retryWithLogin": "Sign in and analyze again"
+    },
+    "failure": {
+      "title": "Analysis stopped with an error",
+      "description": "The URL and any previous result have been kept. Review the actual error below, then retry when ready.",
+      "stage": "Failed during: {{stage}}",
+      "retry": "Retry analysis",
+      "dismiss": "Dismiss error"
+    }
   },
   "themes": {
     "title": "Theme Library",
@@ -653,6 +713,12 @@
   },
   "progress": {
     "launchingBrowser": "Launching browser...",
+    "checkingAccess": "Checking whether the page is publicly accessible...",
+    "openingLoginBrowser": "Opening an isolated browser for sign-in...",
+    "waitingForLogin": "Waiting for sign-in...",
+    "verifyingLogin": "Checking the signed-in page...",
+    "preparingAuthenticatedAnalysis": "Starting background analysis with the saved sign-in...",
+    "loginIncomplete": "The page still requires sign-in...",
     "analyzingViewport": "Analyzing {{viewport}} viewport...",
     "analyzingPatterns": "Analyzing design patterns...",
     "clusteringColors": "Clustering colors...",
@@ -665,7 +731,8 @@
   "preview": {
     "colors": "Colors",
     "typography": "Typography",
-    "spacing": "Spacing & Shape",
+    "spacing": "Spacing",
+    "spacingAndShape": "Spacing & Shape",
     "radius": "Border Radius",
     "shadows": "Shadows",
     "lightTheme": "Light Theme",
@@ -679,6 +746,8 @@
     "transitions": "Transitions",
     "typeSampleShort": "The quick brown fox jumps",
     "typeSampleLong": "The quick brown fox jumps over the lazy dog",
+    "frequencyRank": "Frequency rank #{{rank}}",
+    "occurrences": "{{count}} occurrences",
     "colorGroups": {
       "surface": "Surface",
       "text": "Text",

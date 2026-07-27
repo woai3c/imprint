@@ -44,7 +44,7 @@
     "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
     "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
     "browserNotFound": "未找到 Chrome 或 Edge 浏览器，请先安装",
-    "tabPreview": "预览",
+    "tabPreview": "设计令牌",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS 变量",
@@ -58,16 +58,75 @@
       "json": "Tokens JSON"
     },
     "aiExport": {
-      "title": "给 AI 修改现有 UI",
-      "summary": "如果只导出一个文件，请选择 DESIGN.md，并把它与当前 UI 截图或源代码一起交给 AI。",
-      "details": "DESIGN.md 推荐给需要理解并修改现有 UI 的 AI；CSS 变量推荐给通用 Web/CSS 项目；Tailwind @theme 推荐给 Tailwind v4 项目；Tokens JSON 推荐给设计工具、自动化流程和需要结构化数据的 Agent。"
+      "title": "配合 AI 编程助手使用",
+      "summary": "复制 DESIGN.md 粘贴给你的 AI 编程助手（Cursor、Claude 等），即可将该设计系统应用到你的项目中。"
     },
+    "completeTip": "分析完成！复制 DESIGN.md 交给你的 AI 编程助手。",
+    "invalidUrl": "请输入有效的 URL（例如 https://example.com）",
+    "noAiTip": "未配置 AI API Key 或 Agent CLI — 分析仍可正常运行，但 token 命名可能不够语义化。可在设置中配置。",
     "saveToLibrary": "保存到主题库",
     "saved": "已保存",
     "extractedColors": "提取的颜色",
     "screenshot": "页面截图",
+    "pageCount": {
+      "label": "分析页面",
+      "option": "最多 {{count}} 页",
+      "help": "默认 3 页（可选 1–5 页），包含输入 URL 和同站页面；页面不足时按实际数量完成。"
+    },
+    "evidence": {
+      "title": "已分析页面",
+      "summary": "{{pages}} 个页面 · {{screenshots}} 张截图",
+      "screenshotAlt": "{{url}} 的页面截图"
+    },
+    "viewports": {
+      "desktop": "桌面",
+      "tablet": "平板",
+      "mobile": "手机"
+    },
+    "sessions": {
+      "open": "网站登录状态",
+      "title": "网站登录状态",
+      "description": "用于在分析时访问登录后才可见的页面。你可以在这里查看或清除 Imprint 已保存的网站登录状态。",
+      "notice": "登录不是必需的：不登录仍可分析公开页面和登录页，但无法访问登录后内容。状态仅保存在 Imprint 的独立浏览器中，不会读取或影响日常 Chrome。",
+      "close": "关闭网站登录状态",
+      "loading": "正在读取登录状态...",
+      "emptyTitle": "尚未保存网站登录状态",
+      "emptyDescription": "只有在分析过程中主动选择登录并验证成功后，网站才会显示在这里。",
+      "lastUsed": "最近使用：{{date}}",
+      "deleteSite": "清除 {{site}} 的登录状态",
+      "keep": "保留",
+      "confirmDelete": "确认清除",
+      "clearAll": "清除全部",
+      "clearAllQuestion": "确定清除全部登录状态？",
+      "confirmClearAll": "全部清除",
+      "count": "已保存 {{count}} 个网站",
+      "error": "如果无法清除登录状态，请关闭正在使用的登录浏览器后重试。"
+    },
     "darkModeSupported": "支持暗色模式",
-    "darkModeNotDetected": "未检测到暗色模式"
+    "darkModeNotDetected": "未检测到暗色模式",
+    "auth": {
+      "requiredTitle": "该网站可能需要登录",
+      "requiredDescription": "目标网站当前展示的是登录页或阻断访问的登录提示。你可以在 Imprint 独立浏览器中登录，也可以继续分析当前可见页面。",
+      "privacy": "Imprint 不会读取你日常使用的 Chrome 状态。登录信息只会保存在该网站专用的本地独立浏览器 Profile 中。",
+      "loginAndContinue": "登录后继续",
+      "continueAnonymous": "分析当前页面",
+      "cancel": "取消分析",
+      "loginWindowTitle": "请在浏览器中完成登录",
+      "loginWindowDescription": "已打开独立的 Chrome 窗口。请在那里完成登录，然后返回 Imprint 继续。",
+      "loginIncompleteTitle": "目标网站仍然要求登录",
+      "loginIncompleteDescription": "页面仍显示登录阻断。请在 Chrome 中完成剩余步骤，然后再次继续。",
+      "loginComplete": "我已登录，继续分析",
+      "anonymousWarningTitle": "访客结果：检测到登录限制",
+      "anonymousWarningDescription": "本次结果仅包含网站向未登录访客展示的登录页或登录提示。",
+      "retryWithLogin": "登录后重新分析"
+    },
+    "failure": {
+      "title": "分析因错误停止",
+      "description": "目标 URL 和已有分析结果均已保留。请查看下方真实错误，准备好后可直接重试。",
+      "stage": "失败阶段：{{stage}}",
+      "retry": "重新分析",
+      "dismiss": "关闭错误"
+    }
   },
   "themes": {
     "title": "主题库",
@@ -611,6 +670,12 @@
   },
   "progress": {
     "launchingBrowser": "正在启动浏览器...",
+    "checkingAccess": "正在检查页面是否可公开访问...",
+    "openingLoginBrowser": "正在打开独立浏览器用于登录...",
+    "waitingForLogin": "正在等待登录...",
+    "verifyingLogin": "正在检查登录后的页面...",
+    "preparingAuthenticatedAnalysis": "正在使用已保存的登录状态启动后台分析...",
+    "loginIncomplete": "目标页面仍然要求登录...",
     "analyzingViewport": "正在分析 {{viewport}} 视口...",
     "analyzingPatterns": "正在分析设计模式...",
     "clusteringColors": "正在聚类颜色...",
@@ -624,6 +689,7 @@
     "colors": "颜色",
     "typography": "字体排版",
     "spacing": "间距",
+    "spacingAndShape": "间距与形状",
     "radius": "圆角",
     "shadows": "阴影",
     "lightTheme": "亮色主题",
@@ -637,6 +703,8 @@
     "transitions": "过渡动画",
     "typeSampleShort": "敏捷的棕狐轻轻跃过",
     "typeSampleLong": "敏捷的棕狐跃过安静的树影",
+    "frequencyRank": "频率排名 #{{rank}}",
+    "occurrences": "{{count}} 次使用",
     "colorGroups": {
       "surface": "表面",
       "text": "文字",

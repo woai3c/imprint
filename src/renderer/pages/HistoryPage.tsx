@@ -94,7 +94,16 @@ export function HistoryPage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h4 className="truncate text-sm font-medium">{record.theme_name || t('history.untitled')}</h4>
+                    <h4 className="truncate text-sm font-medium">
+                      {record.theme_name ||
+                        (() => {
+                          try {
+                            return new URL(record.url).hostname
+                          } catch {
+                            return record.url
+                          }
+                        })()}
+                    </h4>
                     {record.token_usage > 0 && (
                       <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
                         {t('history.tokenCount', { count: record.token_usage })}
@@ -118,7 +127,7 @@ export function HistoryPage() {
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    onClick={() => window.open(record.url, '_blank')}
+                    onClick={() => window.electronAPI.openExternal(record.url)}
                     className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                     aria-label={t('history.openSource')}
                     title={t('history.openSource')}

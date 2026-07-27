@@ -17,7 +17,7 @@ export const useFeedbackStore = create<FeedbackStore>((set) => ({
   show: (message, tone = 'success') => {
     if (dismissTimer) clearTimeout(dismissTimer)
     set({ message, tone })
-    dismissTimer = setTimeout(() => set({ message: null }), 2600)
+    dismissTimer = setTimeout(() => set({ message: null }), 4000)
   },
   dismiss: () => {
     if (dismissTimer) clearTimeout(dismissTimer)

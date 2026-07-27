@@ -31,6 +31,17 @@
         padding: var(--fixture-space);
       }
 
+      nav {
+        display: flex;
+        gap: 16px;
+        margin-bottom: var(--fixture-space);
+      }
+
+      nav a {
+        color: var(--fixture-brand);
+        font-weight: 600;
+      }
+
       .hero {
         padding: 40px;
         border: 1px solid #cbd5e1;
@@ -79,6 +90,11 @@
   </head>
   <body>
     <main>
+      <nav aria-label="Fixture pages">
+        <a href="/about">About</a>
+        <a href="/components">Components</a>
+        <a href="/patterns">Patterns</a>
+      </nav>
       <section class="hero">
         <h1>Local Design Fixture</h1>
         <p>A stable offline target for the Imprint extraction flow.</p>

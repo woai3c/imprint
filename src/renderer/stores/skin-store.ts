@@ -221,22 +221,22 @@ const LIGHT_DEFAULTS: ThemeColors = {
 
 const DARK_DEFAULTS: ThemeColors = {
   background: 'oklch(15% 0.01 250)',
-  foreground: 'oklch(92% 0.01 250)',
-  primary: 'oklch(65% 0.2 250)',
+  foreground: 'oklch(93% 0.01 250)',
+  primary: 'oklch(68% 0.2 250)',
   'primary-foreground': 'oklch(100% 0 0)',
   secondary: 'oklch(22% 0.015 250)',
-  'secondary-foreground': 'oklch(85% 0.01 250)',
+  'secondary-foreground': 'oklch(88% 0.01 250)',
   muted: 'oklch(22% 0.015 250)',
-  'muted-foreground': 'oklch(60% 0.01 250)',
+  'muted-foreground': 'oklch(72% 0.01 250)',
   accent: 'oklch(25% 0.02 250)',
-  'accent-foreground': 'oklch(85% 0.01 250)',
+  'accent-foreground': 'oklch(88% 0.01 250)',
   card: 'oklch(18% 0.012 250)',
-  'card-foreground': 'oklch(92% 0.01 250)',
-  border: 'oklch(28% 0.015 250)',
-  ring: 'oklch(65% 0.2 250)',
+  'card-foreground': 'oklch(93% 0.01 250)',
+  border: 'oklch(30% 0.015 250)',
+  ring: 'oklch(68% 0.2 250)',
   sidebar: 'oklch(13% 0.01 250)',
-  'sidebar-foreground': 'oklch(85% 0.01 250)',
-  'sidebar-accent': 'oklch(22% 0.025 250)',
+  'sidebar-foreground': 'oklch(88% 0.01 250)',
+  'sidebar-accent': 'oklch(24% 0.025 250)',
 }
 
 export const builtinThemes: AppTheme[] = [

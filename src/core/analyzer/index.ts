@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { type Browser, type Page, chromium } from 'playwright-core'
+import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
 import { isMacOS, isWindows } from '../../shared/platform.js'
+import { type AuthWallDetection, detectAuthWall } from './auth-wall.js'
+import { getManagedProfileDir, hasManagedProfile, markManagedSession } from './browser-session.js'
 import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents } from './component-detect.js'
 import { type DarkModeResult, extractDarkMode } from './dark-mode-detect.js'
@@ -16,18 +18,30 @@ export type { DarkModeResult } from './dark-mode-detect.js'
 export type { InteractionStyles } from './style-extractor.js'
 export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
+export type { AuthWallDetection, AuthWallReason } from './auth-wall.js'
 
 export interface AnalysisOptions {
   viewports?: string[]
   maxPages?: number
   useSession?: boolean
+  authMode?: AuthMode
   extractDarkMode?: boolean
   dataDir: string
+  onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
+}
+
+export type AuthMode = 'auto' | 'anonymous' | 'managed'
+export type LoginDecision = 'continue' | 'anonymous' | 'cancel'
+
+export interface LoginRequest {
+  detection: AuthWallDetection
+  retry: boolean
 }
 
 export interface AnalysisResult {
   tokens: DesignToken
   screenshots: string[]
+  pageScreenshots: PageScreenshot[]
   rawStyles: ExtractedStyles
   interactions: InteractionStyles
   darkMode: DarkModeResult | null
@@ -36,6 +50,42 @@ export interface AnalysisResult {
   breakpoints: ResponsiveBreakpoint[]
   motion: MotionToken[]
   duration: number
+  accessMode: 'anonymous' | 'managed'
+  authWallDetected: boolean
+  finalUrl: string
+}
+
+export interface PageScreenshot {
+  url: string
+  path: string
+  viewport: string
+}
+
+export class AuthenticationRequiredError extends Error {
+  readonly code = 'AUTH_REQUIRED'
+
+  constructor(readonly detection: AuthWallDetection) {
+    super('Authentication is required to access the target page')
+    this.name = 'AuthenticationRequiredError'
+  }
+}
+
+export class AuthenticationCancelledError extends Error {
+  readonly code = 'AUTH_CANCELLED'
+
+  constructor() {
+    super('Authentication was cancelled')
+    this.name = 'AuthenticationCancelledError'
+  }
+}
+
+export class AuthenticationBrowserClosedError extends Error {
+  readonly code = 'AUTH_BROWSER_CLOSED'
+
+  constructor() {
+    super('The sign-in browser was closed before analysis could continue. Your saved sign-in may still be available.')
+    this.name = 'AuthenticationBrowserClosedError'
+  }
 }
 
 export interface ExtractedStyles {
@@ -110,23 +160,60 @@ export function findBrowser(): string | undefined {
   return undefined
 }
 
-function getUserProfilePath(): string | undefined {
-  if (isWindows(process.platform)) {
-    const chromePath = path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/User Data')
-    if (fs.existsSync(chromePath)) return chromePath
-    const edgePath = path.join(process.env.LOCALAPPDATA || '', 'Microsoft/Edge/User Data')
-    if (fs.existsSync(edgePath)) return edgePath
+interface BrowserRuntime {
+  browser: Browser | null
+  context: BrowserContext
+}
+
+async function launchRuntime(
+  executablePath: string,
+  mode: 'anonymous' | 'managed',
+  dataDir: string,
+  url: string,
+  headless: boolean,
+): Promise<BrowserRuntime> {
+  if (mode === 'managed') {
+    const profileDir = getManagedProfileDir(dataDir, url)
+    fs.mkdirSync(profileDir, { recursive: true })
+    const context = await chromium.launchPersistentContext(profileDir, {
+      executablePath,
+      headless,
+      args: ['--disable-blink-features=AutomationControlled', '--no-default-browser-check', '--no-first-run'],
+      viewport: VIEWPORTS.desktop,
+    })
+    return { browser: null, context }
   }
 
-  if (isMacOS(process.platform)) {
-    const home = process.env.HOME || ''
-    const chromePath = path.join(home, 'Library/Application Support/Google/Chrome')
-    if (fs.existsSync(chromePath)) return chromePath
-    const edgePath = path.join(home, 'Library/Application Support/Microsoft Edge')
-    if (fs.existsSync(edgePath)) return edgePath
+  const browser = await chromium.launch({
+    executablePath,
+    headless,
+    args: ['--disable-blink-features=AutomationControlled'],
+  })
+  const context = await browser.newContext()
+  return { browser, context }
+}
+
+async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
+  if (!runtime) return
+  const closeWithin = async (operation: Promise<unknown>, timeout: number) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      operation.catch(() => {}),
+      new Promise<void>((resolve) => {
+        timeoutId = setTimeout(resolve, timeout)
+      }),
+    ])
+    if (timeoutId) clearTimeout(timeoutId)
   }
 
-  return undefined
+  await closeWithin(runtime.context.close(), 5000)
+  if (runtime.browser) await closeWithin(runtime.browser.close(), 5000)
+}
+
+async function navigatePage(page: Page, url: string, timeout = 30000): Promise<number | undefined> {
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+  return response?.status()
 }
 
 /**
@@ -140,6 +227,7 @@ export async function analyze(
 ): Promise<AnalysisResult> {
   const startTime = Date.now()
   const viewportNames = options.viewports || ['desktop']
+  const pageLimit = Math.min(5, Math.max(1, Math.floor(options.maxPages ?? 3)))
   const screenshotDir = path.join(options.dataDir, 'screenshots')
   if (!fs.existsSync(screenshotDir)) {
     fs.mkdirSync(screenshotDir, { recursive: true })
@@ -151,51 +239,112 @@ export async function analyze(
   if (!executablePath) {
     throw new Error('Chrome/Edge not found. Please install Google Chrome or Microsoft Edge.')
   }
+  console.log('[imprint] findBrowser resolved:', executablePath)
 
-  const useSession = options.useSession !== false
-  let browser: Browser | null = null
-  let persistentContext: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | null = null
+  const authMode = options.authMode ?? (options.useSession === false ? 'anonymous' : 'managed')
+  let accessMode: 'anonymous' | 'managed' = authMode === 'managed' ? 'managed' : 'anonymous'
+  const initialViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
 
-  if (useSession) {
-    const userProfile = getUserProfilePath()
-    if (userProfile) {
-      const sessionDir = path.join(options.dataDir, 'browser-session')
-      if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(sessionDir, { recursive: true })
-      }
-
-      const defaultProfile = path.join(userProfile, 'Default')
-      const cookiesSrc = path.join(defaultProfile, 'Cookies')
-      const cookiesDst = path.join(sessionDir, 'Default', 'Cookies')
-      if (fs.existsSync(cookiesSrc)) {
-        const dstDir = path.dirname(cookiesDst)
-        if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true })
-        try {
-          fs.copyFileSync(cookiesSrc, cookiesDst)
-        } catch {
-          // Cookie file may be locked
-        }
-      }
-
-      try {
-        persistentContext = await chromium.launchPersistentContext(sessionDir, {
-          executablePath,
-          headless: true,
-          args: ['--disable-blink-features=AutomationControlled'],
-        })
-      } catch {
-        persistentContext = null
-      }
-    }
-  }
-
-  if (!persistentContext) {
-    browser = await chromium.launch({ executablePath, headless: true })
-  }
+  let runtime: BrowserRuntime | null = null
+  let initialPage: Page | null = null
+  let authWallDetected = false
+  let finalUrl = url
 
   try {
+    runtime = await launchRuntime(executablePath, accessMode, options.dataDir, url, true)
+    initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
+    await initialPage.setViewportSize(initialViewport)
+
+    onProgress?.('progress.checkingAccess', 7)
+    let responseStatus = await navigatePage(initialPage, url)
+    let authDetection = await detectAuthWall(initialPage, responseStatus)
+    authWallDetected = authDetection.detected
+    finalUrl = authDetection.finalUrl
+
+    if (authMode === 'auto' && authDetection.detected && hasManagedProfile(options.dataDir, url)) {
+      const visitorDetection = authDetection
+      await closeRuntime(runtime)
+      runtime = null
+      initialPage = null
+      try {
+        runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true)
+      } catch {
+        throw new AuthenticationRequiredError(visitorDetection)
+      }
+      initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
+      await initialPage.setViewportSize(initialViewport)
+      responseStatus = await navigatePage(initialPage, url)
+      authDetection = await detectAuthWall(initialPage, responseStatus)
+      finalUrl = authDetection.finalUrl
+
+      if (!authDetection.detected) accessMode = 'managed'
+    }
+
+    if (authMode === 'auto' && authDetection.detected) {
+      throw new AuthenticationRequiredError(authDetection)
+    }
+
+    if (accessMode === 'managed' && authDetection.detected && options.onLoginRequired) {
+      await closeRuntime(runtime)
+      runtime = null
+      initialPage = null
+
+      onProgress?.('progress.openingLoginBrowser', 7)
+      runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, false)
+      let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
+      await loginPage.setViewportSize(initialViewport)
+      responseStatus = await navigatePage(loginPage, url)
+      authDetection = await detectAuthWall(loginPage, responseStatus)
+
+      const loginAbortController = new AbortController()
+      runtime.context.once('close', () => loginAbortController.abort())
+      let retry = false
+      let continueAnonymously = false
+
+      while (authDetection.detected) {
+        onProgress?.(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
+        const decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
+        if (loginAbortController.signal.aborted) {
+          throw new AuthenticationBrowserClosedError()
+        }
+        if (decision === 'cancel') {
+          throw new AuthenticationCancelledError()
+        }
+        if (decision === 'anonymous') {
+          continueAnonymously = true
+          break
+        }
+
+        onProgress?.('progress.verifyingLogin', 9)
+        if (loginPage.isClosed()) {
+          const openPages = runtime.context.pages()
+          loginPage = openPages[openPages.length - 1] || (await runtime.context.newPage())
+        }
+        responseStatus = await navigatePage(loginPage, url)
+        authDetection = await detectAuthWall(loginPage, responseStatus)
+        retry = true
+      }
+
+      if (continueAnonymously) {
+        await closeRuntime(runtime)
+        runtime = await launchRuntime(executablePath, 'anonymous', options.dataDir, url, true)
+        accessMode = 'anonymous'
+        initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
+        await initialPage.setViewportSize(initialViewport)
+        responseStatus = await navigatePage(initialPage, url)
+        authDetection = await detectAuthWall(initialPage, responseStatus)
+      } else {
+        initialPage = loginPage
+      }
+      finalUrl = authDetection.finalUrl
+    }
+
+    if (!runtime) throw new Error('Browser session is not available')
+    if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
+
     const allStyles: ExtractedStyles[] = []
     const screenshots: string[] = []
+    const pageScreenshots: PageScreenshot[] = []
     let allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
     let darkModeResult: DarkModeResult | null = null
     let components: ComponentPattern[] = []
@@ -209,19 +358,12 @@ export async function analyze(
 
       onProgress?.(`progress.analyzingViewport::${vpName}`, Math.round(progress))
 
-      const page: Page = persistentContext
-        ? await persistentContext.newPage()
-        : await browser!.newPage({
-            viewport,
-            userAgent:
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-          })
+      const page: Page =
+        i === 0 && initialPage && !initialPage.isClosed() ? initialPage : await runtime.context.newPage()
+      await page.setViewportSize(viewport)
+      if (page !== initialPage) await navigatePage(page, url)
+      if (i === 0) finalUrl = page.url()
 
-      if (persistentContext) {
-        await page.setViewportSize(viewport)
-      }
-
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
       await page.waitForFunction(() => document.fonts.ready, { timeout: 5000 }).catch(() => {})
 
       const styles = await extractStyles(page)
@@ -242,55 +384,54 @@ export async function analyze(
         motion = await detectMotion(page)
       }
 
-      const screenshotPath = path.join(screenshotDir, `${Date.now()}-${vpName}.png`)
+      const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
       await page.screenshot({ path: screenshotPath, fullPage: true })
       screenshots.push(screenshotPath)
+      pageScreenshots.push({
+        url: page.url(),
+        path: screenshotPath,
+        viewport: vpName,
+      })
 
-      await page.close()
+      if (page !== initialPage) await page.close()
     }
 
     // Multi-page analysis: discover and visit sub-pages for richer token extraction
-    const maxPages = options.maxPages ?? 3
-    if (maxPages > 0) {
+    const subPageLimit = pageLimit - 1
+    if (subPageLimit > 0) {
       const mainViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
-      const discoveryPage: Page = persistentContext
-        ? await persistentContext.newPage()
-        : await browser!.newPage({
-            viewport: mainViewport,
-            userAgent:
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-          })
-
-      if (persistentContext) {
-        await discoveryPage.setViewportSize(mainViewport)
-      }
-
-      await discoveryPage.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+      const mainViewportName = viewportNames[0] || 'desktop'
+      const discoveryPage = await runtime.context.newPage()
+      await discoveryPage.setViewportSize(mainViewport)
+      await navigatePage(discoveryPage, url)
       onProgress?.('progress.discoveringPages', 75)
 
-      const subPages = await discoverSubPages(discoveryPage, url, maxPages)
+      const subPages = await discoverSubPages(discoveryPage, url, subPageLimit)
       await discoveryPage.close()
 
       for (let i = 0; i < subPages.length; i++) {
         const subUrl = subPages[i]
-        onProgress?.(`progress.analyzingPage::${i + 1}::${subPages.length}`, 76 + ((i + 1) / subPages.length) * 8)
+        onProgress?.(
+          `progress.analyzingPage::${i + 2}::${subPages.length + 1}`,
+          Math.round(76 + ((i + 1) / Math.max(subPages.length, 1)) * 8),
+        )
 
-        const subPage: Page = persistentContext
-          ? await persistentContext.newPage()
-          : await browser!.newPage({
-              viewport: mainViewport,
-              userAgent:
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-            })
-
-        if (persistentContext) {
-          await subPage.setViewportSize(mainViewport)
-        }
+        const subPage = await runtime.context.newPage()
+        await subPage.setViewportSize(mainViewport)
 
         try {
-          await subPage.goto(subUrl, { waitUntil: 'networkidle', timeout: 15000 })
+          await navigatePage(subPage, subUrl, 15000)
           const subStyles = await extractStyles(subPage)
           allStyles.push(subStyles)
+
+          const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}.png`)
+          await subPage.screenshot({ path: screenshotPath, fullPage: true })
+          screenshots.push(screenshotPath)
+          pageScreenshots.push({
+            url: subPage.url(),
+            path: screenshotPath,
+            viewport: mainViewportName,
+          })
         } catch {
           // Sub-page failed to load, skip it
         } finally {
@@ -314,6 +455,7 @@ export async function analyze(
     return {
       tokens,
       screenshots,
+      pageScreenshots,
       rawStyles: mergedStyles,
       interactions: allInteractions,
       darkMode: darkModeResult,
@@ -322,13 +464,12 @@ export async function analyze(
       breakpoints,
       motion,
       duration: Date.now() - startTime,
+      accessMode,
+      authWallDetected,
+      finalUrl,
     }
   } finally {
-    if (persistentContext) {
-      await persistentContext.close()
-    } else if (browser) {
-      await browser.close()
-    }
+    await closeRuntime(runtime)
   }
 }
 

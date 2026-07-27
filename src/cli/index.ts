@@ -163,7 +163,7 @@ function printUsage() {
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
-    --no-session        Don't reuse browser login state
+    --no-session        Don't reuse Imprint's saved browser session
     --json-stdout       Output token JSON to stdout (pipe-friendly)
     --quiet             Suppress progress output
 

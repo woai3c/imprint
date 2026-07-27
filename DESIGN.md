@@ -152,6 +152,57 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
+## Authenticated analysis
+
+- Start URL analysis in an isolated visitor context. Do not read or copy the user's everyday Chrome profile.
+- Ask for authentication only after strong page evidence indicates a redirect, response, form, or blocking sign-in
+  surface. A normal sign-in link in public navigation is not enough.
+- The authentication prompt keeps the user in context and offers three explicit outcomes: sign in with an isolated
+  Imprint browser, analyze the currently visible visitor page, or cancel.
+- Persist approved sessions in a local profile isolated to the target website. Reuse a valid saved session silently;
+  open a visible browser only when the saved session is missing or expired.
+- After sign-in verification, continue extraction in the same isolated browser session so cookies, redirects, and page
+  state cannot be lost between verification and analysis. Imprint closes the managed browser when extraction finishes;
+  cleanup must be time-bounded so a slow browser shutdown never stalls the result.
+- The sign-in prompt remains reversible while the browser is open: the user may still analyze the currently visible
+  visitor/sign-in page instead of completing sign-in.
+- Expose saved website sessions from the Analysis page header with the concise label Website sign-ins. The manager,
+  rather than the button, must explain without repetition why Imprint saves them, that signing in is optional and
+  public/sign-in pages remain analyzable without it, and that only post-sign-in content is unavailable to visitors.
+  List the website and last-used time, allow individual or complete removal with confirmation, and explain that removal
+  signs Imprint out without affecting everyday Chrome.
+- Visitor analysis remains a complete supported outcome. When a sign-in barrier was detected, label the result beside
+  its source evidence and explain that the extracted system represents the sign-in page or prompt.
+- Analysis failures are durable inline states, not transient progress messages. Keep the submitted URL and any previous
+  successful result visible, show the failing stage and actual error, and offer explicit retry and dismiss actions.
+- Never log cookies, credentials, or storage values. Authentication state stays local and is not part of exported
+  design artifacts.
+
+## Multi-page analysis evidence
+
+- Place a compact, clearly labeled Pages to analyze control below the URL-and-action row. Let its help text use the full
+  width beneath both the URL field and Analyze button instead of wrapping at the input's narrower boundary. Its control
+  sets a maximum from 1 to 5 and defaults to 3; never place this secondary option between the URL field and primary
+  action.
+- Keep this configuration visually quiet: use a label, compact select, and adjacent help text without a decorative icon
+  or full-width card surface. Explain that the entered URL counts as the first page, discovered same-site URLs fill the
+  remaining slots, and analysis finishes with fewer pages when the website exposes fewer usable links.
+- Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
+  in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
+- Compact, non-essential workflow guidance may use an accessible info control with hover and keyboard-focus content
+  instead of occupying a permanent result card. The related action labels themselves must remain visible.
+
+## Persistent preferences
+
+- Persist renderer-only user preferences in namespaced localStorage keys and validate every value before use. Migrate
+  legacy language keys so existing choices survive upgrades.
+- Language, color mode, current app theme, default analysis page limit, last validation scenario, and explicitly
+  dismissed informational notices survive a full app restart.
+- Keep transient work state out of localStorage: submitted URLs, analysis results and failures, search input, progress,
+  open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
+- AI credentials, Agent CLI selection, and Theme Library export format stay in the main-process settings file. Never
+  duplicate credentials into renderer storage.
+
 ## Export semantics
 
 Export choices describe different jobs and must never be presented as interchangeable:
@@ -180,7 +231,8 @@ Visual novelty must remain accountable to the product's extraction and validatio
 - Every theme value or design-pattern claim must point to an observable token, component rule, or interaction behavior.
   Poetic language may set context, but it cannot substitute for implementation evidence.
 - Treat the examples in the desktop app as validation scenarios, not bundled website templates. Organize them by product
-  workflow, content and presentation, and interaction states.
+  workflow, content and presentation, and interaction states. Keep every scenario directly visible in a compact grouped
+  tile layout; do not hide scenario switching inside a select menu.
 - Avoid generic superlatives, filler metrics, and decorative labels in product copy. Say what the interface verifies or
   what the user can do.
 

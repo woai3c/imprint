@@ -10,8 +10,20 @@ const api = {
   toggleFavorite: (id: string) => ipcRenderer.invoke('themes:toggleFavorite', id),
 
   // Analysis
-  analyzeUrl: (url: string, options?: { viewports?: string[]; useSession?: boolean }) =>
-    ipcRenderer.invoke('analyze:url', url, options),
+  analyzeUrl: (
+    url: string,
+    options?: {
+      viewports?: string[]
+      maxPages?: number
+      useSession?: boolean
+      authMode?: 'auto' | 'anonymous' | 'managed'
+    },
+  ) => ipcRenderer.invoke('analyze:url', url, options),
+  submitLoginDecision: (requestId: string, decision: 'continue' | 'anonymous' | 'cancel') =>
+    ipcRenderer.invoke('analysis:loginDecision', requestId, decision),
+  listBrowserSessions: () => ipcRenderer.invoke('browserSessions:list'),
+  deleteBrowserSession: (id: string) => ipcRenderer.invoke('browserSessions:delete', id),
+  clearBrowserSessions: () => ipcRenderer.invoke('browserSessions:clearAll'),
 
   // Export
   exportTheme: (id: string, format: string) => ipcRenderer.invoke('export:theme', id, format),
@@ -39,11 +51,42 @@ const api = {
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
 
+  // Shell
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
   // Progress events
   onAnalysisProgress: (callback: (progress: { step: string; percent: number }) => void) => {
     const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
     ipcRenderer.on('analysis:progress', handler)
     return () => ipcRenderer.removeListener('analysis:progress', handler)
+  },
+  onLoginRequired: (
+    callback: (request: {
+      requestId: string
+      detection: {
+        detected: boolean
+        confidence: 'low' | 'medium' | 'high'
+        reasons: string[]
+        finalUrl: string
+      }
+      retry: boolean
+    }) => void,
+  ) => {
+    const handler = (
+      _event: unknown,
+      request: {
+        requestId: string
+        detection: {
+          detected: boolean
+          confidence: 'low' | 'medium' | 'high'
+          reasons: string[]
+          finalUrl: string
+        }
+        retry: boolean
+      },
+    ) => callback(request)
+    ipcRenderer.on('analysis:loginRequired', handler)
+    return () => ipcRenderer.removeListener('analysis:loginRequired', handler)
   },
 }
 

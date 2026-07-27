@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { isMacOS } from '../lib/platform'
+import { normalizeLanguage } from '../lib/preferences'
 import { useSkinStore } from '../stores/skin-store'
 import { AppFeedback } from './AppFeedback'
 
@@ -32,9 +33,8 @@ export function Layout() {
   }, [i18n.language, t])
 
   const toggleLanguage = () => {
-    const next = i18n.language === 'zh-CN' ? 'en' : 'zh-CN'
-    i18n.changeLanguage(next)
-    localStorage.setItem('language', next)
+    const next = normalizeLanguage(i18n.resolvedLanguage || i18n.language) === 'zh-CN' ? 'en' : 'zh-CN'
+    void i18n.changeLanguage(next)
   }
 
   const toggleColorMode = () => {

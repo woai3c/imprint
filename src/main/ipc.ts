@@ -2,9 +2,22 @@ import { v4 as uuidv4 } from 'uuid'
 
 import fs from 'node:fs'
 
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 
+import {
+  listManagedSessions,
+  migrateLegacyManagedSessions,
+  removeAllManagedSessions,
+  removeManagedSession,
+} from '../core/analyzer/browser-session.js'
 import { clusterColors } from '../core/analyzer/color-cluster.js'
+import {
+  type AuthMode,
+  AuthenticationCancelledError,
+  AuthenticationRequiredError,
+  type LoginDecision,
+  type LoginRequest,
+} from '../core/analyzer/index.js'
 import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
 import { buildDesignTokens } from '../core/analyzer/token-builder.js'
 import type { DarkModeExportData } from '../core/export/index.js'
@@ -38,6 +51,54 @@ function readDtcgValues(value: unknown): string[] {
     .map((item) => (isRecord(item) ? item.$value : undefined))
     .filter((item): item is string | number => typeof item === 'string' || typeof item === 'number')
     .map(String)
+}
+
+interface PendingLoginDecision {
+  requestId: string
+  senderId: number
+  settle: (decision: LoginDecision) => void
+}
+
+let pendingLoginDecision: PendingLoginDecision | null = null
+
+function waitForLoginDecision(
+  win: BrowserWindow | null,
+  request: LoginRequest,
+  signal: AbortSignal,
+): Promise<LoginDecision> {
+  if (!win || win.isDestroyed()) return Promise.resolve('cancel')
+
+  pendingLoginDecision?.settle('cancel')
+
+  return new Promise((resolve) => {
+    const requestId = uuidv4()
+    let settled = false
+
+    const settle = (decision: LoginDecision) => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener('abort', handleAbort)
+      win.webContents.removeListener('destroyed', handleDestroyed)
+      if (pendingLoginDecision?.requestId === requestId) pendingLoginDecision = null
+      resolve(decision)
+    }
+    const handleAbort = () => settle('cancel')
+    const handleDestroyed = () => settle('cancel')
+
+    pendingLoginDecision = {
+      requestId,
+      senderId: win.webContents.id,
+      settle,
+    }
+
+    signal.addEventListener('abort', handleAbort, { once: true })
+    win.webContents.once('destroyed', handleDestroyed)
+    win.webContents.send('analysis:loginRequired', {
+      requestId,
+      detection: request.detection,
+      retry: request.retry,
+    })
+  })
 }
 
 function normalizeImportedTokens(value: unknown): DesignToken {
@@ -110,6 +171,8 @@ function normalizeImportedTokens(value: unknown): DesignToken {
 }
 
 export function registerIpcHandlers() {
+  migrateLegacyManagedSessions(app.getPath('userData'))
+
   // --- Themes ---
   ipcMain.handle('themes:list', () => {
     const db = getDb()
@@ -154,21 +217,76 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
+  // --- Isolated browser sessions ---
+  ipcMain.handle('browserSessions:list', () => {
+    return listManagedSessions(app.getPath('userData'))
+  })
+
+  ipcMain.handle('browserSessions:delete', (_event, id: string) => {
+    try {
+      return { success: removeManagedSession(app.getPath('userData'), id) }
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('browserSessions:clearAll', () => {
+    try {
+      return { success: true, count: removeAllManagedSessions(app.getPath('userData')) }
+    } catch (error) {
+      return { success: false, count: 0, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('shell:openExternal', (_event, url: string) => {
+    return shell.openExternal(url)
+  })
+
   // --- Analysis ---
   ipcMain.handle(
+    'analysis:loginDecision',
+    (event, requestId: string, decision: LoginDecision): { success: boolean } => {
+      const pending = pendingLoginDecision
+      if (
+        !pending ||
+        pending.requestId !== requestId ||
+        pending.senderId !== event.sender.id ||
+        (decision !== 'continue' && decision !== 'anonymous' && decision !== 'cancel')
+      ) {
+        return { success: false }
+      }
+
+      pending.settle(decision)
+      return { success: true }
+    },
+  )
+
+  ipcMain.handle(
     'analyze:url',
-    async (event, url: string, options?: { viewports?: string[]; useSession?: boolean }) => {
+    async (
+      event,
+      url: string,
+      options?: { viewports?: string[]; maxPages?: number; useSession?: boolean; authMode?: AuthMode },
+    ) => {
       const win = BrowserWindow.fromWebContents(event.sender)
+      let analysisStage = 'progress.launchingBrowser'
 
       try {
-        const result = await analyzeUrl(url, options, (step, percent) => {
-          win?.webContents.send('analysis:progress', { step, percent })
-        })
+        const result = await analyzeUrl(
+          url,
+          options,
+          (step, percent) => {
+            analysisStage = step
+            win?.webContents.send('analysis:progress', { step, percent })
+          },
+          (request, signal) => waitForLoginDecision(win, request, signal),
+        )
 
         // LLM semantic enhancement (optional, only if AI is configured)
         const settings = getSettings()
         const enhancedTokens = result.tokens
         if (settings.aiMode === 'apiKey' && settings.provider && settings.apiKey) {
+          analysisStage = 'progress.enhancingWithAi'
           win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
           const enhancement = await enhanceWithLlm(result.tokens, url, {
             provider: settings.provider,
@@ -201,12 +319,31 @@ export function registerIpcHandlers() {
         const tailwind = generateTailwindTheme(enhancedTokens, darkModeExport)
         const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags, darkModeExport, result.breakpoints)
 
+        const db = getDb()
+        const analysisId = uuidv4()
+        const viewports = options?.viewports || ['desktop']
+        const pagesAnalyzed = Math.max(1, new Set(result.pageScreenshots.map((screenshot) => screenshot.url)).size)
+        db.prepare(
+          `INSERT INTO analyses
+           (id, theme_id, url, pages_analyzed, viewports, duration_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          analysisId,
+          null,
+          url,
+          pagesAnalyzed,
+          JSON.stringify(viewports),
+          result.duration,
+          new Date().toISOString(),
+        )
+
         return {
           tokens: enhancedTokens,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
           designDoc,
           screenshots: result.screenshots,
+          pageScreenshots: result.pageScreenshots,
           duration: result.duration,
           url,
           hasDarkMode: result.darkMode?.hasDarkMode ?? false,
@@ -214,10 +351,23 @@ export function registerIpcHandlers() {
           featureTags: result.featureTags,
           darkTokens: darkModeExport?.darkTokens?.colors ?? null,
           breakpoints: result.breakpoints,
+          accessMode: result.accessMode,
+          authWallDetected: result.authWallDetected,
+          finalUrl: result.finalUrl,
         }
       } catch (err: unknown) {
+        if (err instanceof AuthenticationRequiredError) {
+          return {
+            authRequired: true,
+            detection: err.detection,
+          }
+        }
+        if (err instanceof AuthenticationCancelledError) {
+          return { cancelled: true }
+        }
         const message = err instanceof Error ? err.message : String(err)
-        return { error: true, message }
+        console.error(`[imprint] analysis failed during ${analysisStage}:`, err)
+        return { error: true, message, stage: analysisStage }
       }
     },
   )
@@ -263,12 +413,9 @@ export function registerIpcHandlers() {
         now,
       )
 
-      const analysisId = uuidv4()
-      db.prepare(
-        `INSERT INTO analyses (id, theme_id, url, viewports, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(analysisId, themeId, data.url, '["desktop"]', 0, now)
+      db.prepare(`UPDATE analyses SET theme_id = ? WHERE url = ? AND theme_id IS NULL`).run(themeId, data.url)
 
-      return { success: true, themeId, analysisId }
+      return { success: true, themeId }
     },
   )
 

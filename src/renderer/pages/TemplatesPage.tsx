@@ -17,6 +17,7 @@ import { LoginTemplate } from '../components/templates/LoginTemplate'
 import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
+import { getValidationScenarioPreference, setValidationScenarioPreference } from '../lib/preferences'
 import { useFeedbackStore } from '../stores/feedback-store'
 import { builtinThemes, generateThemeCss, useSkinStore } from '../stores/skin-store'
 
@@ -32,7 +33,7 @@ const scenarioGroups = ['workflow', 'content', 'interaction'] as const
 
 export function TemplatesPage() {
   const { t } = useTranslation()
-  const [activeTemplate, setActiveTemplate] = useState('dashboard')
+  const [activeTemplate, setActiveTemplate] = useState(getValidationScenarioPreference)
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
   const notify = useFeedbackStore((state) => state.show)
   const [extractedThemes, setExtractedThemes] = useState<ExtractedTheme[]>([])
@@ -60,6 +61,11 @@ export function TemplatesPage() {
   ]
 
   const ActiveComponent = templates.find((tpl) => tpl.id === activeTemplate)?.component || DashboardTemplate
+
+  const selectTemplate = (templateId: string) => {
+    setActiveTemplate(templateId)
+    setValidationScenarioPreference(templateId)
+  }
 
   const handleApplyExtracted = (theme: ExtractedTheme) => {
     setSelectedExtractedId(theme.id)
@@ -191,29 +197,55 @@ export function TemplatesPage() {
           </div>
         </div>
 
-        {/* Row 2: Validation scenario */}
-        <div className="flex items-center gap-3">
-          <label htmlFor="validation-scenario" className="shrink-0 text-xs font-medium text-muted-foreground">
-            {t('templates.scenarioLabel')}
-          </label>
-          <select
-            id="validation-scenario"
-            value={activeTemplate}
-            onChange={(event) => setActiveTemplate(event.target.value)}
-            className="min-w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-ring"
-          >
-            {scenarioGroups.map((group) => (
-              <optgroup key={group} label={t(`templates.groups.${group}`)}>
-                {templates
-                  .filter((template) => template.group === group)
-                  .map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
+        {/* Row 2: Directly visible validation scenarios */}
+        <div
+          data-testid="validation-scenario-grid"
+          role="group"
+          aria-label={t('templates.scenarioLabel')}
+          className="grid grid-cols-3 gap-2.5"
+        >
+          {scenarioGroups.map((group) => {
+            const groupTemplates = templates.filter((template) => template.group === group)
+            return (
+              <section key={group} className="rounded-xl border border-border/70 bg-card/45 p-2.5">
+                <div className="mb-2 flex items-center justify-between px-1">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t(`templates.groups.${group}`)}
+                  </h3>
+                  <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {groupTemplates.length}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {groupTemplates.map((template) => {
+                    const active = activeTemplate === template.id
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        data-testid={`validation-scenario-${template.id}`}
+                        onClick={() => selectTemplate(template.id)}
+                        aria-pressed={active}
+                        className={`flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-all ${
+                          active
+                            ? 'border-primary/40 bg-primary text-primary-foreground shadow-sm'
+                            : 'border-transparent bg-secondary/55 text-secondary-foreground hover:border-border hover:bg-accent'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                            active ? 'bg-primary-foreground' : 'bg-muted-foreground/45'
+                          }`}
+                        />
+                        <span className="truncate">{template.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
         </div>
       </div>
 

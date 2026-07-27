@@ -127,7 +127,6 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(() => {
     if (isWindows(process.platform)) app.setAppUserModelId('com.imprint.app')
-    if (!isMacOS(process.platform)) Menu.setApplicationMenu(null)
 
     protocol.handle('imprint-file', (request) => {
       let filePath = decodeURIComponent(new URL(request.url).pathname)

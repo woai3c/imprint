@@ -1,225 +1,157 @@
 <div align="center">
-  <img src="./assets/brand/imprint-mark.svg" alt="印记 · Imprint" width="96" />
-  <h1 align="center">印记 · Imprint</h1>
-  <p align="center">简体中文 / <a href="./README.en.md">English</a></p>
-  <p align="center">从网站和截图中提取设计语言，自动生成可复用的设计系统。</p>
+  <img src="./assets/brand/imprint-mark.svg" alt="Imprint" width="96" />
+
+  <h1>Imprint</h1>
+
+  <p><strong>Turn websites and screenshots into AI-ready design systems.</strong></p>
+
+  <p>
+    Extract colors, typography, spacing, radii, shadows, and component styles,
+    then export them as DESIGN.md, CSS Variables, Tailwind CSS themes, and JSON Design Tokens.
+  </p>
+
+  <p>
+    <a href="./README.zh-CN.md">简体中文</a>
+    ·
+    <a href="https://github.com/woai3c/imprint/releases/latest">Download</a>
+    ·
+    <a href="#features">Features</a>
+    ·
+    <a href="#development">Development</a>
+  </p>
 </div>
 
-Imprint 是一个开源桌面应用，可以分析网站 URL 或 UI 截图，提取其中的视觉规则（颜色、字体、间距、圆角、阴影、组件风格等），并生成 AI 可直接使用的设计规范和代码变量。
+## What is Imprint?
 
-让 AI Coding 不再随机生成 UI，而是基于真实产品的设计系统构建一致、高质量的界面。
+Imprint is an open-source desktop application that transforms websites and UI screenshots into reusable design systems.
 
-## 为什么需要 Imprint？
+It analyzes visual rules such as colors, typography, spacing, border radii, shadows, layout patterns, and component styles, then generates structured outputs that can be used directly by AI coding agents and frontend projects.
 
-AI Coding 极大降低了开发 UI 的成本，但让 AI 持续生成符合产品风格的界面仍然很困难。
+Instead of asking AI to invent another generic interface, give it a real design system to follow.
 
-传统流程：
-
-```
-设计师
-↓
-Figma 设计稿
-↓
-开发实现
-```
-
-AI 时代：
-
-```
-优秀网站 / UI 截图
-↓
-Imprint
-↓
-Design System
-↓
-AI Agent
-↓
-一致性的产品界面
+```text
+Website or Screenshot
+        ↓
+      Imprint
+        ↓
+   Design System
+        ↓
+Claude Code / Codex / Other AI Agents
+        ↓
+Consistent, production-ready interfaces
 ```
 
-Imprint 将真实产品中的视觉语言转换为 AI 可以理解的设计系统，让 AI 更容易生成符合目标风格的 UI。
+## Why Imprint?
 
-## 功能
+AI coding tools can generate interfaces quickly, but they often produce generic and inconsistent visual styles.
 
-### 设计语言提取
+Prompts alone are not enough to describe a complete design language. Imprint extracts that language from real websites and screenshots and converts it into structured specifications that AI agents can follow.
 
-- **网站分析** — 输入 URL，自动分析网页视觉风格
-- **截图分析** — 从 UI 截图中提取设计规律
-- **设计系统生成** — 提取颜色、字体、间距、阴影、圆角等 Design Tokens
-- **视觉风格分析** — 分析页面布局、组件样式和整体设计语言
+## Features
 
-### AI Coding 集成
+| Feature                  | Description                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| Website analysis         | Analyze visual styles directly from a URL                                             |
+| Screenshot analysis      | Extract design patterns from UI screenshots                                           |
+| Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance          |
+| AI-ready documentation   | Export DESIGN.md for AI coding agents                                                 |
+| Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                  |
+| Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli              |
+| Local-first storage      | Store project data locally with SQLite                                                |
+| Live theme preview       | Apply extracted styles to Imprint and inspect the result                              |
+| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more           |
+| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states |
 
-- **AI 友好输出** — 生成 Markdown 设计规范，可直接作为 AI Coding 上下文
-- **代码变量导出** — 支持 CSS Variables、Tailwind CSS v4 `@theme`、JSON Design Tokens
-- **Agent 集成** — 支持本地 AI Agent CLI，包括 Claude Code、Codex、Kimi、x-code-cli 等
+## Use with AI Coding Agents
 
-### 产品体验
+1. Analyze a website or screenshot with Imprint.
+2. Export the generated `DESIGN.md`.
+3. Copy `DESIGN.md` into your project.
+4. Give your AI coding agent the following instruction:
 
-- **实时换肤** — 将提取的设计系统应用到应用 UI，实时查看效果
-- **验证场景** — 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性
-- **内置主题** — 内置国风山水、赛博朋克、极简北欧、毛玻璃、暗黑等设计风格
+> Read DESIGN.md and use it as the visual source of truth for all UI implementation. Preserve the existing product requirements and do not copy copyrighted text or branding from the source website.
 
-### 隐私与本地化
+### Which format should I export?
 
-- **本地优先** — 所有数据保存在本地 SQLite，无需注册账号
-- **多语言支持** — 支持中文和英文界面
+| Goal                                                   | Recommended output    | Include with it                      |
+| ------------------------------------------------------ | --------------------- | ------------------------------------ |
+| Ask AI to revise an existing UI                        | **DESIGN.md**         | Current UI screenshot or source code |
+| Implement directly in a CSS project                    | **CSS Variables**     | The existing style entry file        |
+| Implement directly in a Tailwind v4 project            | **Tailwind `@theme`** | The project's theme stylesheet       |
+| Use a toolchain or an agent that needs structured data | **Tokens JSON**       | A precise automation task            |
 
-## 使用流程
+If you give AI only one exported file, choose **DESIGN.md**.
 
-```mermaid
-graph TD
-    A[输入网站 URL 或截图] --> B[分析网页结构和视觉样式]
-    B --> C[生成 Design System]
-    C --> D1[DESIGN.md]
-    C --> D2[CSS Variables]
-    C --> D3[Tailwind Theme]
-    C --> D4[JSON Tokens]
-    D1 --> E[用于 AI Coding 或前端开发]
-    D2 --> E
-    D3 --> E
-    D4 --> E
-```
+## Download
 
-## 示例输出
+Download the latest version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest).
 
-Imprint 可以生成：
+| Platform | Architecture          |
+| -------- | --------------------- |
+| Windows  | x64                   |
+| macOS    | Apple Silicon (arm64) |
+| macOS    | Intel (x64)           |
 
-### 应该导出哪一种？
+## Tech Stack
 
-| 目标                               | 推荐输出              | 一起提供             |
-| ---------------------------------- | --------------------- | -------------------- |
-| 让 AI 修改已有 UI                  | **DESIGN.md**         | 当前 UI 截图或源代码 |
-| 直接在 CSS 项目中实现              | **CSS Variables**     | 现有样式入口文件     |
-| 直接在 Tailwind v4 项目中实现      | **Tailwind `@theme`** | 项目的主题样式文件   |
-| 交给工具链或需要结构化数据的 Agent | **Tokens JSON**       | 具体的自动化任务说明 |
+| Layer                | Technology                                             |
+| -------------------- | ------------------------------------------------------ |
+| Desktop Framework    | Electron + Electron Forge                              |
+| Frontend             | React 19 + TypeScript + Vite                           |
+| UI                   | Tailwind CSS v4                                        |
+| State Management     | Zustand                                                |
+| Storage              | SQLite (better-sqlite3)                                |
+| Web Analysis         | Playwright                                             |
+| Internationalization | i18next + react-i18next                                |
+| AI                   | OpenAI / Claude / DeepSeek / Kimi API, Local Agent CLI |
 
-如果只给 AI 一个导出文件，请选择 **DESIGN.md**。CSS Variables 和 Tailwind 是实现产物，Tokens JSON 是机器可读的结构化数据，它们不能代替现有界面的截图或源代码。
-
-### DESIGN.md
-
-包含：
-
-- 产品视觉风格说明
-- 色彩系统
-- Typography 规范
-- 间距规则
-- 圆角规范
-- 阴影规则
-- 组件设计建议
-
-### CSS Variables
-
-```css
-:root {
-  --color-primary: #2563eb;
-  --radius-md: 8px;
-  --spacing-lg: 24px;
-}
-```
-
-### Tailwind CSS v4 Theme
-
-```css
-@theme {
-  --color-primary: #2563eb;
-  --radius-md: 8px;
-}
-```
-
-## 技术栈
-
-| 层级     | 技术                                                  |
-| -------- | ----------------------------------------------------- |
-| 桌面框架 | Electron 34 + Electron Forge                          |
-| 前端     | React 19 + TypeScript + Vite                          |
-| UI       | Tailwind CSS v4                                       |
-| 状态管理 | Zustand v5                                            |
-| 数据存储 | SQLite (better-sqlite3)                               |
-| 网页分析 | Playwright                                            |
-| 国际化   | i18next + react-i18next                               |
-| AI       | OpenAI / Claude / DeepSeek / Kimi API，本地 Agent CLI |
-
-## AI 配置
-
-Imprint 支持两种 AI 使用方式：
-
-### 1. API Key
-
-在设置页面配置 AI 服务：
-
-支持：
-
-- OpenAI
-- Claude
-- DeepSeek
-- Kimi
-- 其他兼容 OpenAI API 的服务
-
-### 2. 本地 Agent CLI
-
-自动检测本机已安装的 AI Agent：
-
-支持：
-
-- Claude Code
-- Codex
-- Kimi
-- Gemini CLI
-- OpenCode
-- x-code-cli
-
-## 开发
+## Development
 
 ```bash
-# 安装依赖
+# Install dependencies
 pnpm install
 
-# 启动开发模式
+# Start development mode
 pnpm dev
 
-# 打包
+# Package the app
 pnpm build
 
-# 构建安装包
+# Build installer
 pnpm make
 
-# 运行无需 LLM 的 Electron E2E
+# Run E2E tests (no LLM required)
 pnpm test:e2e
 ```
 
-## 发布
+## Release
 
-从干净且最新的 `main` 分支执行：
+For build signing, notarization, GitHub Actions configuration, and release procedures, see:
 
-```bash
-pnpm release
-```
+- [Desktop App Build, Signing, and Release Guide (Chinese)](./DEPLOYMENT.zh-CN.md)
 
-命令会选择版本、执行发布检查、生成 `CHANGELOG.md`、创建 release commit 与 annotated `vX.Y.Z` tag，并在确认后原子推送到 `origin`。Tag 会触发 GitHub Actions，分别在 Windows 和 macOS 原生环境中生成 Windows x64、macOS Apple Silicon 和 macOS Intel 安装包。
-
-安装包由 [`.github/workflows/release.yml`](./.github/workflows/release.yml) 构建并发布。正式 tag 构建要求 macOS Developer ID / Apple 公证凭据和 Windows PFX 签名凭据，缺少凭据时不会发布未签名正式版本。
-
-第一次配置 GitHub Actions、证书、Secrets、发布命令和安装包验签时，请按 [《桌面应用构建、签名与发布指南》](./DEPLOYMENT.zh-CN.md) 逐步操作。
-
-## 项目结构
+## Project Structure
 
 ```
 src/
-├── main/                    # Electron 主进程
-│   ├── analyzer/            # 网页分析引擎
-│   │   ├── style-extractor.ts
-│   │   ├── color-cluster.ts
-│   │   └── token-builder.ts
-│   ├── export.ts            # Design System 导出
-│   ├── database.ts          # SQLite 数据库
-│   └── agent-detect.ts      # AI Agent 检测
+├── main/                # Electron main process
+│   ├── analyzer/        # Web analysis engine (Electron wrapper)
+│   ├── export.ts        # Design system export
+│   ├── database.ts      # SQLite database
+│   └── agent-detect.ts  # AI agent detection
 │
-└── renderer/                # React 前端
+├── core/                # Shared extraction engine (CLI + MCP + Desktop)
+│   ├── analyzer/        # Style extraction, color clustering, token building
+│   └── export/          # CSS / Tailwind / JSON / Markdown / SCSS generators
+│
+├── cli/                 # CLI entry point (imprint bin)
+├── mcp/                 # MCP stdio server (imprint-mcp bin)
+│
+└── renderer/            # React frontend
     ├── components/
     ├── pages/
     ├── stores/
-    └── styles/
+    └── i18n/
 ```
 
 ## License

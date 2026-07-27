@@ -98,16 +98,18 @@ function readCommits(previousTag) {
 
 function readContributors(previousTag) {
   const range = previousTag ? `${previousTag}..HEAD` : 'HEAD'
-  const output = git('log', '--no-merges', '--pretty=format:%aN', range)
+  const output = git('log', '--no-merges', '--pretty=format:%aN%x1f%aE', range)
   if (!output) return []
-  return [
-    ...new Set(
-      output
-        .split('\n')
-        .map((name) => name.trim())
-        .filter(Boolean),
-    ),
-  ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+
+  const byEmail = new Map()
+  for (const line of output.split('\n')) {
+    const [name, email] = line.split('\x1f')
+    if (!name || !email) continue
+    const key = email.trim().toLowerCase()
+    if (!byEmail.has(key)) byEmail.set(key, name.trim())
+  }
+
+  return [...byEmail.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
 function formatCommitSubject(subject) {

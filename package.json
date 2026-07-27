@@ -92,7 +92,8 @@
       "better-sqlite3",
       "electron",
       "electron-winstaller",
-      "esbuild"
+      "esbuild",
+      "macos-alias"
     ]
   }
 }

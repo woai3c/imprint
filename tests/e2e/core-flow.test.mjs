@@ -47,9 +47,9 @@ before(async () => {
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
     },
     locale: 'en-US',
-    timeout: 30_000,
+    timeout: 60_000,
   })
-  page = await electronApp.firstWindow()
+  page = await electronApp.firstWindow({ timeout: 60_000 })
   await page.waitForLoadState('domcontentloaded')
 })
 

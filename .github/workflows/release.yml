@@ -312,10 +312,10 @@ jobs:
           range="${prev_tag:+${prev_tag}..}${tag}"
 
           contributors="$(
-            git log --no-merges --pretty='format:%aN' "$range" \
-              | sort -uf \
-              | while IFS= read -r name; do
-                  email="$(git log --no-merges --pretty='format:%aE' --author="$name" -1 "$range")"
+            git log --no-merges --pretty='format:%aN%x1f%aE' "$range" \
+              | awk -F$'\x1f' '!seen[tolower($2)]++ { print $1 "\x1f" $2 }' \
+              | sort -t$'\x1f' -k1,1f \
+              | while IFS=$'\x1f' read -r name email; do
                   gh_user="$(
                     gh api "/search/users?q=${email}+in:email" \
                       --jq '.items[0].login // empty' 2>/dev/null || true

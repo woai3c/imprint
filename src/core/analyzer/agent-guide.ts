@@ -138,7 +138,7 @@ export function generateExampleComponents(tokens: DesignToken, components?: Comp
   const textColor = findColor(colorEntries, ['foreground', 'text', 'body'])
   const mutedColor = findColor(colorEntries, ['muted-foreground', 'muted', 'secondary-foreground'])
   const primaryColor = findColor(colorEntries, ['primary', 'accent', 'brand'])
-  const primaryFg = findColor(colorEntries, ['primary-foreground', 'on-primary', 'white'])
+  const primaryFg = findColor(colorEntries, ['primary-foreground', 'on-primary', 'white'], '#fff')
   const borderColor = findColor(colorEntries, ['border', 'divider', 'separator'])
 
   const font = tokens.typography.fontFamilies[0] || 'system-ui, sans-serif'
@@ -292,10 +292,15 @@ export function generateExampleComponents(tokens: DesignToken, components?: Comp
   return lines.join('\n')
 }
 
-function findColor(entries: Array<[string, string]>, keywords: string[]): string {
+function findColor(entries: Array<[string, string]>, keywords: string[], fallback?: string): string {
   for (const keyword of keywords) {
-    const match = entries.find(([name]) => name === keyword || name.includes(keyword))
-    if (match) return `var(--color-${match[0]})`
+    const exact = entries.find(([name]) => name === keyword)
+    if (exact) return `var(--color-${exact[0]})`
   }
+  for (const keyword of keywords) {
+    const partial = entries.find(([name]) => name.includes(keyword))
+    if (partial) return `var(--color-${partial[0]})`
+  }
+  if (fallback) return fallback
   return entries[0] ? `var(--color-${entries[0][0]})` : '#000'
 }

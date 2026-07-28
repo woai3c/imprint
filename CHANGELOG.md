@@ -3,6 +3,24 @@
 Release notes are generated from Conventional Commits by `pnpm release` and inserted here before the release tag is
 created.
 
+## [0.0.2] - 2026-07-28
+
+### Added
+
+- switch Windows build from Squirrel installer to portable zip (f0f24f6)
+- add example HTML components to website analysis DESIGN.md export (e38c8b3)
+- enhance builtin theme export and remove validation page CSS export (da14c93)
+- enhance website analysis workflow (ba1a744)
+
+### Fixed
+
+- improve analysis page UX (f8505d1)
+- improve color token matching in example component generation (9306291)
+
+### Contributors
+
+- woai3c
+
 ## [0.0.1] - 2026-07-27
 
 ### Added

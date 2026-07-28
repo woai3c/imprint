@@ -224,8 +224,21 @@ html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom
   box-shadow: var(--art-primary-shadow, none);
 }
 
+/* Ambient borders recolor default-edged surfaces only; semantic and state borders keep their own color. */
 html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom'])
-  :is(.border, [class*='border-border']) {
+  :is(.border, [class*='border-border']):not(
+    [class*='border-primary'],
+    [class*='border-destructive'],
+    [class*='border-warning'],
+    [class*='border-success'],
+    [class*='border-transparent'],
+    [class*='border-muted-foreground'],
+    [class*='border-black'],
+    [class*='border-white'],
+    [class*='hover:border-'],
+    [class*='focus:border-'],
+    [class*='focus-visible:border-']
+  ) {
   border-color: var(--art-border-color, var(--color-border));
 }
 
@@ -247,7 +260,7 @@ html[data-app-theme='chinese-landscape'] {
   --art-nav-active-bg:
     linear-gradient(90deg, color-mix(in oklab, var(--color-sidebar-accent) 78%, transparent), transparent),
     linear-gradient(90deg, rgb(54 55 49 / 7%), transparent);
-  --art-nav-active-shadow: inset 2px 0 var(--color-accent);
+  --art-nav-active-shadow: inset 2px 0 var(--color-ring);
   --art-topbar-bg: color-mix(in oklab, var(--color-background) 46%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-border) 55%, transparent);
   --art-topbar-filter: blur(10px);
@@ -426,7 +439,7 @@ html[data-app-theme='dunhuang'] {
     color-mix(in oklab, var(--color-sidebar-accent) 72%, transparent),
     transparent
   );
-  --art-nav-active-shadow: inset 2px 0 var(--color-accent);
+  --art-nav-active-shadow: inset 2px 0 var(--color-ring);
   --art-topbar-bg: color-mix(in oklab, var(--color-background) 48%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-border) 55%, transparent);
   --art-topbar-filter: blur(10px);
@@ -485,11 +498,6 @@ html[data-app-theme='blueprint'] {
   --art-primary-shadow:
     0 0 20px color-mix(in oklab, var(--color-primary) 17%, transparent), inset 0 0 0 1px rgb(255 255 255 / 9%);
   --art-border-color: color-mix(in oklab, var(--color-border) 78%, transparent);
-}
-
-/* Selection is a semantic state and must win over each theme's ambient border treatment. */
-html[data-app-theme] :is(.theme-card[aria-pressed='true'], [data-selected='true']) {
-  border-color: var(--color-ring);
 }
 
 /* Theme library previews communicate each theme's spatial language, not just its palette. */

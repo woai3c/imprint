@@ -281,8 +281,8 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(28% 0.014 65)',
       muted: 'oklch(92% 0.014 88)',
       'muted-foreground': 'oklch(48% 0.018 70)',
-      accent: 'oklch(48% 0.14 29)',
-      'accent-foreground': 'oklch(97% 0.008 88)',
+      accent: 'oklch(88% 0.022 135)',
+      'accent-foreground': 'oklch(26% 0.02 140)',
       card: 'oklch(97% 0.01 88)',
       'card-foreground': 'oklch(23% 0.012 65)',
       border: 'oklch(79% 0.023 82)',
@@ -344,8 +344,8 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(84% 0.022 210)',
       muted: 'oklch(17% 0.018 245)',
       'muted-foreground': 'oklch(66% 0.028 215)',
-      accent: 'oklch(73% 0.13 85)',
-      'accent-foreground': 'oklch(14% 0.025 250)',
+      accent: 'oklch(24% 0.035 215)',
+      'accent-foreground': 'oklch(86% 0.02 210)',
       card: 'oklch(15% 0.022 247)',
       'card-foreground': 'oklch(90% 0.018 210)',
       border: 'oklch(27% 0.035 230)',
@@ -398,7 +398,7 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['秩序', '信号', '节制'],
       patterns: ['分层暗面', '局部发光', '青琥珀信号'],
-      evidence: ['外壳、卡片和控件使用不同明度', '光效仅服务焦点与关键操作', '青色表达操作，琥珀表达选择'],
+      evidence: ['外壳、卡片和控件使用不同明度', '光效仅服务焦点与关键操作', '青色表达操作与选择，琥珀只标记焦点'],
     },
   },
   {
@@ -415,15 +415,15 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(31% 0.03 230)',
       muted: 'oklch(93.5% 0.014 96)',
       'muted-foreground': 'oklch(51% 0.026 225)',
-      accent: 'oklch(62% 0.105 44)',
-      'accent-foreground': 'oklch(98% 0.005 90)',
+      accent: 'oklch(90.5% 0.02 228)',
+      'accent-foreground': 'oklch(30% 0.028 230)',
       card: 'oklch(99% 0.006 96)',
       'card-foreground': 'oklch(26% 0.025 235)',
       border: 'oklch(85.5% 0.024 94)',
       ring: 'oklch(48% 0.072 230)',
       sidebar: 'oklch(93.5% 0.021 104)',
       'sidebar-foreground': 'oklch(32% 0.032 225)',
-      'sidebar-accent': 'oklch(87.5% 0.035 119)',
+      'sidebar-accent': 'oklch(88.5% 0.024 230)',
       warning: 'oklch(68% 0.11 72)',
       'warning-strong': 'oklch(42% 0.08 65)',
       'warning-foreground': 'oklch(98% 0.005 90)',
@@ -469,7 +469,7 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['平静', '自然', '友好'],
       patterns: ['柔光分区', '实体白卡', '温暖点色'],
-      evidence: ['低饱和背景划分工作区域', '主要内容保持高不透明度', '暖色只用于少量强调信息'],
+      evidence: ['低饱和背景划分工作区域', '主要内容保持高不透明度', '暖色只停留在背景氛围层'],
     },
   },
   {
@@ -486,8 +486,8 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(27% 0.04 272)',
       muted: 'oklch(93% 0.024 260)',
       'muted-foreground': 'oklch(49% 0.042 268)',
-      accent: 'oklch(69% 0.145 193)',
-      'accent-foreground': 'oklch(17% 0.035 265)',
+      accent: 'oklch(90% 0.04 284)',
+      'accent-foreground': 'oklch(25% 0.04 280)',
       card: 'oklch(98% 0.012 260)',
       'card-foreground': 'oklch(20% 0.035 270)',
       border: 'oklch(86% 0.032 260)',
@@ -554,8 +554,8 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(31% 0.045 58)',
       muted: 'oklch(87% 0.042 77)',
       'muted-foreground': 'oklch(48% 0.05 62)',
-      accent: 'oklch(47% 0.095 235)',
-      'accent-foreground': 'oklch(96% 0.015 80)',
+      accent: 'oklch(78% 0.064 60)',
+      'accent-foreground': 'oklch(30% 0.045 58)',
       card: 'oklch(94.5% 0.03 78)',
       'card-foreground': 'oklch(28% 0.04 58)',
       border: 'oklch(69% 0.065 68)',
@@ -620,8 +620,8 @@ export const builtinThemes: AppTheme[] = [
       'secondary-foreground': 'oklch(87% 0.035 211)',
       muted: 'oklch(19% 0.038 244)',
       'muted-foreground': 'oklch(64% 0.06 219)',
-      accent: 'oklch(78% 0.16 82)',
-      'accent-foreground': 'oklch(15% 0.035 246)',
+      accent: 'oklch(23% 0.05 228)',
+      'accent-foreground': 'oklch(88% 0.03 215)',
       card: 'oklch(17% 0.04 244)',
       'card-foreground': 'oklch(91% 0.035 210)',
       border: 'oklch(32% 0.072 230)',
@@ -678,7 +678,7 @@ export const builtinThemes: AppTheme[] = [
     identity: {
       values: ['精确', '理性', '可追溯'],
       patterns: ['坐标网格', '等宽标记', '青色状态'],
-      evidence: ['网格只出现在工作底板', '等宽字体用于数值与结构标记', '青色操作、制图黄选择边框'],
+      evidence: ['网格只出现在工作底板', '等宽字体用于数值与结构标记', '青色承担操作与选择，制图黄只标记焦点环'],
     },
   },
 ]
@@ -987,6 +987,66 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
     lines.push(`### ${pattern}`, '', theme.identity.evidence[index], '')
   })
 
+  // Design principles — universal composition rules grounded in this theme's token values
+  const densityLabel = zh
+    ? { compact: '紧凑', comfortable: '舒适', spacious: '宽松' }[spacing.density]
+    : spacing.density
+  lines.push(`## ${zh ? '设计原则' : 'Design principles'}`, '')
+  lines.push(
+    zh
+      ? '使用这些令牌进行排版组合的规则，由主题数值推导。'
+      : 'Composition rules for these tokens, derived from the theme values.',
+    '',
+  )
+  lines.push(`### ${zh ? '亲密性' : 'Proximity'}`, '')
+  lines.push(
+    zh
+      ? `- 相关元素间距不超过 \`calc(${spacing.unit} * 2)\`，分组之间使用 \`calc(${spacing.unit} * 6)\` 以上的间隔`
+      : `- Keep related items within \`calc(${spacing.unit} * 2)\`; separate groups with \`calc(${spacing.unit} * 6)\` or more`,
+  )
+  lines.push(
+    zh
+      ? `- 用间距刻度分组，而不是堆砌分割线（当前密度：${densityLabel}）`
+      : `- Group with the spacing scale instead of stacking dividers (density: ${densityLabel})`,
+    '',
+  )
+  lines.push(`### ${zh ? '对齐' : 'Alignment'}`, '')
+  lines.push(
+    zh
+      ? `- 尺寸与间距只取 ${spacing.unit} 的整数倍，不产生刻度外的任意值`
+      : `- Size and space in multiples of ${spacing.unit}; never use off-scale values`,
+  )
+  lines.push(
+    zh
+      ? `- 重复模块共享统一的起始边与栏宽（侧栏 ${layout.sidebarWidth}）`
+      : `- Repeated blocks share one inline start and column width (sidebar ${layout.sidebarWidth})`,
+    '',
+  )
+  lines.push(`### ${zh ? '重复' : 'Repetition'}`, '')
+  lines.push(
+    zh
+      ? '- 只复用语义令牌的既有档位（颜色、字号、圆角、阴影），不发明近似值'
+      : '- Reuse existing semantic token steps (colors, font sizes, radii, shadows); never invent near-duplicates',
+  )
+  lines.push(
+    zh
+      ? `- 圆角一律从 \`--radius-md\`（${shape.radiusBase}）派生 sm/lg/xl`
+      : `- Derive all radii from \`--radius-md\` (${shape.radiusBase}) — sm/lg/xl`,
+    '',
+  )
+  lines.push(`### ${zh ? '对比' : 'Contrast'}`, '')
+  lines.push(
+    zh
+      ? '- 正文用 `--color-foreground`，次要信息用 `--color-muted-foreground`；层级来自对比，而非堆砌字号'
+      : '- Body text uses `--color-foreground`, secondary text `--color-muted-foreground`; hierarchy comes from contrast, not font-size stacking',
+  )
+  lines.push(
+    zh
+      ? '- 每屏主操作只有一个（`--color-primary`）；hover、选中、焦点状态与主色保持同一色相家族，签名对比色只用于焦点环与选中指示'
+      : '- One primary action per view (`--color-primary`); hover, selected, and focus states stay in the primary hue family — the signature contrast color appears only in the focus ring and selection indicators',
+    '',
+  )
+
   // Colors
   lines.push(`## ${zh ? '颜色' : 'Colors'}`, '')
   lines.push(`| ${zh ? '令牌' : 'Token'} | ${zh ? '值' : 'Value'} | ${zh ? '用途' : 'Usage'} |`)
@@ -1000,8 +1060,8 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
     'secondary-foreground': zh ? '次级文字' : 'Secondary text',
     muted: zh ? '禁用区域' : 'Muted surface',
     'muted-foreground': zh ? '辅助文字' : 'Muted text',
-    accent: zh ? '强调、装饰' : 'Accent, decoration',
-    'accent-foreground': zh ? '强调区文字' : 'Accent text',
+    accent: zh ? '悬浮表面、次级强调' : 'Hover surface, secondary emphasis',
+    'accent-foreground': zh ? '悬浮表面文字' : 'Hover surface text',
     card: zh ? '卡片背景' : 'Card background',
     'card-foreground': zh ? '卡片文字' : 'Card text',
     border: zh ? '边框' : 'Border',

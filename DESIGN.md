@@ -149,6 +149,9 @@ to Imprint rather than an enterprise administration UI.
 - **Functional material:** transparency, texture, glow, and illustration establish layers; they never replace contrast.
 - **Semantic states:** primary, secondary, muted, accent, destructive, focus, disabled, and selected states retain the
   same meaning in every theme.
+- **One hue family for interaction states:** hover, active, selected, and focus surfaces derive from the primary or
+  neutral scale of the theme, never from a contrasting hue. A theme's signature contrast color belongs only in
+  signature positions — the focus ring, the navigation selection indicator, or ambient art direction.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 

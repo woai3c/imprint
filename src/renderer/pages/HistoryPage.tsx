@@ -93,27 +93,10 @@ export function HistoryPage() {
                 className="flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4 className="truncate text-sm font-medium">
-                      {record.theme_name ||
-                        (() => {
-                          try {
-                            return new URL(record.url).hostname
-                          } catch {
-                            return record.url
-                          }
-                        })()}
-                    </h4>
-                    {record.token_usage > 0 && (
-                      <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
-                        {t('history.tokenCount', { count: record.token_usage })}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-muted-foreground truncate max-w-75">{record.url}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm truncate">{record.url}</span>
                     {record.duration_ms && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
                       </span>
                     )}

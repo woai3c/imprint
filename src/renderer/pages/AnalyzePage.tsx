@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, Info, Loader2, Save, X } from 'lucide-react'
+import { AlertTriangle, Copy, Download, Info, Loader2, Minus, Plus, Save, X } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
 import { useEffect, useState } from 'react'
@@ -63,6 +63,8 @@ export function AnalyzePage() {
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [lightboxScale, setLightboxScale] = useState(1)
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: Record<string, string>) => {
@@ -615,7 +617,8 @@ export function AnalyzePage() {
                         <img
                           src={`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`}
                           alt={t('analyze.evidence.screenshotAlt', { url: screenshot.url })}
-                          className="max-h-44 w-full object-cover object-top"
+                          className="max-h-44 w-full cursor-zoom-in object-cover object-top"
+                          onClick={() => setLightboxSrc(`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`)}
                         />
                       </figure>
                     ))}
@@ -629,47 +632,6 @@ export function AnalyzePage() {
                 <p className="truncate" title={result.url}>
                   {result.url}
                 </p>
-              </div>
-            </div>
-
-            {/* Bottom pinned area */}
-            <div className="shrink-0 pt-3 border-t border-border/40">
-              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2">
-                <button
-                  data-testid="save-theme"
-                  onClick={handleSaveToLibrary}
-                  disabled={saved}
-                  className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-primary px-2 py-2 text-xs text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  <Save size={12} />
-                  {saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                </button>
-                <button
-                  onClick={handleExportFile}
-                  className="flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-secondary px-2 py-2 text-xs text-secondary-foreground transition-colors hover:bg-accent"
-                >
-                  <Download size={12} />
-                  {t('analyze.exportCurrent', { format: activeArtifactLabel })}
-                </button>
-                <div className="group relative z-10">
-                  <button
-                    type="button"
-                    data-testid="ai-export-info"
-                    aria-label={t('analyze.aiExport.title')}
-                    aria-describedby="ai-export-tooltip"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <Info size={15} />
-                  </button>
-                  <div
-                    id="ai-export-tooltip"
-                    role="tooltip"
-                    className="pointer-events-none invisible absolute bottom-full right-0 mb-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-                  >
-                    <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -693,13 +655,52 @@ export function AnalyzePage() {
                   {tab.label}
                 </button>
               ))}
-              <div className="ml-auto flex gap-2 pr-1 items-center">
+              <div className="ml-auto flex gap-1 pr-1 items-center">
+                <button
+                  data-testid="save-theme"
+                  onClick={handleSaveToLibrary}
+                  disabled={saved}
+                  title={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
+                  aria-label={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                >
+                  <Save size={14} />
+                </button>
+                <button
+                  onClick={handleExportFile}
+                  title={t('analyze.exportCurrent', { format: activeArtifactLabel })}
+                  aria-label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <Download size={14} />
+                </button>
                 <button
                   onClick={handleCopy}
-                  className="text-xs px-2.5 py-1 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+                  title={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                  aria-label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 >
-                  {t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                  <Copy size={14} />
                 </button>
+                <div className="group relative z-50">
+                  <button
+                    type="button"
+                    data-testid="ai-export-info"
+                    aria-label={t('analyze.aiExport.title')}
+                    aria-describedby="ai-export-tooltip"
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <Info size={14} />
+                  </button>
+                  <div
+                    id="ai-export-tooltip"
+                    role="tooltip"
+                    className="pointer-events-none invisible absolute top-full right-0 mt-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                  >
+                    <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -764,6 +765,58 @@ export function AnalyzePage() {
         />
       )}
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-200 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => {
+            setLightboxSrc(null)
+            setLightboxScale(1)
+          }}
+          onWheel={(e) => {
+            e.preventDefault()
+            setLightboxScale((s) => Math.min(5, Math.max(0.25, s + (e.deltaY < 0 ? 0.25 : -0.25))))
+          }}
+        >
+          <button
+            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+            onClick={() => {
+              setLightboxSrc(null)
+              setLightboxScale(1)
+            }}
+            aria-label={t('common.close', { defaultValue: 'Close' })}
+          >
+            <X size={20} />
+          </button>
+          <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur">
+            <button
+              className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
+              onClick={(e) => {
+                e.stopPropagation()
+                setLightboxScale((s) => Math.max(0.25, s - 0.25))
+              }}
+            >
+              <Minus size={16} />
+            </button>
+            <span className="min-w-12 text-center text-xs text-white">{Math.round(lightboxScale * 100)}%</span>
+            <button
+              className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
+              onClick={(e) => {
+                e.stopPropagation()
+                setLightboxScale((s) => Math.min(5, s + 0.25))
+              }}
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+          <img
+            src={lightboxSrc}
+            alt=""
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl transition-transform duration-150"
+            style={{ transform: `scale(${lightboxScale})` }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -443,7 +443,7 @@ export function registerIpcHandlers() {
     'export:toDirectory',
     async (_event, files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) => {
       const result = await dialog.showOpenDialog({
-        defaultPath: defaultDir,
+        ...(defaultDir ? { defaultPath: defaultDir } : {}),
         properties: ['openDirectory', 'createDirectory'],
         title: 'Select export directory',
       })

@@ -124,7 +124,7 @@ export function ThemesPage() {
         exportResult = await window.electronAPI.exportToDirectory(
           [{ name: selectedExport.filename, content: selectedExport.content }],
           [theme.backgroundImage!],
-          `imprint-${theme.id}`,
+          '',
         )
       } else {
         exportResult = await window.electronAPI.exportFile(

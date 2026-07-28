@@ -11,4 +11,5 @@ export {
 } from '../core/export/index.js'
 
 export type { DarkModeExportData } from '../core/export/index.js'
+export type { DocLanguage } from '../core/analyzer/agent-guide.js'
 export type { DesignToken } from '../core/analyzer/index.js'

@@ -23,7 +23,7 @@ interface Settings {
 }
 
 export function SettingsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
@@ -167,7 +167,7 @@ export function SettingsPage() {
 
   const handleImportData = async () => {
     try {
-      const importResult = await window.electronAPI.importTheme()
+      const importResult = await window.electronAPI.importTheme(i18n.language)
       if (importResult.success) notify(t('feedback.importFinished'))
       else if (!importResult.canceled) notify(t('feedback.importFailed'), 'error')
     } catch {

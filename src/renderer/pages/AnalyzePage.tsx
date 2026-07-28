@@ -56,7 +56,7 @@ interface AnalyzeResponse extends Partial<AnalysisResultData> {
 type AnalysisOutcome = 'complete' | 'auth-required' | 'cancelled' | 'error'
 
 export function AnalyzePage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const store = useAnalysisStore()
   const notify = useFeedbackStore((state) => state.show)
   const [saved, setSaved] = useState(false)
@@ -115,6 +115,7 @@ export function AnalyzePage() {
       const res = (await window.electronAPI.analyzeUrl(targetUrl, {
         authMode,
         maxPages: pageCount,
+        language: i18n.language,
       })) as AnalyzeResponse
       if (res.authRequired && res.detection) {
         store.setProgress(null)

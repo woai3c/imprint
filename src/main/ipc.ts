@@ -310,7 +310,13 @@ export function registerIpcHandlers() {
     async (
       event,
       url: string,
-      options?: { viewports?: string[]; maxPages?: number; useSession?: boolean; authMode?: AuthMode },
+      options?: {
+        viewports?: string[]
+        maxPages?: number
+        useSession?: boolean
+        authMode?: AuthMode
+        language?: string
+      },
     ) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       let analysisStage = 'progress.launchingBrowser'
@@ -368,6 +374,7 @@ export function registerIpcHandlers() {
           darkModeExport,
           result.breakpoints,
           result.components,
+          options?.language?.startsWith('zh') ? 'zh-CN' : 'en',
         )
 
         const db = getDb()
@@ -594,7 +601,7 @@ export function registerIpcHandlers() {
     return { success: true, filePath: result.filePath }
   })
 
-  ipcMain.handle('import:theme', async () => {
+  ipcMain.handle('import:theme', async (_event, language?: string) => {
     const result = await dialog.showOpenDialog({
       filters: [{ name: 'Theme Tokens JSON', extensions: ['json'] }],
       properties: ['openFile'],
@@ -615,7 +622,15 @@ export function registerIpcHandlers() {
         const now = new Date().toISOString()
         const cssVars = generateCssVariables(tokens)
         const tailwind = generateTailwindTheme(tokens)
-        const designDoc = generateDesignDoc(tokens)
+        const designDoc = generateDesignDoc(
+          tokens,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          language?.startsWith('zh') ? 'zh-CN' : 'en',
+        )
         const meta = isRecord(importedData) && isRecord(importedData.meta) ? importedData.meta : undefined
         const themeName = typeof meta?.name === 'string' && meta.name.trim() ? meta.name : 'Imported theme'
 

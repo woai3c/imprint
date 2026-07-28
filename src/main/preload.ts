@@ -17,6 +17,7 @@ const api = {
       maxPages?: number
       useSession?: boolean
       authMode?: 'auto' | 'anonymous' | 'managed'
+      language?: string
     },
   ) => ipcRenderer.invoke('analyze:url', url, options),
   submitLoginDecision: (requestId: string, decision: 'continue' | 'anonymous' | 'cancel') =>
@@ -31,7 +32,7 @@ const api = {
     ipcRenderer.invoke('export:file', content, defaultName, ext),
   exportToDirectory: (files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) =>
     ipcRenderer.invoke('export:toDirectory', files, assets, defaultDir),
-  importTheme: () => ipcRenderer.invoke('import:theme'),
+  importTheme: (language?: string) => ipcRenderer.invoke('import:theme', language),
 
   // Save theme to library
   saveTheme: (data: {

@@ -1,4 +1,10 @@
-import { generateAgentGuide, generateDosAndDonts, generateExampleComponents } from '../analyzer/agent-guide.js'
+import {
+  generateAgentGuide,
+  generateDesignPrinciples,
+  generateDosAndDonts,
+  generateExampleComponents,
+} from '../analyzer/agent-guide.js'
+import type { DocLanguage } from '../analyzer/agent-guide.js'
 import type { ComponentPattern } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/index.js'
 
@@ -149,39 +155,59 @@ export function generateDesignDoc(
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string }>,
   components?: ComponentPattern[],
+  language: DocLanguage = 'en',
 ): string {
+  const zh = language === 'zh-CN'
   const lines: string[] = []
 
-  lines.push('# Design System')
-  if (url) lines.push(`\nExtracted from: ${url}`)
+  lines.push(zh ? '# 设计系统' : '# Design System')
+  if (url) lines.push(zh ? `\n提取自：${url}` : `\nExtracted from: ${url}`)
 
   if (featureTags && featureTags.length > 0) {
-    lines.push(`\n**Design Features:** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`)
+    lines.push(
+      zh
+        ? `\n**设计特征：** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`
+        : `\n**Design Features:** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`,
+    )
   }
 
   if (darkMode?.hasDarkMode) {
-    lines.push(`\n**Dark Mode:** Supported (detected via ${darkMode.method})`)
+    lines.push(
+      zh
+        ? `\n**深色模式：** 支持（检测方式：${darkMode.method}）`
+        : `\n**Dark Mode:** Supported (detected via ${darkMode.method})`,
+    )
   } else {
-    lines.push(`\n**Dark Mode:** Not detected`)
+    lines.push(zh ? `\n**深色模式：** 未检测到` : `\n**Dark Mode:** Not detected`)
   }
 
   lines.push('')
 
   // Colors
-  lines.push('## Colors\n')
-  lines.push('| Token | Value | Usage |')
+  lines.push(zh ? '## 颜色\n' : '## Colors\n')
+  lines.push(zh ? '| 令牌 | 值 | 用途 |' : '| Token | Value | Usage |')
   lines.push('|-------|-------|-------|')
   for (const [name, value] of Object.entries(tokens.colors)) {
     const bgCount = tokens.usageCount?.[`bgColor:${value}`] || 0
     const textCount = tokens.usageCount?.[`textColor:${value}`] || 0
     const total = bgCount + textCount
-    const context = bgCount > 0 && textCount > 0 ? 'bg+text' : bgCount > 0 ? 'background' : 'text'
+    const context = zh
+      ? bgCount > 0 && textCount > 0
+        ? '背景+文字'
+        : bgCount > 0
+          ? '背景'
+          : '文字'
+      : bgCount > 0 && textCount > 0
+        ? 'bg+text'
+        : bgCount > 0
+          ? 'background'
+          : 'text'
     lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} |`)
   }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
-    lines.push('\n### Dark Mode Colors\n')
-    lines.push('| Token | Value |')
+    lines.push(zh ? '\n### 深色模式颜色\n' : '\n### Dark Mode Colors\n')
+    lines.push(zh ? '| 令牌 | 值 |' : '| Token | Value |')
     lines.push('|-------|-------|')
     for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
       lines.push(`| \`--color-${name}\` | \`${value}\` |`)
@@ -189,33 +215,51 @@ export function generateDesignDoc(
   }
 
   // Typography
-  lines.push('\n## Typography\n')
-  lines.push(`**Font families:** ${tokens.typography.fontFamilies.join(', ') || 'System default'}`)
+  lines.push(zh ? '\n## 排版\n' : '\n## Typography\n')
+  lines.push(
+    zh
+      ? `**字体族：** ${tokens.typography.fontFamilies.join(', ') || '系统默认'}`
+      : `**Font families:** ${tokens.typography.fontFamilies.join(', ') || 'System default'}`,
+  )
   if (tokens.typography.fontStacks?.length > 0) {
-    lines.push('\n**Full font stacks:**')
+    lines.push(zh ? '\n**完整字体栈：**' : '\n**Full font stacks:**')
     tokens.typography.fontStacks.forEach((stack) => {
       lines.push(`- \`${stack}\``)
     })
   }
-  lines.push(`\n**Font sizes:** ${tokens.typography.fontSizes.join(', ')}`)
-  lines.push(`\n**Font weights:** ${tokens.typography.fontWeights.join(', ')}`)
+  lines.push(
+    zh
+      ? `\n**字号：** ${tokens.typography.fontSizes.join(', ')}`
+      : `\n**Font sizes:** ${tokens.typography.fontSizes.join(', ')}`,
+  )
+  lines.push(
+    zh
+      ? `\n**字重：** ${tokens.typography.fontWeights.join(', ')}`
+      : `\n**Font weights:** ${tokens.typography.fontWeights.join(', ')}`,
+  )
   if (tokens.typography.letterSpacings?.length > 0) {
-    lines.push(`\n**Letter spacing:** ${tokens.typography.letterSpacings.join(', ')}`)
+    lines.push(
+      zh
+        ? `\n**字间距：** ${tokens.typography.letterSpacings.join(', ')}`
+        : `\n**Letter spacing:** ${tokens.typography.letterSpacings.join(', ')}`,
+    )
   }
 
   // Spacing
-  lines.push('\n## Spacing\n')
+  lines.push(zh ? '\n## 间距\n' : '\n## Spacing\n')
   lines.push(
     tokens.spacing
       .map((s, i) => {
         const count = tokens.usageCount?.[`spacing:${s}`] || 0
-        return `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+        return zh
+          ? `- 级别 ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+          : `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
       })
       .join('\n'),
   )
 
   // Radii
-  lines.push('\n## Border Radius\n')
+  lines.push(zh ? '\n## 圆角\n' : '\n## Border Radius\n')
   lines.push(
     tokens.radii
       .map((r, i) => {
@@ -227,19 +271,21 @@ export function generateDesignDoc(
 
   // Shadows
   if (tokens.shadows.length > 0) {
-    lines.push('\n## Shadows\n')
+    lines.push(zh ? '\n## 阴影\n' : '\n## Shadows\n')
     lines.push(tokens.shadows.map((s, i) => `- ${['sm', 'md', 'lg', 'xl'][i] || i}: \`${s}\``).join('\n'))
   }
 
   // Z-index
   if (tokens.zIndices?.length > 0) {
-    lines.push('\n## Z-Index Layers\n')
-    lines.push(tokens.zIndices.map((z, i) => `- Layer ${i + 1}: \`${z}\``).join('\n'))
+    lines.push(zh ? '\n## 层级（Z-Index）\n' : '\n## Z-Index Layers\n')
+    lines.push(
+      tokens.zIndices.map((z, i) => (zh ? `- 层级 ${i + 1}: \`${z}\`` : `- Layer ${i + 1}: \`${z}\``)).join('\n'),
+    )
   }
 
   // Transitions
   if (tokens.transitions?.length > 0) {
-    lines.push('\n## Transition Durations\n')
+    lines.push(zh ? '\n## 过渡时长\n' : '\n## Transition Durations\n')
     lines.push(
       tokens.transitions
         .map((t, i) => `- ${['fast', 'normal', 'slow', 'slower', 'slowest'][i] || i}: \`${t}\``)
@@ -249,21 +295,25 @@ export function generateDesignDoc(
 
   // Breakpoints
   if (breakpoints && breakpoints.length > 0) {
-    lines.push('\n## Responsive Breakpoints\n')
-    lines.push('| Label | Width |')
+    lines.push(zh ? '\n## 响应式断点\n' : '\n## Responsive Breakpoints\n')
+    lines.push(zh ? '| 标签 | 宽度 |' : '| Label | Width |')
     lines.push('|-------|-------|')
     breakpoints.forEach((bp) => {
       lines.push(`| ${bp.label} | \`${bp.width}px\` |`)
     })
   }
 
+  // Design Principles
+  lines.push('')
+  lines.push(generateDesignPrinciples(tokens, language))
+
   // Example Components
   lines.push('\n---\n')
-  lines.push(generateExampleComponents(tokens, components))
+  lines.push(generateExampleComponents(tokens, components, language))
 
   // Agent Prompt Guide
-  lines.push(generateAgentGuide(tokens, url))
-  lines.push(generateDosAndDonts(tokens))
+  lines.push(generateAgentGuide(tokens, url, language))
+  lines.push(generateDosAndDonts(tokens, language))
 
   return lines.join('\n')
 }

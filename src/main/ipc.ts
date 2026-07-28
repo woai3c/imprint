@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 
 import fs from 'node:fs'
+import path from 'node:path'
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 
@@ -429,6 +430,39 @@ export function registerIpcHandlers() {
     fs.writeFileSync(result.filePath, content, 'utf-8')
     return { success: true, filePath: result.filePath }
   })
+
+  // --- Export built-in theme with assets to a directory ---
+  ipcMain.handle(
+    'export:toDirectory',
+    async (_event, files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) => {
+      const result = await dialog.showOpenDialog({
+        defaultPath: defaultDir,
+        properties: ['openDirectory', 'createDirectory'],
+        title: 'Select export directory',
+      })
+      if (result.canceled || !result.filePaths[0]) return { success: false, canceled: true }
+
+      const targetDir = result.filePaths[0]
+
+      for (const file of files) {
+        fs.writeFileSync(path.join(targetDir, file.name), file.content, 'utf-8')
+      }
+
+      if (assets.length > 0) {
+        const assetsDir = app.isPackaged
+          ? path.join(process.resourcesPath, 'assets', 'theme-backgrounds')
+          : path.join(app.getAppPath(), 'assets', 'theme-backgrounds')
+        for (const asset of assets) {
+          const src = path.join(assetsDir, asset)
+          if (fs.existsSync(src)) {
+            fs.copyFileSync(src, path.join(targetDir, asset))
+          }
+        }
+      }
+
+      return { success: true, filePath: targetDir }
+    },
+  )
 
   // --- Export ---
   ipcMain.handle('export:theme', async (_event, id: string, format: string) => {

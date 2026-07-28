@@ -29,6 +29,8 @@ const api = {
   exportTheme: (id: string, format: string) => ipcRenderer.invoke('export:theme', id, format),
   exportFile: (content: string, defaultName: string, ext: string) =>
     ipcRenderer.invoke('export:file', content, defaultName, ext),
+  exportToDirectory: (files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) =>
+    ipcRenderer.invoke('export:toDirectory', files, assets, defaultDir),
   importTheme: () => ipcRenderer.invoke('import:theme'),
 
   // Save theme to library

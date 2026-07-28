@@ -116,13 +116,23 @@ export function ThemesPage() {
       },
     }
     const selectedExport = exports[exportFormat]
+    const hasAssets = !!theme.backgroundImage
 
     try {
-      const exportResult = await window.electronAPI.exportFile(
-        selectedExport.content,
-        selectedExport.filename,
-        selectedExport.ext,
-      )
+      let exportResult: { success?: boolean; canceled?: boolean; error?: boolean }
+      if (hasAssets) {
+        exportResult = await window.electronAPI.exportToDirectory(
+          [{ name: selectedExport.filename, content: selectedExport.content }],
+          [theme.backgroundImage!],
+          `imprint-${theme.id}`,
+        )
+      } else {
+        exportResult = await window.electronAPI.exportFile(
+          selectedExport.content,
+          selectedExport.filename,
+          selectedExport.ext,
+        )
+      }
       if (exportResult.success) notify(t('feedback.themeExported', { theme: localizedTheme.name }))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {

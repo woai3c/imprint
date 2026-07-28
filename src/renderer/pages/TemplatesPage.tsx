@@ -1,9 +1,6 @@
-import { Download } from 'lucide-react'
-
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -18,8 +15,7 @@ import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
 import { getValidationScenarioPreference, setValidationScenarioPreference } from '../lib/preferences'
-import { useFeedbackStore } from '../stores/feedback-store'
-import { builtinThemes, generateThemeCss, useSkinStore } from '../stores/skin-store'
+import { builtinThemes, useSkinStore } from '../stores/skin-store'
 
 interface ExtractedTheme {
   id: string
@@ -35,7 +31,6 @@ export function TemplatesPage() {
   const { t } = useTranslation()
   const [activeTemplate, setActiveTemplate] = useState(getValidationScenarioPreference)
   const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
-  const notify = useFeedbackStore((state) => state.show)
   const [extractedThemes, setExtractedThemes] = useState<ExtractedTheme[]>([])
   const [selectedExtractedId, setSelectedExtractedId] = useState<string | null>(null)
 
@@ -71,26 +66,6 @@ export function TemplatesPage() {
     setSelectedExtractedId(theme.id)
     setTheme('')
     applyCustomCss(theme.css_variables)
-  }
-
-  const handleExportSelected = async () => {
-    try {
-      let result: { success?: boolean; canceled?: boolean; error?: boolean }
-      if (selectedExtractedId) {
-        result = await window.electronAPI.exportTheme(selectedExtractedId, 'css')
-      } else {
-        const theme = builtinThemes.find((item) => item.id === currentThemeId) || builtinThemes[0]
-        result = await window.electronAPI.exportFile(generateThemeCss(theme), `imprint-${theme.id}.css`, 'css')
-      }
-
-      if (result.success) {
-        notify(t('feedback.exported'))
-      } else if (result.error) {
-        notify(t('feedback.actionFailed'), 'error')
-      }
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
   }
 
   const getThemeLabel = (theme: ExtractedTheme): string => {
@@ -183,18 +158,6 @@ export function TemplatesPage() {
           <span className="max-w-44 truncate text-xs font-medium" title={currentThemeName}>
             {t('templates.currentTheme', { theme: currentThemeName })}
           </span>
-
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            <InfoTip text={t('templates.exportThemeCssHelp')} align="right" />
-            <button
-              type="button"
-              onClick={handleExportSelected}
-              className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
-            >
-              <Download size={12} />
-              {t('templates.exportThemeCss')}
-            </button>
-          </div>
         </div>
 
         {/* Row 2: Directly visible validation scenarios */}

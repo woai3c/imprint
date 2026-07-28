@@ -51,7 +51,7 @@ const config: ForgeConfig = {
     asar: {
       unpack: '**/*.node',
     },
-    extraResource: ['assets/icons'],
+    extraResource: ['assets/icons', 'assets/theme-backgrounds'],
     icon: 'assets/icons/icon',
     name: 'Imprint',
     executableName: 'imprint',

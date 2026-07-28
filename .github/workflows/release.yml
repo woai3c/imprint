@@ -168,48 +168,12 @@ jobs:
 
           rm -f "$certificate_path"
 
-      - name: Detect Windows signing configuration
+      - name: Build portable zip
         if: matrix.platform == 'windows'
-        id: windows-signing
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $hasBase64 = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)
-          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
-
-          if (-not $hasBase64 -and -not $hasPassword) {
-            Write-Host "::warning::Windows signing is not configured. Building an unsigned installer."
-            "enabled=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } elseif ($hasBase64 -and $hasPassword) {
-            Write-Host "All Windows signing secrets are present."
-            "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
-            throw "Partial Windows signing configuration detected. Provide both WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD, or remove both."
-          }
-
-      - name: Prepare Windows signing credentials
-        if: matrix.platform == 'windows' && steps.windows-signing.outputs.enabled == 'true'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'imprint-code-signing.pfx'
-          try {
-            $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
-          } catch {
-            throw 'WINDOWS_CERTIFICATE_BASE64 is not valid Base64.'
-          }
-          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-
-          "IMPRINT_WINDOWS_SIGNING=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        run: pnpm exec electron-forge make --arch=${{ matrix.arch }}
 
       - name: Build native installer
-        env:
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        if: matrix.platform == 'macos'
         run: pnpm exec electron-forge make --arch=${{ matrix.arch }}
 
       - name: Notarize and verify macOS DMG
@@ -228,23 +192,16 @@ jobs:
           spctl --assess --type execute --verbose=4 "$app_path"
           bash scripts/notarize-dmg.sh "$dmg_path"
 
-      - name: Verify Windows installer signature
-        if: matrix.platform == 'windows' && steps.windows-signing.outputs.enabled == 'true'
+      - name: Verify Windows zip artifact
+        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $installers = @(
-            Get-ChildItem -Path 'out/make' -Recurse -File -Filter '*Setup.exe'
-          )
-          if ($installers.Count -eq 0) {
-            throw 'The Squirrel.Windows Setup.exe was not produced.'
+          $zips = @(Get-ChildItem -Path 'out/make' -Recurse -File -Filter '*.zip')
+          if ($zips.Count -eq 0) {
+            throw 'The portable zip was not produced.'
           }
-
-          foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-            if ($signature.Status -ne 'Valid') {
-              throw "Invalid Authenticode signature for $($installer.FullName): $($signature.Status)"
-            }
-            Write-Host "Verified Authenticode signature: $($installer.Name)"
+          foreach ($z in $zips) {
+            Write-Host "Found zip artifact: $($z.FullName) ($([math]::Round($z.Length / 1MB, 1)) MB)"
           }
 
       - name: Collect release artifacts
@@ -269,13 +226,6 @@ jobs:
           if [ -n "${IMPRINT_SIGNING_KEYCHAIN:-}" ]; then
             security delete-keychain "$IMPRINT_SIGNING_KEYCHAIN" || true
           fi
-
-      - name: Clean up Windows signing credentials
-        if: ${{ always() && matrix.platform == 'windows' }}
-        shell: pwsh
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'imprint-code-signing.pfx'
-          Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
 
   publish:
     name: Publish GitHub Release

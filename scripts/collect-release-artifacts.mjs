@@ -38,18 +38,9 @@ if (platform === 'macos') {
   if (dmgFiles.length !== 1) throw new Error(`Expected one DMG artifact, found ${dmgFiles.length}.`)
   copy(dmgFiles[0], `Imprint-v${version}-macos-${arch}.dmg`)
 } else {
-  const setupFiles = files.filter(
-    (file) => path.extname(file).toLowerCase() === '.exe' && !path.basename(file).toLowerCase().startsWith('update'),
-  )
-  if (setupFiles.length !== 1) throw new Error(`Expected one Windows setup executable, found ${setupFiles.length}.`)
-  copy(setupFiles[0], `Imprint-v${version}-windows-${arch}-setup.exe`)
-
-  for (const packageFile of files.filter((file) => path.extname(file).toLowerCase() === '.nupkg')) {
-    copy(packageFile, path.basename(packageFile))
-  }
-
-  const releasesFile = files.find((file) => path.basename(file) === 'RELEASES')
-  if (releasesFile) copy(releasesFile, 'RELEASES')
+  const zipFiles = files.filter((file) => path.extname(file).toLowerCase() === '.zip')
+  if (zipFiles.length !== 1) throw new Error(`Expected one Windows zip artifact, found ${zipFiles.length}.`)
+  copy(zipFiles[0], `Imprint-v${version}-windows-${arch}.zip`)
 }
 
 console.log(`Collected ${copied.length} artifact(s):`)

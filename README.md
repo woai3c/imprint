@@ -117,7 +117,7 @@ pnpm dev
 # Package the app
 pnpm build
 
-# Build installer
+# Build distributable (zip on Windows, DMG on macOS)
 pnpm make
 
 # Run E2E tests (no LLM required)

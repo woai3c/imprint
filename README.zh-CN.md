@@ -117,7 +117,7 @@ pnpm dev
 # 打包应用
 pnpm build
 
-# 构建安装包
+# 构建分发包（Windows 输出 zip，macOS 输出 DMG）
 pnpm make
 
 # 运行 E2E 测试（无需 LLM）

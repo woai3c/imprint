@@ -1,5 +1,5 @@
 import { MakerDMG } from '@electron-forge/maker-dmg'
-import { MakerSquirrel } from '@electron-forge/maker-squirrel'
+import { MakerZIP } from '@electron-forge/maker-zip'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 
@@ -13,14 +13,11 @@ function requireEnv(name: string): string {
 }
 
 const macOSSigningEnabled = process.platform === 'darwin' && process.env.IMPRINT_MACOS_SIGNING === 'true'
-const windowsSigningEnabled = process.platform === 'win32' && process.env.IMPRINT_WINDOWS_SIGNING === 'true'
 
 const appleSigningIdentity = macOSSigningEnabled ? requireEnv('APPLE_SIGNING_IDENTITY') : ''
 const appleApiKey = macOSSigningEnabled ? requireEnv('APPLE_API_KEY') : ''
 const appleApiKeyId = macOSSigningEnabled ? requireEnv('APPLE_API_KEY_ID') : ''
 const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : ''
-const windowsCertificateFile = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_FILE') : ''
-const windowsCertificatePassword = windowsSigningEnabled ? requireEnv('WINDOWS_CERTIFICATE_PASSWORD') : ''
 
 const externalPackages = ['better-sqlite3', 'playwright-core']
 
@@ -76,16 +73,7 @@ const config: ForgeConfig = {
       : {}),
   },
   makers: [
-    new MakerSquirrel({
-      name: 'imprint',
-      setupIcon: 'assets/icons/icon.ico',
-      ...(windowsSigningEnabled
-        ? {
-            certificateFile: windowsCertificateFile,
-            certificatePassword: windowsCertificatePassword,
-          }
-        : {}),
-    }),
+    new MakerZIP({}, ['win32']),
     new MakerDMG({
       icon: 'assets/icons/icon.icns',
       name: 'Imprint',

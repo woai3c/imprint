@@ -685,7 +685,7 @@
   },
   "settings": {
     "title": "Settings",
-    "description": "Configure AI engine and export preferences",
+    "description": "Configure the AI engine and local data",
     "loading": "Loading settings...",
     "autoSave": "Changes save automatically",
     "ai": {
@@ -704,16 +704,6 @@
       "detectDescription": "Detect AI Agent CLIs installed on your system:",
       "redetect": "Re-detect",
       "noCli": "Click \"Use Local AI Agent CLI\" above to auto-detect"
-    },
-    "export": {
-      "title": "Theme Library Export",
-      "defaultFormat": "Default theme-card export format",
-      "markdown": "DESIGN.md (recommended for AI)",
-      "css": "CSS variables (recommended for general web/CSS)",
-      "tailwind": "Tailwind v4 @theme (recommended for Tailwind v4)",
-      "json": "Tokens JSON (recommended for tools, automation, and agents)",
-      "help": "This preference controls only Theme Library card exports. It does not change what the active tab exports on the analysis result page.",
-      "hint": "Use DESIGN.md for AI understanding and UI revisions, CSS variables for general web projects, Tailwind @theme for Tailwind v4, and Tokens JSON for tools, automation, and agents."
     },
     "data": {
       "title": "Data Management",

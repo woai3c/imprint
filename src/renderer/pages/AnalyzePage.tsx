@@ -1,23 +1,20 @@
-import { AlertTriangle, Copy, Download, Info, Loader2, Minus, Moon, Plus, Save, X } from 'lucide-react'
-import remarkGfm from 'remark-gfm'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import Markdown from 'react-markdown'
 
 import { AuthRequiredDialog } from '../components/AuthRequiredDialog'
 import { BrowserSessionsDialog } from '../components/BrowserSessionsDialog'
 import { PageHeader } from '../components/PageHeader'
-import { TokenPreview } from '../components/TokenPreview'
+import { ArtifactPanel } from '../components/analyze/ArtifactPanel'
+import { ResultOverview } from '../components/analyze/ResultOverview'
+import { ScreenshotLightbox } from '../components/analyze/ScreenshotLightbox'
 import { Alert } from '../components/ui/Alert'
 import { EmptyState } from '../components/ui/EmptyState'
-import { IconButton } from '../components/ui/IconButton'
-import { Tabs } from '../components/ui/Tabs'
 import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 
-type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 type AuthMode = 'auto' | 'anonymous' | 'managed'
 
 interface AuthDetection {
@@ -61,23 +58,12 @@ export function AnalyzePage() {
   const { t } = useTranslation()
   const store = useAnalysisStore()
   const notify = useFeedbackStore((state) => state.show)
-  const [activeTab, setActiveTab] = useState<ExportTab>('preview')
   const [saved, setSaved] = useState(false)
   const [hasAiConfig, setHasAiConfig] = useState(true)
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
-  const [lightboxScale, setLightboxScale] = useState(1)
-  const [lightboxOffset, setLightboxOffset] = useState({ x: 0, y: 0 })
-  const [lightboxDragging, setLightboxDragging] = useState(false)
-  const lightboxDragRef = useRef<{
-    pointerId: number
-    startX: number
-    startY: number
-    originX: number
-    originY: number
-  } | null>(null)
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: Record<string, string>) => {
@@ -92,8 +78,6 @@ export function AnalyzePage() {
   const failure = store.failure
   const url = store.lastUrl
   const pageCount = store.pageCount
-  const activeArtifact = activeTab === 'preview' ? 'markdown' : activeTab
-  const activeArtifactLabel = t(`analyze.artifacts.${activeArtifact}`)
 
   useEffect(() => {
     const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
@@ -171,6 +155,18 @@ export function AnalyzePage() {
     }
   }
 
+  const startAnalysis = async (targetUrl: string, authMode: AuthMode) => {
+    store.setAnalyzing(true)
+    store.setUrl(targetUrl)
+    store.setFailure(null)
+    setSaved(false)
+    setAuthPrompt(null)
+    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
+
+    const outcome = await runAnalysis(targetUrl, authMode)
+    if (outcome !== 'auth-required') store.setAnalyzing(false)
+  }
+
   const handleAnalyze = async () => {
     const trimmed = url.trim()
     if (!trimmed) return
@@ -187,27 +183,12 @@ export function AnalyzePage() {
       return
     }
 
-    store.setAnalyzing(true)
-    store.setUrl(targetUrl)
-    store.setFailure(null)
-    setSaved(false)
-    setAuthPrompt(null)
-    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
-
-    const outcome = await runAnalysis(targetUrl, 'auto')
-    if (outcome !== 'auth-required') store.setAnalyzing(false)
+    await startAnalysis(targetUrl, 'auto')
   }
 
   const handleAuthChoice = async (authMode: 'anonymous' | 'managed') => {
     if (!authPrompt || authPrompt.kind !== 'choice') return
-    const targetUrl = authPrompt.targetUrl
-    store.setAnalyzing(true)
-    setAuthPrompt(null)
-    store.setFailure(null)
-    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
-
-    const outcome = await runAnalysis(targetUrl, authMode)
-    if (outcome !== 'auth-required') store.setAnalyzing(false)
+    await startAnalysis(authPrompt.targetUrl, authMode)
   }
 
   const handleCancelAuthChoice = () => {
@@ -232,187 +213,12 @@ export function AnalyzePage() {
 
   const handleRetryWithLogin = async () => {
     if (!result) return
-    store.setAnalyzing(true)
-    store.setUrl(result.url)
-    store.setFailure(null)
-    setSaved(false)
-    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
-    const outcome = await runAnalysis(result.url, 'managed')
-    if (outcome !== 'auth-required') store.setAnalyzing(false)
+    await startAnalysis(result.url, 'managed')
   }
 
   const handleRetryFailure = async () => {
     if (!failure) return
-    const retry = failure
-    store.setAnalyzing(true)
-    store.setUrl(retry.url)
-    store.setFailure(null)
-    setSaved(false)
-    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
-    const outcome = await runAnalysis(retry.url, retry.authMode)
-    if (outcome !== 'auth-required') store.setAnalyzing(false)
-  }
-
-  const openLightbox = (src: string) => {
-    setLightboxSrc(src)
-    setLightboxScale(1)
-    setLightboxOffset({ x: 0, y: 0 })
-  }
-
-  const closeLightbox = () => {
-    lightboxDragRef.current = null
-    setLightboxDragging(false)
-    setLightboxSrc(null)
-    setLightboxScale(1)
-    setLightboxOffset({ x: 0, y: 0 })
-  }
-
-  useEffect(() => {
-    if (!lightboxSrc) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeLightbox()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxSrc])
-
-  const zoomLightbox = (delta: number) => {
-    const nextScale = Math.min(5, Math.max(0.25, lightboxScale + delta))
-    setLightboxScale(nextScale)
-    if (nextScale <= 1) {
-      lightboxDragRef.current = null
-      setLightboxDragging(false)
-      setLightboxOffset({ x: 0, y: 0 })
-    }
-  }
-
-  const handleLightboxPointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
-    if (lightboxScale <= 1) return
-    event.preventDefault()
-    event.stopPropagation()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    lightboxDragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: lightboxOffset.x,
-      originY: lightboxOffset.y,
-    }
-    setLightboxDragging(true)
-  }
-
-  const handleLightboxPointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
-    const drag = lightboxDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    event.preventDefault()
-    setLightboxOffset({
-      x: drag.originX + event.clientX - drag.startX,
-      y: drag.originY + event.clientY - drag.startY,
-    })
-  }
-
-  const handleLightboxPointerEnd = (event: ReactPointerEvent<HTMLImageElement>) => {
-    const drag = lightboxDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-    lightboxDragRef.current = null
-    setLightboxDragging(false)
-  }
-
-  const handleCopy = async () => {
-    let content = ''
-    if (activeTab === 'markdown') content = result?.designDoc || ''
-    else if (activeTab === 'tailwind') content = result?.tailwindTheme || ''
-    else if (activeTab === 'css') content = result?.cssVariables || ''
-    else if (activeTab === 'json') content = JSON.stringify(result?.tokens, null, 2)
-    else if (activeTab === 'preview') content = result?.designDoc || ''
-    try {
-      await navigator.clipboard.writeText(content)
-      notify(t('feedback.copied'))
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
-  const handleSaveToLibrary = async () => {
-    if (!result) return
-    try {
-      await window.electronAPI.saveTheme({
-        url: result.url,
-        tokens: result.tokens,
-        cssVariables: result.cssVariables,
-        tailwindTheme: result.tailwindTheme,
-        designDoc: result.designDoc,
-        screenshots: result.screenshots,
-      })
-      setSaved(true)
-      notify(t('feedback.savedToLibrary'))
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
-  const handleExportFile = async () => {
-    if (!result) return
-    let content = ''
-    let ext: 'md' | 'css' | 'json' = 'md'
-    let filename = 'DESIGN.md'
-    if (activeTab === 'markdown' || activeTab === 'preview') {
-      content = result.designDoc
-      ext = 'md'
-    } else if (activeTab === 'tailwind') {
-      content = result.tailwindTheme
-      ext = 'css'
-      filename = 'tailwind-theme.css'
-    } else if (activeTab === 'css') {
-      content = result.cssVariables
-      ext = 'css'
-      filename = 'theme-variables.css'
-    } else if (activeTab === 'json') {
-      content = JSON.stringify(result.tokens, null, 2)
-      ext = 'json'
-      filename = 'design-tokens.json'
-    }
-    try {
-      const exportResult = await window.electronAPI.exportFile(content, filename, ext)
-      if (exportResult.success) notify(t('feedback.exported'))
-      else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
-  const tabs: { id: ExportTab; label: string }[] = [
-    { id: 'preview', label: t('analyze.tabPreview') },
-    { id: 'markdown', label: t('analyze.tabMarkdown') },
-    { id: 'tailwind', label: t('analyze.tabTailwind') },
-    { id: 'css', label: t('analyze.tabCss') },
-    { id: 'json', label: t('analyze.tabJson') },
-  ]
-
-  const tokens = result?.tokens as Record<string, unknown> | undefined
-  const colorCount = tokens?.colors ? Object.keys(tokens.colors as Record<string, string>).length : 0
-  const typographyData = tokens?.typography as { fontSizes?: string[]; fontWeights?: string[] } | undefined
-  const typeStyleCount = typographyData?.fontSizes?.length || 0
-  const spacingCount = (tokens?.spacing as string[] | undefined)?.length || 0
-  const radiiCount = (tokens?.radii as string[] | undefined)?.length || 0
-  const pageScreenshots =
-    result?.pageScreenshots && result.pageScreenshots.length > 0
-      ? result.pageScreenshots
-      : (result?.screenshots || []).map((screenshotPath) => ({
-          url: result?.finalUrl || result?.url || url,
-          path: screenshotPath,
-          viewport: 'desktop',
-        }))
-  const analyzedPageCount = new Set(pageScreenshots.map((screenshot) => screenshot.url)).size
-
-  let hostname = ''
-  try {
-    hostname = new URL(result?.url || url).hostname
-  } catch {
-    hostname = result?.url || url
+    await startAnalysis(failure.url, failure.authMode)
   }
 
   return (
@@ -496,6 +302,7 @@ export function AnalyzePage() {
           <Alert
             tone="warning"
             testId="no-ai-tip"
+            dismissTestId="dismiss-no-ai-tip"
             className="mt-3"
             dismissLabel={t('feedback.dismiss')}
             onDismiss={() => {
@@ -582,218 +389,13 @@ export function AnalyzePage() {
           data-access-mode={result.accessMode}
           className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5"
         >
-          {/* Left: Overview Panel */}
-          <div className="w-80 shrink-0 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-4 pb-4">
-              {result.authWallDetected && result.accessMode === 'anonymous' && (
-                <div
-                  data-testid="anonymous-auth-warning"
-                  className="rounded-xl border border-warning/30 bg-warning/10 p-4"
-                >
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning-strong" />
-                    <div>
-                      <p className="text-sm font-medium text-warning-strong">
-                        {t('analyze.auth.anonymousWarningTitle')}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-warning-strong">
-                        {t('analyze.auth.anonymousWarningDescription')}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleRetryWithLogin}
-                    disabled={analyzing}
-                    className="mt-3 min-h-9 w-full rounded-lg bg-warning px-3 text-xs font-medium text-warning-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {t('analyze.auth.retryWithLogin')}
-                  </button>
-                </div>
-              )}
-
-              {/* Website identity */}
-              <div className="rounded-xl border border-border/60 bg-card/50 p-5">
-                <h3 data-testid="analysis-source" className="text-base font-semibold">
-                  {hostname}
-                </h3>
-
-                {/* Feature tags */}
-                {result.featureTags && result.featureTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {result.featureTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-xs text-muted-foreground"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Stats summary */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-xs text-muted-foreground">
-                  <span>
-                    <strong className="text-foreground">{colorCount}</strong> {t('preview.statColors')}
-                  </span>
-                  <span>
-                    <strong className="text-foreground">{typeStyleCount}</strong> {t('preview.statTypes')}
-                  </span>
-                  <span>
-                    <strong className="text-foreground">{spacingCount}</strong> {t('preview.statSpacing')}
-                  </span>
-                  <span>
-                    <strong className="text-foreground">{radiiCount}</strong> {t('preview.statRadii')}
-                  </span>
-                </div>
-
-                {/* Dark mode indicator */}
-                <div className="mt-3 text-xs">
-                  {result.hasDarkMode ? (
-                    <span className="inline-flex items-center gap-1.5 text-success">
-                      <Moon size={12} aria-hidden="true" />
-                      {t('analyze.darkModeSupported')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-muted-foreground/60">
-                      <Moon size={12} aria-hidden="true" />
-                      {t('analyze.darkModeNotDetected')}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Source-page evidence */}
-              {pageScreenshots.length > 0 && (
-                <section>
-                  <div className="mb-2 flex items-center justify-between px-1">
-                    <h4 className="text-xs font-medium text-foreground">{t('analyze.evidence.title')}</h4>
-                    <span className="text-xs text-muted-foreground">
-                      {t('analyze.evidence.summary', {
-                        pages: analyzedPageCount,
-                        screenshots: pageScreenshots.length,
-                      })}
-                    </span>
-                  </div>
-                  <div data-testid="analysis-page-screenshots" className="space-y-3">
-                    {pageScreenshots.map((screenshot, index) => (
-                      <figure
-                        key={`${screenshot.path}-${index}`}
-                        data-testid="analysis-page-screenshot"
-                        className="overflow-hidden rounded-xl border border-border/60 bg-card/50"
-                      >
-                        <figcaption className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-xs">
-                          <span className="shrink-0 font-medium text-foreground">{index + 1}</span>
-                          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={screenshot.url}>
-                            {screenshot.url}
-                          </span>
-                          <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                            {t(`analyze.viewports.${screenshot.viewport}`, {
-                              defaultValue: screenshot.viewport,
-                            })}
-                          </span>
-                        </figcaption>
-                        <img
-                          src={`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`}
-                          alt={t('analyze.evidence.screenshotAlt', { url: screenshot.url })}
-                          className="max-h-44 w-full cursor-zoom-in object-cover object-top"
-                          onClick={() => openLightbox(`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`)}
-                        />
-                      </figure>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {/* Meta info */}
-              <div className="text-xs text-muted-foreground space-y-1 px-1">
-                <p>{t('history.duration', { seconds: (result.duration / 1000).toFixed(1) })}</p>
-                <p className="truncate" title={result.url}>
-                  {result.url}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Tabbed content */}
-          <div className="flex-1 flex flex-col min-w-0 border border-border/60 rounded-xl overflow-hidden">
-            <Tabs
-              tabs={tabs}
-              activeTab={activeTab}
-              onChange={(id) => setActiveTab(id as ExportTab)}
-              testIdPrefix="artifact-tab"
-              trailing={
-                <>
-                  <IconButton
-                    data-testid="save-theme"
-                    icon={Save}
-                    label={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                    onClick={handleSaveToLibrary}
-                    disabled={saved}
-                  />
-                  <IconButton
-                    icon={Download}
-                    label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
-                    onClick={handleExportFile}
-                  />
-                  <IconButton
-                    icon={Copy}
-                    label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
-                    onClick={handleCopy}
-                  />
-                  <div className="group relative z-50">
-                    <button
-                      type="button"
-                      data-testid="ai-export-info"
-                      aria-label={t('analyze.aiExport.title')}
-                      aria-describedby="ai-export-tooltip"
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    >
-                      <Info size={14} />
-                    </button>
-                    <div
-                      id="ai-export-tooltip"
-                      role="tooltip"
-                      className="pointer-events-none invisible absolute top-full right-0 mt-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-                    >
-                      <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
-                    </div>
-                  </div>
-                </>
-              }
-            />
-
-            {/* Tab content */}
-            <div key={activeTab} className="ui-enter flex-1 overflow-auto bg-card">
-              {activeTab === 'preview' && tokens && (
-                <TokenPreview
-                  tokens={tokens as never}
-                  darkTokens={result.darkTokens}
-                  hasDarkMode={result.hasDarkMode}
-                />
-              )}
-              {activeTab === 'markdown' && (
-                <div
-                  data-testid="artifact-content-markdown"
-                  className="prose prose-sm dark:prose-invert max-w-none p-6 prose-code:before:content-none prose-code:after:content-none"
-                >
-                  <Markdown remarkPlugins={[remarkGfm]}>{result.designDoc}</Markdown>
-                </div>
-              )}
-              {activeTab !== 'preview' && activeTab !== 'markdown' && (
-                <pre
-                  data-testid={`artifact-content-${activeTab}`}
-                  className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4"
-                >
-                  {activeTab === 'tailwind' && result.tailwindTheme}
-                  {activeTab === 'css' && result.cssVariables}
-                  {activeTab === 'json' && JSON.stringify(result.tokens, null, 2)}
-                </pre>
-              )}
-            </div>
-          </div>
+          <ResultOverview
+            result={result}
+            analyzing={analyzing}
+            onRetryWithLogin={handleRetryWithLogin}
+            onOpenLightbox={setLightboxSrc}
+          />
+          <ArtifactPanel result={result} saved={saved} onSaved={() => setSaved(true)} />
         </div>
       ) : (
         !analyzing &&
@@ -825,76 +427,7 @@ export function AnalyzePage() {
         />
       )}
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
-      {lightboxSrc && (
-        <div
-          data-testid="analysis-screenshot-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('analyze.evidence.lightboxTitle')}
-          className="fixed inset-0 z-200 flex items-center justify-center overflow-hidden bg-black/80 backdrop-blur-sm"
-          onClick={closeLightbox}
-          onWheel={(e) => {
-            e.preventDefault()
-            zoomLightbox(e.deltaY < 0 ? 0.25 : -0.25)
-          }}
-        >
-          <button
-            className="absolute top-4 right-4 z-10 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
-            onClick={closeLightbox}
-            aria-label={t('common.close')}
-          >
-            <X size={20} />
-          </button>
-          <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur">
-            <button
-              data-testid="analysis-screenshot-zoom-out"
-              aria-label={t('analyze.evidence.zoomOut')}
-              className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
-              onClick={(e) => {
-                e.stopPropagation()
-                zoomLightbox(-0.25)
-              }}
-            >
-              <Minus size={16} />
-            </button>
-            <span className="min-w-12 text-center text-xs text-white">{Math.round(lightboxScale * 100)}%</span>
-            <button
-              data-testid="analysis-screenshot-zoom-in"
-              aria-label={t('analyze.evidence.zoomIn')}
-              className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
-              onClick={(e) => {
-                e.stopPropagation()
-                zoomLightbox(0.25)
-              }}
-            >
-              <Plus size={16} />
-            </button>
-            {lightboxScale > 1 && (
-              <span className="border-l border-white/20 pl-2 text-xs text-white/80">
-                {t('analyze.evidence.dragHint')}
-              </span>
-            )}
-          </div>
-          <img
-            data-testid="analysis-screenshot-lightbox-image"
-            src={lightboxSrc}
-            alt={t('analyze.evidence.lightboxAlt')}
-            draggable={false}
-            className={`max-h-[90vh] max-w-[90vw] touch-none select-none rounded-lg object-contain shadow-2xl ${
-              lightboxScale > 1 ? (lightboxDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
-            } ${lightboxDragging ? '' : 'transition-transform duration-150'}`}
-            style={{
-              transform: `translate3d(${lightboxOffset.x}px, ${lightboxOffset.y}px, 0) scale(${lightboxScale})`,
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onDragStart={(e) => e.preventDefault()}
-            onPointerDown={handleLightboxPointerDown}
-            onPointerMove={handleLightboxPointerMove}
-            onPointerUp={handleLightboxPointerEnd}
-            onPointerCancel={handleLightboxPointerEnd}
-          />
-        </div>
-      )}
+      {lightboxSrc && <ScreenshotLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </div>
   )
 }

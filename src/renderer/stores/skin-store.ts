@@ -685,22 +685,24 @@ export const builtinThemes: AppTheme[] = [
 
 interface SkinStore {
   currentThemeId: string
+  extractedThemeId: string | null
   colorMode: ColorMode
   setTheme: (id: string) => void
   setColorMode: (mode: ColorMode) => void
   applyTheme: (theme: AppTheme) => void
-  applyCustomCss: (cssVars: string) => void
+  applyCustomCss: (cssVars: string, extractedId?: string) => void
   reset: () => void
 }
 
 export const useSkinStore = create<SkinStore>((set, get) => ({
   currentThemeId: 'default',
+  extractedThemeId: null,
   colorMode: (localStorage.getItem('colorMode') as ColorMode) || 'light',
 
   setTheme: (id) => {
     const theme = builtinThemes.find((t) => t.id === id)
     if (theme) {
-      set({ currentThemeId: id })
+      set({ currentThemeId: id, extractedThemeId: null })
       applyThemeToDOM(theme)
     }
   },
@@ -718,19 +720,19 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
   },
 
   applyTheme: (theme) => {
-    set({ currentThemeId: theme.id })
+    set({ currentThemeId: theme.id, extractedThemeId: null })
     applyThemeToDOM(theme)
   },
 
-  applyCustomCss: (cssVars) => {
-    set({ currentThemeId: 'custom' })
+  applyCustomCss: (cssVars, extractedId) => {
+    set({ currentThemeId: 'custom', extractedThemeId: extractedId ?? null })
     resetThemeAppearance('custom')
     applyCssVarsToDOM(cssVars)
   },
 
   reset: () => {
     const { colorMode } = get()
-    set({ currentThemeId: 'default' })
+    set({ currentThemeId: 'default', extractedThemeId: null })
     applyColorsToDOM(colorMode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
     resetThemeAppearance('default')
   },

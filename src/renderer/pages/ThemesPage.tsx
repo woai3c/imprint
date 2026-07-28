@@ -24,11 +24,10 @@ const themeExportFormats: ThemeExportFormat[] = ['markdown', 'css', 'tailwind', 
 export function ThemesPage() {
   const { t, i18n } = useTranslation()
   const { themes, fetchThemes, toggleFavorite } = useThemeStore()
-  const { currentThemeId, setTheme, applyCustomCss } = useSkinStore()
+  const { currentThemeId, extractedThemeId, setTheme, applyCustomCss } = useSkinStore()
   const notify = useFeedbackStore((state) => state.show)
   const [tab, setTab] = useState<'extracted' | 'builtin'>('builtin')
   const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
-  const [appliedExtractedId, setAppliedExtractedId] = useState<string | null>(null)
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
 
   useEffect(() => {
@@ -46,7 +45,6 @@ export function ThemesPage() {
 
   const handleApplyBuiltin = (theme: AppTheme) => {
     setTheme(theme.id)
-    setAppliedExtractedId(null)
     notify(
       t('feedback.themeApplied', {
         theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
@@ -55,8 +53,7 @@ export function ThemesPage() {
   }
 
   const handleApplyExtracted = (theme: (typeof themes)[number]) => {
-    applyCustomCss(theme.css_variables)
-    setAppliedExtractedId(theme.id)
+    applyCustomCss(theme.css_variables, theme.id)
     notify(t('feedback.themeApplied', { theme: theme.name }))
   }
 
@@ -243,9 +240,9 @@ export function ThemesPage() {
             {themes.map((theme) => (
               <div
                 key={theme.id}
-                data-selected={appliedExtractedId === theme.id}
+                data-selected={extractedThemeId === theme.id}
                 className={`rounded-xl border p-4 transition-colors ${
-                  appliedExtractedId === theme.id ? 'border-primary' : 'border-border hover:border-primary/50'
+                  extractedThemeId === theme.id ? 'border-primary' : 'border-border hover:border-primary/50'
                 }`}
               >
                 <div className="flex items-start justify-between mb-3">
@@ -287,10 +284,10 @@ export function ThemesPage() {
                   <button
                     type="button"
                     onClick={() => handleApplyExtracted(theme)}
-                    aria-pressed={appliedExtractedId === theme.id}
+                    aria-pressed={extractedThemeId === theme.id}
                     className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
                   >
-                    {appliedExtractedId === theme.id ? t('themes.current') : t('themes.apply')}
+                    {extractedThemeId === theme.id ? t('themes.current') : t('themes.apply')}
                   </button>
                   <button
                     type="button"

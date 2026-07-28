@@ -11,6 +11,7 @@ interface AlertProps {
   children: ReactNode
   onDismiss?: () => void
   dismissLabel?: string
+  dismissTestId?: string
   className?: string
   testId?: string
 }
@@ -30,7 +31,16 @@ const toneConfig: Record<AlertTone, { icon: LucideIcon; classes: string }> = {
   },
 }
 
-export function Alert({ tone, title, children, onDismiss, dismissLabel, className = '', testId }: AlertProps) {
+export function Alert({
+  tone,
+  title,
+  children,
+  onDismiss,
+  dismissLabel,
+  dismissTestId,
+  className = '',
+  testId,
+}: AlertProps) {
   const { icon: Icon, classes } = toneConfig[tone]
 
   return (
@@ -47,6 +57,7 @@ export function Alert({ tone, title, children, onDismiss, dismissLabel, classNam
       {onDismiss && (
         <button
           type="button"
+          data-testid={dismissTestId}
           onClick={onDismiss}
           aria-label={dismissLabel}
           className="shrink-0 cursor-pointer rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"

@@ -642,7 +642,7 @@
   },
   "settings": {
     "title": "设置",
-    "description": "配置 AI 引擎和导出偏好",
+    "description": "配置 AI 引擎与本地数据",
     "loading": "正在加载设置...",
     "autoSave": "更改自动保存",
     "ai": {
@@ -661,16 +661,6 @@
       "detectDescription": "检测系统中已安装的 AI Agent CLI：",
       "redetect": "重新检测",
       "noCli": "点击上方「使用本地 AI Agent CLI」后自动检测"
-    },
-    "export": {
-      "title": "主题库导出",
-      "defaultFormat": "主题卡片默认导出格式",
-      "markdown": "DESIGN.md（推荐给 AI）",
-      "css": "CSS 变量（推荐通用 Web/CSS 项目）",
-      "tailwind": "Tailwind v4 @theme（推荐 Tailwind v4 项目）",
-      "json": "Tokens JSON（推荐工具、自动化与 Agent）",
-      "help": "这个偏好只控制主题库卡片的导出格式，不会改变分析结果页当前标签的导出内容。",
-      "hint": "DESIGN.md 用于 AI 理解和修改 UI；CSS 变量用于通用 Web；Tailwind @theme 用于 Tailwind v4；Tokens JSON 用于工具链、自动化和 Agent。"
     },
     "data": {
       "title": "数据管理",

@@ -36,7 +36,7 @@ export function getManagedProfileDir(dataDir: string, url: string): string {
 }
 
 export function hasManagedProfile(dataDir: string, url: string): boolean {
-  return fs.existsSync(getManagedProfileDir(dataDir, url))
+  return fs.existsSync(path.join(getManagedProfileDir(dataDir, url), SESSION_METADATA_FILE))
 }
 
 export function markManagedSession(dataDir: string, url: string): void {

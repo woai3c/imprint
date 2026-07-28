@@ -46,6 +46,31 @@ export async function detectAuthWall(page: Page, responseStatus?: number): Promi
       const visiblePasswordInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(isVisible)
       const visibleInputs = Array.from(document.querySelectorAll('input, button, select, textarea')).filter(isVisible)
       const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim()
+      const verificationPattern =
+        /验证码|驗證碼|短信|簡訊|手机|手機|手机号|手機號|verification\s*code|one[-\s]*time|phone|mobile/i
+      const credentialFieldPattern =
+        /账号|帳號|用户名|使用者名稱|邮箱|郵箱|手机|手機|手机号|手機號|验证码|驗證碼|account|username|e-?mail|phone|mobile|verification/i
+      const credentialInputs = Array.from(document.querySelectorAll('input'))
+        .filter(isVisible)
+        .filter((element) => {
+          const input = element as HTMLInputElement
+          const type = input.type.toLowerCase()
+          const autocomplete = input.autocomplete.toLowerCase()
+          const fieldText = [input.name, input.placeholder, input.getAttribute('aria-label') || ''].join(' ')
+          return (
+            type === 'password' ||
+            type === 'email' ||
+            type === 'tel' ||
+            /username|current-password|one-time-code|email|tel/.test(autocomplete) ||
+            credentialFieldPattern.test(fieldText)
+          )
+        })
+      const actionText = Array.from(
+        document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]'),
+      )
+        .filter(isVisible)
+        .map((element) => (element instanceof HTMLInputElement ? element.value : element.textContent || ''))
+        .join(' ')
       const headingText = Array.from(document.querySelectorAll('h1, h2, [role="heading"]'))
         .filter(isVisible)
         .map((element) => element.textContent || '')
@@ -77,9 +102,14 @@ export async function detectAuthWall(page: Page, responseStatus?: number): Promi
       const hasLoginForm = Array.from(document.querySelectorAll('form'))
         .filter(isVisible)
         .some((form) => loginPattern.test(form.textContent || '') || form.querySelector('input[type="password"]'))
+      const hasLoginAction = loginPattern.test(actionText)
+      const hasVerificationEvidence = verificationPattern.test(bodyText)
+      const compactAuthSurface = bodyText.length > 0 && bodyText.length < 5000 && visibleInputs.length <= 30
       const loginOnlyPage =
-        hasLoginHeading &&
-        (hasLoginForm || (bodyText.length > 0 && bodyText.length < 3000 && visibleInputs.length <= 20))
+        compactAuthSurface &&
+        ((hasLoginHeading && (hasLoginForm || credentialInputs.length > 0)) ||
+          (hasLoginForm && hasLoginAction) ||
+          (hasLoginAction && credentialInputs.length > 0 && (hasVerificationEvidence || credentialInputs.length >= 2)))
 
       return {
         blockingLoginDialog,

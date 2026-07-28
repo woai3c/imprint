@@ -76,7 +76,12 @@
     "evidence": {
       "title": "Analyzed pages",
       "summary": "{{pages}} pages · {{screenshots}} screenshots",
-      "screenshotAlt": "Screenshot of {{url}}"
+      "screenshotAlt": "Screenshot of {{url}}",
+      "lightboxTitle": "Page screenshot preview",
+      "lightboxAlt": "Expanded page screenshot",
+      "zoomOut": "Zoom out screenshot",
+      "zoomIn": "Zoom in screenshot",
+      "dragHint": "Drag to pan"
     },
     "viewports": {
       "desktop": "Desktop",

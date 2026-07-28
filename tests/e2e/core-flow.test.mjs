@@ -11,13 +11,13 @@ import { _electron as electron } from 'playwright-core'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixturePath = path.join(repoRoot, 'tests', 'e2e', 'fixtures', 'design-system.html')
 const resultDir = path.join(repoRoot, 'test-results')
+const failureScreenshotPath = path.join(resultDir, 'core-flow-failure.png')
 
 let fixtureServer
 let fixtureUrl
 let electronApp
 let page
 let userDataDir
-let authFixtureUnlocked = false
 
 function launchApp(locale = 'en-US') {
   return electron.launch({
@@ -38,7 +38,7 @@ const authFixture = Buffer.from(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Sign in</title>
+    <title>Workspace access</title>
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; background: #f8fafc; color: #0f172a; }
       main { width: 360px; margin: 15vh auto; padding: 32px; border-radius: 16px; background: white; box-shadow: 0 20px 45px rgb(15 23 42 / 12%); }
@@ -49,18 +49,17 @@ const authFixture = Buffer.from(`<!doctype html>
   </head>
   <body>
     <main>
-      <h1>Sign in</h1>
-      <p>Sign in to continue to the private workspace.</p>
-      <form>
-        <label>Email<input type="email" /></label>
-        <label>Password<input type="password" /></label>
-        <button type="button">Sign in</button>
-      </form>
+      <div>验证码登录</div>
+      <p>使用手机号访问私有工作区。</p>
+      <label>手机号<input type="tel" autocomplete="tel" /></label>
+      <label>短信验证码<input inputmode="numeric" autocomplete="one-time-code" /></label>
+      <button type="button">登录/注册</button>
     </main>
   </body>
 </html>`)
 
 before(async () => {
+  await fs.rm(failureScreenshotPath, { force: true })
   const fixture = await fs.readFile(fixturePath)
   fixtureServer = http.createServer((request, response) => {
     if (request.url?.startsWith('/failure')) {
@@ -68,11 +67,17 @@ before(async () => {
       return
     }
 
-    const body = request.url?.startsWith('/login') && !authFixtureUnlocked ? authFixture : fixture
+    const requiresAuthentication = request.url?.startsWith('/private')
+    const authenticated = request.headers.cookie?.split(/;\s*/).includes('imprint_e2e_auth=1') ?? false
+    const authenticationRequired = requiresAuthentication && !authenticated
+    const body = authenticationRequired ? authFixture : fixture
     const responseHeaders = {
       'cache-control': 'no-store',
       'content-length': body.length,
       'content-type': 'text/html; charset=utf-8',
+    }
+    if (authenticationRequired && !/HeadlessChrome/i.test(request.headers['user-agent'] || '')) {
+      responseHeaders['set-cookie'] = 'imprint_e2e_auth=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600'
     }
     response.writeHead(200, responseHeaders)
     response.end(body)
@@ -99,7 +104,7 @@ after(async () => {
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
 
-test('extracts a local design system without LLM credentials and persists it', { timeout: 120_000 }, async () => {
+test('extracts a local design system without LLM credentials and persists it', { timeout: 120_000 }, async (t) => {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
@@ -111,6 +116,30 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 3)
+    await page.getByTestId('analysis-page-screenshot').first().locator('img').click()
+    await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'visible' })
+    await page.getByTestId('analysis-screenshot-zoom-in').click()
+    await page.getByTestId('analysis-screenshot-zoom-in').click()
+    const lightboxImage = page.getByTestId('analysis-screenshot-lightbox-image')
+    const lightboxImageBox = await lightboxImage.boundingBox()
+    assert.ok(lightboxImageBox, 'Expected the screenshot lightbox image to have a bounding box')
+    const initialTransform = await lightboxImage.evaluate((element) => element.style.transform)
+    await page.mouse.move(
+      lightboxImageBox.x + lightboxImageBox.width / 2,
+      lightboxImageBox.y + lightboxImageBox.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      lightboxImageBox.x + lightboxImageBox.width / 2 + 80,
+      lightboxImageBox.y + lightboxImageBox.height / 2 + 50,
+      { steps: 5 },
+    )
+    await page.mouse.up()
+    const draggedTransform = await lightboxImage.evaluate((element) => element.style.transform)
+    assert.notEqual(draggedTransform, initialTransform)
+    assert.match(draggedTransform, /translate3d\((?!0px, 0px)/)
+    await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
+    await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'detached' })
     await page.getByTestId('ai-export-info').hover()
     await page.getByRole('tooltip').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-page-count').selectOption('1')
@@ -131,7 +160,10 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.match(css || '', /--color-/)
 
     await page.getByTestId('save-theme').click()
-    await page.getByTestId('save-theme').getByText('Saved', { exact: true }).waitFor()
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="save-theme"]')?.getAttribute('aria-label') === 'Saved',
+    )
+    assert.equal(await page.getByTestId('save-theme').isDisabled(), true)
 
     await page.locator('a[href="#/themes"]').click()
     await page.getByRole('button', { name: /^Extracted Themes \(1\)$/ }).click()
@@ -149,16 +181,16 @@ test('extracts a local design system without LLM credentials and persists it', {
 
     await page.locator('a[href="#/"]').click()
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
-    await page.getByTestId('analyze-url').fill(`${fixtureUrl}login`)
+    const privateUrl = `${fixtureUrl}private`
+    await page.getByTestId('analyze-url').fill(privateUrl)
     await page.getByTestId('analyze-submit').click()
     await page.getByTestId('auth-required-dialog').waitFor({ state: 'visible', timeout: 30_000 })
     await page.getByTestId('auth-login').click()
     await page.getByTestId('auth-login-complete').waitFor({ state: 'visible', timeout: 30_000 })
-    authFixtureUnlocked = true
     await page.getByTestId('auth-login-complete').click()
     assert.equal(await page.getByTestId('analyze-submit').isDisabled(), true)
     await page
-      .locator(`[data-testid="analysis-result"][data-source-url="${fixtureUrl}login"]`)
+      .locator(`[data-testid="analysis-result"][data-source-url="${privateUrl}"][data-access-mode="managed"]`)
       .waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 1)
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'detached', timeout: 30_000 })
@@ -172,14 +204,25 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.getByTestId('browser-session').count(), 1)
     await page.getByRole('button', { name: 'Close website sign-ins' }).click()
 
-    authFixtureUnlocked = false
-    await page.getByTestId('analyze-url').fill(`${fixtureUrl}login`)
+    const previousScreenshotSrc = await page.getByTestId('analysis-page-screenshot').locator('img').getAttribute('src')
+    await page.getByTestId('analyze-url').fill(privateUrl)
     await page.getByTestId('analyze-submit').click()
-    await page.getByTestId('auth-required-dialog').waitFor({ state: 'visible', timeout: 30_000 })
-    await page.getByTestId('auth-login').click()
-    await page.getByTestId('auth-login-anonymous').waitFor({ state: 'visible', timeout: 30_000 })
-    await page.getByTestId('auth-login-anonymous').click()
-    await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'visible', timeout: 90_000 })
+    await page.waitForFunction(
+      (previousSrc) => {
+        const submit = document.querySelector('[data-testid="analyze-submit"]')
+        const screenshot = document.querySelector('[data-testid="analysis-page-screenshot"] img')
+        return (
+          submit instanceof HTMLButtonElement &&
+          !submit.disabled &&
+          screenshot instanceof HTMLImageElement &&
+          screenshot.src !== previousSrc
+        )
+      },
+      previousScreenshotSrc,
+      { timeout: 90_000 },
+    )
+    assert.equal(await page.getByTestId('analysis-result').getAttribute('data-access-mode'), 'managed')
+    assert.equal(await page.getByTestId('auth-required-dialog').count(), 0)
 
     await page.getByTestId('browser-sessions-open').click()
     await page.getByTestId('browser-session-delete').click()
@@ -187,6 +230,15 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('browser-sessions-empty').waitFor({ state: 'visible' })
     await page.getByRole('button', { name: 'Close website sign-ins' }).click()
 
+    await page.getByTestId('analyze-url').fill(privateUrl)
+    await page.getByTestId('analyze-submit').click()
+    await page.getByTestId('auth-required-dialog').waitFor({ state: 'visible', timeout: 30_000 })
+    await page.getByTestId('auth-continue-anonymous').click()
+    await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'visible', timeout: 90_000 })
+    assert.equal(await page.getByTestId('analysis-result').getAttribute('data-access-mode'), 'anonymous')
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 1)
+
+    t.diagnostic('Intentionally triggering a connection failure to verify the durable error and retry UI')
     const failureUrl = `${fixtureUrl}failure`
     await page.getByTestId('analyze-url').fill(failureUrl)
     await page.getByTestId('analyze-submit').click()
@@ -222,7 +274,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.getByTestId('validation-scenario-pricing').getAttribute('aria-pressed'), 'true')
   } catch (error) {
     await fs.mkdir(resultDir, { recursive: true })
-    await page?.screenshot({ fullPage: true, path: path.join(resultDir, 'core-flow-failure.png') })
+    await page?.screenshot({ fullPage: true, path: failureScreenshotPath })
     throw error
   }
 })

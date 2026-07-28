@@ -189,6 +189,8 @@ to Imprint rather than an enterprise administration UI.
   remaining slots, and analysis finishes with fewer pages when the website exposes fewer usable links.
 - Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
   in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
+- Screenshot evidence opens in an in-context lightbox. Wheel and explicit controls zoom the image; zoomed images support
+  pointer and touch dragging, and returning to the fitted scale resets the image to the center.
 - Compact, non-essential workflow guidance may use an accessible info control with hover and keyboard-focus content
   instead of occupying a permanent result card. The related action labels themselves must remain visible.
 

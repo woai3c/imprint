@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
-import { isMacOS, isWindows } from '../../shared/platform.js'
+import { isLinux, isMacOS, isWindows } from '../../shared/platform.js'
 import { type AuthWallDetection, detectAuthWall } from './auth-wall.js'
 import { getManagedProfileDir, hasManagedProfile, markManagedSession } from './browser-session.js'
 import { clusterColors } from './color-cluster.js'
@@ -157,6 +157,20 @@ export function findBrowser(): string | undefined {
     }
   }
 
+  if (isLinux(process.platform)) {
+    const paths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/microsoft-edge',
+      '/usr/bin/microsoft-edge-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+    ]
+    for (const p of paths) {
+      if (fs.existsSync(p)) return p
+    }
+  }
+
   return undefined
 }
 
@@ -261,23 +275,42 @@ export async function analyze(
     authWallDetected = authDetection.detected
     finalUrl = authDetection.finalUrl
 
-    if (authMode === 'auto' && authDetection.detected && hasManagedProfile(options.dataDir, url)) {
+    if (authMode === 'auto' && hasManagedProfile(options.dataDir, url)) {
+      const visitorRuntime = runtime
+      const visitorPage = initialPage
       const visitorDetection = authDetection
-      await closeRuntime(runtime)
-      runtime = null
-      initialPage = null
-      try {
-        runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true)
-      } catch {
-        throw new AuthenticationRequiredError(visitorDetection)
-      }
-      initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
-      await initialPage.setViewportSize(initialViewport)
-      responseStatus = await navigatePage(initialPage, url)
-      authDetection = await detectAuthWall(initialPage, responseStatus)
-      finalUrl = authDetection.finalUrl
+      let managedRuntime: BrowserRuntime | null = null
 
-      if (!authDetection.detected) accessMode = 'managed'
+      onProgress?.('progress.preparingAuthenticatedAnalysis', 8)
+      try {
+        managedRuntime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true)
+        const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
+        await managedPage.setViewportSize(initialViewport)
+        const managedResponseStatus = await navigatePage(managedPage, url)
+        const managedDetection = await detectAuthWall(managedPage, managedResponseStatus)
+
+        if (!managedDetection.detected) {
+          runtime = managedRuntime
+          initialPage = managedPage
+          responseStatus = managedResponseStatus
+          authDetection = managedDetection
+          finalUrl = managedDetection.finalUrl
+          accessMode = 'managed'
+          managedRuntime = null
+          await closeRuntime(visitorRuntime)
+        }
+      } catch {
+        // A locked or unusable saved profile falls back to the already-loaded visitor page.
+      } finally {
+        if (managedRuntime) await closeRuntime(managedRuntime)
+      }
+
+      if (accessMode !== 'managed') {
+        runtime = visitorRuntime
+        initialPage = visitorPage
+        authDetection = visitorDetection
+        finalUrl = visitorDetection.finalUrl
+      }
     }
 
     if (authMode === 'auto' && authDetection.detected) {
@@ -398,7 +431,7 @@ export async function analyze(
 
     // Multi-page analysis: discover and visit sub-pages for richer token extraction
     const subPageLimit = pageLimit - 1
-    if (subPageLimit > 0) {
+    if (subPageLimit > 0 && !authDetection.detected) {
       const mainViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
       const mainViewportName = viewportNames[0] || 'desktop'
       const discoveryPage = await runtime.context.newPage()
@@ -420,7 +453,17 @@ export async function analyze(
         await subPage.setViewportSize(mainViewport)
 
         try {
-          await navigatePage(subPage, subUrl, 15000)
+          const subPageStatus = await navigatePage(subPage, subUrl, 15000)
+          if (subPageStatus && subPageStatus >= 400) continue
+
+          const isHtmlDocument = await subPage.evaluate(
+            () => document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml',
+          )
+          if (!isHtmlDocument) continue
+
+          const subPageAuthDetection = await detectAuthWall(subPage, subPageStatus)
+          if (subPageAuthDetection.detected) continue
+
           const subStyles = await extractStyles(subPage)
           allStyles.push(subStyles)
 

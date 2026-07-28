@@ -1,7 +1,7 @@
 import { AlertTriangle, Copy, Download, Info, Loader2, Minus, Plus, Save, X } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
-import { useEffect, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 
@@ -65,6 +65,15 @@ export function AnalyzePage() {
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [lightboxScale, setLightboxScale] = useState(1)
+  const [lightboxOffset, setLightboxOffset] = useState({ x: 0, y: 0 })
+  const [lightboxDragging, setLightboxDragging] = useState(false)
+  const lightboxDragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: Record<string, string>) => {
@@ -238,6 +247,65 @@ export function AnalyzePage() {
     store.setProgress({ step: t('analyze.preparing'), percent: 0 })
     const outcome = await runAnalysis(retry.url, retry.authMode)
     if (outcome !== 'auth-required') store.setAnalyzing(false)
+  }
+
+  const openLightbox = (src: string) => {
+    setLightboxSrc(src)
+    setLightboxScale(1)
+    setLightboxOffset({ x: 0, y: 0 })
+  }
+
+  const closeLightbox = () => {
+    lightboxDragRef.current = null
+    setLightboxDragging(false)
+    setLightboxSrc(null)
+    setLightboxScale(1)
+    setLightboxOffset({ x: 0, y: 0 })
+  }
+
+  const zoomLightbox = (delta: number) => {
+    const nextScale = Math.min(5, Math.max(0.25, lightboxScale + delta))
+    setLightboxScale(nextScale)
+    if (nextScale <= 1) {
+      lightboxDragRef.current = null
+      setLightboxDragging(false)
+      setLightboxOffset({ x: 0, y: 0 })
+    }
+  }
+
+  const handleLightboxPointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
+    if (lightboxScale <= 1) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    lightboxDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: lightboxOffset.x,
+      originY: lightboxOffset.y,
+    }
+    setLightboxDragging(true)
+  }
+
+  const handleLightboxPointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = lightboxDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
+    setLightboxOffset({
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+    })
+  }
+
+  const handleLightboxPointerEnd = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = lightboxDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    lightboxDragRef.current = null
+    setLightboxDragging(false)
   }
 
   const handleCopy = async () => {
@@ -504,6 +572,7 @@ export function AnalyzePage() {
         <div
           data-testid="analysis-result"
           data-source-url={result.url}
+          data-access-mode={result.accessMode}
           className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5"
         >
           {/* Left: Overview Panel */}
@@ -618,7 +687,7 @@ export function AnalyzePage() {
                           src={`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`}
                           alt={t('analyze.evidence.screenshotAlt', { url: screenshot.url })}
                           className="max-h-44 w-full cursor-zoom-in object-cover object-top"
-                          onClick={() => setLightboxSrc(`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`)}
+                          onClick={() => openLightbox(`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`)}
                         />
                       </figure>
                     ))}
@@ -767,53 +836,71 @@ export function AnalyzePage() {
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
       {lightboxSrc && (
         <div
-          className="fixed inset-0 z-200 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => {
-            setLightboxSrc(null)
-            setLightboxScale(1)
-          }}
+          data-testid="analysis-screenshot-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('analyze.evidence.lightboxTitle')}
+          className="fixed inset-0 z-200 flex items-center justify-center overflow-hidden bg-black/80 backdrop-blur-sm"
+          onClick={closeLightbox}
           onWheel={(e) => {
             e.preventDefault()
-            setLightboxScale((s) => Math.min(5, Math.max(0.25, s + (e.deltaY < 0 ? 0.25 : -0.25))))
+            zoomLightbox(e.deltaY < 0 ? 0.25 : -0.25)
           }}
         >
           <button
-            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
-            onClick={() => {
-              setLightboxSrc(null)
-              setLightboxScale(1)
-            }}
+            className="absolute top-4 right-4 z-10 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+            onClick={closeLightbox}
             aria-label={t('common.close', { defaultValue: 'Close' })}
           >
             <X size={20} />
           </button>
-          <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur">
+          <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur">
             <button
+              data-testid="analysis-screenshot-zoom-out"
+              aria-label={t('analyze.evidence.zoomOut')}
               className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
               onClick={(e) => {
                 e.stopPropagation()
-                setLightboxScale((s) => Math.max(0.25, s - 0.25))
+                zoomLightbox(-0.25)
               }}
             >
               <Minus size={16} />
             </button>
             <span className="min-w-12 text-center text-xs text-white">{Math.round(lightboxScale * 100)}%</span>
             <button
+              data-testid="analysis-screenshot-zoom-in"
+              aria-label={t('analyze.evidence.zoomIn')}
               className="rounded-full p-1 text-white transition-colors hover:bg-white/20"
               onClick={(e) => {
                 e.stopPropagation()
-                setLightboxScale((s) => Math.min(5, s + 0.25))
+                zoomLightbox(0.25)
               }}
             >
               <Plus size={16} />
             </button>
+            {lightboxScale > 1 && (
+              <span className="border-l border-white/20 pl-2 text-xs text-white/80">
+                {t('analyze.evidence.dragHint')}
+              </span>
+            )}
           </div>
           <img
+            data-testid="analysis-screenshot-lightbox-image"
             src={lightboxSrc}
-            alt=""
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl transition-transform duration-150"
-            style={{ transform: `scale(${lightboxScale})` }}
+            alt={t('analyze.evidence.lightboxAlt')}
+            draggable={false}
+            className={`max-h-[90vh] max-w-[90vw] touch-none select-none rounded-lg object-contain shadow-2xl ${
+              lightboxScale > 1 ? (lightboxDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
+            } ${lightboxDragging ? '' : 'transition-transform duration-150'}`}
+            style={{
+              transform: `translate3d(${lightboxOffset.x}px, ${lightboxOffset.y}px, 0) scale(${lightboxScale})`,
+            }}
             onClick={(e) => e.stopPropagation()}
+            onDragStart={(e) => e.preventDefault()}
+            onPointerDown={handleLightboxPointerDown}
+            onPointerMove={handleLightboxPointerMove}
+            onPointerUp={handleLightboxPointerEnd}
+            onPointerCancel={handleLightboxPointerEnd}
           />
         </div>
       )}

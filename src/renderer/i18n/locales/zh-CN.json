@@ -76,7 +76,12 @@
     "evidence": {
       "title": "已分析页面",
       "summary": "{{pages}} 个页面 · {{screenshots}} 张截图",
-      "screenshotAlt": "{{url}} 的页面截图"
+      "screenshotAlt": "{{url}} 的页面截图",
+      "lightboxTitle": "页面截图预览",
+      "lightboxAlt": "放大的页面截图",
+      "zoomOut": "缩小页面截图",
+      "zoomIn": "放大页面截图",
+      "dragHint": "拖动平移"
     },
     "viewports": {
       "desktop": "桌面",

@@ -96,22 +96,6 @@ function readCommits(previousTag) {
   })
 }
 
-function readContributors(previousTag) {
-  const range = previousTag ? `${previousTag}..HEAD` : 'HEAD'
-  const output = git('log', '--no-merges', '--pretty=format:%aN%x1f%aE', range)
-  if (!output) return []
-
-  const byEmail = new Map()
-  for (const line of output.split('\n')) {
-    const [name, email] = line.split('\x1f')
-    if (!name || !email) continue
-    const key = email.trim().toLowerCase()
-    if (!byEmail.has(key)) byEmail.set(key, name.trim())
-  }
-
-  return [...byEmail.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-}
-
 function formatCommitSubject(subject) {
   const match = subject.match(/^([a-z]+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/i)
   if (!match) return { type: 'other', breaking: false, text: subject }
@@ -124,13 +108,14 @@ function formatCommitSubject(subject) {
   }
 }
 
-function buildChangelogSection(version, commits, contributors = []) {
+function buildChangelogSection(version, commits) {
   const categoryByType = {
     feat: 'Added',
     fix: 'Fixed',
-    perf: 'Performance',
+    perf: 'Changed',
+    refactor: 'Changed',
   }
-  const categoryOrder = ['Breaking Changes', 'Added', 'Fixed', 'Performance']
+  const categoryOrder = ['Breaking Changes', 'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
   const categories = new Map(categoryOrder.map((category) => [category, []]))
 
   for (const commit of commits) {
@@ -150,16 +135,12 @@ function buildChangelogSection(version, commits, contributors = []) {
     lines.push('', `### ${category}`, '', ...entries)
   }
 
-  if (contributors.length > 0) {
-    lines.push('', '### Contributors', '', ...contributors.map((name) => `- ${name}`))
-  }
-
   return `${lines.join('\n')}\n`
 }
 
 function insertChangelogSection(section) {
   const fallback =
-    '# Changelog\n\nRelease notes are generated from Conventional Commits by `pnpm release` before each release tag is created.\n'
+    '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\nand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\nRelease notes are generated from Conventional Commits by `pnpm release`.\n'
   const current = fs.existsSync(changelogPath) ? fs.readFileSync(changelogPath, 'utf8').trimEnd() : fallback.trimEnd()
   const nextReleaseIndex = current.search(/^## \[/m)
 
@@ -293,8 +274,7 @@ async function main() {
 
   if (dryRun) {
     const commits = readCommits(latestTag)
-    const contributors = readContributors(latestTag)
-    console.log(buildChangelogSection(targetVersion, commits, contributors))
+    console.log(buildChangelogSection(targetVersion, commits))
     console.log('Dry run only: no files, commits, tags, or remotes were changed.')
     return
   }
@@ -313,8 +293,7 @@ async function main() {
   assertCleanWorktree()
 
   const commits = readCommits(latestTag)
-  const contributors = readContributors(latestTag)
-  const section = buildChangelogSection(targetVersion, commits, contributors)
+  const section = buildChangelogSection(targetVersion, commits)
   packageJson.version = targetVersion
   fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
   fs.writeFileSync(changelogPath, `${insertChangelogSection(section).trimEnd()}\n`)

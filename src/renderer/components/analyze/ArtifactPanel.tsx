@@ -10,6 +10,7 @@ import { useFeedbackStore } from '../../stores/feedback-store'
 import { TokenPreview } from '../TokenPreview'
 import { IconButton } from '../ui/IconButton'
 import { Tabs } from '../ui/Tabs'
+import { ExampleComponents } from './ExampleComponents'
 
 export type ExportTab = 'preview' | 'markdown' | 'tailwind' | 'css' | 'json'
 
@@ -149,7 +150,12 @@ export function ArtifactPanel({ result, saved, onSaved }: ArtifactPanelProps) {
 
       <div key={activeTab} className="ui-enter flex-1 overflow-auto bg-card">
         {activeTab === 'preview' && tokens && (
-          <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
+          <>
+            <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
+            <div className="px-6 pb-6">
+              <ExampleComponents designDoc={result.designDoc} cssVariables={result.cssVariables} />
+            </div>
+          </>
         )}
         {activeTab === 'markdown' && (
           <div

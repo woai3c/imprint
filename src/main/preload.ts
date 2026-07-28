@@ -53,6 +53,7 @@ const api = {
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
   getAnalysis: (id: string) => ipcRenderer.invoke('analyses:get', id),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
+  deleteAnalyses: (ids: string[]) => ipcRenderer.invoke('analyses:deleteMany', ids),
 
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),

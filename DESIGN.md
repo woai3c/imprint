@@ -191,6 +191,9 @@ to Imprint rather than an enterprise administration UI.
   in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
 - Screenshot evidence opens in an in-context lightbox. Wheel and explicit controls zoom the image; zoomed images support
   pointer and touch dragging, and returning to the fitted scale resets the image to the center.
+- When analysis produced multiple screenshots, the lightbox offers previous/next edge controls (mirrored by the arrow
+  keys) with a current/total counter. The previous control hides on the first screenshot and the next control hides on
+  the last; switching screenshots resets zoom and pan to the fitted center.
 - Compact, non-essential workflow guidance may use an accessible info control with hover and keyboard-focus content
   instead of occupying a permanent result card. The related action labels themselves must remain visible.
 
@@ -203,6 +206,9 @@ to Imprint rather than an enterprise administration UI.
   user can review every artifact, copy the design document, export files, or save the result to the Theme Library.
 - Deleting a history record is destructive and requires explicit confirmation; deleting a record never removes a
   theme that was already saved to the library.
+- History rows support multi-select through always-visible checkboxes, including a select-all checkbox that applies to
+  the current search filter. A selection toolbar reports the selected count and offers batch deletion behind the same
+  explicit confirmation as single deletion, plus a way to clear the selection.
 
 ## Persistent preferences
 
@@ -228,6 +234,10 @@ Export choices describe different jobs and must never be presented as interchang
 Every export action must name the artifact it will create. Theme-library preferences apply only to theme-card exports;
 the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
 design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
+
+The Preview tab closes the loop on DESIGN.md's example components: each example HTML block is rendered live in a
+sandboxed iframe with the extracted CSS variables applied, so users see the components the document describes before
+exporting anything. Rendering never executes scripts.
 
 ## Anti-slop guardrails
 

@@ -86,7 +86,10 @@
       "lightboxAlt": "Expanded page screenshot",
       "zoomOut": "Zoom out screenshot",
       "zoomIn": "Zoom in screenshot",
-      "dragHint": "Drag to pan"
+      "dragHint": "Drag to pan",
+      "prevScreenshot": "Previous screenshot",
+      "nextScreenshot": "Next screenshot",
+      "counter": "{{current}} / {{total}}"
     },
     "viewports": {
       "desktop": "Desktop",
@@ -680,6 +683,14 @@
     "confirmDelete": "Delete this history record? This cannot be undone.",
     "confirmDeleteTitle": "Delete history record",
     "viewRecord": "View analysis result for {{url}}",
+    "selectRecord": "Select the record for {{url}}",
+    "selectAll": "Select all",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "deleteSelected": "Delete selected",
+    "clearSelection": "Clear selection",
+    "confirmDeleteSelected_one": "Delete the selected history record? This cannot be undone.",
+    "confirmDeleteSelected_other": "Delete the {{count}} selected history records? This cannot be undone.",
     "noResults": "No analysis records yet",
     "noResultsTip": "Go to the Analyze page to start extracting design styles"
   },
@@ -754,6 +765,8 @@
     "occurrences": "{{count}} occurrences",
     "styleIndex": "Style {{index}}",
     "copyValue": "Copy {{value}}",
+    "exampleComponents": "Example Components",
+    "exampleComponentsHint": "Live rendering of the HTML examples from DESIGN.md, styled with the extracted tokens",
     "colorGroups": {
       "surface": "Surface",
       "text": "Text",

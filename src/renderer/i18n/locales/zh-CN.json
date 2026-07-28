@@ -86,7 +86,10 @@
       "lightboxAlt": "放大的页面截图",
       "zoomOut": "缩小页面截图",
       "zoomIn": "放大页面截图",
-      "dragHint": "拖动平移"
+      "dragHint": "拖动平移",
+      "prevScreenshot": "上一张截图",
+      "nextScreenshot": "下一张截图",
+      "counter": "{{current}} / {{total}}"
     },
     "viewports": {
       "desktop": "桌面",
@@ -637,6 +640,12 @@
     "confirmDelete": "确定删除这条历史记录吗？此操作不可撤销。",
     "confirmDeleteTitle": "删除历史记录",
     "viewRecord": "查看 {{url}} 的分析结果",
+    "selectRecord": "选择 {{url}} 的记录",
+    "selectAll": "全选",
+    "selectedCount": "已选 {{count}} 条",
+    "deleteSelected": "删除所选",
+    "clearSelection": "清除选择",
+    "confirmDeleteSelected": "确定删除选中的 {{count}} 条历史记录吗？此操作不可撤销。",
     "noResults": "暂无分析记录",
     "noResultsTip": "前往「分析」页面开始提取设计风格"
   },
@@ -711,6 +720,8 @@
     "occurrences": "{{count}} 次使用",
     "styleIndex": "样式 {{index}}",
     "copyValue": "复制 {{value}}",
+    "exampleComponents": "示例组件",
+    "exampleComponentsHint": "DESIGN.md 中 HTML 示例的实时渲染效果，已应用提取的设计令牌",
     "colorGroups": {
       "surface": "表面",
       "text": "文字",

@@ -218,6 +218,15 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('analyses:deleteMany', (_event, ids: string[]) => {
+    const db = getDb()
+    const stmt = db.prepare('DELETE FROM analyses WHERE id = ?')
+    db.transaction((list: string[]) => {
+      for (const id of list) stmt.run(id)
+    })(ids)
+    return { success: true }
+  })
+
   ipcMain.handle('analyses:get', (_event, id: string) => {
     const db = getDb()
     const record = db

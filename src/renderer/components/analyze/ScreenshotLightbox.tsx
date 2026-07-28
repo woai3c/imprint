@@ -1,14 +1,16 @@
-import { Minus, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Minus, Plus, X } from 'lucide-react'
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface ScreenshotLightboxProps {
-  src: string
+  images: string[]
+  index: number
+  onIndexChange: (index: number) => void
   onClose: () => void
 }
 
-export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
+export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: ScreenshotLightboxProps) {
   const { t } = useTranslation()
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -21,22 +23,26 @@ export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
     originY: number
   } | null>(null)
 
-  const close = () => {
-    dragRef.current = null
+  const hasPrev = index > 0
+  const hasNext = index < images.length - 1
+
+  const [lastIndex, setLastIndex] = useState(index)
+  if (lastIndex !== index) {
+    setLastIndex(index)
     setDragging(false)
     setScale(1)
     setOffset({ x: 0, y: 0 })
-    onClose()
   }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close()
+      if (event.key === 'Escape') onClose()
+      else if (event.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
+      else if (event.key === 'ArrowRight' && index < images.length - 1) onIndexChange(index + 1)
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [index, images.length, onClose, onIndexChange])
 
   const zoom = (delta: number) => {
     const nextScale = Math.min(5, Math.max(0.25, scale + delta))
@@ -83,6 +89,8 @@ export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
     setDragging(false)
   }
 
+  const src = images[index]
+
   return (
     <div
       data-testid="analysis-screenshot-lightbox"
@@ -90,7 +98,7 @@ export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
       aria-modal="true"
       aria-label={t('analyze.evidence.lightboxTitle')}
       className="fixed inset-0 z-200 flex items-center justify-center overflow-hidden bg-black/80 backdrop-blur-sm"
-      onClick={close}
+      onClick={onClose}
       onWheel={(e) => {
         e.preventDefault()
         zoom(e.deltaY < 0 ? 0.25 : -0.25)
@@ -98,11 +106,37 @@ export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
     >
       <button
         className="absolute top-4 right-4 z-10 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
-        onClick={close}
+        onClick={onClose}
         aria-label={t('common.close')}
       >
         <X size={20} />
       </button>
+      {hasPrev && (
+        <button
+          data-testid="analysis-screenshot-prev"
+          className="absolute top-1/2 left-4 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+          onClick={(e) => {
+            e.stopPropagation()
+            onIndexChange(index - 1)
+          }}
+          aria-label={t('analyze.evidence.prevScreenshot')}
+        >
+          <ChevronLeft size={22} />
+        </button>
+      )}
+      {hasNext && (
+        <button
+          data-testid="analysis-screenshot-next"
+          className="absolute top-1/2 right-4 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+          onClick={(e) => {
+            e.stopPropagation()
+            onIndexChange(index + 1)
+          }}
+          aria-label={t('analyze.evidence.nextScreenshot')}
+        >
+          <ChevronRight size={22} />
+        </button>
+      )}
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur">
         <button
           data-testid="analysis-screenshot-zoom-out"
@@ -127,6 +161,11 @@ export function ScreenshotLightbox({ src, onClose }: ScreenshotLightboxProps) {
         >
           <Plus size={16} />
         </button>
+        {images.length > 1 && (
+          <span className="border-l border-white/20 pl-2 text-xs text-white/80">
+            {t('analyze.evidence.counter', { current: index + 1, total: images.length })}
+          </span>
+        )}
         {scale > 1 && (
           <span className="border-l border-white/20 pl-2 text-xs text-white/80">{t('analyze.evidence.dragHint')}</span>
         )}

@@ -2,13 +2,14 @@ import { AlertTriangle, Moon } from 'lucide-react'
 
 import { useTranslation } from 'react-i18next'
 
+import { getPageScreenshots, getScreenshotUrl } from '../../lib/page-screenshots'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 
 interface ResultOverviewProps {
   result: AnalysisResultData
   analyzing: boolean
   onRetryWithLogin: () => void
-  onOpenLightbox: (src: string) => void
+  onOpenLightbox: (index: number) => void
 }
 
 export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLightbox }: ResultOverviewProps) {
@@ -21,14 +22,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
   const spacingCount = (tokens?.spacing as string[] | undefined)?.length || 0
   const radiiCount = (tokens?.radii as string[] | undefined)?.length || 0
 
-  const pageScreenshots =
-    result.pageScreenshots && result.pageScreenshots.length > 0
-      ? result.pageScreenshots
-      : (result.screenshots || []).map((screenshotPath) => ({
-          url: result.finalUrl || result.url,
-          path: screenshotPath,
-          viewport: 'desktop',
-        }))
+  const pageScreenshots = getPageScreenshots(result)
   const analyzedPageCount = new Set(pageScreenshots.map((screenshot) => screenshot.url)).size
 
   let hostname = ''
@@ -143,10 +137,10 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
                     </span>
                   </figcaption>
                   <img
-                    src={`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`}
+                    src={getScreenshotUrl(screenshot.path)}
                     alt={t('analyze.evidence.screenshotAlt', { url: screenshot.url })}
                     className="max-h-44 w-full cursor-zoom-in object-cover object-top"
-                    onClick={() => onOpenLightbox(`imprint-file:///${screenshot.path.replace(/\\/g, '/')}`)}
+                    onClick={() => onOpenLightbox(index)}
                   />
                 </figure>
               ))}

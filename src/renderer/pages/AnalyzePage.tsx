@@ -11,6 +11,7 @@ import { ResultOverview } from '../components/analyze/ResultOverview'
 import { ScreenshotLightbox } from '../components/analyze/ScreenshotLightbox'
 import { Alert } from '../components/ui/Alert'
 import { EmptyState } from '../components/ui/EmptyState'
+import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
@@ -63,7 +64,7 @@ export function AnalyzePage() {
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: Record<string, string>) => {
@@ -393,7 +394,7 @@ export function AnalyzePage() {
             result={result}
             analyzing={analyzing}
             onRetryWithLogin={handleRetryWithLogin}
-            onOpenLightbox={setLightboxSrc}
+            onOpenLightbox={setLightboxIndex}
           />
           <ArtifactPanel result={result} saved={saved} onSaved={() => setSaved(true)} />
         </div>
@@ -427,7 +428,14 @@ export function AnalyzePage() {
         />
       )}
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
-      {lightboxSrc && <ScreenshotLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxIndex !== null && result && (
+        <ScreenshotLightbox
+          images={getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path))}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   )
 }

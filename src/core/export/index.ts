@@ -1,4 +1,5 @@
-import { generateAgentGuide, generateDosAndDonts } from '../analyzer/agent-guide.js'
+import { generateAgentGuide, generateDosAndDonts, generateExampleComponents } from '../analyzer/agent-guide.js'
+import type { ComponentPattern } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/index.js'
 
 export interface DarkModeExportData {
@@ -147,6 +148,7 @@ export function generateDesignDoc(
   featureTags?: string[],
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string }>,
+  components?: ComponentPattern[],
 ): string {
   const lines: string[] = []
 
@@ -255,8 +257,11 @@ export function generateDesignDoc(
     })
   }
 
-  // Agent Prompt Guide
+  // Example Components
   lines.push('\n---\n')
+  lines.push(generateExampleComponents(tokens, components))
+
+  // Agent Prompt Guide
   lines.push(generateAgentGuide(tokens, url))
   lines.push(generateDosAndDonts(tokens))
 

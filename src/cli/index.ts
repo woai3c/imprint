@@ -91,7 +91,7 @@ async function main() {
 
   const cssVars = generateCssVariables(result.tokens)
   const tailwind = generateTailwindTheme(result.tokens)
-  const designDoc = generateDesignDoc(result.tokens, url, result.featureTags)
+  const designDoc = generateDesignDoc(result.tokens, url, result.featureTags, undefined, undefined, result.components)
   const dtcgJson = generateDtcgJson(result.tokens)
 
   // JSON stdout mode — pipe-friendly

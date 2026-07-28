@@ -318,7 +318,14 @@ export function registerIpcHandlers() {
 
         const cssVars = generateCssVariables(enhancedTokens, darkModeExport, result.breakpoints)
         const tailwind = generateTailwindTheme(enhancedTokens, darkModeExport)
-        const designDoc = generateDesignDoc(enhancedTokens, url, result.featureTags, darkModeExport, result.breakpoints)
+        const designDoc = generateDesignDoc(
+          enhancedTokens,
+          url,
+          result.featureTags,
+          darkModeExport,
+          result.breakpoints,
+          result.components,
+        )
 
         const db = getDb()
         const analysisId = uuidv4()

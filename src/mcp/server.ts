@@ -114,7 +114,14 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
       case 'tailwind':
         return { content: [{ type: 'text', text: generateTailwindTheme(tokens) }] }
       case 'markdown':
-        return { content: [{ type: 'text', text: generateDesignDoc(tokens, url, featureTags) }] }
+        return {
+          content: [
+            {
+              type: 'text',
+              text: generateDesignDoc(tokens, url, featureTags, undefined, undefined, result.components),
+            },
+          ],
+        }
       case 'all':
         return {
           content: [
@@ -126,7 +133,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                   featureTags,
                   css: generateCssVariables(tokens),
                   tailwind: generateTailwindTheme(tokens),
-                  markdown: generateDesignDoc(tokens, url, featureTags),
+                  markdown: generateDesignDoc(tokens, url, featureTags, undefined, undefined, result.components),
                   dtcg: generateDtcgJson(tokens),
                 },
                 null,

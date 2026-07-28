@@ -1,3 +1,4 @@
+import type { ComponentPattern } from './component-detect.js'
 import type { DesignToken } from './index.js'
 
 /**
@@ -123,4 +124,178 @@ export function generateDosAndDonts(tokens: DesignToken): string {
   lines.push('')
 
   return lines.join('\n')
+}
+
+/**
+ * Generate example HTML components using extracted tokens and detected patterns.
+ * Gives AI agents and developers a concrete starting point.
+ */
+export function generateExampleComponents(tokens: DesignToken, components?: ComponentPattern[]): string {
+  const lines: string[] = []
+  const colorEntries = Object.entries(tokens.colors)
+  const bgColor = findColor(colorEntries, ['background', 'bg', 'surface'])
+  const cardColor = findColor(colorEntries, ['card', 'surface', 'secondary'])
+  const textColor = findColor(colorEntries, ['foreground', 'text', 'body'])
+  const mutedColor = findColor(colorEntries, ['muted-foreground', 'muted', 'secondary-foreground'])
+  const primaryColor = findColor(colorEntries, ['primary', 'accent', 'brand'])
+  const primaryFg = findColor(colorEntries, ['primary-foreground', 'on-primary', 'white'])
+  const borderColor = findColor(colorEntries, ['border', 'divider', 'separator'])
+
+  const font = tokens.typography.fontFamilies[0] || 'system-ui, sans-serif'
+  const fontStack = tokens.typography.fontStacks?.[0] || font
+  const radius = tokens.radii[1] || tokens.radii[0] || '8px'
+  const radiusSm = tokens.radii[0] || '4px'
+  const shadow = tokens.shadows[0] || 'none'
+  const spacing = tokens.spacing
+  const padUnit = spacing[2] || spacing[1] || '16px'
+  const padSm = spacing[1] || spacing[0] || '8px'
+  const gapUnit = spacing[1] || spacing[0] || '8px'
+
+  lines.push('## Example Components')
+  lines.push('')
+  lines.push('Ready-to-use HTML examples built with the extracted design tokens.')
+  lines.push('Copy these as starting points and adapt to your needs.')
+  lines.push('')
+
+  // Card
+  lines.push('### Card')
+  lines.push('')
+  lines.push('```html')
+  lines.push(`<div style="
+  background: ${cardColor};
+  color: ${textColor};
+  font-family: ${fontStack};
+  border-radius: ${radius};
+  padding: ${padUnit};
+  box-shadow: ${shadow};${borderColor ? `\n  border: 1px solid ${borderColor};` : ''}
+">`)
+  lines.push(
+    `  <h3 style="margin: 0 0 ${gapUnit}; font-size: ${tokens.typography.fontSizes[3] || '1.125rem'}; font-weight: ${tokens.typography.fontWeights[tokens.typography.fontWeights.length - 1] || '600'};">Card Title</h3>`,
+  )
+  lines.push(
+    `  <p style="margin: 0; color: ${mutedColor}; font-size: ${tokens.typography.fontSizes[1] || '0.875rem'};">Description text using muted color for secondary content.</p>`,
+  )
+  lines.push('</div>')
+  lines.push('```')
+  lines.push('')
+
+  // Button
+  const hasButtons = components?.some((c) => c.type === 'button')
+  const btnRadius = hasButtons
+    ? components!.find((c) => c.type === 'button')?.styles.borderRadius || radiusSm
+    : radiusSm
+  const btnFontSize = hasButtons
+    ? components!.find((c) => c.type === 'button')?.styles.fontSize || tokens.typography.fontSizes[1] || '0.875rem'
+    : tokens.typography.fontSizes[1] || '0.875rem'
+
+  lines.push('### Button')
+  lines.push('')
+  lines.push('```html')
+  lines.push(`<button style="
+  background: ${primaryColor};
+  color: ${primaryFg};
+  font-family: ${fontStack};
+  font-size: ${btnFontSize};
+  font-weight: 500;
+  border: none;
+  border-radius: ${btnRadius};
+  padding: ${padSm} ${padUnit};
+  cursor: pointer;${tokens.transitions?.[0] ? `\n  transition: opacity ${tokens.transitions[0]} ease;` : ''}
+">Primary Action</button>`)
+  lines.push('')
+  lines.push(`<button style="
+  background: transparent;
+  color: ${textColor};
+  font-family: ${fontStack};
+  font-size: ${btnFontSize};
+  font-weight: 500;
+  border: 1px solid ${borderColor || textColor};
+  border-radius: ${btnRadius};
+  padding: ${padSm} ${padUnit};
+  cursor: pointer;
+">Secondary Action</button>`)
+  lines.push('```')
+  lines.push('')
+
+  // Navigation
+  if (components?.some((c) => c.type === 'navigation')) {
+    lines.push('### Navigation')
+    lines.push('')
+    lines.push('```html')
+    lines.push(`<nav style="
+  display: flex;
+  align-items: center;
+  gap: ${padUnit};
+  padding: ${padSm} ${padUnit};
+  background: ${bgColor};
+  border-bottom: 1px solid ${borderColor || 'rgba(0,0,0,0.1)'};
+  font-family: ${fontStack};
+">`)
+    lines.push(
+      `  <a href="#" style="color: ${primaryColor}; text-decoration: none; font-weight: 500; font-size: ${btnFontSize};">Active</a>`,
+    )
+    lines.push(`  <a href="#" style="color: ${mutedColor}; text-decoration: none; font-size: ${btnFontSize};">Link</a>`)
+    lines.push(`  <a href="#" style="color: ${mutedColor}; text-decoration: none; font-size: ${btnFontSize};">Link</a>`)
+    lines.push('</nav>')
+    lines.push('```')
+    lines.push('')
+  }
+
+  // Input
+  if (components?.some((c) => c.type === 'input')) {
+    const inputPattern = components!.find((c) => c.type === 'input')!
+    const inputRadius = inputPattern.styles.borderRadius || radiusSm
+    const inputPad = inputPattern.styles.padding || `${padSm} ${padUnit}`
+    const inputFontSize = inputPattern.styles.fontSize || tokens.typography.fontSizes[1] || '0.875rem'
+
+    lines.push('### Input')
+    lines.push('')
+    lines.push('```html')
+    lines.push(`<input type="text" placeholder="Enter text..." style="
+  width: 100%;
+  background: ${inputPattern.styles.backgroundColor || cardColor};
+  color: ${textColor};
+  font-family: ${fontStack};
+  font-size: ${inputFontSize};
+  border: ${inputPattern.styles.border || `1px solid ${borderColor}`};
+  border-radius: ${inputRadius};
+  padding: ${inputPad};
+  outline: none;
+  box-sizing: border-box;
+" />`)
+    lines.push('```')
+    lines.push('')
+  }
+
+  // Page layout
+  lines.push('### Page Layout')
+  lines.push('')
+  lines.push('```html')
+  lines.push(`<div style="
+  min-height: 100vh;
+  background: ${bgColor};
+  color: ${textColor};
+  font-family: ${fontStack};
+  font-size: ${tokens.typography.fontSizes[2] || '1rem'};
+  line-height: ${tokens.typography.lineHeights?.[0] || '1.5'};
+">`)
+  lines.push(`  <header style="padding: ${padUnit}; border-bottom: 1px solid ${borderColor || 'rgba(0,0,0,0.1)'};">`)
+  lines.push('    <h1 style="margin: 0;">Site Title</h1>')
+  lines.push('  </header>')
+  lines.push(`  <main style="max-width: 1200px; margin: 0 auto; padding: ${padUnit};">`)
+  lines.push('    <!-- Content here -->')
+  lines.push('  </main>')
+  lines.push('</div>')
+  lines.push('```')
+  lines.push('')
+
+  return lines.join('\n')
+}
+
+function findColor(entries: Array<[string, string]>, keywords: string[]): string {
+  for (const keyword of keywords) {
+    const match = entries.find(([name]) => name === keyword || name.includes(keyword))
+    if (match) return `var(--color-${match[0]})`
+  }
+  return entries[0] ? `var(--color-${entries[0][0]})` : '#000'
 }

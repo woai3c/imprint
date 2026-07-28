@@ -4,7 +4,6 @@
     "tagline": "UI 设计风格提取工具",
     "version": "v0.1.0",
     "footer": "开源免费",
-    "darkToggleDisabled": "仅默认主题支持亮/暗切换",
     "switchToDark": "切换到暗色模式",
     "switchToLight": "切换到亮色模式",
     "switchLanguage": "切换界面语言"
@@ -320,9 +319,9 @@
         },
         "getStarted": "开始使用",
         "hero": {
-          "title": "构建更好的产品",
-          "highlight": "从设计开始",
-          "description": "一站式设计系统提取工具，帮助你快速复用优秀网站的设计语言，让 AI 更好地理解你的设计意图。",
+          "title": "把任何网站的设计系统",
+          "highlight": "变成你的令牌",
+          "description": "输入 URL，提取颜色、字体、间距与圆角，导出为 CSS 变量、Tailwind @theme 或 Tokens JSON。",
           "primaryAction": "免费开始",
           "secondaryAction": "查看演示"
         },
@@ -429,7 +428,7 @@
       },
       "pricing": {
         "title": "选择适合您的方案",
-        "description": "简单透明的定价，无隐藏费用",
+        "description": "按月或按年付费，随时取消",
         "popular": "最受欢迎",
         "footnote": "所有方案均包含 14 天免费试用 · 随时取消",
         "plans": {
@@ -624,7 +623,7 @@
   },
   "history": {
     "title": "分析历史",
-    "description": "查看所有过往的 URL 分析记录",
+    "description": "点击任意记录可查看完整分析结果，并再次导出或保存到主题库",
     "search": "搜索 URL...",
     "duration": "耗时 {{seconds}}s",
     "pageCount": "{{count}} 个页面",
@@ -637,6 +636,7 @@
     "deleteRecord": "删除这条历史记录",
     "confirmDelete": "确定删除这条历史记录吗？此操作不可撤销。",
     "confirmDeleteTitle": "删除历史记录",
+    "viewRecord": "查看 {{url}} 的分析结果",
     "noResults": "暂无分析记录",
     "noResultsTip": "前往「分析」页面开始提取设计风格"
   },

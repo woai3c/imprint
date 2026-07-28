@@ -51,6 +51,7 @@ const api = {
 
   // History
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
+  getAnalysis: (id: string) => ipcRenderer.invoke('analyses:get', id),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
 
   // Shell

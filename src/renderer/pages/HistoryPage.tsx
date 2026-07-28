@@ -3,6 +3,7 @@ import { ExternalLink, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AnalysisDetailDialog } from '../components/AnalysisDetailDialog'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -30,6 +31,7 @@ export function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [detailId, setDetailId] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -93,7 +95,17 @@ export function HistoryPage() {
             {filtered.map((record) => (
               <div
                 key={record.id}
-                className="flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetailId(record.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setDetailId(record.id)
+                  }
+                }}
+                aria-label={t('history.viewRecord', { url: record.url })}
+                className="flex cursor-pointer items-center gap-4 rounded-lg border border-border p-4 transition-colors hover:border-primary/30 hover:bg-secondary/30"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
@@ -114,7 +126,7 @@ export function HistoryPage() {
                   {new Date(record.created_at).toLocaleDateString(i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US')}
                 </span>
 
-                <div className="flex gap-1">
+                <div className="flex gap-1" onClick={(event) => event.stopPropagation()}>
                   <IconButton
                     icon={ExternalLink}
                     label={t('history.openSource')}
@@ -144,6 +156,7 @@ export function HistoryPage() {
           loading={deleting}
         />
       )}
+      {detailId && <AnalysisDetailDialog analysisId={detailId} onClose={() => setDetailId(null)} />}
     </div>
   )
 }

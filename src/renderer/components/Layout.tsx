@@ -41,7 +41,7 @@ export function Layout() {
     setColorMode(colorMode === 'light' ? 'dark' : 'light')
   }
 
-  const isDarkToggleDisabled = currentThemeId !== 'default'
+  const supportsColorModeToggle = currentThemeId === 'default'
 
   return (
     <div className="app-shell flex h-screen overflow-hidden">
@@ -73,24 +73,17 @@ export function Layout() {
           }`}
         >
           <div className="app-no-drag flex items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleColorMode}
-              disabled={isDarkToggleDisabled}
-              title={
-                isDarkToggleDisabled
-                  ? t('app.darkToggleDisabled')
-                  : t(colorMode === 'light' ? 'app.switchToDark' : 'app.switchToLight')
-              }
-              aria-label={
-                isDarkToggleDisabled
-                  ? t('app.darkToggleDisabled')
-                  : t(colorMode === 'light' ? 'app.switchToDark' : 'app.switchToLight')
-              }
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              {colorMode === 'light' ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
+            {supportsColorModeToggle && (
+              <button
+                type="button"
+                onClick={toggleColorMode}
+                title={t(colorMode === 'light' ? 'app.switchToDark' : 'app.switchToLight')}
+                aria-label={t(colorMode === 'light' ? 'app.switchToDark' : 'app.switchToLight')}
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                {colorMode === 'light' ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleLanguage}

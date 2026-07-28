@@ -194,6 +194,16 @@ to Imprint rather than an enterprise administration UI.
 - Compact, non-essential workflow guidance may use an accessible info control with hover and keyboard-focus content
   instead of occupying a permanent result card. The related action labels themselves must remain visible.
 
+## Analysis history
+
+- Every completed analysis persists its full text result (tokens, CSS variables, Tailwind theme, DESIGN.md) along
+  with page screenshot paths in the local SQLite database. Text payloads are small; screenshots already live on disk
+  and are never duplicated into the database.
+- History rows act as work entries, not a log: selecting a record opens the complete result in a dialog where the
+  user can review every artifact, copy the design document, export files, or save the result to the Theme Library.
+- Deleting a history record is destructive and requires explicit confirmation; deleting a record never removes a
+  theme that was already saved to the library.
+
 ## Persistent preferences
 
 - Persist renderer-only user preferences in namespaced localStorage keys and validate every value before use. Migrate

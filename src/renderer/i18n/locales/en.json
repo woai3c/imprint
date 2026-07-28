@@ -4,7 +4,6 @@
     "tagline": "UI Design Style Extractor",
     "version": "v0.1.0",
     "footer": "Open Source & Free",
-    "darkToggleDisabled": "Light/dark toggle only works with the default theme",
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode",
     "switchLanguage": "Switch interface language"
@@ -349,9 +348,9 @@
         },
         "getStarted": "Get started",
         "hero": {
-          "title": "Build better products",
-          "highlight": "Start with design",
-          "description": "Extract complete design systems in one place, reuse the visual language of great websites, and help AI understand your design intent.",
+          "title": "Turn any website's design system",
+          "highlight": "into your tokens",
+          "description": "Enter a URL to extract colors, typography, spacing, and radii — then export CSS variables, Tailwind @theme, or Tokens JSON.",
           "primaryAction": "Start for free",
           "secondaryAction": "View demo"
         },
@@ -458,7 +457,7 @@
       },
       "pricing": {
         "title": "Choose the plan that fits",
-        "description": "Simple, transparent pricing with no hidden fees",
+        "description": "Monthly or annual billing, cancel anytime",
         "popular": "Most popular",
         "footnote": "Every plan includes a 14-day free trial · Cancel anytime",
         "plans": {
@@ -667,7 +666,7 @@
   },
   "history": {
     "title": "Analysis History",
-    "description": "View all past URL analysis records",
+    "description": "Select any record to reopen its full result, export it again, or save it to the Theme Library",
     "search": "Search URL...",
     "duration": "Duration: {{seconds}}s",
     "pageCount": "{{count}} pages",
@@ -680,6 +679,7 @@
     "deleteRecord": "Delete this history record",
     "confirmDelete": "Delete this history record? This cannot be undone.",
     "confirmDeleteTitle": "Delete history record",
+    "viewRecord": "View analysis result for {{url}}",
     "noResults": "No analysis records yet",
     "noResultsTip": "Go to the Analyze page to start extracting design styles"
   },

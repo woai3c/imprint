@@ -218,6 +218,40 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('analyses:get', (_event, id: string) => {
+    const db = getDb()
+    const record = db
+      .prepare(
+        `SELECT a.*, t.name as theme_name, t.source_url
+         FROM analyses a
+         LEFT JOIN themes t ON a.theme_id = t.id
+         WHERE a.id = ?`,
+      )
+      .get(id) as Record<string, unknown> | undefined
+    if (!record) return null
+
+    return {
+      id: record.id,
+      url: record.url,
+      finalUrl: record.final_url,
+      pagesAnalyzed: record.pages_analyzed,
+      durationMs: record.duration_ms,
+      createdAt: record.created_at,
+      themeId: record.theme_id,
+      themeName: record.theme_name,
+      tokens: JSON.parse((record.tokens_json as string) || '{}'),
+      cssVariables: record.css_variables || '',
+      tailwindTheme: record.tailwind_theme || '',
+      designDoc: record.design_doc || '',
+      pageScreenshots: JSON.parse((record.page_screenshots_json as string) || '[]'),
+      featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
+      darkTokens: record.dark_tokens_json ? JSON.parse(record.dark_tokens_json as string) : null,
+      hasDarkMode: record.has_dark_mode === 1,
+      accessMode: record.access_mode,
+      authWallDetected: record.auth_wall_detected === 1,
+    }
+  })
+
   // --- Isolated browser sessions ---
   ipcMain.handle('browserSessions:list', () => {
     return listManagedSessions(app.getPath('userData'))
@@ -333,8 +367,10 @@ export function registerIpcHandlers() {
         const pagesAnalyzed = Math.max(1, new Set(result.pageScreenshots.map((screenshot) => screenshot.url)).size)
         db.prepare(
           `INSERT INTO analyses
-           (id, theme_id, url, pages_analyzed, viewports, duration_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (id, theme_id, url, pages_analyzed, viewports, duration_ms, created_at,
+            tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
+            feature_tags_json, dark_tokens_json, has_dark_mode, access_mode, auth_wall_detected, final_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           null,
@@ -343,6 +379,17 @@ export function registerIpcHandlers() {
           JSON.stringify(viewports),
           result.duration,
           new Date().toISOString(),
+          JSON.stringify(enhancedTokens),
+          cssVars,
+          tailwind,
+          designDoc,
+          JSON.stringify(result.pageScreenshots || []),
+          JSON.stringify(result.featureTags || []),
+          darkModeExport?.darkTokens?.colors ? JSON.stringify(darkModeExport.darkTokens.colors) : null,
+          result.darkMode?.hasDarkMode ? 1 : 0,
+          result.accessMode ?? null,
+          result.authWallDetected ? 1 : 0,
+          result.finalUrl ?? null,
         )
 
         return {

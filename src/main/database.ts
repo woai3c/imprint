@@ -57,4 +57,28 @@ function runMigrations() {
       created_at TEXT NOT NULL
     );
   `)
+
+  // Analysis results are stored as text so history records can be reopened
+  // later. Screenshots stay on disk; only their paths are persisted here.
+  const analysisColumns = (db.prepare(`PRAGMA table_info(analyses)`).all() as Array<{ name: string }>).map(
+    (column) => column.name,
+  )
+  const analysisResultColumns: Array<[string, string]> = [
+    ['tokens_json', `TEXT NOT NULL DEFAULT '{}'`],
+    ['css_variables', `TEXT NOT NULL DEFAULT ''`],
+    ['tailwind_theme', `TEXT NOT NULL DEFAULT ''`],
+    ['design_doc', `TEXT NOT NULL DEFAULT ''`],
+    ['page_screenshots_json', `TEXT NOT NULL DEFAULT '[]'`],
+    ['feature_tags_json', `TEXT NOT NULL DEFAULT '[]'`],
+    ['dark_tokens_json', `TEXT`],
+    ['has_dark_mode', `INTEGER DEFAULT 0`],
+    ['access_mode', `TEXT`],
+    ['auth_wall_detected', `INTEGER DEFAULT 0`],
+    ['final_url', `TEXT`],
+  ]
+  for (const [name, definition] of analysisResultColumns) {
+    if (!analysisColumns.includes(name)) {
+      db.exec(`ALTER TABLE analyses ADD COLUMN ${name} ${definition}`)
+    }
+  }
 }

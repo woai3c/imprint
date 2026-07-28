@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useFeedbackStore } from '../stores/feedback-store'
 import type { ThemeExportFormat } from '../stores/skin-store'
 
@@ -40,6 +41,8 @@ export function SettingsPage() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   const providers = [
     { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
@@ -47,8 +50,8 @@ export function SettingsPage() {
     { id: 'openai', name: 'OpenAI (GPT)', envVar: 'OPENAI_API_KEY' },
     { id: 'google', name: 'Google (Gemini)', envVar: 'GOOGLE_GENERATIVE_AI_API_KEY' },
     { id: 'moonshotai', name: 'Moonshot (Kimi)', envVar: 'MOONSHOT_API_KEY' },
-    { id: 'alibaba', name: '通义千问 (Qwen)', envVar: 'ALIBABA_API_KEY' },
-    { id: 'zhipu', name: '智谱 (GLM)', envVar: 'ZHIPU_API_KEY' },
+    { id: 'alibaba', name: 'Qwen (Alibaba)', envVar: 'ALIBABA_API_KEY' },
+    { id: 'zhipu', name: 'GLM (Zhipu)', envVar: 'ZHIPU_API_KEY' },
     { id: 'xai', name: 'xAI (Grok)', envVar: 'XAI_API_KEY' },
     { id: 'custom', name: 'OpenAI Compatible', envVar: 'OPENAI_COMPATIBLE_API_KEY' },
   ]
@@ -185,7 +188,7 @@ export function SettingsPage() {
   }
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('settings.data.confirmClear'))) return
+    setClearing(true)
     try {
       const themes = await window.electronAPI.getThemes()
       for (const theme of themes) {
@@ -196,8 +199,11 @@ export function SettingsPage() {
         await window.electronAPI.deleteAnalysis(analysis.id)
       }
       notify(t('feedback.dataCleared'))
+      setConfirmClearAll(false)
     } catch {
       notify(t('feedback.actionFailed'), 'error')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -217,7 +223,7 @@ export function SettingsPage() {
         description={t('settings.description')}
         actions={
           <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
-            <CheckCircle2 size={13} className="text-emerald-600" />
+            <CheckCircle2 size={13} className="text-success" />
             {t('settings.autoSave')}
           </span>
         }
@@ -330,7 +336,7 @@ export function SettingsPage() {
                   </button>
                   {testResult && (
                     <span
-                      className={`text-xs flex items-center gap-1 ${testResult.success ? 'text-green-600' : 'text-destructive'}`}
+                      className={`text-xs flex items-center gap-1 ${testResult.success ? 'text-success' : 'text-destructive'}`}
                     >
                       {testResult.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                       {testResult.message}
@@ -376,7 +382,7 @@ export function SettingsPage() {
                         {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
                       </div>
                       {cli.available ? (
-                        <CheckCircle2 size={14} className="text-green-500" />
+                        <CheckCircle2 size={14} className="text-success" />
                       ) : (
                         <XCircle size={14} className="text-muted-foreground" />
                       )}
@@ -446,7 +452,7 @@ export function SettingsPage() {
                 {t('settings.data.import')}
               </button>
               <button
-                onClick={handleClearAll}
+                onClick={() => setConfirmClearAll(true)}
                 className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm
                                  hover:opacity-90 transition-opacity"
               >
@@ -457,6 +463,18 @@ export function SettingsPage() {
           </div>
         </section>
       </div>
+
+      {confirmClearAll && (
+        <ConfirmDialog
+          title={t('settings.data.confirmClearTitle')}
+          description={t('settings.data.confirmClear')}
+          confirmLabel={t('settings.data.clearAll')}
+          cancelLabel={t('common.cancel')}
+          onConfirm={handleClearAll}
+          onCancel={() => setConfirmClearAll(false)}
+          loading={clearing}
+        />
+      )}
     </div>
   )
 }

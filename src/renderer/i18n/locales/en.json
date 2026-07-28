@@ -16,6 +16,12 @@
     "history": "History",
     "settings": "Settings"
   },
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "confirm": "Confirm"
+  },
   "feedback": {
     "dismiss": "Dismiss notification",
     "copied": "Copied to clipboard",
@@ -664,6 +670,7 @@
     "description": "View all past URL analysis records",
     "search": "Search URL...",
     "duration": "Duration: {{seconds}}s",
+    "pageCount": "{{count}} pages",
     "viewports": "Viewports",
     "delete": "Delete",
     "loading": "Loading history...",
@@ -671,7 +678,8 @@
     "tokenCount": "{{count}} tokens",
     "openSource": "Open the source website in a browser",
     "deleteRecord": "Delete this history record",
-    "confirmDelete": "Delete this history record?",
+    "confirmDelete": "Delete this history record? This cannot be undone.",
+    "confirmDeleteTitle": "Delete history record",
     "noResults": "No analysis records yet",
     "noResultsTip": "Go to the Analyze page to start extracting design styles"
   },
@@ -713,6 +721,7 @@
       "import": "Import Theme Tokens JSON",
       "clearAll": "Clear Themes and Analysis History",
       "confirmClear": "Clear all themes and analysis records? Settings will be kept. This cannot be undone.",
+      "confirmClearTitle": "Clear all local data",
       "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Import accepts one theme Tokens JSON file."
     }
   },
@@ -753,6 +762,8 @@
     "typeSampleLong": "The quick brown fox jumps over the lazy dog",
     "frequencyRank": "Frequency rank #{{rank}}",
     "occurrences": "{{count}} occurrences",
+    "styleIndex": "Style {{index}}",
+    "copyValue": "Copy {{value}}",
     "colorGroups": {
       "surface": "Surface",
       "text": "Text",

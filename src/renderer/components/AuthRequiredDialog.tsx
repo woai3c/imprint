@@ -34,7 +34,7 @@ export function AuthRequiredDialog(props: AuthRequiredDialogProps) {
         className="ui-enter w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl"
       >
         <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-yellow-500/12 p-2 text-yellow-700 dark:text-yellow-300">
+          <div className="rounded-lg bg-warning/12 p-2 text-warning-strong">
             <AlertTriangle size={20} />
           </div>
           <div className="min-w-0 flex-1">

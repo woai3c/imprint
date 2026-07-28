@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, Download, Info, Loader2, Minus, Plus, Save, X } from 'lucide-react'
+import { AlertTriangle, Copy, Download, Info, Loader2, Minus, Moon, Plus, Save, X } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
@@ -9,6 +9,10 @@ import { AuthRequiredDialog } from '../components/AuthRequiredDialog'
 import { BrowserSessionsDialog } from '../components/BrowserSessionsDialog'
 import { PageHeader } from '../components/PageHeader'
 import { TokenPreview } from '../components/TokenPreview'
+import { Alert } from '../components/ui/Alert'
+import { EmptyState } from '../components/ui/EmptyState'
+import { IconButton } from '../components/ui/IconButton'
+import { Tabs } from '../components/ui/Tabs'
 import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
@@ -263,6 +267,15 @@ export function AnalyzePage() {
     setLightboxOffset({ x: 0, y: 0 })
   }
 
+  useEffect(() => {
+    if (!lightboxSrc) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeLightbox()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [lightboxSrc])
+
   const zoomLightbox = (delta: number) => {
     const nextScale = Math.min(5, Math.max(0.25, lightboxScale + delta))
     setLightboxScale(nextScale)
@@ -480,24 +493,18 @@ export function AnalyzePage() {
         </div>
 
         {!hasAiConfig && !aiTipDismissed && !result && !failure && (
-          <div
-            data-testid="no-ai-tip"
-            className="mt-3 flex items-start gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2.5"
+          <Alert
+            tone="warning"
+            testId="no-ai-tip"
+            className="mt-3"
+            dismissLabel={t('feedback.dismiss')}
+            onDismiss={() => {
+              setAiTipDismissed(true)
+              setNoAiTipDismissedPreference(true)
+            }}
           >
-            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
-            <p className="flex-1 text-xs leading-5 text-yellow-800 dark:text-yellow-300">{t('analyze.noAiTip')}</p>
-            <button
-              type="button"
-              data-testid="dismiss-no-ai-tip"
-              onClick={() => {
-                setAiTipDismissed(true)
-                setNoAiTipDismissedPreference(true)
-              }}
-              className="shrink-0 rounded p-0.5 text-yellow-600 hover:bg-yellow-500/20 dark:text-yellow-400 cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
+            {t('analyze.noAiTip')}
+          </Alert>
         )}
 
         {progress && (
@@ -577,19 +584,19 @@ export function AnalyzePage() {
         >
           {/* Left: Overview Panel */}
           <div className="w-80 shrink-0 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none space-y-4 pb-4">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-4 pb-4">
               {result.authWallDetected && result.accessMode === 'anonymous' && (
                 <div
                   data-testid="anonymous-auth-warning"
-                  className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4"
+                  className="rounded-xl border border-warning/30 bg-warning/10 p-4"
                 >
                   <div className="flex items-start gap-2">
-                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-yellow-700 dark:text-yellow-300" />
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning-strong" />
                     <div>
-                      <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
+                      <p className="text-sm font-medium text-warning-strong">
                         {t('analyze.auth.anonymousWarningTitle')}
                       </p>
-                      <p className="mt-1 text-xs leading-5 text-yellow-800 dark:text-yellow-200">
+                      <p className="mt-1 text-xs leading-5 text-warning-strong">
                         {t('analyze.auth.anonymousWarningDescription')}
                       </p>
                     </div>
@@ -598,7 +605,7 @@ export function AnalyzePage() {
                     type="button"
                     onClick={handleRetryWithLogin}
                     disabled={analyzing}
-                    className="mt-3 min-h-9 w-full rounded-lg bg-yellow-700 px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-yellow-300 dark:text-yellow-950"
+                    className="mt-3 min-h-9 w-full rounded-lg bg-warning px-3 text-xs font-medium text-warning-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
                     {t('analyze.auth.retryWithLogin')}
                   </button>
@@ -644,11 +651,15 @@ export function AnalyzePage() {
                 {/* Dark mode indicator */}
                 <div className="mt-3 text-xs">
                   {result.hasDarkMode ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                      ● {t('analyze.darkModeSupported')}
+                    <span className="inline-flex items-center gap-1.5 text-success">
+                      <Moon size={12} aria-hidden="true" />
+                      {t('analyze.darkModeSupported')}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground/60">○ {t('analyze.darkModeNotDetected')}</span>
+                    <span className="inline-flex items-center gap-1.5 text-muted-foreground/60">
+                      <Moon size={12} aria-hidden="true" />
+                      {t('analyze.darkModeNotDetected')}
+                    </span>
                   )}
                 </div>
               </div>
@@ -672,7 +683,7 @@ export function AnalyzePage() {
                         data-testid="analysis-page-screenshot"
                         className="overflow-hidden rounded-xl border border-border/60 bg-card/50"
                       >
-                        <figcaption className="flex items-center gap-2 border-b border-border/50 px-3 py-2 text-xs">
+                        <figcaption className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-xs">
                           <span className="shrink-0 font-medium text-foreground">{index + 1}</span>
                           <span className="min-w-0 flex-1 truncate text-muted-foreground" title={screenshot.url}>
                             {screenshot.url}
@@ -707,71 +718,52 @@ export function AnalyzePage() {
 
           {/* Right: Tabbed content */}
           <div className="flex-1 flex flex-col min-w-0 border border-border/60 rounded-xl overflow-hidden">
-            {/* Tab bar */}
-            <div className="flex items-center border-b border-border/60 bg-muted/20 px-3">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  data-testid={`artifact-tab-${tab.id}`}
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-pressed={activeTab === tab.id}
-                  className={`px-3 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
-                    activeTab === tab.id
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-              <div className="ml-auto flex gap-1 pr-1 items-center">
-                <button
-                  data-testid="save-theme"
-                  onClick={handleSaveToLibrary}
-                  disabled={saved}
-                  title={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                  aria-label={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-                >
-                  <Save size={14} />
-                </button>
-                <button
-                  onClick={handleExportFile}
-                  title={t('analyze.exportCurrent', { format: activeArtifactLabel })}
-                  aria-label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  <Download size={14} />
-                </button>
-                <button
-                  onClick={handleCopy}
-                  title={t('analyze.copyCurrent', { format: activeArtifactLabel })}
-                  aria-label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  <Copy size={14} />
-                </button>
-                <div className="group relative z-50">
-                  <button
-                    type="button"
-                    data-testid="ai-export-info"
-                    aria-label={t('analyze.aiExport.title')}
-                    aria-describedby="ai-export-tooltip"
-                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <Info size={14} />
-                  </button>
-                  <div
-                    id="ai-export-tooltip"
-                    role="tooltip"
-                    className="pointer-events-none invisible absolute top-full right-0 mt-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-                  >
-                    <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
+            <Tabs
+              tabs={tabs}
+              activeTab={activeTab}
+              onChange={(id) => setActiveTab(id as ExportTab)}
+              testIdPrefix="artifact-tab"
+              trailing={
+                <>
+                  <IconButton
+                    data-testid="save-theme"
+                    icon={Save}
+                    label={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
+                    onClick={handleSaveToLibrary}
+                    disabled={saved}
+                  />
+                  <IconButton
+                    icon={Download}
+                    label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
+                    onClick={handleExportFile}
+                  />
+                  <IconButton
+                    icon={Copy}
+                    label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                    onClick={handleCopy}
+                  />
+                  <div className="group relative z-50">
+                    <button
+                      type="button"
+                      data-testid="ai-export-info"
+                      aria-label={t('analyze.aiExport.title')}
+                      aria-describedby="ai-export-tooltip"
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    >
+                      <Info size={14} />
+                    </button>
+                    <div
+                      id="ai-export-tooltip"
+                      role="tooltip"
+                      className="pointer-events-none invisible absolute top-full right-0 mt-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                    >
+                      <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
+                </>
+              }
+            />
 
             {/* Tab content */}
             <div key={activeTab} className="ui-enter flex-1 overflow-auto bg-card">
@@ -806,13 +798,12 @@ export function AnalyzePage() {
       ) : (
         !analyzing &&
         !failure && (
-          <div className="flex-1 flex items-center justify-center px-8">
-            <div className="text-center max-w-md">
-              <h3 className="text-lg font-semibold">{t('analyze.emptyTitle')}</h3>
-              <p className="text-muted-foreground text-sm mt-2">{t('analyze.emptyDescription')}</p>
-              <p className="text-muted-foreground/70 text-xs mt-3">{t('analyze.noAiHint')}</p>
-            </div>
-          </div>
+          <EmptyState
+            title={t('analyze.emptyTitle')}
+            description={t('analyze.emptyDescription')}
+            hint={t('analyze.noAiHint')}
+            className="flex-1 px-8"
+          />
         )
       )}
 
@@ -850,7 +841,7 @@ export function AnalyzePage() {
           <button
             className="absolute top-4 right-4 z-10 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
             onClick={closeLightbox}
-            aria-label={t('common.close', { defaultValue: 'Close' })}
+            aria-label={t('common.close')}
           >
             <X size={20} />
           </button>

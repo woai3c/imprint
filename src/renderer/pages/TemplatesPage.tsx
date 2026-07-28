@@ -170,7 +170,7 @@ export function TemplatesPage() {
           {scenarioGroups.map((group) => {
             const groupTemplates = templates.filter((template) => template.group === group)
             return (
-              <section key={group} className="rounded-xl border border-border/70 bg-card/45 p-2.5">
+              <section key={group} className="rounded-xl border border-border/60 bg-card/50 p-2.5">
                 <div className="mb-2 flex items-center justify-between px-1">
                   <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {t(`templates.groups.${group}`)}
@@ -192,7 +192,7 @@ export function TemplatesPage() {
                         className={`flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-all ${
                           active
                             ? 'border-primary/40 bg-primary text-primary-foreground shadow-sm'
-                            : 'border-transparent bg-secondary/55 text-secondary-foreground hover:border-border hover:bg-accent'
+                            : 'border-transparent bg-secondary/50 text-secondary-foreground hover:border-border hover:bg-accent'
                         }`}
                       >
                         <span

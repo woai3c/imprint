@@ -22,6 +22,10 @@
   --color-sidebar: oklch(97% 0.01 250);
   --color-sidebar-foreground: oklch(30% 0.02 250);
   --color-sidebar-accent: oklch(94% 0.02 265);
+  --color-warning: oklch(75% 0.16 85);
+  --color-warning-strong: oklch(47% 0.11 75);
+  --color-warning-foreground: oklch(24% 0.06 80);
+  --color-success: oklch(62% 0.14 160);
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;

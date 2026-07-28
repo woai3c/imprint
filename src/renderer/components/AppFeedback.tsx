@@ -20,7 +20,7 @@ export function AppFeedback() {
           : 'border-border bg-card text-card-foreground'
       }`}
     >
-      <Icon size={16} className={tone === 'success' ? 'text-emerald-600' : undefined} />
+      <Icon size={16} className={tone === 'success' ? 'text-success' : undefined} />
       <span
         className="min-w-0 flex-1"
         role={tone === 'error' ? 'alert' : 'status'}

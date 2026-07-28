@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PageHeader } from '../components/PageHeader'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { IconButton } from '../components/ui/IconButton'
 import { useFeedbackStore } from '../stores/feedback-store'
 
 interface AnalysisRecord {
@@ -25,6 +28,8 @@ export function HistoryPage() {
   const [records, setRecords] = useState<AnalysisRecord[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -39,15 +44,18 @@ export function HistoryPage() {
     load()
   }, [])
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm(t('history.confirmDelete'))) return
-
+  const handleDelete = async () => {
+    if (!pendingDeleteId) return
+    setDeleting(true)
     try {
-      await window.electronAPI.deleteAnalysis(id)
-      setRecords((current) => current.filter((record) => record.id !== id))
+      await window.electronAPI.deleteAnalysis(pendingDeleteId)
+      setRecords((current) => current.filter((record) => record.id !== pendingDeleteId))
       notify(t('feedback.historyDeleted'))
+      setPendingDeleteId(null)
     } catch {
       notify(t('feedback.actionFailed'), 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -79,12 +87,7 @@ export function HistoryPage() {
             </p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold">{t('history.noResults')}</h3>
-              <p className="text-muted-foreground text-sm mt-1">{t('history.noResultsTip')}</p>
-            </div>
-          </div>
+          <EmptyState title={t('history.noResults')} description={t('history.noResultsTip')} className="h-64" />
         ) : (
           <div className="ui-enter space-y-2">
             {filtered.map((record) => (
@@ -101,6 +104,10 @@ export function HistoryPage() {
                       </span>
                     )}
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('history.pageCount', { count: record.pages_analyzed })}
+                    {record.theme_name && ` · ${record.theme_name}`}
+                  </p>
                 </div>
 
                 <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -108,30 +115,35 @@ export function HistoryPage() {
                 </span>
 
                 <div className="flex gap-1">
-                  <button
-                    type="button"
+                  <IconButton
+                    icon={ExternalLink}
+                    label={t('history.openSource')}
                     onClick={() => window.electronAPI.openExternal(record.url)}
-                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    aria-label={t('history.openSource')}
-                    title={t('history.openSource')}
-                  >
-                    <ExternalLink size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(record.id)}
-                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    aria-label={t('history.deleteRecord')}
-                    title={t('history.deleteRecord')}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  />
+                  <IconButton
+                    icon={Trash2}
+                    label={t('history.deleteRecord')}
+                    onClick={() => setPendingDeleteId(record.id)}
+                    className="hover:bg-destructive/10 hover:text-destructive"
+                  />
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title={t('history.confirmDeleteTitle')}
+          description={t('history.confirmDelete')}
+          confirmLabel={t('common.delete')}
+          cancelLabel={t('common.cancel')}
+          onConfirm={handleDelete}
+          onCancel={() => setPendingDeleteId(null)}
+          loading={deleting}
+        />
+      )}
     </div>
   )
 }

@@ -111,7 +111,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
           </button>
         </header>
 
-        <div data-testid="browser-sessions-purpose" className="border-b border-border bg-muted/20 px-6 py-3">
+        <div data-testid="browser-sessions-purpose" className="border-b border-border bg-muted/40 px-6 py-3">
           <p className="text-xs leading-5 text-muted-foreground">{t('analyze.sessions.notice')}</p>
         </div>
 
@@ -140,7 +140,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
                     key={session.id}
                     data-testid="browser-session"
                     className={`rounded-xl border p-4 transition-colors ${
-                      confirming ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-background/45'
+                      confirming ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-background/50'
                     }`}
                   >
                     <div className="flex items-center gap-3">

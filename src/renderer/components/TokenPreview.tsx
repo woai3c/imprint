@@ -1,3 +1,5 @@
+import { Moon, Sun } from 'lucide-react'
+
 import { useTranslation } from 'react-i18next'
 
 interface TokenData {
@@ -91,7 +93,12 @@ function ColorSection({
 
   return (
     <SectionCard title={t('preview.colors')}>
-      {hasDarkMode && <h4 className="text-sm font-medium text-muted-foreground mb-4">● {t('preview.lightTheme')}</h4>}
+      {hasDarkMode && (
+        <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Sun size={13} aria-hidden="true" />
+          {t('preview.lightTheme')}
+        </h4>
+      )}
 
       {Object.entries(grouped).map(([group, items]) => (
         <div key={group} className="mb-6 last:mb-0">
@@ -110,7 +117,10 @@ function ColorSection({
       {hasDarkMode && darkColors && Object.keys(darkColors).length > 0 && (
         <>
           <div className="border-t border-border my-6" />
-          <h4 className="text-sm font-medium text-muted-foreground mb-4">● {t('preview.darkTheme')}</h4>
+          <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <Moon size={13} aria-hidden="true" />
+            {t('preview.darkTheme')}
+          </h4>
           {Object.entries(groupColors(darkColors)).map(([group, items]) => (
             <div key={group} className="mb-6 last:mb-0">
               <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -149,7 +159,7 @@ function ColorCard({
   return (
     <div className="group/swatch flex flex-col gap-1.5">
       <div
-        className="w-full aspect-square rounded-lg border border-border/50 transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/swatch:scale-105 group-hover/swatch:shadow-[0_6px_20px_-4px_rgba(0,0,0,0.15)]"
+        className="w-full aspect-square rounded-lg border border-border/60 transition-[transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/swatch:scale-105 group-hover/swatch:shadow-[0_6px_20px_-4px_rgba(0,0,0,0.15)]"
         style={{ backgroundColor: value, ...(dark ? { outline: '1px solid rgba(255,255,255,0.08)' } : {}) }}
       />
       <div className="flex items-center gap-1.5 min-w-0">
@@ -168,7 +178,7 @@ function ColorCard({
       <button
         type="button"
         onClick={handleCopy}
-        aria-label={`Copy ${value}`}
+        aria-label={t('preview.copyValue', { value })}
         className="self-start text-left text-[0.68rem] font-mono text-muted-foreground cursor-pointer transition-colors duration-150 hover:text-foreground"
       >
         {value}
@@ -210,7 +220,7 @@ function TypographySection({
   return (
     <SectionCard title={t('preview.typography')}>
       {typography.fontStacks && typography.fontStacks.length > 0 && (
-        <div className="mb-5 pb-5 border-b border-border/50">
+        <div className="mb-5 pb-5 border-b border-border/60">
           <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{t('preview.fontStacks')}</p>
           <div className="space-y-1.5">
             {typography.fontStacks.map((stack, i) => (
@@ -221,11 +231,13 @@ function TypographySection({
           </div>
         </div>
       )}
-      <div className="divide-y divide-border/40">
+      <div className="divide-y divide-border/60">
         {combinations.map((combo, i) => (
           <div key={i} className="flex items-center gap-4 py-3.5 first:pt-0 last:pb-0">
             <div className="w-24 shrink-0 text-xs text-muted-foreground">
-              {combo.rank ? t('preview.frequencyRank', { rank: combo.rank }) : `Style ${i + 1}`}
+              {combo.rank
+                ? t('preview.frequencyRank', { rank: combo.rank })
+                : t('preview.styleIndex', { index: i + 1 })}
             </div>
             <div className="flex-1 min-w-0">
               <p
@@ -300,7 +312,7 @@ function SpacingShapeSection({
 
       {radii.length > 0 && (
         <>
-          <div className="border-t border-border/40 my-6" />
+          <div className="border-t border-border/60 my-6" />
           <p className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {t('preview.radius')}
           </p>
@@ -350,7 +362,7 @@ function LetterSpacingSection({ spacings, t }: { spacings: string[]; t: (key: st
         {spacings.map((value, i) => (
           <div key={i} className="flex items-center gap-4">
             <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">{value}</span>
-            <p className="text-sm truncate text-foreground/75" style={{ letterSpacing: value }}>
+            <p className="text-sm truncate text-foreground/80" style={{ letterSpacing: value }}>
               {t('preview.typeSampleLong')}
             </p>
           </div>
@@ -367,7 +379,7 @@ function TransitionSection({ transitions, t }: { transitions: string[]; t: (key:
       <div className="flex flex-wrap gap-4">
         {transitions.map((value, i) => (
           <div key={i} className="flex flex-col items-center gap-2">
-            <div className="min-w-16 h-12 px-3 rounded-lg bg-secondary/60 border border-border flex items-center justify-center">
+            <div className="min-w-16 h-12 px-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-center">
               <span className="max-w-28 truncate font-mono text-xs text-foreground/80">{value}</span>
             </div>
             <span className="text-xs text-muted-foreground">{names[i] || `t-${i + 1}`}</span>
@@ -408,20 +420,4 @@ function getGroupLabel(name: string): string {
   if (name.includes('primary') || name.includes('secondary') || name.includes('accent')) return 'BRAND'
   if (name.includes('border') || name.includes('ring')) return 'BORDER'
   return 'COLOR'
-}
-
-function isLightColor(color: string): boolean {
-  const hex = color.replace('#', '')
-  if (hex.length === 6) {
-    const r = parseInt(hex.substring(0, 2), 16)
-    const g = parseInt(hex.substring(2, 4), 16)
-    const b = parseInt(hex.substring(4, 6), 16)
-    return (r * 299 + g * 587 + b * 114) / 1000 > 160
-  }
-  const rgbMatch = color.match(/rgb[a]?\((\d+),\s*(\d+),\s*(\d+)/)
-  if (rgbMatch) {
-    const [, r, g, b] = rgbMatch.map(Number)
-    return (r * 299 + g * 587 + b * 114) / 1000 > 160
-  }
-  return true
 }

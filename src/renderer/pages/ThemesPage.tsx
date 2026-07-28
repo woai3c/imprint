@@ -1,10 +1,11 @@
-import { Download } from 'lucide-react'
+import { Download, Star } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
+import { EmptyState } from '../components/ui/EmptyState'
 import { useFeedbackStore } from '../stores/feedback-store'
 import {
   builtinThemes,
@@ -236,12 +237,7 @@ export function ThemesPage() {
             <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
           </>
         ) : themes.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold">{t('themes.noExtracted')}</h3>
-              <p className="text-muted-foreground text-sm mt-1">{t('themes.noExtractedTip')}</p>
-            </div>
-          </div>
+          <EmptyState title={t('themes.noExtracted')} description={t('themes.noExtractedTip')} className="h-64" />
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {themes.map((theme) => (
@@ -262,15 +258,16 @@ export function ThemesPage() {
                   <button
                     type="button"
                     onClick={() => toggleFavorite(theme.id)}
-                    className={`flex size-8 items-center justify-center rounded-md text-base ${theme.is_favorite ? 'text-yellow-500' : 'text-muted-foreground hover:bg-secondary hover:text-yellow-500'} transition-colors`}
+                    className={`flex size-8 items-center justify-center rounded-md ${theme.is_favorite ? 'text-warning' : 'text-muted-foreground hover:bg-secondary hover:text-warning'} transition-colors`}
                     aria-label={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
                       theme: theme.name,
                     })}
                     title={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
                       theme: theme.name,
                     })}
+                    aria-pressed={!!theme.is_favorite}
                   >
-                    {theme.is_favorite ? '★' : '☆'}
+                    <Star size={16} fill={theme.is_favorite ? 'currentColor' : 'none'} aria-hidden="true" />
                   </button>
                 </div>
 
@@ -318,7 +315,7 @@ function ThemeLanguagePanel({ theme }: { theme: AppTheme }) {
   const fontName = theme.tokens.typography.fontHeading.split(',')[0].replaceAll('"', '')
 
   return (
-    <section className="theme-language-panel ui-enter mt-5 rounded-xl border border-border bg-card/70 p-5">
+    <section className="theme-language-panel ui-enter mt-5 rounded-xl border border-border bg-card/50 p-5">
       <div className="flex items-start justify-between gap-6">
         <div>
           <p className="text-xs font-medium leading-5 text-muted-foreground">{t('themes.language.eyebrow')}</p>

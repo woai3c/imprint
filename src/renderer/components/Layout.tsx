@@ -58,7 +58,7 @@ export function Layout() {
           ))}
         </nav>
 
-        <div className="border-t border-border/70 px-2 pb-3 pt-2">
+        <div className="border-t border-border/60 px-2 pb-3 pt-2">
           <NavLink to="/settings" className={navLinkClass}>
             <Settings size={16} aria-hidden="true" />
             <span>{t('nav.settings')}</span>

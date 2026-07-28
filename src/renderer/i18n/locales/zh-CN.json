@@ -16,6 +16,12 @@
     "history": "历史",
     "settings": "设置"
   },
+  "common": {
+    "cancel": "取消",
+    "close": "关闭",
+    "delete": "删除",
+    "confirm": "确认"
+  },
   "feedback": {
     "dismiss": "关闭提示",
     "copied": "已复制到剪贴板",
@@ -621,6 +627,7 @@
     "description": "查看所有过往的 URL 分析记录",
     "search": "搜索 URL...",
     "duration": "耗时 {{seconds}}s",
+    "pageCount": "{{count}} 个页面",
     "viewports": "视口",
     "delete": "删除",
     "loading": "正在加载历史记录...",
@@ -628,7 +635,8 @@
     "tokenCount": "{{count}} 个令牌",
     "openSource": "在浏览器中打开原网站",
     "deleteRecord": "删除这条历史记录",
-    "confirmDelete": "确定删除这条历史记录吗？",
+    "confirmDelete": "确定删除这条历史记录吗？此操作不可撤销。",
+    "confirmDeleteTitle": "删除历史记录",
     "noResults": "暂无分析记录",
     "noResultsTip": "前往「分析」页面开始提取设计风格"
   },
@@ -670,6 +678,7 @@
       "import": "导入主题 Tokens JSON",
       "clearAll": "清除主题与分析记录",
       "confirmClear": "确认要清除全部主题与分析记录？设置不会被清除，此操作不可撤销。",
+      "confirmClearTitle": "清除全部本地数据",
       "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复；导入只支持单个主题的 Tokens JSON。"
     }
   },
@@ -710,6 +719,8 @@
     "typeSampleLong": "敏捷的棕狐跃过安静的树影",
     "frequencyRank": "频率排名 #{{rank}}",
     "occurrences": "{{count}} 次使用",
+    "styleIndex": "样式 {{index}}",
+    "copyValue": "复制 {{value}}",
     "colorGroups": {
       "surface": "表面",
       "text": "文字",

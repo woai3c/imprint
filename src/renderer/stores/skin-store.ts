@@ -20,6 +20,10 @@ export interface ThemeColors {
   sidebar: string
   'sidebar-foreground': string
   'sidebar-accent': string
+  warning: string
+  'warning-strong': string
+  'warning-foreground': string
+  success: string
 }
 
 export type ThemeDensity = 'compact' | 'comfortable' | 'spacious'
@@ -218,6 +222,10 @@ const LIGHT_DEFAULTS: ThemeColors = {
   sidebar: 'oklch(97% 0.01 250)',
   'sidebar-foreground': 'oklch(30% 0.02 250)',
   'sidebar-accent': 'oklch(94% 0.02 265)',
+  warning: 'oklch(75% 0.16 85)',
+  'warning-strong': 'oklch(47% 0.11 75)',
+  'warning-foreground': 'oklch(24% 0.06 80)',
+  success: 'oklch(62% 0.14 160)',
 }
 
 const DARK_DEFAULTS: ThemeColors = {
@@ -238,6 +246,10 @@ const DARK_DEFAULTS: ThemeColors = {
   sidebar: 'oklch(13% 0.01 250)',
   'sidebar-foreground': 'oklch(88% 0.01 250)',
   'sidebar-accent': 'oklch(24% 0.025 250)',
+  warning: 'oklch(82% 0.15 85)',
+  'warning-strong': 'oklch(87% 0.13 88)',
+  'warning-foreground': 'oklch(24% 0.06 80)',
+  success: 'oklch(78% 0.14 165)',
 }
 
 export const builtinThemes: AppTheme[] = [
@@ -278,6 +290,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(92.5% 0.017 88)',
       'sidebar-foreground': 'oklch(29% 0.014 65)',
       'sidebar-accent': 'oklch(86% 0.022 88)',
+      warning: 'oklch(66% 0.14 75)',
+      'warning-strong': 'oklch(40% 0.09 65)',
+      'warning-foreground': 'oklch(96% 0.01 88)',
+      success: 'oklch(52% 0.09 160)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -337,6 +353,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(13.5% 0.021 248)',
       'sidebar-foreground': 'oklch(84% 0.022 210)',
       'sidebar-accent': 'oklch(22% 0.045 215)',
+      warning: 'oklch(78% 0.14 85)',
+      'warning-strong': 'oklch(85% 0.12 88)',
+      'warning-foreground': 'oklch(14% 0.025 250)',
+      success: 'oklch(75% 0.13 175)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -404,6 +424,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(93.5% 0.021 104)',
       'sidebar-foreground': 'oklch(32% 0.032 225)',
       'sidebar-accent': 'oklch(87.5% 0.035 119)',
+      warning: 'oklch(68% 0.11 72)',
+      'warning-strong': 'oklch(42% 0.08 65)',
+      'warning-foreground': 'oklch(98% 0.005 90)',
+      success: 'oklch(56% 0.09 150)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -471,6 +495,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(94% 0.025 258)',
       'sidebar-foreground': 'oklch(26% 0.04 270)',
       'sidebar-accent': 'oklch(89% 0.055 273)',
+      warning: 'oklch(72% 0.15 80)',
+      'warning-strong': 'oklch(45% 0.11 72)',
+      'warning-foreground': 'oklch(20% 0.05 75)',
+      success: 'oklch(65% 0.14 170)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -535,6 +563,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(85.5% 0.055 76)',
       'sidebar-foreground': 'oklch(31% 0.045 58)',
       'sidebar-accent': 'oklch(78% 0.074 66)',
+      warning: 'oklch(62% 0.12 65)',
+      'warning-strong': 'oklch(38% 0.08 58)',
+      'warning-foreground': 'oklch(96% 0.018 79)',
+      success: 'oklch(50% 0.08 155)',
     },
     tokens: createThemeTokens({
       typography: {
@@ -597,6 +629,10 @@ export const builtinThemes: AppTheme[] = [
       sidebar: 'oklch(11.5% 0.03 247)',
       'sidebar-foreground': 'oklch(83% 0.045 214)',
       'sidebar-accent': 'oklch(22% 0.065 230)',
+      warning: 'oklch(80% 0.15 85)',
+      'warning-strong': 'oklch(86% 0.13 88)',
+      'warning-foreground': 'oklch(15% 0.035 246)',
+      success: 'oklch(78% 0.13 175)',
     },
     tokens: createThemeTokens({
       typography: {

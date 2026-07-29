@@ -188,10 +188,8 @@ export function SettingsPage() {
       for (const theme of themes) {
         await window.electronAPI.deleteTheme(theme.id)
       }
-      const analyses = await window.electronAPI.getAnalyses()
-      for (const analysis of analyses) {
-        await window.electronAPI.deleteAnalysis(analysis.id)
-      }
+      const analyses = await window.electronAPI.getAnalysisSummaries()
+      if (analyses.length > 0) await window.electronAPI.deleteAnalyses(analyses.map((analysis) => analysis.id))
       notify(t('feedback.dataCleared'))
       setConfirmClearAll(false)
     } catch {

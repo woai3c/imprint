@@ -172,6 +172,7 @@ export interface ElectronAPI {
   detectAgentClis: (force?: boolean) => Promise<AgentCliInfo[]>
   testApiKey: (provider: string, apiKey: string) => Promise<{ success: boolean; message: string }>
   getAnalyses: () => Promise<AnalysisRecord[]>
+  getAnalysisSummaries: () => Promise<AnalysisRecord[]>
   getAnalysis: (id: string) => Promise<AnalysisDetailData | null>
   deleteAnalysis: (id: string) => Promise<{ success: boolean }>
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>

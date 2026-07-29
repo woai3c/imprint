@@ -83,9 +83,22 @@ export function registerIpcHandlers() {
     const db = getDb()
     return db
       .prepare(
-        `SELECT a.*, t.name as theme_name, t.source_url 
-         FROM analyses a 
-         LEFT JOIN themes t ON a.theme_id = t.id 
+        `SELECT a.*, t.name as theme_name, t.source_url
+         FROM analyses a
+         LEFT JOIN themes t ON a.theme_id = t.id
+         ORDER BY a.created_at DESC`,
+      )
+      .all()
+  })
+
+  ipcMain.handle('analyses:listSummaries', () => {
+    const db = getDb()
+    return db
+      .prepare(
+        `SELECT a.id, a.theme_id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
+                a.token_usage, a.created_at, t.name as theme_name, t.source_url
+         FROM analyses a
+         LEFT JOIN themes t ON a.theme_id = t.id
          ORDER BY a.created_at DESC`,
       )
       .all()

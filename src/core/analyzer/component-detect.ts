@@ -87,14 +87,25 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
     }
 
     const candidatesByType = new Map<BrowserComponentType, Map<Element, BrowserCandidate>>()
+    const computedStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
     const visibilityCache = new WeakMap<Element, boolean>()
     const signatureCache = new WeakMap<Element, string>()
+    const siblingSignatureCountCache = new WeakMap<Element, Map<string, number>>()
+
+    const computedStyleFor = (element: Element): CSSStyleDeclaration => {
+      const cached = computedStyleCache.get(element)
+      if (cached) return cached
+
+      const computed = getComputedStyle(element)
+      computedStyleCache.set(element, computed)
+      return computed
+    }
 
     const isVisible = (element: Element): boolean => {
       const cached = visibilityCache.get(element)
       if (cached !== undefined) return cached
 
-      const computed = getComputedStyle(element)
+      const computed = computedStyleFor(element)
       const hiddenByAttribute = Boolean(element.closest('[hidden], [aria-hidden="true"], [inert]'))
       const rect = element.getBoundingClientRect()
       const visible =
@@ -112,7 +123,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
     }
 
     const stylesFor = (type: BrowserComponentType, element: Element): Record<string, string> => {
-      const computed = getComputedStyle(element)
+      const computed = computedStyleFor(element)
 
       if (type === 'button') {
         return {
@@ -233,7 +244,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       0.65,
       ['class-name', 'overlay-position'],
       (element) => {
-        const computed = getComputedStyle(element)
+        const computed = computedStyleFor(element)
         return (
           element.getAttribute('aria-modal') === 'true' ||
           ((computed.position === 'fixed' || computed.position === 'absolute') && computed.zIndex !== 'auto')
@@ -265,6 +276,24 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       return signature
     }
 
+    const repeatedSiblingCount = (element: Element): number => {
+      const parent = element.parentElement
+      if (!parent) return 1
+
+      let signatureCounts = siblingSignatureCountCache.get(parent)
+      if (!signatureCounts) {
+        signatureCounts = new Map()
+        for (const sibling of parent.children) {
+          if (!isVisible(sibling)) continue
+          const signature = structuralSignature(sibling)
+          signatureCounts.set(signature, (signatureCounts.get(signature) || 0) + 1)
+        }
+        siblingSignatureCountCache.set(parent, signatureCounts)
+      }
+
+      return signatureCounts.get(structuralSignature(element)) || 0
+    }
+
     const excludedCardTags = new Set([
       'HTML',
       'BODY',
@@ -287,7 +316,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
     for (const element of allElements) {
       if (excludedCardTags.has(element.tagName) || !isVisible(element)) continue
 
-      const computed = getComputedStyle(element)
+      const computed = computedStyleFor(element)
       const rect = element.getBoundingClientRect()
       if (rect.width < 120 || rect.height < 72) continue
 
@@ -309,7 +338,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const hasPadding = Math.min(...paddings) >= 12
       if (!hasPadding || (!hasRadius && !hasShadow && !hasBorder)) continue
 
-      const parentBackground = element.parentElement ? getComputedStyle(element.parentElement).backgroundColor : ''
+      const parentBackground = element.parentElement ? computedStyleFor(element.parentElement).backgroundColor : ''
       const hasDistinctSurface =
         !isTransparent(computed.backgroundColor) && computed.backgroundColor !== parentBackground
       const textLength = (element.textContent || '').replace(/\s+/g, ' ').trim().length
@@ -318,11 +347,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const hasMediaOrAction = Boolean(
         element.querySelector('img, picture, svg, button, a[href], [role="button"], input, textarea, select'),
       )
-      const siblings = element.parentElement
-        ? [...element.parentElement.children].filter(
-            (sibling) => isVisible(sibling) && structuralSignature(sibling) === structuralSignature(element),
-          ).length
-        : 1
+      const siblings = repeatedSiblingCount(element)
       const isRepeated = siblings >= 2
       const isLargeLayout = rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.5
 

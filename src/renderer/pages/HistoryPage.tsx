@@ -27,7 +27,7 @@ export function HistoryPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const data = await window.electronAPI.getAnalyses()
+        const data = await window.electronAPI.getAnalysisSummaries()
         setRecords(data)
       } finally {
         setLoading(false)

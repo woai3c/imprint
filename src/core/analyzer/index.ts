@@ -317,13 +317,16 @@ export async function analyze(
     if (subPageLimit > 0 && !authDetection.detected) {
       const mainViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
       const mainViewportName = viewportNames[0] || 'desktop'
-      const discoveryPage = await runtime.context.newPage()
-      await discoveryPage.setViewportSize(mainViewport)
-      await navigatePage(discoveryPage, url)
+      const canReuseInitialPage = initialPage && !initialPage.isClosed()
+      const discoveryPage = canReuseInitialPage ? initialPage : await runtime.context.newPage()
+      if (!canReuseInitialPage) {
+        await discoveryPage.setViewportSize(mainViewport)
+        await navigatePage(discoveryPage, url)
+      }
       onProgress?.('progress.discoveringPages', 75)
 
       const subPages = await discoverSubPages(discoveryPage, url, subPageLimit)
-      await discoveryPage.close()
+      if (!canReuseInitialPage) await discoveryPage.close()
 
       for (let i = 0; i < subPages.length; i++) {
         const subUrl = subPages[i]

@@ -283,6 +283,17 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.locator('a[href="#/history"]').click()
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
+    const analysisListPayloads = await page.evaluate(async () => {
+      const summaries = await window.electronAPI.getAnalysisSummaries()
+      const fullRecords = await window.electronAPI.getAnalyses()
+      return {
+        summaryKeys: Object.keys(summaries[0] || {}),
+        fullRecordHasTokens: Object.hasOwn(fullRecords[0] || {}, 'tokens_json'),
+      }
+    })
+    assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
+    assert.equal(analysisListPayloads.summaryKeys.includes('design_doc'), false)
+    assert.equal(analysisListPayloads.fullRecordHasTokens, true)
 
     await page.locator('a[href="#/templates"]').click()
     await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })

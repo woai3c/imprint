@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "pnpm build && node --test tests/e2e/core-flow.test.mjs",
+    "test:e2e": "pnpm build && pnpm build:cli && node --test tests/e2e/*.test.mjs",
     "test:all": "pnpm test && pnpm test:e2e",
     "lint": "eslint . --fix",
     "format": "prettier --write .",

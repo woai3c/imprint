@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 
+import dunhuangMuralBgUrl from '../assets/dunhuang-mural-bg.jpg'
+import inkLandscapeBgUrl from '../assets/ink-landscape-bg.jpg'
+
 export type ColorMode = 'light' | 'dark'
 
 export interface ThemeColors {
@@ -703,7 +706,7 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
     const theme = builtinThemes.find((t) => t.id === id)
     if (theme) {
       set({ currentThemeId: id, extractedThemeId: null })
-      applyThemeToDOM(theme)
+      applyThemeInstantly(() => applyThemeToDOM(theme))
     }
   },
 
@@ -712,31 +715,51 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
     localStorage.setItem('colorMode', mode)
     const { currentThemeId } = get()
 
-    if (currentThemeId === 'default') {
-      applyColorsToDOM(mode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
-    }
+    applyThemeInstantly(() => {
+      if (currentThemeId === 'default') {
+        applyColorsToDOM(mode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
+      }
 
-    document.documentElement.classList.toggle('dark', mode === 'dark')
+      document.documentElement.classList.toggle('dark', mode === 'dark')
+    })
   },
 
   applyTheme: (theme) => {
     set({ currentThemeId: theme.id, extractedThemeId: null })
-    applyThemeToDOM(theme)
+    applyThemeInstantly(() => applyThemeToDOM(theme))
   },
 
   applyCustomCss: (cssVars, extractedId) => {
     set({ currentThemeId: 'custom', extractedThemeId: extractedId ?? null })
-    resetThemeAppearance('custom')
-    applyCssVarsToDOM(cssVars)
+    applyThemeInstantly(() => {
+      resetThemeAppearance('custom')
+      applyCssVarsToDOM(cssVars)
+    })
   },
 
   reset: () => {
     const { colorMode } = get()
     set({ currentThemeId: 'default', extractedThemeId: null })
-    applyColorsToDOM(colorMode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
-    resetThemeAppearance('default')
+    applyThemeInstantly(() => {
+      applyColorsToDOM(colorMode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
+      resetThemeAppearance('default')
+    })
   },
 }))
+
+// Theme application swaps dozens of variables at once. Suppress transitions for
+// one frame so the change snaps instead of animating every element through a
+// repaint storm under filtered backdrops and blurred surfaces.
+function applyThemeInstantly(apply: () => void) {
+  const root = document.documentElement
+  root.classList.add('theme-switching')
+  apply()
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      root.classList.remove('theme-switching')
+    })
+  })
+}
 
 function applyColorsToDOM(colors: ThemeColors) {
   const root = document.documentElement
@@ -1370,6 +1393,19 @@ function getThemeBackgroundCss(themeId: string): string | null {
 }`,
   }
   return backgrounds[themeId] || null
+}
+
+// Warm the backdrop image cache at idle so the first switch to an illustrated
+// theme does not stall on a synchronous JPEG fetch and decode.
+export function preloadThemeBackdrops() {
+  const schedule = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 1500))
+  schedule(() => {
+    for (const url of [inkLandscapeBgUrl, dunhuangMuralBgUrl]) {
+      const img = new Image()
+      img.src = url
+      void img.decode().catch(() => undefined)
+    }
+  })
 }
 
 export function initColorMode() {

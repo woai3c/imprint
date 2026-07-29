@@ -25,7 +25,9 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 export function Layout() {
   const { t, i18n } = useTranslation()
-  const { colorMode, setColorMode, currentThemeId } = useSkinStore()
+  const colorMode = useSkinStore((state) => state.colorMode)
+  const setColorMode = useSkinStore((state) => state.setColorMode)
+  const supportsColorModeToggle = useSkinStore((state) => state.currentThemeId === 'default')
   const macOS = isMacOS()
 
   useEffect(() => {
@@ -40,8 +42,6 @@ export function Layout() {
   const toggleColorMode = () => {
     setColorMode(colorMode === 'light' ? 'dark' : 'light')
   }
-
-  const supportsColorModeToggle = currentThemeId === 'default'
 
   return (
     <div className="app-shell flex h-screen overflow-hidden">

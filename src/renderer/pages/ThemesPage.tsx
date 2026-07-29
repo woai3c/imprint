@@ -242,7 +242,7 @@ export function ThemesPage() {
                 key={theme.id}
                 data-selected={extractedThemeId === theme.id}
                 className={`rounded-xl border p-4 transition-colors ${
-                  extractedThemeId === theme.id ? 'border-primary' : 'border-border hover:border-primary/50'
+                  extractedThemeId === theme.id ? 'border-primary' : 'border-border hover:border-primary/70'
                 }`}
               >
                 <div className="flex items-start justify-between mb-3">
@@ -414,7 +414,7 @@ function ThemeCard({
     <article
       data-selected={isActive}
       className={`theme-card flex h-full min-h-44 flex-col rounded-xl border p-4 text-left transition-colors ${
-        isActive ? 'border-primary' : 'border-border hover:border-primary/40'
+        isActive ? 'border-primary' : 'border-border hover:border-primary/70'
       }`}
     >
       <button

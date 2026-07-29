@@ -82,6 +82,15 @@
   }
 }
 
+/* Theme switches swap dozens of variables at once; letting every element animate
+   through the change causes a repaint storm under filtered backdrops and blurred
+   surfaces, so the switch itself applies instantly. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition-property: none !important;
+}
+
 /* Foundation tokens are shared by every theme. Art direction can vary without
    changing the interaction contract or scattering values across components. */
 .app-sidebar {

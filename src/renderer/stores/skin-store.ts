@@ -1321,7 +1321,6 @@ function getThemeBackgroundCss(themeId: string): string | null {
   background:
     linear-gradient(90deg, rgb(246 242 232 / 12%), rgb(246 242 232 / 46%) 28%, rgb(246 242 232 / 32%)),
     url('./ink-landscape-bg.jpg') center bottom / cover no-repeat;
-  filter: saturate(0.82) contrast(0.96);
   opacity: 0.58;
 }
 
@@ -1366,7 +1365,6 @@ function getThemeBackgroundCss(themeId: string): string | null {
   background:
     linear-gradient(90deg, rgb(231 204 158 / 24%), rgb(244 222 181 / 48%) 38%, rgb(234 209 169 / 18%)),
     url('./dunhuang-mural-bg.jpg') center bottom / cover no-repeat;
-  filter: saturate(0.86) contrast(0.94);
   opacity: 0.78;
 }
 

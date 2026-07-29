@@ -257,22 +257,23 @@ html[data-app-theme='chinese-landscape'] {
     linear-gradient(90deg, rgb(246 242 232 / 12%), rgb(246 242 232 / 46%) 28%, rgb(246 242 232 / 32%)),
     url('../assets/ink-landscape-bg.jpg') center bottom / cover no-repeat;
   --art-backdrop-size: cover;
-  --art-backdrop-filter: saturate(0.82) contrast(0.96);
+  /* saturate/contrast is baked into the JPEG asset; a live filter over the whole
+     window re-rasterizes on unrelated repaints and causes frame spikes. */
   --art-backdrop-opacity: 0.58;
   --art-overlay:
     radial-gradient(circle at 72% 18%, rgb(255 253 246 / 76%) 0 18%, transparent 52%),
     linear-gradient(180deg, rgb(247 243 233 / 24%), rgb(247 243 233 / 46%));
-  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 82%, transparent);
+  /* Backdrop blur over a full-window filtered image stalls weak GPUs on every
+     repaint, so the frosted layers use near-opaque tints instead. */
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 94%, transparent);
   --art-sidebar-border: color-mix(in oklab, var(--color-border) 72%, transparent);
   --art-sidebar-shadow: 12px 0 36px rgb(52 47 38 / 5%);
-  --art-sidebar-filter: blur(14px) saturate(0.8);
   --art-nav-active-bg:
     linear-gradient(90deg, color-mix(in oklab, var(--color-sidebar-accent) 78%, transparent), transparent),
     linear-gradient(90deg, rgb(54 55 49 / 7%), transparent);
   --art-nav-active-shadow: inset 2px 0 var(--color-ring);
-  --art-topbar-bg: color-mix(in oklab, var(--color-background) 46%, transparent);
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 88%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-border) 55%, transparent);
-  --art-topbar-filter: blur(10px);
   --art-content-bg: linear-gradient(90deg, rgb(248 245 237 / 34%), rgb(248 245 237 / 64%) 38%, rgb(248 245 237 / 42%));
   --art-card-bg: color-mix(in oklab, var(--color-card) 88%, transparent);
   --art-secondary-bg: color-mix(in oklab, var(--color-secondary) 82%, transparent);
@@ -445,24 +446,25 @@ html[data-app-theme='dunhuang'] {
     linear-gradient(90deg, rgb(231 204 158 / 24%), rgb(244 222 181 / 48%) 38%, rgb(234 209 169 / 18%)),
     url('../assets/dunhuang-mural-bg.jpg') center bottom / cover no-repeat;
   --art-backdrop-size: cover;
-  --art-backdrop-filter: saturate(0.86) contrast(0.94);
+  /* saturate/contrast is baked into the JPEG asset; a live filter over the whole
+     window re-rasterizes on unrelated repaints and causes frame spikes. */
   --art-backdrop-opacity: 0.78;
   --art-overlay:
     radial-gradient(circle at 58% 24%, rgb(255 239 207 / 65%), transparent 48%),
     linear-gradient(180deg, rgb(244 224 187 / 20%), rgb(236 211 171 / 35%));
-  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 86%, transparent);
+  /* Backdrop blur over a full-window filtered image stalls weak GPUs on every
+     repaint, so the frosted layers use near-opaque tints instead. */
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 94%, transparent);
   --art-sidebar-border: color-mix(in oklab, var(--color-border) 70%, transparent);
   --art-sidebar-shadow: 12px 0 38px rgb(82 53 30 / 10%);
-  --art-sidebar-filter: blur(10px) saturate(0.8);
   --art-nav-active-bg: linear-gradient(
     90deg,
     color-mix(in oklab, var(--color-sidebar-accent) 72%, transparent),
     transparent
   );
   --art-nav-active-shadow: inset 2px 0 var(--color-ring);
-  --art-topbar-bg: color-mix(in oklab, var(--color-background) 48%, transparent);
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 88%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-border) 55%, transparent);
-  --art-topbar-filter: blur(10px);
   --art-content-bg: linear-gradient(90deg, rgb(246 225 187 / 34%), rgb(250 232 200 / 56%) 42%, rgb(240 215 174 / 26%));
   --art-card-bg: color-mix(in oklab, var(--color-card) 87%, transparent);
   --art-card-shadow: inset 0 0 0 1px rgb(255 238 204 / 22%);

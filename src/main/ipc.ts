@@ -38,6 +38,23 @@ import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
 import { getSettings, saveSettings } from './settings.js'
 import { normalizeImportedTokens, readImportedThemeMeta } from './theme-import.js'
 
+interface SaveTextFileOptions {
+  defaultName: string
+  extension: string
+  filterName: string
+}
+
+async function saveTextFile(content: string, options: SaveTextFileOptions) {
+  const result = await dialog.showSaveDialog({
+    defaultPath: options.defaultName,
+    filters: [{ name: options.filterName, extensions: [options.extension] }],
+  })
+  if (result.canceled || !result.filePath) return { success: false as const, canceled: true as const }
+
+  fs.writeFileSync(result.filePath, content, 'utf-8')
+  return { success: true as const, filePath: result.filePath }
+}
+
 export function registerIpcHandlers() {
   migrateLegacyManagedSessions(app.getPath('userData'))
 
@@ -365,14 +382,14 @@ export function registerIpcHandlers() {
 
   // --- Export file directly (from analysis result, not saved theme) ---
   ipcMain.handle('export:file', async (_event, content: string, defaultName: string, ext: string) => {
-    const result = await dialog.showSaveDialog({
-      defaultPath: defaultName,
-      filters: [{ name: `${ext.toUpperCase()} Files`, extensions: [ext] }],
+    const result = await saveTextFile(content, {
+      defaultName,
+      extension: ext,
+      filterName: `${ext.toUpperCase()} Files`,
     })
-    if (result.canceled || !result.filePath) return { success: false, canceled: true }
-    fs.writeFileSync(result.filePath, content, 'utf-8')
+    if (!result.success) return result
     log.info('export', `file written: ${result.filePath}`)
-    return { success: true, filePath: result.filePath }
+    return result
   })
 
   // --- Export built-in theme with assets to a directory ---
@@ -455,14 +472,13 @@ export function registerIpcHandlers() {
         return { error: true, message: `Unknown format: ${format}` }
     }
 
-    const result = await dialog.showSaveDialog({
-      defaultPath: defaultName,
-      filters: [{ name: filterName, extensions: [ext] }],
+    const result = await saveTextFile(content, {
+      defaultName,
+      extension: ext,
+      filterName,
     })
 
-    if (result.canceled || !result.filePath) return { success: false, canceled: true }
-
-    fs.writeFileSync(result.filePath, content, 'utf-8')
+    if (!result.success) return result
     log.info('export', `theme exported: id=${id} format=${format} path=${result.filePath}`)
 
     const exportId = uuidv4()

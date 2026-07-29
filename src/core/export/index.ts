@@ -20,6 +20,62 @@ export interface DarkModeExportData {
   method?: 'media-query' | 'class-toggle' | 'none'
 }
 
+interface ThemeCustomPropertyOptions {
+  fontFamily?: string
+  includeFontSizes?: boolean
+  includeShadows?: boolean
+  includeLetterSpacings?: boolean
+  includeZIndices?: boolean
+}
+
+function appendColorCustomProperties(lines: string[], colors: Readonly<Record<string, string>>, indent = '  '): void {
+  for (const [name, value] of Object.entries(colors)) {
+    lines.push(`${indent}--color-${name}: ${value};`)
+  }
+}
+
+function appendIndexedCustomProperties(
+  lines: string[],
+  values: readonly string[] | undefined,
+  prefix: string,
+  names: readonly string[] | ((index: number) => string) = [],
+  indent = '  ',
+): void {
+  values?.forEach((value, index) => {
+    const name = typeof names === 'function' ? names(index) : names[index] || `${index + 1}`
+    lines.push(`${indent}--${prefix}-${name}: ${value};`)
+  })
+}
+
+function appendThemeCustomProperties(lines: string[], tokens: DesignToken, options: ThemeCustomPropertyOptions): void {
+  appendColorCustomProperties(lines, tokens.colors)
+
+  if (options.fontFamily !== undefined) {
+    lines.push(`  --font-sans: ${options.fontFamily};`)
+  }
+
+  if (options.includeFontSizes) {
+    appendIndexedCustomProperties(lines, tokens.typography.fontSizes, 'font-size', FONT_SIZE_NAMES)
+  }
+
+  appendIndexedCustomProperties(lines, tokens.spacing, 'spacing')
+  appendIndexedCustomProperties(lines, tokens.radii, 'radius', RADIUS_NAMES)
+
+  if (options.includeShadows) {
+    appendIndexedCustomProperties(lines, tokens.shadows, 'shadow', SHADOW_NAMES)
+  }
+
+  if (options.includeLetterSpacings) {
+    appendIndexedCustomProperties(lines, tokens.typography.letterSpacings, 'letter-spacing', LETTER_SPACING_NAMES)
+  }
+
+  if (options.includeZIndices) {
+    appendIndexedCustomProperties(lines, tokens.zIndices, 'z', (index) => `${(index + 1) * 10}`)
+  }
+
+  appendIndexedCustomProperties(lines, tokens.transitions, 'duration', DURATION_NAMES)
+}
+
 export function generateCssVariables(
   tokens: DesignToken,
   darkMode?: DarkModeExportData,
@@ -27,50 +83,13 @@ export function generateCssVariables(
 ): string {
   const lines: string[] = [':root {']
 
-  for (const [name, value] of Object.entries(tokens.colors)) {
-    lines.push(`  --color-${name}: ${value};`)
-  }
-
-  if (tokens.typography.fontFamilies.length > 0) {
-    lines.push(`  --font-sans: ${tokens.typography.fontFamilies[0]};`)
-  }
-
-  tokens.typography.fontSizes.forEach((val, i) => {
-    const name = FONT_SIZE_NAMES[i] || `${i + 1}`
-    lines.push(`  --font-size-${name}: ${val};`)
+  appendThemeCustomProperties(lines, tokens, {
+    fontFamily: tokens.typography.fontFamilies.length > 0 ? tokens.typography.fontFamilies[0] : undefined,
+    includeFontSizes: true,
+    includeShadows: true,
+    includeLetterSpacings: true,
+    includeZIndices: true,
   })
-
-  tokens.spacing.forEach((val, i) => {
-    lines.push(`  --spacing-${i + 1}: ${val};`)
-  })
-
-  tokens.radii.forEach((val, i) => {
-    const name = RADIUS_NAMES[i] || `${i + 1}`
-    lines.push(`  --radius-${name}: ${val};`)
-  })
-
-  tokens.shadows.forEach((val, i) => {
-    const name = SHADOW_NAMES[i] || `${i + 1}`
-    lines.push(`  --shadow-${name}: ${val};`)
-  })
-
-  if (tokens.typography.letterSpacings?.length > 0) {
-    tokens.typography.letterSpacings.forEach((val, i) => {
-      lines.push(`  --letter-spacing-${LETTER_SPACING_NAMES[i] || i + 1}: ${val};`)
-    })
-  }
-
-  if (tokens.zIndices?.length > 0) {
-    tokens.zIndices.forEach((val, i) => {
-      lines.push(`  --z-${(i + 1) * 10}: ${val};`)
-    })
-  }
-
-  if (tokens.transitions?.length > 0) {
-    tokens.transitions.forEach((val, i) => {
-      lines.push(`  --duration-${DURATION_NAMES[i] || i + 1}: ${val};`)
-    })
-  }
 
   if (breakpoints && breakpoints.length > 0) {
     breakpoints.forEach((bp) => {
@@ -87,16 +106,8 @@ export function generateCssVariables(
     if (darkMode.method === 'media-query') lines.push('  :root {')
     const indent = darkMode.method === 'media-query' ? '    ' : '  '
 
-    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
-      lines.push(`${indent}--color-${name}: ${value};`)
-    }
-
-    if (darkMode.darkTokens.shadows.length > 0) {
-      darkMode.darkTokens.shadows.forEach((val, i) => {
-        const name = SHADOW_NAMES[i] || `${i + 1}`
-        lines.push(`${indent}--shadow-${name}: ${val};`)
-      })
-    }
+    appendColorCustomProperties(lines, darkMode.darkTokens.colors, indent)
+    appendIndexedCustomProperties(lines, darkMode.darkTokens.shadows, 'shadow', SHADOW_NAMES, indent)
 
     if (darkMode.method === 'media-query') lines.push('  }')
     lines.push('}')
@@ -108,28 +119,12 @@ export function generateCssVariables(
 export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeExportData): string {
   const lines: string[] = ['@theme {']
 
-  for (const [name, value] of Object.entries(tokens.colors)) {
-    lines.push(`  --color-${name}: ${value};`)
-  }
-
-  if (tokens.typography.fontFamilies.length > 0) {
-    lines.push(`  --font-sans: ${tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]};`)
-  }
-
-  tokens.spacing.forEach((val, i) => {
-    lines.push(`  --spacing-${i + 1}: ${val};`)
+  appendThemeCustomProperties(lines, tokens, {
+    fontFamily:
+      tokens.typography.fontFamilies.length > 0
+        ? tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
+        : undefined,
   })
-
-  tokens.radii.forEach((val, i) => {
-    const name = RADIUS_NAMES[i] || `${i + 1}`
-    lines.push(`  --radius-${name}: ${val};`)
-  })
-
-  if (tokens.transitions?.length > 0) {
-    tokens.transitions.forEach((val, i) => {
-      lines.push(`  --duration-${DURATION_NAMES[i] || i + 1}: ${val};`)
-    })
-  }
 
   lines.push('}')
 
@@ -137,9 +132,7 @@ export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeEx
     lines.push('')
     lines.push('/* Dark mode overrides */')
     lines.push('.dark {')
-    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
-      lines.push(`  --color-${name}: ${value};`)
-    }
+    appendColorCustomProperties(lines, darkMode.darkTokens.colors)
     lines.push('}')
   }
 

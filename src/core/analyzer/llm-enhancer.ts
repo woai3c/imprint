@@ -1,3 +1,4 @@
+import { isRecord } from '../../shared/type-guards.js'
 import type { ColorRenameProposal } from './token-renamer.js'
 import type { DesignToken } from './types.js'
 
@@ -97,10 +98,6 @@ async function callLlm(config: LlmConfig, prompt: string): Promise<string> {
 interface EnhancementPayload {
   renames?: unknown[]
   colorNames?: Record<string, unknown>
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isEnhancementPayload(value: unknown): value is EnhancementPayload {

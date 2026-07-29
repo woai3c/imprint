@@ -1,10 +1,5 @@
 import type { DesignToken } from '../core/analyzer/types.js'
-
-type UnknownRecord = Record<string, unknown>
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+import { type UnknownRecord, isRecord } from '../shared/type-guards.js'
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []

@@ -71,10 +71,7 @@ let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
 const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
 console.log(JSON.stringify({
-  colorNames: colorName ? { [colorName]: 'e2e-agent-brand' } : {},
-  designSummary: 'E2E agent enhancement',
-  designIntent: 'Verify the local Agent CLI execution path',
-  featureTags: ['e2e-agent']
+  renames: colorName ? [{ tokenId: colorName, name: 'e2e-agent-brand' }] : []
 }))
 `
   await fs.writeFile(path.join(fakeAgentDir, 'fake-agent.mjs'), fakeAgentSource, 'utf-8')

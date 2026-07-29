@@ -20,6 +20,7 @@ import {
 } from '../core/analyzer/index.js'
 import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
 import { buildDesignTokens } from '../core/analyzer/token-builder.js'
+import { type ColorRenameProposal, applyColorRenames, validateColorRenames } from '../core/analyzer/token-renamer.js'
 import {
   type DarkModeExportData,
   generateCssVariables,
@@ -189,7 +190,8 @@ export function registerIpcHandlers() {
 
         // LLM semantic enhancement (optional, only if AI is configured)
         const settings = getSettings()
-        const enhancedTokens = result.tokens
+        let enhancedTokens = result.tokens
+        let acceptedColorRenames: ColorRenameProposal[] = []
         let enhancement = null
         if (settings.aiMode === 'apiKey' && settings.provider && settings.apiKey) {
           analysisStage = 'progress.enhancingWithAi'
@@ -206,19 +208,21 @@ export function registerIpcHandlers() {
         }
 
         if (enhancement) {
-          for (const [oldName, newName] of Object.entries(enhancement.colorNames)) {
-            if (enhancedTokens.colors[oldName]) {
-              const value = enhancedTokens.colors[oldName]
-              delete enhancedTokens.colors[oldName]
-              enhancedTokens.colors[newName] = value
-            }
+          const validation = validateColorRenames(result.tokens, enhancement.renames)
+          acceptedColorRenames = validation.accepted
+          enhancedTokens = applyColorRenames(result.tokens, acceptedColorRenames)
+          if (validation.rejected.length > 0) {
+            log.warn('analysis', `rejected ${validation.rejected.length} invalid AI color rename proposal(s)`)
           }
         }
 
         let darkModeExport: DarkModeExportData | undefined
         if (result.darkMode?.hasDarkMode && result.darkMode.darkStyles) {
           const darkClustered = clusterColors(result.darkMode.darkStyles.colors, result.darkMode.darkStyles.usageCount)
-          const darkTokens = buildDesignTokens(result.darkMode.darkStyles, darkClustered)
+          const darkTokens = applyColorRenames(
+            buildDesignTokens(result.darkMode.darkStyles, darkClustered),
+            acceptedColorRenames,
+          )
           darkModeExport = {
             hasDarkMode: true,
             darkTokens,

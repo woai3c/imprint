@@ -4,7 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 
 import type { DesignToken } from '../core/analyzer/index.js'
-import { type LlmEnhancement, buildEnhancementPrompt, parseEnhancementResponse } from '../core/analyzer/llm-enhancer.js'
+import {
+  type EnhancementContext,
+  type LlmEnhancement,
+  buildEnhancementPrompt,
+  parseEnhancementResponse,
+} from '../core/analyzer/llm-enhancer.js'
 import { log } from './logger.js'
 
 const AGENT_TIMEOUT_MS = 120_000
@@ -183,6 +188,7 @@ export async function enhanceWithAgentCli(
   tokens: DesignToken,
   url: string,
   command: string,
+  context: EnhancementContext = {},
 ): Promise<LlmEnhancement | null> {
   const invocation = AGENT_INVOCATIONS[command]
   if (!invocation) {
@@ -192,7 +198,7 @@ export async function enhanceWithAgentCli(
 
   const startedAt = Date.now()
   try {
-    const response = await executeAgent(command, invocation, buildEnhancementPrompt(tokens, url))
+    const response = await executeAgent(command, invocation, buildEnhancementPrompt(tokens, url, context))
     const enhancement = parseEnhancementResponse(response)
     if (!enhancement) {
       log.error(

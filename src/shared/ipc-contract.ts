@@ -35,7 +35,7 @@ export interface ThemeRecord {
   id: string
   name: string
   source_url: string | null
-  screenshot_path: string | null
+  screenshot_path?: string | null
   tokens_json: string
   css_variables: string
   tailwind_theme: string
@@ -58,6 +58,7 @@ export interface AnalysisRecord {
   created_at: string
   theme_name: string | null
   source_url: string | null
+  screenshot_path: string | null
 }
 
 export interface PageScreenshotData {

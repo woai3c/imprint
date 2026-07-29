@@ -148,7 +148,7 @@ export function ArtifactPanel({ result, saved, onSaved }: ArtifactPanelProps) {
         }
       />
 
-      <div key={activeTab} className="ui-enter flex-1 overflow-auto bg-card">
+      <div key={activeTab} data-testid="artifact-scroll-container" className="ui-enter flex-1 overflow-auto bg-card">
         {activeTab === 'preview' && tokens && (
           <>
             <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />

@@ -6,7 +6,7 @@ import {
 } from '../analyzer/agent-guide.js'
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import type { ComponentPattern } from '../analyzer/component-detect.js'
-import type { DesignToken } from '../analyzer/types.js'
+import type { DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
 
 const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
 const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
@@ -145,8 +145,9 @@ export function generateDesignDoc(
   featureTags?: string[],
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string }>,
-  components?: ComponentPattern[],
+  _components?: ComponentPattern[],
   language: DocLanguage = 'en',
+  exampleComponents: readonly GeneratedExampleComponent[] = [],
 ): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
@@ -294,9 +295,10 @@ export function generateDesignDoc(
   lines.push('')
   lines.push(generateDesignPrinciples(tokens, language))
 
-  // Example Components
-  lines.push('\n---\n')
-  lines.push(generateExampleComponents(tokens, components, language))
+  if (exampleComponents.length > 0) {
+    lines.push('\n---\n')
+    lines.push(generateExampleComponents(exampleComponents, language))
+  }
 
   // Agent Prompt Guide
   lines.push(generateAgentGuide(tokens, url, language))

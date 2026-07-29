@@ -56,7 +56,13 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   }, [analysisId, onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]">
+    <div
+      data-testid="analysis-detail-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
+    >
       <div
         data-testid="analysis-detail-dialog"
         role="dialog"
@@ -88,7 +94,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
             {t('feedback.actionFailed')}
           </div>
         ) : (
-          <div className="min-h-0 flex-1 p-4">
+          <div className="flex min-h-0 flex-1 p-4">
             <ArtifactPanel result={result} saved={saved} onSaved={() => setSaved(true)} />
           </div>
         )}

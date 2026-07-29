@@ -1,4 +1,4 @@
-import { ExternalLink, Trash2, X } from 'lucide-react'
+import { ExternalLink, ImageIcon, Trash2, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
+import { getScreenshotUrl } from '../lib/page-screenshots'
 import { useFeedbackStore } from '../stores/feedback-store'
 
 export function HistoryPage() {
@@ -178,6 +179,7 @@ export function HistoryPage() {
             {filtered.map((record) => (
               <div
                 key={record.id}
+                data-testid="history-record"
                 role="button"
                 tabIndex={0}
                 onClick={() => setDetailId(record.id)}
@@ -202,6 +204,7 @@ export function HistoryPage() {
                   aria-label={t('history.selectRecord', { url: record.url })}
                   className="h-4 w-4 shrink-0 cursor-pointer rounded border-input accent-primary"
                 />
+                <HistoryThumbnail path={record.screenshot_path} url={record.url} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
                     <span className="text-sm truncate">{record.url}</span>
@@ -264,5 +267,35 @@ export function HistoryPage() {
       )}
       {detailId && <AnalysisDetailDialog analysisId={detailId} onClose={() => setDetailId(null)} />}
     </div>
+  )
+}
+
+function HistoryThumbnail({ path, url }: { path?: string | null; url: string }) {
+  const { t } = useTranslation()
+  const [failed, setFailed] = useState(false)
+
+  if (!path || failed) {
+    return (
+      <div
+        title={t('history.noPreview')}
+        className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-muted-foreground"
+      >
+        <ImageIcon size={18} aria-hidden="true" />
+        <span className="sr-only">{t('history.noPreview')}</span>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      data-testid="history-preview-image"
+      src={getScreenshotUrl(path)}
+      alt={t('history.previewAlt', { url })}
+      loading="lazy"
+      decoding="async"
+      draggable={false}
+      onError={() => setFailed(true)}
+      className="h-16 w-24 shrink-0 rounded-md border border-border/60 bg-muted/30 object-cover object-top"
+    />
   )
 }

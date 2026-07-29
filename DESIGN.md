@@ -207,6 +207,11 @@ to Imprint rather than an enterprise administration UI.
   and are never duplicated into the database.
 - History rows act as work entries, not a log: selecting a record opens the complete result in a dialog where the
   user can review every artifact, copy the design document, export files, or save the result to the Theme Library.
+- Each history row shows the first captured page screenshot as a compact, top-aligned thumbnail; records whose
+  screenshot is unavailable retain the same layout with an explicit placeholder.
+- The history-detail shell stays fixed within the desktop window while its active artifact scrolls inside the dialog.
+  Long token previews and documents must never extend beyond an unscrollable clipped surface. Escape, the visible close
+  action, and a direct click on the surrounding backdrop all dismiss the dialog; interaction inside it never does.
 - Deleting a history record is destructive and requires explicit confirmation; deleting a record never removes a
   theme that was already saved to the library.
 - History rows support multi-select through always-visible checkboxes, including a select-all checkbox that applies to
@@ -251,9 +256,11 @@ Every export action must name the artifact it will create. Theme-library prefere
 the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
 design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
 
-The Preview tab closes the loop on DESIGN.md's example components: each example HTML block is rendered live in a
-sandboxed iframe with the extracted CSS variables applied, so users see the components the document describes before
-exporting anything. Rendering never executes scripts.
+When AI enhancement is configured and returns validated example HTML, the Preview tab renders each example live in a
+sandboxed iframe with the extracted CSS variables applied. Without AI, after AI failure, or when its output is invalid,
+Imprint omits the example section from both the preview and generated DESIGN.md so deterministic extraction stays
+compact. AI examples are validation surfaces rather than reconstructions of source markup. Rendering never executes
+scripts.
 
 ## Anti-slop guardrails
 

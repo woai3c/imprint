@@ -9,8 +9,8 @@ interface ExampleBlock {
 const MAX_FRAME_HEIGHT = 480
 const MIN_FRAME_HEIGHT = 48
 
-function parseExampleComponents(designDoc: string): ExampleBlock[] {
-  const sectionMatch = /^## Example Components\s*$/m.exec(designDoc)
+export function parseExampleComponents(designDoc: string): ExampleBlock[] {
+  const sectionMatch = /^## (?:Example Components|示例组件)\s*$/m.exec(designDoc)
   if (!sectionMatch) return []
   const rest = designDoc.slice(sectionMatch.index)
   const nextSection = rest.slice(2).search(/^## /m)
@@ -82,7 +82,7 @@ ${example.html}
           const doc = event.currentTarget.contentDocument
           if (!doc) return
           const measured = doc.documentElement.scrollHeight
-          setHeight(Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, measured)))
+          setHeight(Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, measured + 2)))
         }}
         style={{ height }}
         className="w-full overflow-hidden rounded-lg border border-border/60 bg-background"

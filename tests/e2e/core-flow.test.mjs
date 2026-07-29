@@ -77,6 +77,14 @@ console.log(JSON.stringify({
         { tokenId: 'missing-token', name: 'should-be-rejected' },
         { tokenId: 'background', name: 'Invalid Name' }
       ]
+    : [],
+  examples: colorName
+    ? [
+        {
+          title: 'AI action card',
+          html: '<article style="background: var(--color-' + colorName + '); color: var(--color-background); padding: var(--spacing-3)"><h3>AI example card</h3></article>'
+        }
+      ]
     : []
 }))
 `
@@ -188,6 +196,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 3)
+    assert.equal(await page.getByTestId('example-components').count(), 0)
     await page.getByTestId('analysis-page-screenshot').first().locator('img').click()
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-screenshot-zoom-in').click()
@@ -266,6 +275,14 @@ test('extracts a local design system without LLM credentials and persists it', {
       2,
       'The accepted semantic name must be shared by light and dark color tokens',
     )
+    await page.getByTestId('example-components').waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('example-component-frame').count(), 1)
+    const aiExampleFrame = page.getByTestId('example-component-frame')
+    assert.match(
+      await aiExampleFrame.evaluate((frame) => frame.contentDocument?.body.textContent || ''),
+      /AI example card/,
+    )
+    assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-e2e-agent-brand/)
     await page.evaluate(async () => {
       await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
     })
@@ -283,17 +300,34 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.locator('a[href="#/history"]').click()
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
+    assert.equal(await page.getByTestId('history-preview-image').count(), 2)
     const analysisListPayloads = await page.evaluate(async () => {
       const summaries = await window.electronAPI.getAnalysisSummaries()
       const fullRecords = await window.electronAPI.getAnalyses()
       return {
         summaryKeys: Object.keys(summaries[0] || {}),
+        summaryHasScreenshot: typeof summaries[0]?.screenshot_path === 'string',
         fullRecordHasTokens: Object.hasOwn(fullRecords[0] || {}, 'tokens_json'),
       }
     })
     assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
     assert.equal(analysisListPayloads.summaryKeys.includes('design_doc'), false)
+    assert.equal(analysisListPayloads.summaryHasScreenshot, true)
     assert.equal(analysisListPayloads.fullRecordHasTokens, true)
+    await page.getByTestId('history-record').first().click()
+    await page.getByTestId('analysis-detail-dialog').waitFor({ state: 'visible' })
+    const historyArtifactScroller = page.getByTestId('artifact-scroll-container')
+    const historyScrollMetrics = await historyArtifactScroller.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+    }))
+    assert.ok(historyScrollMetrics.scrollHeight > historyScrollMetrics.clientHeight)
+    await historyArtifactScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    assert.ok((await historyArtifactScroller.evaluate((element) => element.scrollTop)) > 0)
+    await page.getByTestId('analysis-detail-backdrop').click({ position: { x: 4, y: 4 } })
+    await page.getByTestId('analysis-detail-dialog').waitFor({ state: 'detached' })
 
     await page.locator('a[href="#/templates"]').click()
     await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })

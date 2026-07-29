@@ -76,6 +76,11 @@ export interface DesignToken {
   usageCount?: Record<string, number>
 }
 
+export interface GeneratedExampleComponent {
+  title: string
+  html: string
+}
+
 export interface AnalysisResult {
   tokens: DesignToken
   screenshots: string[]

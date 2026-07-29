@@ -18,9 +18,10 @@ import {
   AuthenticationRequiredError,
   type LoginDecision,
 } from '../core/analyzer/index.js'
-import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
+import { applyColorRenamesToExamples, enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
 import { buildDesignTokens } from '../core/analyzer/token-builder.js'
 import { type ColorRenameProposal, applyColorRenames, validateColorRenames } from '../core/analyzer/token-renamer.js'
+import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import {
   type DarkModeExportData,
   generateCssVariables,
@@ -29,6 +30,7 @@ import {
   generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import { isRecord } from '../shared/type-guards.js'
 import { detectAgentClis } from './agent-detect.js'
 import { enhanceWithAgentCli } from './agent-enhancer.js'
 import { analyzeUrl } from './analyzer/index.js'
@@ -42,6 +44,19 @@ interface SaveTextFileOptions {
   defaultName: string
   extension: string
   filterName: string
+}
+
+function readFirstScreenshotPath(serialized: unknown): string | null {
+  if (typeof serialized !== 'string') return null
+
+  try {
+    const screenshots = JSON.parse(serialized) as unknown
+    if (!Array.isArray(screenshots) || screenshots.length === 0) return null
+    const first = screenshots[0]
+    return isRecord(first) && typeof first.path === 'string' ? first.path : null
+  } catch {
+    return null
+  }
 }
 
 async function saveTextFile(content: string, options: SaveTextFileOptions) {
@@ -93,15 +108,21 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('analyses:listSummaries', () => {
     const db = getDb()
-    return db
+    const records = db
       .prepare(
         `SELECT a.id, a.theme_id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                a.token_usage, a.created_at, t.name as theme_name, t.source_url
+                a.token_usage, a.created_at, a.page_screenshots_json,
+                t.name as theme_name, t.source_url
          FROM analyses a
          LEFT JOIN themes t ON a.theme_id = t.id
          ORDER BY a.created_at DESC`,
       )
-      .all()
+      .all() as Array<Record<string, unknown>>
+
+    return records.map(({ page_screenshots_json: screenshots, ...record }) => ({
+      ...record,
+      screenshot_path: readFirstScreenshotPath(screenshots),
+    }))
   })
 
   ipcMain.handle('analyses:delete', (_event, id: string) => {
@@ -222,25 +243,37 @@ export function registerIpcHandlers() {
         const settings = getSettings()
         let enhancedTokens = result.tokens
         let acceptedColorRenames: ColorRenameProposal[] = []
+        let aiExampleComponents: GeneratedExampleComponent[] = []
         let enhancement = null
+        const enhancementContext = {
+          featureTags: result.featureTags,
+          components: result.components,
+          language: options?.language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const),
+        }
         if (settings.aiMode === 'apiKey' && settings.provider && settings.apiKey) {
           analysisStage = 'progress.enhancingWithAi'
           win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
-          enhancement = await enhanceWithLlm(result.tokens, url, {
-            provider: settings.provider,
-            apiKey: settings.apiKey,
-            baseUrl: settings.baseUrl || undefined,
-          })
+          enhancement = await enhanceWithLlm(
+            result.tokens,
+            url,
+            {
+              provider: settings.provider,
+              apiKey: settings.apiKey,
+              baseUrl: settings.baseUrl || undefined,
+            },
+            enhancementContext,
+          )
         } else if (settings.aiMode === 'agentCli' && settings.agentCli) {
           analysisStage = 'progress.enhancingWithAi'
           win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
-          enhancement = await enhanceWithAgentCli(result.tokens, url, settings.agentCli)
+          enhancement = await enhanceWithAgentCli(result.tokens, url, settings.agentCli, enhancementContext)
         }
 
         if (enhancement) {
           const validation = validateColorRenames(result.tokens, enhancement.renames)
           acceptedColorRenames = validation.accepted
           enhancedTokens = applyColorRenames(result.tokens, acceptedColorRenames)
+          aiExampleComponents = applyColorRenamesToExamples(enhancement.examples, acceptedColorRenames)
           if (validation.rejected.length > 0) {
             log.warn('analysis', `rejected ${validation.rejected.length} invalid AI color rename proposal(s)`)
           }
@@ -270,6 +303,7 @@ export function registerIpcHandlers() {
           result.breakpoints,
           result.components,
           options?.language?.startsWith('zh') ? 'zh-CN' : 'en',
+          aiExampleComponents,
         )
 
         const db = getDb()

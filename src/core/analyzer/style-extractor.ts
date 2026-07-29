@@ -122,6 +122,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const zIndex = computed.zIndex
       if (zIndex && zIndex !== 'auto' && zIndex !== '0') {
         styles.zIndices.push(zIndex)
+        countUsage('zIndex', zIndex)
       }
 
       // Transition duration
@@ -131,6 +132,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         for (const d of durations) {
           if (d && d !== '0s') {
             styles.transitions.push(d)
+            countUsage('transition', d)
           }
         }
       }

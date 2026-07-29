@@ -1,5 +1,6 @@
 import type { ClusteredColors } from './color-cluster.js'
 import type { DesignToken, ExtractedStyles } from './types.js'
+import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 
 /**
  * Build structured design tokens from raw extracted styles.
@@ -52,17 +53,17 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
   })
 
   // Typography - sort by frequency and pick unique values
-  const fontSizeFreq = countFrequency(styles.fontSizes)
+  const fontSizeFreq = frequencyForCategory(styles, 'fontSize', styles.fontSizes)
   const sortedFontSizes = sortByFrequency(fontSizeFreq).map(pxToRem).filter(uniqueFilter()).slice(0, 8)
 
-  const fontWeightFreq = countFrequency(styles.fontWeights)
+  const fontWeightFreq = frequencyForCategory(styles, 'fontWeight', styles.fontWeights)
   const sortedFontWeights = sortByFrequency(fontWeightFreq).filter(uniqueFilter()).slice(0, 5)
 
-  const lineHeightFreq = countFrequency(styles.lineHeights)
+  const lineHeightFreq = frequencyForCategory(styles, 'lineHeight', styles.lineHeights)
   const sortedLineHeights = sortByFrequency(lineHeightFreq).map(pxToUnitless).filter(uniqueFilter()).slice(0, 5)
 
   // Spacing - extract unique values, sort numerically
-  const spacingFreq = countFrequency(styles.spacings)
+  const spacingFreq = frequencyForCategory(styles, 'spacing', styles.spacings)
   const spacings = sortByFrequency(spacingFreq)
     .filter((v) => {
       const num = parseFloat(v)
@@ -73,7 +74,7 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Radii
-  const radiusFreq = countFrequency(styles.radii)
+  const radiusFreq = frequencyForCategory(styles, 'radius', styles.radii)
   const radii = sortByFrequency(radiusFreq)
     .filter((v) => parseFloat(v) > 0)
     .filter(uniqueFilter())
@@ -81,15 +82,15 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Shadows - deduplicate
-  const shadowFreq = countFrequency(styles.shadows)
+  const shadowFreq = frequencyForCategory(styles, 'shadow', styles.shadows)
   const shadows = sortByFrequency(shadowFreq).slice(0, 4)
 
   // Borders
-  const borderFreq = countFrequency(styles.borders)
+  const borderFreq = frequencyForCategory(styles, 'border', styles.borders)
   const borders = sortByFrequency(borderFreq).slice(0, 4)
 
   // Font families - keep both primary names and full stacks
-  const fontStacks = styles.fontFamilies
+  const fontStacks = sortByFrequency(frequencyForCategory(styles, 'fontFamily', styles.fontFamilies))
     .map((f) => f.replace(/"/g, '').trim())
     .filter(uniqueFilter())
     .slice(0, 5)
@@ -100,21 +101,21 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     .slice(0, 5)
 
   // Letter spacing
-  const letterSpacingFreq = countFrequency(styles.letterSpacings || [])
+  const letterSpacingFreq = frequencyForCategory(styles, 'letterSpacing', styles.letterSpacings || [])
   const letterSpacings = sortByFrequency(letterSpacingFreq)
     .filter(uniqueFilter())
     .slice(0, 6)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Z-index layers
-  const zIndexFreq = countFrequency(styles.zIndices || [])
+  const zIndexFreq = frequencyForCategory(styles, 'zIndex', styles.zIndices || [])
   const zIndices = sortByFrequency(zIndexFreq)
     .filter(uniqueFilter())
     .slice(0, 8)
     .sort((a, b) => parseInt(a) - parseInt(b))
 
   // Transitions
-  const transitionFreq = countFrequency(styles.transitions || [])
+  const transitionFreq = frequencyForCategory(styles, 'transition', styles.transitions || [])
   const transitions = sortByFrequency(transitionFreq).filter(uniqueFilter()).slice(0, 6)
 
   return {
@@ -135,18 +136,6 @@ export function buildDesignTokens(styles: ExtractedStyles, clusteredColors: Clus
     transitions,
     usageCount: styles.usageCount,
   }
-}
-
-function countFrequency(items: string[]): Map<string, number> {
-  const freq = new Map<string, number>()
-  for (const item of items) {
-    freq.set(item, (freq.get(item) || 0) + 1)
-  }
-  return freq
-}
-
-function sortByFrequency(freq: Map<string, number>): string[] {
-  return [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([value]) => value)
 }
 
 function pxToRem(value: string): string {

@@ -370,7 +370,7 @@ export async function analyze(
     const mergedStyles = mergeStyles(allStyles)
 
     onProgress?.('progress.clusteringColors', 90)
-    const clusteredColors = clusterColors(mergedStyles.colors)
+    const clusteredColors = clusterColors(mergedStyles.colors, mergedStyles.usageCount)
 
     onProgress?.('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(mergedStyles, clusteredColors)

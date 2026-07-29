@@ -217,7 +217,7 @@ export function registerIpcHandlers() {
 
         let darkModeExport: DarkModeExportData | undefined
         if (result.darkMode?.hasDarkMode && result.darkMode.darkStyles) {
-          const darkClustered = clusterColors(result.darkMode.darkStyles.colors)
+          const darkClustered = clusterColors(result.darkMode.darkStyles.colors, result.darkMode.darkStyles.usageCount)
           const darkTokens = buildDesignTokens(result.darkMode.darkStyles, darkClustered)
           darkModeExport = {
             hasDarkMode: true,

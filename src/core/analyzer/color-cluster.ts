@@ -1,3 +1,5 @@
+import { colorFrequency } from './usage-stats.js'
+
 /**
  * Color clustering algorithm.
  * Groups similar colors together and picks representative values.
@@ -67,12 +69,8 @@ function luminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs
 }
 
-export function clusterColors(rawColors: string[]): ClusteredColors {
-  // Count frequency
-  const freq = new Map<string, number>()
-  for (const c of rawColors) {
-    freq.set(c, (freq.get(c) || 0) + 1)
-  }
+export function clusterColors(rawColors: string[], usageCount: Readonly<Record<string, number>> = {}): ClusteredColors {
+  const freq = colorFrequency(rawColors, usageCount)
 
   // Parse and deduplicate
   const parsed: ColorRGB[] = []

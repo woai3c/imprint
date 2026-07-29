@@ -5,6 +5,7 @@ out/
 release-assets/
 release-notes.md
 test-results/
+coverage/
 
 # Database
 *.db

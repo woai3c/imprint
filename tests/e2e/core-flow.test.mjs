@@ -71,7 +71,13 @@ let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
 const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
 console.log(JSON.stringify({
-  renames: colorName ? [{ tokenId: colorName, name: 'e2e-agent-brand' }] : []
+  renames: colorName
+    ? [
+        { tokenId: colorName, name: 'e2e-agent-brand' },
+        { tokenId: 'missing-token', name: 'should-be-rejected' },
+        { tokenId: 'background', name: 'Invalid Name' }
+      ]
+    : []
 }))
 `
   await fs.writeFile(path.join(fakeAgentDir, 'fake-agent.mjs'), fakeAgentSource, 'utf-8')
@@ -216,7 +222,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.ok(tokenText, 'Expected the Tokens JSON tab to contain generated output')
 
     const tokens = JSON.parse(tokenText)
-    assert.ok(Object.values(tokens.colors).includes('#2563eb'), 'Expected the fixture brand color')
+    assert.equal(tokens.colors.primary, '#2563eb', 'Expected real usage frequency to select the fixture brand color')
     assert.ok(tokens.spacing.includes('24px'), 'Expected the fixture spacing token')
     assert.ok(tokens.radii.includes('14px'), 'Expected the fixture radius token')
 
@@ -251,6 +257,15 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('artifact-tab-json').click()
     const agentTokens = JSON.parse((await page.getByTestId('artifact-content-json').textContent()) || '{}')
     assert.equal(agentTokens.colors['e2e-agent-brand'], '#2563eb')
+    assert.equal(agentTokens.colors['Invalid Name'], undefined)
+    assert.equal(agentTokens.colors['should-be-rejected'], undefined)
+    assert.equal(agentTokens.colors.background, tokens.colors.background)
+    await page.getByTestId('artifact-tab-preview').click()
+    assert.equal(
+      await page.getByText('e2e-agent-brand', { exact: true }).count(),
+      2,
+      'The accepted semantic name must be shared by light and dark color tokens',
+    )
     await page.evaluate(async () => {
       await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
     })

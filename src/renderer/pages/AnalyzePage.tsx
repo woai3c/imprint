@@ -51,7 +51,7 @@ export function AnalyzePage() {
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s) => {
-      const configured = !!(s.apiKey || s.agentCli)
+      const configured = s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli)
       setHasAiConfig(configured)
     })
   }, [])

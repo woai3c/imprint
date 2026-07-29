@@ -108,6 +108,48 @@ test('extracts a local design system without LLM credentials and persists it', {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
+
+    await page.locator('a[href="#/settings"]').click()
+    await page.getByTestId('ai-engine-status').waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
+
+    await page.getByTestId('ai-mode-agent-cli').click()
+    await page.locator('[data-testid^="agent-cli-option-"]').first().waitFor({ state: 'visible', timeout: 30_000 })
+    assert.equal(await page.locator('[data-testid^="agent-cli-option-"][aria-pressed="true"]').count(), 0)
+    assert.equal(
+      await page.evaluate(async () => (await window.electronAPI.getSettings()).agentCli),
+      '',
+      'CLI detection must not select a candidate',
+    )
+
+    await page.evaluate(async () => {
+      await window.electronAPI.saveSettings({ agentCli: 'codex' })
+    })
+    await page.locator('a[href="#/"]').click()
+    await page.locator('a[href="#/settings"]').click()
+    await page.getByTestId('agent-cli-clear').click()
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
+    assert.equal(
+      await page.evaluate(async () => (await window.electronAPI.getSettings()).agentCli),
+      '',
+      'The selected CLI must be clearable',
+    )
+
+    await page.getByTestId('ai-mode-api-key').click()
+    await page.getByLabel('LLM Provider').selectOption('deepseek')
+    await page.getByLabel('API Key').fill('e2e-placeholder-key')
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'API Key · DeepSeek')
+    await page.getByTestId('ai-mode-agent-cli').click()
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
+    await page.getByTestId('ai-mode-api-key').click()
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'API Key · DeepSeek')
+    await page.getByLabel('API Key').fill('')
+    await page.waitForFunction(async () => {
+      const settings = await window.electronAPI.getSettings()
+      return settings.aiMode === 'apiKey' && settings.apiKey === '' && settings.agentCli === ''
+    })
+
+    await page.locator('a[href="#/"]').click()
     await page.getByTestId('no-ai-tip').waitFor({ state: 'visible' })
     await page.getByTestId('dismiss-no-ai-tip').click()
     await page.getByTestId('analyze-url').fill(fixtureUrl)

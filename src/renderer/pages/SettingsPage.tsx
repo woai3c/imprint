@@ -1,10 +1,9 @@
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react'
+import { CheckCircle2, CircleOff, KeyRound, Loader2, RefreshCw, Terminal, XCircle } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
-import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { IconButton } from '../components/ui/IconButton'
@@ -72,13 +71,6 @@ export function SettingsPage() {
         requestAgentCliDetection(false)
           .then((result) => {
             setAgentClis(result)
-            if (!s.agentCli) {
-              const firstAvailable = result.find((c) => c.available)
-              if (firstAvailable) {
-                setSelectedCli(firstAvailable.command)
-                window.electronAPI.saveSettings({ agentCli: firstAvailable.command })
-              }
-            }
           })
           .catch((err: unknown) => {
             console.error('Failed to detect agent CLIs:', err)
@@ -124,8 +116,9 @@ export function SettingsPage() {
   }
 
   const handleCliSelect = (command: string) => {
-    setSelectedCli(command)
-    save({ agentCli: command })
+    const nextCommand = selectedCli === command ? '' : command
+    setSelectedCli(nextCommand)
+    save({ agentCli: nextCommand })
   }
 
   const handleTestConnection = async () => {
@@ -147,10 +140,6 @@ export function SettingsPage() {
     try {
       const result = await requestAgentCliDetection(force)
       setAgentClis(result)
-      const firstAvailable = result.find((c: AgentCliInfo) => c.available)
-      if (firstAvailable && !selectedCli) {
-        handleCliSelect(firstAvailable.command)
-      }
     } catch (err: unknown) {
       console.error('Failed to detect agent CLIs:', err)
       window.electronAPI.logEvent(
@@ -221,6 +210,29 @@ export function SettingsPage() {
     )
   }
 
+  const selectedProvider = PROVIDERS.find((item) => item.id === provider)
+  const selectedAgentCli = agentClis.find((item) => item.command === selectedCli)
+  const hasApiKeyConfiguration = Boolean(provider && apiKey)
+  const hasAgentCliConfiguration = Boolean(selectedCli && (agentClis.length === 0 || selectedAgentCli?.available))
+  const hasActiveAiConfiguration = aiMode === 'apiKey' ? hasApiKeyConfiguration : hasAgentCliConfiguration
+  const activeEngineLabel =
+    aiMode === 'apiKey' && hasApiKeyConfiguration
+      ? t('settings.ai.activeApiKey', { provider: selectedProvider?.name || provider })
+      : aiMode === 'agentCli' && hasAgentCliConfiguration
+        ? t('settings.ai.activeAgentCli', { name: selectedAgentCli?.name || selectedCli })
+        : t('settings.ai.notConfigured')
+  const activeEngineHint = hasActiveAiConfiguration
+    ? t('settings.ai.activeHint')
+    : t(aiMode === 'apiKey' ? 'settings.ai.apiKeyIncomplete' : 'settings.ai.agentCliIncomplete')
+  const apiKeySummary = hasApiKeyConfiguration
+    ? t('settings.ai.apiKeyConfigured', { provider: selectedProvider?.name || provider })
+    : t('settings.ai.apiKeyNotConfigured')
+  const agentCliSummary = !selectedCli
+    ? t('settings.ai.agentCliNotConfigured')
+    : hasAgentCliConfiguration
+      ? t('settings.ai.agentCliConfigured', { name: selectedAgentCli?.name || selectedCli })
+      : t('settings.ai.agentCliUnavailable', { name: selectedAgentCli?.name || selectedCli })
+
   return (
     <div className="h-full flex flex-col overflow-auto">
       <PageHeader
@@ -239,38 +251,98 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold mb-2">{t('settings.ai.title')}</h3>
           <p className="text-sm text-muted-foreground mb-4">{t('settings.ai.description')}</p>
 
-          <div className="flex gap-2 mb-6">
-            <button
-              type="button"
-              onClick={() => handleAiModeChange('apiKey')}
-              aria-pressed={aiMode === 'apiKey'}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                aiMode === 'apiKey'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-accent'
+          <div
+            data-testid="ai-engine-status"
+            aria-live="polite"
+            className={`mb-5 flex items-start gap-3 rounded-lg border p-4 ${
+              hasActiveAiConfiguration ? 'border-success/40 bg-success/5' : 'border-border bg-secondary/35'
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${
+                hasActiveAiConfiguration ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
               }`}
             >
-              {t('settings.ai.useApiKey')}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleAiModeChange('agentCli')}
-              aria-pressed={aiMode === 'agentCli'}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                aiMode === 'agentCli'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-secondary-foreground hover:bg-accent'
-              }`}
-            >
-              {t('settings.ai.useAgentCli')}
-            </button>
+              {hasActiveAiConfiguration ? (
+                <CheckCircle2 size={17} aria-hidden="true" />
+              ) : (
+                <CircleOff size={17} aria-hidden="true" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">{t('settings.ai.currentEngine')}</p>
+              <p data-testid="ai-engine-status-label" className="mt-0.5 text-sm font-semibold">
+                {activeEngineLabel}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{activeEngineHint}</p>
+            </div>
           </div>
+
+          <fieldset className="mb-6">
+            <legend className="mb-2 text-sm font-medium">{t('settings.ai.methodLabel')}</legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                data-testid="ai-mode-api-key"
+                type="button"
+                onClick={() => handleAiModeChange('apiKey')}
+                aria-pressed={aiMode === 'apiKey'}
+                className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  aiMode === 'apiKey'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
+                }`}
+              >
+                <span
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
+                    aiMode === 'apiKey' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  <KeyRound size={17} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{t('settings.ai.useApiKey')}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{apiKeySummary}</span>
+                </span>
+                {aiMode === 'apiKey' && <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />}
+              </button>
+
+              <button
+                data-testid="ai-mode-agent-cli"
+                type="button"
+                onClick={() => handleAiModeChange('agentCli')}
+                aria-pressed={aiMode === 'agentCli'}
+                className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  aiMode === 'agentCli'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
+                }`}
+              >
+                <span
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
+                    aiMode === 'agentCli' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  <Terminal size={17} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{t('settings.ai.useAgentCli')}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{agentCliSummary}</span>
+                </span>
+                {aiMode === 'agentCli' && (
+                  <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
+                )}
+              </button>
+            </div>
+          </fieldset>
 
           {aiMode === 'apiKey' ? (
             <div className="space-y-4 p-4 rounded-lg border border-border">
               <div>
-                <label className="text-sm font-medium block mb-1.5">{t('settings.ai.provider')}</label>
+                <label htmlFor="ai-provider" className="text-sm font-medium block mb-1.5">
+                  {t('settings.ai.provider')}
+                </label>
                 <select
+                  id="ai-provider"
                   value={provider}
                   onChange={(e) => handleProviderChange(e.target.value)}
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
@@ -288,13 +360,14 @@ export function SettingsPage() {
               {provider && (
                 <>
                   <div>
-                    <label className="text-sm font-medium block mb-1.5">
+                    <label htmlFor="ai-api-key" className="text-sm font-medium block mb-1.5">
                       {t('settings.ai.apiKey')}
                       <span className="text-muted-foreground font-normal ml-2">
                         ({PROVIDERS.find((p) => p.id === provider)?.envVar})
                       </span>
                     </label>
                     <input
+                      id="ai-api-key"
                       type="password"
                       value={apiKey}
                       onChange={(e) => handleApiKeyChange(e.target.value)}
@@ -305,11 +378,12 @@ export function SettingsPage() {
                   </div>
                   {provider === 'custom' && (
                     <div>
-                      <label className="text-sm font-medium block mb-1.5">
+                      <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
                         {t('settings.ai.baseUrl')}
                         <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
                       </label>
                       <input
+                        id="ai-base-url"
                         type="text"
                         value={customBaseUrl}
                         onChange={(e) => handleBaseUrlChange(e.target.value)}
@@ -352,47 +426,69 @@ export function SettingsPage() {
             </div>
           ) : (
             <div className="p-4 rounded-lg border border-border">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-1">
-                  <p className="text-sm text-muted-foreground">{t('settings.ai.detectDescription')}</p>
-                  <InfoTip text={t('settings.ai.detectHint')} align="right" />
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.detectHint')}</p>
                 </div>
-                <IconButton
-                  icon={RefreshCw}
-                  label={t('settings.ai.redetect')}
-                  onClick={() => handleDetectClis(true)}
-                  disabled={detecting}
-                  className="shrink-0"
-                />
+                <div className="flex shrink-0 items-center gap-1">
+                  {selectedCli && (
+                    <button
+                      data-testid="agent-cli-clear"
+                      type="button"
+                      onClick={() => handleCliSelect(selectedCli)}
+                      className="h-8 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t('settings.ai.clearCli')}
+                    </button>
+                  )}
+                  <IconButton
+                    icon={RefreshCw}
+                    label={t('settings.ai.redetect')}
+                    onClick={() => handleDetectClis(true)}
+                    disabled={detecting}
+                  />
+                </div>
               </div>
 
               {detecting && (
-                <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                <div
+                  data-testid="agent-cli-detecting"
+                  className="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
+                  role="status"
+                >
                   <Loader2 size={16} className="animate-spin" />
                   {t('settings.ai.detecting')}
                 </div>
               )}
 
-              <div className="space-y-2">
+              <div data-testid="agent-cli-list" className="space-y-2">
                 {agentClis.map((cli) => (
-                  <label
+                  <button
                     key={cli.command}
-                    className={`flex items-center gap-3 p-3 rounded-md border transition-colors cursor-pointer ${
+                    data-testid={`agent-cli-option-${cli.command}`}
+                    type="button"
+                    aria-pressed={selectedCli === cli.command}
+                    aria-label={t(selectedCli === cli.command ? 'settings.ai.deselectCli' : 'settings.ai.selectCli', {
+                      name: cli.name,
+                    })}
+                    onClick={() => handleCliSelect(cli.command)}
+                    disabled={!cli.available}
+                    className={`flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       selectedCli === cli.command
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30'
-                    } ${!cli.available ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${!cli.available ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                   >
-                    <input
-                      type="radio"
-                      name="agentCli"
-                      value={cli.command}
-                      checked={selectedCli === cli.command}
-                      onChange={(e) => handleCliSelect(e.target.value)}
-                      disabled={!cli.available}
-                      className="accent-primary"
-                    />
-                    <div className="flex-1">
+                    <span
+                      className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
+                        selectedCli === cli.command ? 'border-primary' : 'border-muted-foreground/50'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {selectedCli === cli.command && <span className="size-2 rounded-full bg-primary" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{cli.name}</span>
                         <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
@@ -404,7 +500,7 @@ export function SettingsPage() {
                     ) : (
                       <XCircle size={14} className="text-muted-foreground" />
                     )}
-                  </label>
+                  </button>
                 ))}
                 {agentClis.length === 0 && !detecting && (
                   <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>

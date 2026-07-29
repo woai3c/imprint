@@ -225,6 +225,13 @@ to Imprint rather than an enterprise administration UI.
   duplicate credentials into renderer storage.
 - Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
   explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
+- Treat Agent CLI detection and selection as separate actions. Detection only reports candidates; it never selects one
+  or changes the active AI method. Agent CLI selection remains optional and directly reversible.
+- Present API Key and Agent CLI as two mutually exclusive connection methods while preserving each method's saved
+  configuration. A persistent status summary must state which fully configured method is active, or that AI enhancement
+  is not enabled when the selected method is incomplete.
+- Keep Agent CLI detection behavior as visible supporting text beside the detected list and refresh action. Do not hide
+  this explanation in a tooltip that can be clipped by the desktop shell.
 
 ## Export semantics
 

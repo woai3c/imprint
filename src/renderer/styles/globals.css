@@ -297,6 +297,14 @@ html[data-app-theme='chinese-landscape'] .app-nav-link {
   contain: paint;
 }
 
+/* Under art themes, animating a card's border repaints it for ~200ms and every
+   frame re-triggers the blurred surfaces and filtered backdrop — measured as
+   occasional 50ms frame spikes. Instant feedback avoids the storm and reads as
+   more responsive. */
+html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) .theme-card {
+  transition: none;
+}
+
 .theme-language-panel {
   box-shadow: var(--shadow-sm);
 }

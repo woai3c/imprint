@@ -397,31 +397,31 @@ export function SettingsPage() {
         <section>
           <h3 className="text-lg font-semibold mb-4">{t('settings.data.title')}</h3>
           <div className="p-4 rounded-lg border border-border space-y-3">
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleExportAll}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.exportAll')}
               </button>
               <button
                 onClick={handleImportData}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.import')}
               </button>
               <button
                 onClick={() => setConfirmClearAll(true)}
-                className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm
+                className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm whitespace-nowrap
                                  hover:opacity-90 transition-opacity"
               >
                 {t('settings.data.clearAll')}
               </button>
               <button
                 onClick={() => window.electronAPI.openLogsFolder()}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.openLogs')}

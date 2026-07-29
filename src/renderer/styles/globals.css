@@ -292,6 +292,9 @@ html[data-app-theme='chinese-landscape'] .app-nav-link {
 
 .theme-card {
   min-width: 0;
+  /* Isolate card painting from the filtered full-window backdrop layers so a
+     hover border transition never forces re-rastering beyond the card itself. */
+  contain: paint;
 }
 
 .theme-language-panel {

@@ -241,7 +241,7 @@ export function ThemesPage() {
               <div
                 key={theme.id}
                 data-selected={extractedThemeId === theme.id}
-                className={`rounded-xl border p-4 transition-colors ${
+                className={`theme-card rounded-xl border p-4 transition-colors ${
                   extractedThemeId === theme.id ? 'border-primary' : 'border-border hover:border-primary/70'
                 }`}
               >

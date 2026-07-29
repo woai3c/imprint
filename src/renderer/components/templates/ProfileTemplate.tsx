@@ -23,17 +23,18 @@ export function ProfileTemplate() {
       <div className="h-32 bg-primary/10" />
 
       <div className="max-w-3xl mx-auto px-6 -mt-16">
-        <div className="flex items-end gap-4 mb-6">
-          <div className="w-24 h-24 rounded-full bg-primary border-4 border-background flex items-center justify-center">
+        <div className="flex items-end justify-between">
+          <div className="w-24 h-24 shrink-0 rounded-full bg-primary border-4 border-background flex items-center justify-center">
             <span className="text-primary-foreground text-2xl font-bold">U</span>
           </div>
-          <div className="pb-2">
-            <h1 className="text-xl font-bold">{t('templates.examples.profile.name')}</h1>
-            <p className="text-sm text-muted-foreground">{t('templates.examples.profile.role')}</p>
-          </div>
-          <button className="ml-auto mb-2 px-4 py-2 rounded-md border border-border text-sm hover:bg-accent transition-colors">
+          <button className="px-4 py-2 rounded-md border border-border bg-background text-sm hover:bg-accent transition-colors">
             {t('templates.examples.profile.edit')}
           </button>
+        </div>
+
+        <div className="mt-3 mb-6">
+          <h1 className="text-xl font-bold">{t('templates.examples.profile.name')}</h1>
+          <p className="text-sm text-muted-foreground">{t('templates.examples.profile.role')}</p>
         </div>
 
         <div className="flex gap-6 border-b border-border mb-6">

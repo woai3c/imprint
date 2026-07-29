@@ -3,6 +3,8 @@ import { create } from 'zustand'
 import dunhuangMuralBgUrl from '../assets/dunhuang-mural-bg.jpg'
 import inkLandscapeBgUrl from '../assets/ink-landscape-bg.jpg'
 
+export type { ThemeExportFormat } from '../../shared/ipc-contract'
+
 export type ColorMode = 'light' | 'dark'
 
 export interface ThemeColors {
@@ -90,7 +92,6 @@ export interface ThemeIdentity {
 }
 
 export type ThemeCategory = 'foundation' | 'narrative' | 'experimental'
-export type ThemeExportFormat = 'markdown' | 'css' | 'tailwind' | 'json'
 
 export interface AppTheme {
   id: string
@@ -692,9 +693,7 @@ interface SkinStore {
   colorMode: ColorMode
   setTheme: (id: string) => void
   setColorMode: (mode: ColorMode) => void
-  applyTheme: (theme: AppTheme) => void
   applyCustomCss: (cssVars: string, extractedId?: string) => void
-  reset: () => void
 }
 
 export const useSkinStore = create<SkinStore>((set, get) => ({
@@ -724,25 +723,11 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
     })
   },
 
-  applyTheme: (theme) => {
-    set({ currentThemeId: theme.id, extractedThemeId: null })
-    applyThemeInstantly(() => applyThemeToDOM(theme))
-  },
-
   applyCustomCss: (cssVars, extractedId) => {
     set({ currentThemeId: 'custom', extractedThemeId: extractedId ?? null })
     applyThemeInstantly(() => {
       resetThemeAppearance('custom')
       applyCssVarsToDOM(cssVars)
-    })
-  },
-
-  reset: () => {
-    const { colorMode } = get()
-    set({ currentThemeId: 'default', extractedThemeId: null })
-    applyThemeInstantly(() => {
-      applyColorsToDOM(colorMode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS)
-      resetThemeAppearance('default')
     })
   },
 }))

@@ -3,6 +3,13 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type {
+  AnalyzeResponse,
+  AuthMode,
+  AuthWallDetection,
+  LoginDecision,
+  LoginRequiredEvent,
+} from '../../shared/ipc-contract'
 import { AuthRequiredDialog } from '../components/AuthRequiredDialog'
 import { BrowserSessionsDialog } from '../components/BrowserSessionsDialog'
 import { PageHeader } from '../components/PageHeader'
@@ -16,25 +23,10 @@ import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '..
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 
-type AuthMode = 'auto' | 'anonymous' | 'managed'
-
-interface AuthDetection {
-  detected: boolean
-  confidence: 'low' | 'medium' | 'high'
-  reasons: string[]
-  finalUrl: string
-}
-
-interface LoginRequiredEvent {
-  requestId: string
-  detection: AuthDetection
-  retry: boolean
-}
-
 type AuthPrompt =
   | {
       kind: 'choice'
-      detection: AuthDetection
+      detection: AuthWallDetection
       targetUrl: string
     }
   | {
@@ -43,15 +35,6 @@ type AuthPrompt =
       retry: boolean
       targetUrl: string
     }
-
-interface AnalyzeResponse extends Partial<AnalysisResultData> {
-  error?: boolean
-  message?: string
-  stage?: string
-  authRequired?: boolean
-  detection?: AuthDetection
-  cancelled?: boolean
-}
 
 type AnalysisOutcome = 'complete' | 'auth-required' | 'cancelled' | 'error'
 
@@ -67,7 +50,7 @@ export function AnalyzePage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   useEffect(() => {
-    window.electronAPI.getSettings().then((s: Record<string, string>) => {
+    window.electronAPI.getSettings().then((s) => {
       const configured = !!(s.apiKey || s.agentCli)
       setHasAiConfig(configured)
     })
@@ -112,11 +95,11 @@ export function AnalyzePage() {
 
   const runAnalysis = async (targetUrl: string, authMode: AuthMode): Promise<AnalysisOutcome> => {
     try {
-      const res = (await window.electronAPI.analyzeUrl(targetUrl, {
+      const res: AnalyzeResponse = await window.electronAPI.analyzeUrl(targetUrl, {
         authMode,
         maxPages: pageCount,
         language: i18n.language,
-      })) as AnalyzeResponse
+      })
       if (res.authRequired && res.detection) {
         store.setProgress(null)
         setAuthPrompt({
@@ -199,14 +182,12 @@ export function AnalyzePage() {
     store.setAnalyzing(false)
   }
 
-  const handleLoginDecision = async (decision: 'continue' | 'anonymous' | 'cancel') => {
+  const handleLoginDecision = async (decision: LoginDecision) => {
     if (!authPrompt || authPrompt.kind !== 'login') return
     const currentPrompt = authPrompt
     if (decision === 'continue') store.setAnalyzing(true)
     setAuthPrompt(null)
-    const response = (await window.electronAPI.submitLoginDecision(currentPrompt.requestId, decision)) as {
-      success: boolean
-    }
+    const response = await window.electronAPI.submitLoginDecision(currentPrompt.requestId, decision)
     if (!response.success) {
       setAuthPrompt(currentPrompt)
       notify(t('feedback.actionFailed'), 'error')

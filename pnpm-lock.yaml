@@ -41,7 +41,7 @@ importers:
         version: 20.5.3
       '@electron-forge/cli':
         specifier: ^7.0.0
-        version: 7.11.2(encoding@0.1.13)(lightningcss@1.32.0)(postcss@8.5.23)
+        version: 7.11.2(encoding@0.1.13)(lightningcss@1.32.0)
       '@electron-forge/maker-dmg':
         specifier: ^7.0.0
         version: 7.11.2
@@ -66,15 +66,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.17)
-      '@types/uuid':
-        specifier: ^10.0.0
-        version: 10.0.0
       '@vitejs/plugin-react':
         specifier: ^4.0.0
         version: 4.7.0(vite@7.3.6(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.0)(yaml@2.9.0))
-      autoprefixer:
-        specifier: ^10.0.0
-        version: 10.5.4(postcss@8.5.23)
       electron:
         specifier: ^34.0.0
         version: 34.5.8
@@ -1064,9 +1058,6 @@ packages:
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
 
-  '@types/uuid@10.0.0':
-    resolution: {integrity: sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ==}
-
   '@types/wrap-ansi@3.0.0':
     resolution: {integrity: sha512-ltIpx+kM7g/MLRZfkbL7EsCEjfzCcScLpkg37eXEtx5kmrAKBkTJwd1GIAjDSL8wTpM6Hzn5YO4pSb91BEwu1g==}
 
@@ -1293,13 +1284,6 @@ packages:
   author-regex@1.0.0:
     resolution: {integrity: sha512-KbWgR8wOYRAPekEmMXrYYdc7BRyhn2Ftk7KWfMUnQ43hFdojWEFRxhhRUm3/OFEdPa1r0KAvTTg9YQK57xTe0g==}
     engines: {node: '>=0.8'}
-
-  autoprefixer@10.5.4:
-    resolution: {integrity: sha512-MaU0U/za7N3r6brxD4YB/l4NSrFzLPlANv6wEuQVaIPlD3L4W9rFcQPbL/EilY9BHhHvhfcz3gInDLrEtWT4EA==}
-    engines: {node: ^10 || ^12 || >=14}
-    hasBin: true
-    peerDependencies:
-      postcss: ^8.1.0
 
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
@@ -1902,9 +1886,6 @@ packages:
 
   fmix@0.1.0:
     resolution: {integrity: sha512-Y6hyofImk9JdzU8k5INtTXX1cu8LDlePWDFU5sftm9H+zKCr5SGrVjdhkvsim646cw5zD0nADj8oHyXMZmCZ9w==}
-
-  fraction.js@5.3.4:
-    resolution: {integrity: sha512-1X1NTtiJphryn/uLQz3whtY6jK3fTqoE3ohKs0tT+Ujr1W59oopxmoEh7Lu5p6vBaPbgoM0bzveAW4Qi5RyWDQ==}
 
   fs-constants@1.0.0:
     resolution: {integrity: sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==}
@@ -2983,9 +2964,6 @@ packages:
     resolution: {integrity: sha512-IQ7TZdoaqbT+LCpShg46jnZVlhWD2w6iQYAcYXfHARZ7X1t/UGhhceQDs5X0cGqKvYlHNOuv7Oa1xmb0oQuA3w==}
     engines: {node: '>=4'}
 
-  postcss-value-parser@4.2.0:
-    resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
-
   postcss@8.5.23:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
@@ -3996,9 +3974,9 @@ snapshots:
     optionalDependencies:
       conventional-commits-parser: 6.4.0
 
-  '@electron-forge/cli@7.11.2(encoding@0.1.13)(lightningcss@1.32.0)(postcss@8.5.23)':
+  '@electron-forge/cli@7.11.2(encoding@0.1.13)(lightningcss@1.32.0)':
     dependencies:
-      '@electron-forge/core': 7.11.2(encoding@0.1.13)(lightningcss@1.32.0)(postcss@8.5.23)
+      '@electron-forge/core': 7.11.2(encoding@0.1.13)(lightningcss@1.32.0)
       '@electron-forge/core-utils': 7.11.2
       '@electron-forge/shared-types': 7.11.2
       '@electron/get': 3.1.0
@@ -4045,7 +4023,7 @@ snapshots:
       - bluebird
       - supports-color
 
-  '@electron-forge/core@7.11.2(encoding@0.1.13)(lightningcss@1.32.0)(postcss@8.5.23)':
+  '@electron-forge/core@7.11.2(encoding@0.1.13)(lightningcss@1.32.0)':
     dependencies:
       '@electron-forge/core-utils': 7.11.2
       '@electron-forge/maker-base': 7.11.2
@@ -4056,7 +4034,7 @@ snapshots:
       '@electron-forge/template-vite': 7.11.2
       '@electron-forge/template-vite-typescript': 7.11.2
       '@electron-forge/template-webpack': 7.11.2
-      '@electron-forge/template-webpack-typescript': 7.11.2(lightningcss@1.32.0)(postcss@8.5.23)
+      '@electron-forge/template-webpack-typescript': 7.11.2(lightningcss@1.32.0)
       '@electron-forge/tracer': 7.11.2
       '@electron/get': 3.1.0
       '@electron/packager': 18.4.4
@@ -4197,13 +4175,13 @@ snapshots:
       - bluebird
       - supports-color
 
-  '@electron-forge/template-webpack-typescript@7.11.2(lightningcss@1.32.0)(postcss@8.5.23)':
+  '@electron-forge/template-webpack-typescript@7.11.2(lightningcss@1.32.0)':
     dependencies:
       '@electron-forge/shared-types': 7.11.2
       '@electron-forge/template-base': 7.11.2
       fs-extra: 10.1.0
       typescript: 5.4.5
-      webpack: 5.109.0(lightningcss@1.32.0)(postcss@8.5.23)
+      webpack: 5.109.0(lightningcss@1.32.0)
     transitivePeerDependencies:
       - '@minify-html/node'
       - '@swc/core'
@@ -4929,8 +4907,6 @@ snapshots:
 
   '@types/unist@3.0.3': {}
 
-  '@types/uuid@10.0.0': {}
-
   '@types/wrap-ansi@3.0.0': {}
 
   '@types/yauzl@2.10.3':
@@ -5220,15 +5196,6 @@ snapshots:
   at-least-node@1.0.0: {}
 
   author-regex@1.0.0: {}
-
-  autoprefixer@10.5.4(postcss@8.5.23):
-    dependencies:
-      browserslist: 4.28.7
-      caniuse-lite: 1.0.30001806
-      fraction.js: 5.3.4
-      picocolors: 1.1.1
-      postcss: 8.5.23
-      postcss-value-parser: 4.2.0
 
   bail@2.0.2: {}
 
@@ -5868,8 +5835,6 @@ snapshots:
     dependencies:
       imul: 1.0.1
     optional: true
-
-  fraction.js@5.3.4: {}
 
   fs-constants@1.0.0: {}
 
@@ -6855,16 +6820,15 @@ snapshots:
 
   minimist@1.2.8: {}
 
-  minimizer-webpack-plugin@5.6.1(lightningcss@1.32.0)(postcss@8.5.23)(webpack@5.109.0(lightningcss@1.32.0)(postcss@8.5.23)):
+  minimizer-webpack-plugin@5.6.1(lightningcss@1.32.0)(webpack@5.109.0(lightningcss@1.32.0)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
       terser: 5.49.0
-      webpack: 5.109.0(lightningcss@1.32.0)(postcss@8.5.23)
+      webpack: 5.109.0(lightningcss@1.32.0)
     optionalDependencies:
       lightningcss: 1.32.0
-      postcss: 8.5.23
 
   minipass-collect@1.0.2:
     dependencies:
@@ -7114,8 +7078,6 @@ snapshots:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
-
-  postcss-value-parser@4.2.0: {}
 
   postcss@8.5.23:
     dependencies:
@@ -7808,7 +7770,7 @@ snapshots:
 
   webpack-sources@3.5.1: {}
 
-  webpack@5.109.0(lightningcss@1.32.0)(postcss@8.5.23):
+  webpack@5.109.0(lightningcss@1.32.0):
     dependencies:
       '@types/estree': 1.0.9
       '@types/json-schema': 7.0.15
@@ -7824,7 +7786,7 @@ snapshots:
       events: 3.3.0
       graceful-fs: 4.2.11
       mime-db: 1.54.0
-      minimizer-webpack-plugin: 5.6.1(lightningcss@1.32.0)(postcss@8.5.23)(webpack@5.109.0(lightningcss@1.32.0)(postcss@8.5.23))
+      minimizer-webpack-plugin: 5.6.1(lightningcss@1.32.0)(webpack@5.109.0(lightningcss@1.32.0))
       neo-async: 2.6.2
       schema-utils: 4.3.3
       tapable: 2.3.3

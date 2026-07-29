@@ -26,26 +26,10 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
 
     window.electronAPI
       .getAnalysis(analysisId)
-      .then((record: unknown) => {
-        if (!record) {
+      .then((data) => {
+        if (!data) {
           setError(true)
           return
-        }
-        const data = record as {
-          url: string
-          finalUrl: string | null
-          durationMs: number | null
-          themeId: string | null
-          tokens: Record<string, unknown>
-          cssVariables: string
-          tailwindTheme: string
-          designDoc: string
-          pageScreenshots: Array<{ url: string; path: string; viewport: string }>
-          featureTags: string[]
-          darkTokens: Record<string, string> | null
-          hasDarkMode: boolean
-          accessMode: 'anonymous' | 'managed'
-          authWallDetected: boolean
         }
         setResult({
           tokens: data.tokens,

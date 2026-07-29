@@ -1,13 +1,7 @@
 import type { Page } from 'playwright-core'
 
-import type { ExtractedStyles } from './index.js'
 import { extractStyles } from './style-extractor.js'
-
-export interface DarkModeResult {
-  hasDarkMode: boolean
-  darkStyles: ExtractedStyles | null
-  method: 'media-query' | 'class-toggle' | 'none'
-}
+import type { DarkModeResult } from './types.js'
 
 /**
  * Detect and extract dark mode styles from a page.

@@ -17,160 +17,24 @@ import {
   AuthenticationCancelledError,
   AuthenticationRequiredError,
   type LoginDecision,
-  type LoginRequest,
 } from '../core/analyzer/index.js'
 import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
 import { buildDesignTokens } from '../core/analyzer/token-builder.js'
-import type { DarkModeExportData } from '../core/export/index.js'
-import { detectAgentClis } from './agent-detect.js'
-import { analyzeUrl } from './analyzer/index.js'
-import { getDb } from './database.js'
-import type { DesignToken } from './export.js'
 import {
+  type DarkModeExportData,
   generateCssVariables,
   generateDesignDoc,
   generateDtcgJson,
   generateScssVariables,
   generateTailwindTheme,
-} from './export.js'
+} from '../core/export/index.js'
+import { detectAgentClis } from './agent-detect.js'
+import { analyzeUrl } from './analyzer/index.js'
+import { getDb } from './database.js'
 import { getLogDir, log } from './logger.js'
+import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
 import { getSettings, saveSettings } from './settings.js'
-
-type UnknownRecord = Record<string, unknown>
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
-
-function readDtcgValues(value: unknown): string[] {
-  if (!isRecord(value)) return []
-
-  return Object.values(value)
-    .map((item) => (isRecord(item) ? item.$value : undefined))
-    .filter((item): item is string | number => typeof item === 'string' || typeof item === 'number')
-    .map(String)
-}
-
-interface PendingLoginDecision {
-  requestId: string
-  senderId: number
-  settle: (decision: LoginDecision) => void
-}
-
-let pendingLoginDecision: PendingLoginDecision | null = null
-
-function waitForLoginDecision(
-  win: BrowserWindow | null,
-  request: LoginRequest,
-  signal: AbortSignal,
-): Promise<LoginDecision> {
-  if (!win || win.isDestroyed()) return Promise.resolve('cancel')
-
-  pendingLoginDecision?.settle('cancel')
-
-  return new Promise((resolve) => {
-    const requestId = uuidv4()
-    let settled = false
-
-    const settle = (decision: LoginDecision) => {
-      if (settled) return
-      settled = true
-      signal.removeEventListener('abort', handleAbort)
-      win.webContents.removeListener('destroyed', handleDestroyed)
-      if (pendingLoginDecision?.requestId === requestId) pendingLoginDecision = null
-      resolve(decision)
-    }
-    const handleAbort = () => settle('cancel')
-    const handleDestroyed = () => settle('cancel')
-
-    pendingLoginDecision = {
-      requestId,
-      senderId: win.webContents.id,
-      settle,
-    }
-
-    signal.addEventListener('abort', handleAbort, { once: true })
-    win.webContents.once('destroyed', handleDestroyed)
-    win.webContents.send('analysis:loginRequired', {
-      requestId,
-      detection: request.detection,
-      retry: request.retry,
-    })
-  })
-}
-
-function normalizeImportedTokens(value: unknown): DesignToken {
-  if (!isRecord(value)) throw new Error('The selected file is not a theme token JSON object')
-
-  if (isRecord(value.colors) && isRecord(value.typography)) {
-    const colors = Object.fromEntries(
-      Object.entries(value.colors).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    )
-    const typography = value.typography
-    if (Object.keys(colors).length === 0) throw new Error('The theme does not contain usable color tokens')
-
-    return {
-      colors,
-      typography: {
-        fontFamilies: asStringArray(typography.fontFamilies),
-        fontStacks: asStringArray(typography.fontStacks),
-        fontSizes: asStringArray(typography.fontSizes),
-        fontWeights: asStringArray(typography.fontWeights),
-        lineHeights: asStringArray(typography.lineHeights),
-        letterSpacings: asStringArray(typography.letterSpacings),
-      },
-      spacing: asStringArray(value.spacing),
-      radii: asStringArray(value.radii),
-      shadows: asStringArray(value.shadows),
-      borders: asStringArray(value.borders),
-      zIndices: asStringArray(value.zIndices),
-      transitions: asStringArray(value.transitions),
-      usageCount: isRecord(value.usageCount)
-        ? Object.fromEntries(
-            Object.entries(value.usageCount).filter((entry): entry is [string, number] => typeof entry[1] === 'number'),
-          )
-        : {},
-    }
-  }
-
-  if (isRecord(value.color) && isRecord(value.typography)) {
-    const colors = Object.fromEntries(
-      Object.entries(value.color)
-        .map(([name, token]) => [name, isRecord(token) ? token.$value : undefined])
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    )
-    if (Object.keys(colors).length === 0) throw new Error('The theme does not contain usable color tokens')
-
-    return {
-      colors,
-      typography: {
-        fontFamilies: asStringArray(
-          isRecord(value.typography.fontFamilies) ? value.typography.fontFamilies.$value : [],
-        ),
-        fontStacks: asStringArray(isRecord(value.typography.fontStacks) ? value.typography.fontStacks.$value : []),
-        fontSizes: asStringArray(isRecord(value.typography.fontSizes) ? value.typography.fontSizes.$value : []),
-        fontWeights: [],
-        lineHeights: [],
-        letterSpacings: asStringArray(
-          isRecord(value.typography.letterSpacing) ? value.typography.letterSpacing.$value : [],
-        ),
-      },
-      spacing: readDtcgValues(value.spacing),
-      radii: readDtcgValues(value.borderRadius),
-      shadows: readDtcgValues(value.shadow),
-      borders: [],
-      zIndices: readDtcgValues(value.zIndex),
-      transitions: readDtcgValues(value.transition),
-      usageCount: {},
-    }
-  }
-
-  throw new Error('The selected JSON does not contain Imprint or DTCG theme tokens')
-}
+import { normalizeImportedTokens, readImportedThemeMeta } from './theme-import.js'
 
 export function registerIpcHandlers() {
   migrateLegacyManagedSessions(app.getPath('userData'))
@@ -179,11 +43,6 @@ export function registerIpcHandlers() {
   ipcMain.handle('themes:list', () => {
     const db = getDb()
     return db.prepare('SELECT * FROM themes ORDER BY updated_at DESC').all()
-  })
-
-  ipcMain.handle('themes:get', (_event, id: string) => {
-    const db = getDb()
-    return db.prepare('SELECT * FROM themes WHERE id = ?').get(id)
   })
 
   ipcMain.handle('themes:delete', (_event, id: string) => {
@@ -291,18 +150,7 @@ export function registerIpcHandlers() {
   ipcMain.handle(
     'analysis:loginDecision',
     (event, requestId: string, decision: LoginDecision): { success: boolean } => {
-      const pending = pendingLoginDecision
-      if (
-        !pending ||
-        pending.requestId !== requestId ||
-        pending.senderId !== event.sender.id ||
-        (decision !== 'continue' && decision !== 'anonymous' && decision !== 'cancel')
-      ) {
-        return { success: false }
-      }
-
-      pending.settle(decision)
-      return { success: true }
+      return { success: submitLoginDecision(event.sender.id, requestId, decision) }
     },
   )
 
@@ -648,7 +496,7 @@ export function registerIpcHandlers() {
           undefined,
           language?.startsWith('zh') ? 'zh-CN' : 'en',
         )
-        const meta = isRecord(importedData) && isRecord(importedData.meta) ? importedData.meta : undefined
+        const meta = readImportedThemeMeta(importedData)
         const themeName = typeof meta?.name === 'string' && meta.name.trim() ? meta.name : 'Imported theme'
 
         db.prepare(

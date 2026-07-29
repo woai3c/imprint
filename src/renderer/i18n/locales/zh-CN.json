@@ -1,9 +1,6 @@
 {
   "app": {
     "name": "印记",
-    "tagline": "UI 设计风格提取工具",
-    "version": "v0.1.0",
-    "footer": "开源免费",
     "switchToDark": "切换到暗色模式",
     "switchToLight": "切换到亮色模式",
     "switchLanguage": "切换界面语言"
@@ -18,8 +15,7 @@
   "common": {
     "cancel": "取消",
     "close": "关闭",
-    "delete": "删除",
-    "confirm": "确认"
+    "delete": "删除"
   },
   "feedback": {
     "dismiss": "关闭提示",
@@ -42,13 +38,10 @@
     "button": "分析",
     "analyzing": "分析中",
     "preparing": "准备中...",
-    "complete": "完成",
-    "failed": "失败: {{message}}",
     "error": "分析异常",
     "emptyTitle": "输入网站 URL 开始分析",
     "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
     "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
-    "browserNotFound": "未找到 Chrome 或 Edge 浏览器，请先安装",
     "tabPreview": "设计令牌",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
@@ -71,8 +64,6 @@
     "noAiTip": "未配置 AI API Key 或 Agent CLI — 分析仍可正常运行，但 token 命名可能不够语义化。可在设置中配置。",
     "saveToLibrary": "保存到主题库",
     "saved": "已保存",
-    "extractedColors": "提取的颜色",
-    "screenshot": "页面截图",
     "pageCount": {
       "label": "分析页面",
       "option": "最多 {{count}} 页",
@@ -148,7 +139,6 @@
     "extracted": "提取的主题",
     "apply": "应用",
     "current": "当前",
-    "resetDefault": "恢复默认",
     "export": "导出",
     "exportTheme": "以当前格式导出“{{theme}}”",
     "exportFormatLabel": "导出格式",
@@ -271,8 +261,6 @@
     "analytics": "数据分析",
     "applyTheme": "应用“{{theme}}”主题",
     "currentTheme": "当前：{{theme}}",
-    "exportThemeCss": "导出当前主题 CSS",
-    "exportThemeCssHelp": "验证场景只导出当前主题的 CSS 变量。若需要 DESIGN.md、Tailwind 或 Tokens JSON，请前往主题库选择导出格式。",
     "examples": {
       "dashboard": {
         "title": "管理仪表盘",
@@ -630,11 +618,7 @@
     "search": "搜索 URL...",
     "duration": "耗时 {{seconds}}s",
     "pageCount": "{{count}} 个页面",
-    "viewports": "视口",
-    "delete": "删除",
     "loading": "正在加载历史记录...",
-    "untitled": "未命名主题",
-    "tokenCount": "{{count}} 个令牌",
     "openSource": "在浏览器中打开原网站",
     "deleteRecord": "删除这条历史记录",
     "confirmDelete": "确定删除这条历史记录吗？此操作不可撤销。",

@@ -1,5 +1,5 @@
 import type { ComponentPattern } from './component-detect.js'
-import type { DesignToken } from './index.js'
+import type { DesignToken } from './types.js'
 
 export type DocLanguage = 'en' | 'zh-CN'
 

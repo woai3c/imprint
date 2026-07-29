@@ -1,6 +1,6 @@
 import type { Page } from 'playwright-core'
 
-import type { ExtractedStyles } from './index.js'
+import type { ExtractedStyles, InteractionStyles } from './types.js'
 
 /**
  * Extract all computed styles from a page using page.evaluate().
@@ -8,24 +8,7 @@ import type { ExtractedStyles } from './index.js'
  */
 export async function extractStyles(page: Page): Promise<ExtractedStyles> {
   return await page.evaluate(() => {
-    const styles: {
-      colors: string[]
-      fontFamilies: string[]
-      fontSizes: string[]
-      fontWeights: string[]
-      lineHeights: string[]
-      letterSpacings: string[]
-      spacings: string[]
-      radii: string[]
-      shadows: string[]
-      borders: string[]
-      cssVariables: Record<string, string>
-      backgroundColors: string[]
-      textColors: string[]
-      zIndices: string[]
-      transitions: string[]
-      usageCount: Record<string, number>
-    } = {
+    const styles: ExtractedStyles = {
       colors: [],
       fontFamilies: [],
       fontSizes: [],
@@ -198,12 +181,6 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
     return styles
   })
-}
-
-export interface InteractionStyles {
-  hover: Record<string, string>[]
-  focus: Record<string, string>[]
-  active: Record<string, string>[]
 }
 
 export async function extractInteractionStyles(page: Page): Promise<InteractionStyles> {

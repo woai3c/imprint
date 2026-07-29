@@ -1,5 +1,4 @@
-import type { DesignToken } from './index.js'
-import type { ExtractedStyles } from './index.js'
+import type { DesignToken, ExtractedStyles } from './types.js'
 
 /**
  * Generate design feature tags based on extracted style analysis.

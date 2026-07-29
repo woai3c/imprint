@@ -1,13 +1,7 @@
 import { execFile } from 'node:child_process'
 
+import type { AgentCliInfo } from '../shared/ipc-contract.js'
 import { log } from './logger.js'
-
-export interface AgentCliInfo {
-  name: string
-  command: string
-  version: string | null
-  available: boolean
-}
 
 const AGENT_CLIS = [
   { name: 'X-Code CLI', command: 'xc', versionFlag: '--version' },

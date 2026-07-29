@@ -1,11 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+import type { ElectronAPI, LoginRequiredEvent } from '../shared/ipc-contract.js'
+
 const api = {
   platform: process.platform,
 
   // Theme operations
   getThemes: () => ipcRenderer.invoke('themes:list'),
-  getTheme: (id: string) => ipcRenderer.invoke('themes:get', id),
   deleteTheme: (id: string) => ipcRenderer.invoke('themes:delete', id),
   toggleFavorite: (id: string) => ipcRenderer.invoke('themes:toggleFavorite', id),
 
@@ -67,36 +68,11 @@ const api = {
     ipcRenderer.on('analysis:progress', handler)
     return () => ipcRenderer.removeListener('analysis:progress', handler)
   },
-  onLoginRequired: (
-    callback: (request: {
-      requestId: string
-      detection: {
-        detected: boolean
-        confidence: 'low' | 'medium' | 'high'
-        reasons: string[]
-        finalUrl: string
-      }
-      retry: boolean
-    }) => void,
-  ) => {
-    const handler = (
-      _event: unknown,
-      request: {
-        requestId: string
-        detection: {
-          detected: boolean
-          confidence: 'low' | 'medium' | 'high'
-          reasons: string[]
-          finalUrl: string
-        }
-        retry: boolean
-      },
-    ) => callback(request)
+  onLoginRequired: (callback: (request: LoginRequiredEvent) => void) => {
+    const handler = (_event: unknown, request: LoginRequiredEvent) => callback(request)
     ipcRenderer.on('analysis:loginRequired', handler)
     return () => ipcRenderer.removeListener('analysis:loginRequired', handler)
   },
-}
-
-export type ElectronAPI = typeof api
+} satisfies ElectronAPI
 
 contextBridge.exposeInMainWorld('electronAPI', api)

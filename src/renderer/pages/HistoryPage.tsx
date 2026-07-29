@@ -3,25 +3,13 @@ import { ExternalLink, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { AnalysisRecord } from '../../shared/ipc-contract'
 import { AnalysisDetailDialog } from '../components/AnalysisDetailDialog'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
 import { useFeedbackStore } from '../stores/feedback-store'
-
-interface AnalysisRecord {
-  id: string
-  theme_id: string | null
-  url: string
-  pages_analyzed: number
-  viewports: string
-  duration_ms: number | null
-  token_usage: number
-  created_at: string
-  theme_name: string | null
-  source_url: string | null
-}
 
 export function HistoryPage() {
   const { t, i18n } = useTranslation()

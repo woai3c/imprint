@@ -1,4 +1,4 @@
-import type { DesignToken } from './index.js'
+import type { DesignToken } from './types.js'
 
 /**
  * LLM-enhanced semantic naming and design intent analysis.

@@ -1,3 +1,5 @@
+import { VALIDATION_SCENARIO_IDS } from './validation-scenarios'
+
 export type AppLanguage = 'en' | 'zh-CN'
 
 export interface ThemePreference {
@@ -95,20 +97,7 @@ export function setThemePreference(preference: ThemePreference): void {
   write(keys.theme, JSON.stringify(preference))
 }
 
-const validationScenarios = new Set([
-  'dashboard',
-  'ecommerce',
-  'kanban',
-  'analytics',
-  'settings',
-  'landing',
-  'blog',
-  'docs',
-  'pricing',
-  'login',
-  'profile',
-  'chat',
-])
+const validationScenarios = new Set<string>(VALIDATION_SCENARIO_IDS)
 
 export function getValidationScenarioPreference(): string {
   const stored = read(keys.validationScenario)

@@ -3,13 +3,7 @@ import { Loader2, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-interface BrowserSession {
-  id: string
-  origin: string
-  hostname: string
-  createdAt: string
-  updatedAt: string
-}
+import type { BrowserSession } from '../../shared/ipc-contract'
 
 interface BrowserSessionsDialogProps {
   onClose: () => void
@@ -32,7 +26,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
 
     window.electronAPI
       .listBrowserSessions()
-      .then((items: BrowserSession[]) => setSessions(items))
+      .then((items) => setSessions(items))
       .catch(() => setError(true))
       .finally(() => setLoading(false))
 
@@ -52,9 +46,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
     setBusyId(id)
     setError(false)
     try {
-      const result = (await window.electronAPI.deleteBrowserSession(id)) as {
-        success: boolean
-      }
+      const result = await window.electronAPI.deleteBrowserSession(id)
       if (!result.success) throw new Error('Unable to delete browser session')
       setSessions((items) => items.filter((item) => item.id !== id))
       setPendingDeleteId(null)
@@ -69,9 +61,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
     setBusyId('all')
     setError(false)
     try {
-      const result = (await window.electronAPI.clearBrowserSessions()) as {
-        success: boolean
-      }
+      const result = await window.electronAPI.clearBrowserSessions()
       if (!result.success) throw new Error('Unable to clear browser sessions')
       setSessions([])
       setConfirmClearAll(false)

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 
 import { analyze } from '../core/analyzer/index.js'
+import { getDefaultDataDir } from '../core/data-dir.js'
 import {
   generateCssVariables,
   generateDesignDoc,
@@ -67,10 +67,7 @@ async function main() {
     process.exit(1)
   }
 
-  const dataDir = path.join(os.homedir(), '.imprint')
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true })
-  }
+  const dataDir = getDefaultDataDir()
 
   const viewports = options.viewport === 'all' ? ['desktop', 'tablet', 'mobile'] : [options.viewport]
 

@@ -1,4 +1,4 @@
-import type { ElectronAPI } from '../main/preload'
+import type { ElectronAPI } from '../../shared/ipc-contract'
 
 declare global {
   interface Window {

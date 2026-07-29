@@ -1,37 +1,17 @@
 import { create } from 'zustand'
 
-export interface Theme {
-  id: string
-  name: string
-  source_url: string | null
-  screenshot_path: string | null
-  tokens_json: string
-  css_variables: string
-  tailwind_theme: string
-  design_doc: string
-  tags: string
-  is_builtin: number
-  is_favorite: number
-  created_at: string
-  updated_at: string
-}
+import type { ThemeRecord } from '../../shared/ipc-contract'
 
 interface ThemeStore {
-  themes: Theme[]
+  themes: ThemeRecord[]
   loading: boolean
-  activeThemeId: string | null
-  setActiveTheme: (id: string | null) => void
   fetchThemes: () => Promise<void>
-  deleteTheme: (id: string) => Promise<void>
   toggleFavorite: (id: string) => Promise<void>
 }
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   themes: [],
   loading: false,
-  activeThemeId: null,
-
-  setActiveTheme: (id) => set({ activeThemeId: id }),
 
   fetchThemes: async () => {
     set({ loading: true })
@@ -41,11 +21,6 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     } finally {
       set({ loading: false })
     }
-  },
-
-  deleteTheme: async (id) => {
-    await window.electronAPI.deleteTheme(id)
-    set({ themes: get().themes.filter((t) => t.id !== id) })
   },
 
   toggleFavorite: async (id) => {

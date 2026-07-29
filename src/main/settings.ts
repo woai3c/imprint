@@ -3,14 +3,7 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
-export interface AppSettings {
-  aiMode: 'apiKey' | 'agentCli'
-  provider: string
-  apiKey: string
-  baseUrl: string
-  agentCli: string
-  exportFormat: 'markdown' | 'css' | 'tailwind' | 'json'
-}
+import { type AppSettings, THEME_EXPORT_FORMATS } from '../shared/ipc-contract.js'
 
 const defaults: AppSettings = {
   aiMode: 'apiKey',
@@ -21,10 +14,8 @@ const defaults: AppSettings = {
   exportFormat: 'markdown',
 }
 
-const exportFormats: AppSettings['exportFormat'][] = ['markdown', 'css', 'tailwind', 'json']
-
 function isExportFormat(value: unknown): value is AppSettings['exportFormat'] {
-  return exportFormats.includes(value as AppSettings['exportFormat'])
+  return THEME_EXPORT_FORMATS.includes(value as AppSettings['exportFormat'])
 }
 
 function getSettingsPath(): string {

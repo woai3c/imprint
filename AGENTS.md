@@ -33,14 +33,14 @@ Desktop window, tray, single-instance, and platform lifecycle logic lives in `sr
 
 `DESIGN.md` is the source of truth for Imprint's own product design, brand, themes, interaction rules, and desktop shell. Read it before renderer visual work and keep it synchronized with material UI changes. Built-in themes are complete systems grouped as foundation, narrative, or experimental; validation scenarios are theme test surfaces, not bundled website templates.
 
-### Duplicated analyzer code — read before editing
+### Shared analyzer code — read before editing
 
-The analyzer/export logic exists TWICE and the copies must be kept in sync manually:
+The analyzer and export implementations have a single source of truth:
 
-- `src/core/analyzer/` + `src/core/export/` — used by CLI and MCP. Must stay free of `electron` imports (runs outside Electron). User-facing strings in English. Has extra modules (`design-compare.ts`, `component-detect.ts`, `responsive-motion.ts`).
-- `src/main/analyzer/` + `src/main/export.ts` — used by the desktop app. Depends on `electron` (app paths); user-facing strings in Chinese.
+- `src/core/analyzer/` + `src/core/export/` — shared by Desktop, CLI, and MCP. They must stay free of `electron` imports so CLI and MCP can run outside Electron.
+- `src/main/analyzer/index.ts` — the Electron-only adapter that injects `app.getPath('userData')`.
 
-Most files are byte-identical between the two; only `analyzer/index.ts` diverges (electron usage + language). When you fix or change extraction logic, mirror it in both copies.
+Extraction and export changes belong in `src/core`; do not create a second desktop copy.
 
 ### Browser requirement
 

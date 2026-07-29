@@ -3,21 +3,27 @@ import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { IconButton } from '../components/ui/IconButton'
 import { useFeedbackStore } from '../stores/feedback-store'
 
-interface AgentCliInfo {
-  name: string
-  command: string
-  version: string | null
-  available: boolean
-}
-
 let cachedAgentClis: AgentCliInfo[] | null = null
 let activeAgentCliDetection: Promise<AgentCliInfo[]> | null = null
+
+const PROVIDERS = [
+  { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
+  { id: 'anthropic', name: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY' },
+  { id: 'openai', name: 'OpenAI (GPT)', envVar: 'OPENAI_API_KEY' },
+  { id: 'google', name: 'Google (Gemini)', envVar: 'GOOGLE_GENERATIVE_AI_API_KEY' },
+  { id: 'moonshotai', name: 'Moonshot (Kimi)', envVar: 'MOONSHOT_API_KEY' },
+  { id: 'alibaba', name: 'Qwen (Alibaba)', envVar: 'ALIBABA_API_KEY' },
+  { id: 'zhipu', name: 'GLM (Zhipu)', envVar: 'ZHIPU_API_KEY' },
+  { id: 'xai', name: 'xAI (Grok)', envVar: 'XAI_API_KEY' },
+  { id: 'custom', name: 'OpenAI Compatible', envVar: 'OPENAI_COMPATIBLE_API_KEY' },
+]
 
 async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]> {
   if (activeAgentCliDetection) return activeAgentCliDetection
@@ -33,14 +39,6 @@ async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]>
   } finally {
     if (activeAgentCliDetection === detection) activeAgentCliDetection = null
   }
-}
-
-interface Settings {
-  aiMode: 'apiKey' | 'agentCli'
-  provider: string
-  apiKey: string
-  baseUrl?: string
-  agentCli: string
 }
 
 export function SettingsPage() {
@@ -59,20 +57,8 @@ export function SettingsPage() {
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [clearing, setClearing] = useState(false)
 
-  const providers = [
-    { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
-    { id: 'anthropic', name: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY' },
-    { id: 'openai', name: 'OpenAI (GPT)', envVar: 'OPENAI_API_KEY' },
-    { id: 'google', name: 'Google (Gemini)', envVar: 'GOOGLE_GENERATIVE_AI_API_KEY' },
-    { id: 'moonshotai', name: 'Moonshot (Kimi)', envVar: 'MOONSHOT_API_KEY' },
-    { id: 'alibaba', name: 'Qwen (Alibaba)', envVar: 'ALIBABA_API_KEY' },
-    { id: 'zhipu', name: 'GLM (Zhipu)', envVar: 'ZHIPU_API_KEY' },
-    { id: 'xai', name: 'xAI (Grok)', envVar: 'XAI_API_KEY' },
-    { id: 'custom', name: 'OpenAI Compatible', envVar: 'OPENAI_COMPATIBLE_API_KEY' },
-  ]
-
   useEffect(() => {
-    window.electronAPI.getSettings().then((s: Settings) => {
+    window.electronAPI.getSettings().then((s) => {
       setAiMode(s.aiMode || 'apiKey')
       setProvider(s.provider || '')
       setApiKey(s.apiKey || '')
@@ -84,7 +70,7 @@ export function SettingsPage() {
         const showProgress = cachedAgentClis === null
         if (showProgress) setDetecting(true)
         requestAgentCliDetection(false)
-          .then((result: AgentCliInfo[]) => {
+          .then((result) => {
             setAgentClis(result)
             if (!s.agentCli) {
               const firstAvailable = result.find((c) => c.available)
@@ -108,7 +94,7 @@ export function SettingsPage() {
     })
   }, [])
 
-  const save = (patch: Partial<Settings>) => {
+  const save = (patch: Partial<AppSettings>) => {
     window.electronAPI.saveSettings(patch)
   }
 
@@ -134,7 +120,7 @@ export function SettingsPage() {
 
   const handleBaseUrlChange = (v: string) => {
     setCustomBaseUrl(v)
-    save({ baseUrl: v } as Partial<Settings>)
+    save({ baseUrl: v })
   }
 
   const handleCliSelect = (command: string) => {
@@ -291,7 +277,7 @@ export function SettingsPage() {
                              focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="">{t('settings.ai.selectProvider')}</option>
-                  {providers.map((p) => (
+                  {PROVIDERS.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
@@ -305,7 +291,7 @@ export function SettingsPage() {
                     <label className="text-sm font-medium block mb-1.5">
                       {t('settings.ai.apiKey')}
                       <span className="text-muted-foreground font-normal ml-2">
-                        ({providers.find((p) => p.id === provider)?.envVar})
+                        ({PROVIDERS.find((p) => p.id === provider)?.envVar})
                       </span>
                     </label>
                     <input

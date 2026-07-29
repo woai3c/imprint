@@ -1,9 +1,6 @@
 {
   "app": {
     "name": "Imprint",
-    "tagline": "UI Design Style Extractor",
-    "version": "v0.1.0",
-    "footer": "Open Source & Free",
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode",
     "switchLanguage": "Switch interface language"
@@ -18,8 +15,7 @@
   "common": {
     "cancel": "Cancel",
     "close": "Close",
-    "delete": "Delete",
-    "confirm": "Confirm"
+    "delete": "Delete"
   },
   "feedback": {
     "dismiss": "Dismiss notification",
@@ -42,13 +38,10 @@
     "button": "Analyze",
     "analyzing": "Analyzing",
     "preparing": "Preparing...",
-    "complete": "Complete",
-    "failed": "Failed: {{message}}",
     "error": "Analysis error",
     "emptyTitle": "Enter a URL to start analyzing",
     "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
     "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
-    "browserNotFound": "Chrome or Edge browser not found. Please install one first.",
     "tabPreview": "Design Tokens",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
@@ -71,8 +64,6 @@
     "noAiTip": "No AI API Key or Agent CLI configured — analysis will still work, but token naming may be less descriptive. Configure in Settings.",
     "saveToLibrary": "Save to Library",
     "saved": "Saved",
-    "extractedColors": "Extracted Colors",
-    "screenshot": "Page screenshot",
     "pageCount": {
       "label": "Pages to analyze",
       "option": "Up to {{count}} pages",
@@ -149,7 +140,6 @@
     "extracted": "Extracted Themes",
     "apply": "Apply",
     "current": "Current",
-    "resetDefault": "Reset to Default",
     "export": "Export",
     "exportTheme": "Export “{{theme}}” in the selected format",
     "exportFormatLabel": "Export format",
@@ -300,8 +290,6 @@
     "analytics": "Analytics",
     "applyTheme": "Apply the “{{theme}}” theme",
     "currentTheme": "Current: {{theme}}",
-    "exportThemeCss": "Export Current Theme CSS",
-    "exportThemeCssHelp": "The validation page exports only the current theme's CSS variables. For DESIGN.md, Tailwind, or Tokens JSON, choose a format in the Theme Library.",
     "examples": {
       "dashboard": {
         "title": "Admin Dashboard",
@@ -673,11 +661,7 @@
     "search": "Search URL...",
     "duration": "Duration: {{seconds}}s",
     "pageCount": "{{count}} pages",
-    "viewports": "Viewports",
-    "delete": "Delete",
     "loading": "Loading history...",
-    "untitled": "Untitled theme",
-    "tokenCount": "{{count}} tokens",
     "openSource": "Open the source website in a browser",
     "deleteRecord": "Delete this history record",
     "confirmDelete": "Delete this history record? This cannot be undone.",

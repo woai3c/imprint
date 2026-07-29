@@ -1,4 +1,4 @@
-import type { DesignToken } from './index.js'
+import type { DesignToken } from './types.js'
 
 export interface DesignDiff {
   colors: { added: string[]; removed: string[]; changed: Array<{ name: string; from: string; to: string }> }

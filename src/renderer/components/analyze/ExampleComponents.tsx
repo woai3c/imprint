@@ -9,7 +9,7 @@ interface ExampleBlock {
 const MAX_FRAME_HEIGHT = 480
 const MIN_FRAME_HEIGHT = 48
 
-export function parseExampleComponents(designDoc: string): ExampleBlock[] {
+function parseExampleComponents(designDoc: string): ExampleBlock[] {
   const sectionMatch = /^## Example Components\s*$/m.exec(designDoc)
   if (!sectionMatch) return []
   const rest = designDoc.slice(sectionMatch.index)

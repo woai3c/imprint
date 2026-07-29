@@ -1,6 +1,5 @@
 import type { ClusteredColors } from './color-cluster.js'
-import type { DesignToken } from './index.js'
-import type { ExtractedStyles } from './index.js'
+import type { DesignToken, ExtractedStyles } from './types.js'
 
 /**
  * Build structured design tokens from raw extracted styles.

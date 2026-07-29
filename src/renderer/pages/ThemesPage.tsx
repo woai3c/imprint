@@ -3,6 +3,7 @@ import { Download, Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { THEME_EXPORT_FORMATS, type ThemeExportFormat } from '../../shared/ipc-contract'
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -15,12 +16,10 @@ import {
   generateThemeTailwind,
   useSkinStore,
 } from '../stores/skin-store'
-import type { AppTheme, ThemeCategory, ThemeColors, ThemeExportFormat } from '../stores/skin-store'
+import type { AppTheme, ThemeCategory, ThemeColors } from '../stores/skin-store'
 import { useThemeStore } from '../stores/theme-store'
 
 const themeCategoryOrder: ThemeCategory[] = ['foundation', 'narrative', 'experimental']
-const themeExportFormats: ThemeExportFormat[] = ['markdown', 'css', 'tailwind', 'json']
-
 export function ThemesPage() {
   const { t, i18n } = useTranslation()
   const { themes, fetchThemes, toggleFavorite } = useThemeStore()
@@ -37,7 +36,7 @@ export function ThemesPage() {
   useEffect(() => {
     window.electronAPI.getSettings().then((settings: { exportFormat?: string }) => {
       const savedFormat = settings.exportFormat
-      if (themeExportFormats.includes(savedFormat as ThemeExportFormat)) {
+      if (THEME_EXPORT_FORMATS.includes(savedFormat as ThemeExportFormat)) {
         setExportFormat(savedFormat as ThemeExportFormat)
       }
     })
@@ -182,7 +181,7 @@ export function ThemesPage() {
             onChange={(event) => handleExportFormatChange(event.target.value as ThemeExportFormat)}
             className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
           >
-            {themeExportFormats.map((format) => (
+            {THEME_EXPORT_FORMATS.map((format) => (
               <option key={format} value={format}>
                 {t(`themes.exportFormats.${format}`)}
               </option>

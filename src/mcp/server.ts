@@ -10,13 +10,11 @@
  * - imprint_extract: Extract design tokens from a URL
  * - imprint_compare: Compare design systems of two URLs
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import * as readline from 'node:readline'
 
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
+import { getDefaultDataDir } from '../core/data-dir.js'
 import {
   generateCssVariables,
   generateDesignDoc,
@@ -83,14 +81,8 @@ const TOOLS = [
   },
 ]
 
-function getDataDir(): string {
-  const dir = path.join(os.homedir(), '.imprint')
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return dir
-}
-
 async function handleToolCall(name: string, params: Record<string, unknown>): Promise<unknown> {
-  const dataDir = getDataDir()
+  const dataDir = getDefaultDataDir()
 
   if (name === 'imprint_extract') {
     const url = params.url as string

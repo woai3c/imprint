@@ -6,7 +6,13 @@ import {
 } from '../analyzer/agent-guide.js'
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import type { ComponentPattern } from '../analyzer/component-detect.js'
-import type { DesignToken } from '../analyzer/index.js'
+import type { DesignToken } from '../analyzer/types.js'
+
+const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
+const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
+const SHADOW_NAMES = ['sm', 'md', 'lg', 'xl']
+const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
+const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
 
 export interface DarkModeExportData {
   hasDarkMode: boolean
@@ -30,8 +36,7 @@ export function generateCssVariables(
   }
 
   tokens.typography.fontSizes.forEach((val, i) => {
-    const names = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
-    const name = names[i] || `${i + 1}`
+    const name = FONT_SIZE_NAMES[i] || `${i + 1}`
     lines.push(`  --font-size-${name}: ${val};`)
   })
 
@@ -39,22 +44,19 @@ export function generateCssVariables(
     lines.push(`  --spacing-${i + 1}: ${val};`)
   })
 
-  const radiusNames = ['sm', 'md', 'lg', 'xl', '2xl']
   tokens.radii.forEach((val, i) => {
-    const name = radiusNames[i] || `${i + 1}`
+    const name = RADIUS_NAMES[i] || `${i + 1}`
     lines.push(`  --radius-${name}: ${val};`)
   })
 
   tokens.shadows.forEach((val, i) => {
-    const names = ['sm', 'md', 'lg', 'xl']
-    const name = names[i] || `${i + 1}`
+    const name = SHADOW_NAMES[i] || `${i + 1}`
     lines.push(`  --shadow-${name}: ${val};`)
   })
 
   if (tokens.typography.letterSpacings?.length > 0) {
-    const lsNames = ['tight', 'normal', 'wide', 'wider', 'widest']
     tokens.typography.letterSpacings.forEach((val, i) => {
-      lines.push(`  --letter-spacing-${lsNames[i] || i + 1}: ${val};`)
+      lines.push(`  --letter-spacing-${LETTER_SPACING_NAMES[i] || i + 1}: ${val};`)
     })
   }
 
@@ -65,9 +67,8 @@ export function generateCssVariables(
   }
 
   if (tokens.transitions?.length > 0) {
-    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
     tokens.transitions.forEach((val, i) => {
-      lines.push(`  --duration-${durNames[i] || i + 1}: ${val};`)
+      lines.push(`  --duration-${DURATION_NAMES[i] || i + 1}: ${val};`)
     })
   }
 
@@ -92,8 +93,7 @@ export function generateCssVariables(
 
     if (darkMode.darkTokens.shadows.length > 0) {
       darkMode.darkTokens.shadows.forEach((val, i) => {
-        const names = ['sm', 'md', 'lg', 'xl']
-        const name = names[i] || `${i + 1}`
+        const name = SHADOW_NAMES[i] || `${i + 1}`
         lines.push(`${indent}--shadow-${name}: ${val};`)
       })
     }
@@ -120,16 +120,14 @@ export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeEx
     lines.push(`  --spacing-${i + 1}: ${val};`)
   })
 
-  const radiusNames = ['sm', 'md', 'lg', 'xl', '2xl']
   tokens.radii.forEach((val, i) => {
-    const name = radiusNames[i] || `${i + 1}`
+    const name = RADIUS_NAMES[i] || `${i + 1}`
     lines.push(`  --radius-${name}: ${val};`)
   })
 
   if (tokens.transitions?.length > 0) {
-    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
     tokens.transitions.forEach((val, i) => {
-      lines.push(`  --duration-${durNames[i] || i + 1}: ${val};`)
+      lines.push(`  --duration-${DURATION_NAMES[i] || i + 1}: ${val};`)
     })
   }
 
@@ -264,7 +262,7 @@ export function generateDesignDoc(
     tokens.radii
       .map((r, i) => {
         const count = tokens.usageCount?.[`radius:${r}`] || 0
-        return `- ${['sm', 'md', 'lg', 'xl', '2xl'][i] || i}: \`${r}\`${count > 0 ? ` (${count}×)` : ''}`
+        return `- ${RADIUS_NAMES[i] || i}: \`${r}\`${count > 0 ? ` (${count}×)` : ''}`
       })
       .join('\n'),
   )
@@ -272,7 +270,7 @@ export function generateDesignDoc(
   // Shadows
   if (tokens.shadows.length > 0) {
     lines.push(zh ? '\n## 阴影\n' : '\n## Shadows\n')
-    lines.push(tokens.shadows.map((s, i) => `- ${['sm', 'md', 'lg', 'xl'][i] || i}: \`${s}\``).join('\n'))
+    lines.push(tokens.shadows.map((s, i) => `- ${SHADOW_NAMES[i] || i}: \`${s}\``).join('\n'))
   }
 
   // Z-index
@@ -286,11 +284,7 @@ export function generateDesignDoc(
   // Transitions
   if (tokens.transitions?.length > 0) {
     lines.push(zh ? '\n## 过渡时长\n' : '\n## Transition Durations\n')
-    lines.push(
-      tokens.transitions
-        .map((t, i) => `- ${['fast', 'normal', 'slow', 'slower', 'slowest'][i] || i}: \`${t}\``)
-        .join('\n'),
-    )
+    lines.push(tokens.transitions.map((t, i) => `- ${DURATION_NAMES[i] || i}: \`${t}\``).join('\n'))
   }
 
   // Breakpoints
@@ -361,15 +355,13 @@ export function generateDtcgJson(tokens: DesignToken): string {
   })
 
   const radius = dtcg.borderRadius as Record<string, unknown>
-  const radiusNames = ['sm', 'md', 'lg', 'xl', '2xl']
   tokens.radii.forEach((val, i) => {
-    radius[radiusNames[i] || `${i}`] = { $type: 'dimension', $value: val }
+    radius[RADIUS_NAMES[i] || `${i}`] = { $type: 'dimension', $value: val }
   })
 
   const shadow = dtcg.shadow as Record<string, unknown>
-  const shadowNames = ['sm', 'md', 'lg', 'xl']
   tokens.shadows.forEach((val, i) => {
-    shadow[shadowNames[i] || `${i}`] = { $type: 'shadow', $value: val }
+    shadow[SHADOW_NAMES[i] || `${i}`] = { $type: 'shadow', $value: val }
   })
 
   const zIndex = dtcg.zIndex as Record<string, unknown>
@@ -378,9 +370,8 @@ export function generateDtcgJson(tokens: DesignToken): string {
   })
 
   const transition = dtcg.transition as Record<string, unknown>
-  const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
   tokens.transitions?.forEach((val, i) => {
-    transition[durNames[i] || `${i}`] = { $type: 'duration', $value: val }
+    transition[DURATION_NAMES[i] || `${i}`] = { $type: 'duration', $value: val }
   })
 
   return JSON.stringify(dtcg, null, 2)
@@ -400,8 +391,7 @@ export function generateScssVariables(tokens: DesignToken): string {
   lines.push('')
 
   tokens.typography.fontSizes.forEach((val, i) => {
-    const names = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
-    lines.push(`$font-size-${names[i] || i + 1}: ${val};`)
+    lines.push(`$font-size-${FONT_SIZE_NAMES[i] || i + 1}: ${val};`)
   })
   lines.push('')
 
@@ -410,15 +400,13 @@ export function generateScssVariables(tokens: DesignToken): string {
   })
   lines.push('')
 
-  const radiusNames = ['sm', 'md', 'lg', 'xl', '2xl']
   tokens.radii.forEach((val, i) => {
-    lines.push(`$radius-${radiusNames[i] || i + 1}: ${val};`)
+    lines.push(`$radius-${RADIUS_NAMES[i] || i + 1}: ${val};`)
   })
   lines.push('')
 
   tokens.shadows.forEach((val, i) => {
-    const names = ['sm', 'md', 'lg', 'xl']
-    lines.push(`$shadow-${names[i] || i + 1}: ${val};`)
+    lines.push(`$shadow-${SHADOW_NAMES[i] || i + 1}: ${val};`)
   })
 
   if (tokens.zIndices?.length > 0) {
@@ -430,9 +418,8 @@ export function generateScssVariables(tokens: DesignToken): string {
 
   if (tokens.transitions?.length > 0) {
     lines.push('')
-    const durNames = ['fast', 'normal', 'slow', 'slower', 'slowest']
     tokens.transitions.forEach((val, i) => {
-      lines.push(`$duration-${durNames[i] || i + 1}: ${val};`)
+      lines.push(`$duration-${DURATION_NAMES[i] || i + 1}: ${val};`)
     })
   }
 
@@ -496,7 +483,7 @@ ${featureTags?.length ? `<p>${featureTags.map((t) => `<span class="tag">${t}</sp
 <div class="section">
   <table>
     <tr><th>Size</th><th>Value</th></tr>
-    ${tokens.radii.map((r, i) => `<tr><td>${['sm', 'md', 'lg', 'xl', '2xl'][i] || i}</td><td><code>${r}</code></td></tr>`).join('\n    ')}
+    ${tokens.radii.map((r, i) => `<tr><td>${RADIUS_NAMES[i] || i}</td><td><code>${r}</code></td></tr>`).join('\n    ')}
   </table>
 </div>
 
@@ -504,7 +491,7 @@ ${
   tokens.shadows.length > 0
     ? `<h2>Shadows</h2>
 <div class="section">
-  ${tokens.shadows.map((s, i) => `<p>${['sm', 'md', 'lg', 'xl'][i] || i}: <code>${s}</code></p>`).join('\n  ')}
+  ${tokens.shadows.map((s, i) => `<p>${SHADOW_NAMES[i] || i}: <code>${s}</code></p>`).join('\n  ')}
 </div>`
     : ''
 }

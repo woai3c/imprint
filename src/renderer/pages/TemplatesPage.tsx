@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import type { ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { ThemeRecord } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -15,44 +17,46 @@ import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
 import { getValidationScenarioPreference, setValidationScenarioPreference } from '../lib/preferences'
+import { VALIDATION_SCENARIO_IDS, type ValidationScenarioId } from '../lib/validation-scenarios'
 import { builtinThemes, useSkinStore } from '../stores/skin-store'
 
-interface ExtractedTheme {
-  id: string
-  name: string
-  source_url: string | null
-  tokens_json: string
-  css_variables: string
-}
-
 const scenarioGroups = ['workflow', 'content', 'interaction'] as const
+
+const templateDefinitions: Record<
+  ValidationScenarioId,
+  { component: ComponentType; group: (typeof scenarioGroups)[number] }
+> = {
+  dashboard: { component: DashboardTemplate, group: 'workflow' },
+  ecommerce: { component: EcommerceTemplate, group: 'workflow' },
+  kanban: { component: KanbanTemplate, group: 'workflow' },
+  analytics: { component: AnalyticsTemplate, group: 'workflow' },
+  settings: { component: SettingsTemplate, group: 'workflow' },
+  landing: { component: LandingTemplate, group: 'content' },
+  blog: { component: BlogTemplate, group: 'content' },
+  docs: { component: DocsTemplate, group: 'content' },
+  pricing: { component: PricingTemplate, group: 'content' },
+  login: { component: LoginTemplate, group: 'interaction' },
+  profile: { component: ProfileTemplate, group: 'interaction' },
+  chat: { component: ChatTemplate, group: 'interaction' },
+}
 
 export function TemplatesPage() {
   const { t } = useTranslation()
   const [activeTemplate, setActiveTemplate] = useState(getValidationScenarioPreference)
   const { currentThemeId, extractedThemeId, setTheme, applyCustomCss } = useSkinStore()
-  const [extractedThemes, setExtractedThemes] = useState<ExtractedTheme[]>([])
+  const [extractedThemes, setExtractedThemes] = useState<ThemeRecord[]>([])
 
   useEffect(() => {
-    window.electronAPI.getThemes().then((themes: ExtractedTheme[]) => {
+    window.electronAPI.getThemes().then((themes) => {
       setExtractedThemes(themes)
     })
   }, [])
 
-  const templates = [
-    { id: 'dashboard', name: t('templates.dashboard'), component: DashboardTemplate, group: 'workflow' },
-    { id: 'ecommerce', name: t('templates.ecommerce'), component: EcommerceTemplate, group: 'workflow' },
-    { id: 'kanban', name: t('templates.kanban'), component: KanbanTemplate, group: 'workflow' },
-    { id: 'analytics', name: t('templates.analytics'), component: AnalyticsTemplate, group: 'workflow' },
-    { id: 'settings', name: t('templates.settings'), component: SettingsTemplate, group: 'workflow' },
-    { id: 'landing', name: t('templates.landing'), component: LandingTemplate, group: 'content' },
-    { id: 'blog', name: t('templates.blog'), component: BlogTemplate, group: 'content' },
-    { id: 'docs', name: t('templates.docs'), component: DocsTemplate, group: 'content' },
-    { id: 'pricing', name: t('templates.pricing'), component: PricingTemplate, group: 'content' },
-    { id: 'login', name: t('templates.login'), component: LoginTemplate, group: 'interaction' },
-    { id: 'profile', name: t('templates.profile'), component: ProfileTemplate, group: 'interaction' },
-    { id: 'chat', name: t('templates.chat'), component: ChatTemplate, group: 'interaction' },
-  ]
+  const templates = VALIDATION_SCENARIO_IDS.map((id) => ({
+    id,
+    name: t(`templates.${id}`),
+    ...templateDefinitions[id],
+  }))
 
   const ActiveComponent = templates.find((tpl) => tpl.id === activeTemplate)?.component || DashboardTemplate
 
@@ -61,11 +65,11 @@ export function TemplatesPage() {
     setValidationScenarioPreference(templateId)
   }
 
-  const handleApplyExtracted = (theme: ExtractedTheme) => {
+  const handleApplyExtracted = (theme: ThemeRecord) => {
     applyCustomCss(theme.css_variables, theme.id)
   }
 
-  const getThemeLabel = (theme: ExtractedTheme): string => {
+  const getThemeLabel = (theme: ThemeRecord): string => {
     if (theme.source_url) {
       try {
         return new URL(theme.source_url).hostname
@@ -76,7 +80,7 @@ export function TemplatesPage() {
     return theme.name
   }
 
-  const getPrimaryColor = (theme: ExtractedTheme): string => {
+  const getPrimaryColor = (theme: ThemeRecord): string => {
     try {
       const tokens = JSON.parse(theme.tokens_json)
       return tokens.colors?.primary || tokens.colors?.['color-1'] || '#888'

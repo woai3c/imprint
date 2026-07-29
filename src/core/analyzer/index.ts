@@ -3,175 +3,58 @@ import path from 'node:path'
 
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
-import { isLinux, isMacOS, isWindows } from '../../shared/platform.js'
-import { type AuthWallDetection, detectAuthWall } from './auth-wall.js'
+import { detectAuthWall } from './auth-wall.js'
+import { findBrowser } from './browser-finder.js'
 import { getManagedProfileDir, hasManagedProfile, markManagedSession } from './browser-session.js'
 import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents } from './component-detect.js'
-import { type DarkModeResult, extractDarkMode } from './dark-mode-detect.js'
+import { extractDarkMode } from './dark-mode-detect.js'
+import {
+  AuthenticationBrowserClosedError,
+  AuthenticationCancelledError,
+  AuthenticationRequiredError,
+} from './errors.js'
 import { generateFeatureTags } from './feature-tags.js'
+import { discoverSubPages } from './page-discovery.js'
 import { type MotionToken, type ResponsiveBreakpoint, detectBreakpoints, detectMotion } from './responsive-motion.js'
-import { type InteractionStyles, extractInteractionStyles, extractStyles } from './style-extractor.js'
+import { extractInteractionStyles, extractStyles } from './style-extractor.js'
+import { mergeStyles } from './style-merge.js'
 import { buildDesignTokens } from './token-builder.js'
+import type {
+  AnalysisOptions,
+  AnalysisResult,
+  DarkModeResult,
+  ExtractedStyles,
+  InteractionStyles,
+  PageScreenshot,
+} from './types.js'
 
-export type { DarkModeResult } from './dark-mode-detect.js'
-export type { InteractionStyles } from './style-extractor.js'
 export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 export type { AuthWallDetection, AuthWallReason } from './auth-wall.js'
-
-export interface AnalysisOptions {
-  viewports?: string[]
-  maxPages?: number
-  useSession?: boolean
-  authMode?: AuthMode
-  extractDarkMode?: boolean
-  dataDir: string
-  onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
-}
-
-export type AuthMode = 'auto' | 'anonymous' | 'managed'
-export type LoginDecision = 'continue' | 'anonymous' | 'cancel'
-
-export interface LoginRequest {
-  detection: AuthWallDetection
-  retry: boolean
-}
-
-export interface AnalysisResult {
-  tokens: DesignToken
-  screenshots: string[]
-  pageScreenshots: PageScreenshot[]
-  rawStyles: ExtractedStyles
-  interactions: InteractionStyles
-  darkMode: DarkModeResult | null
-  featureTags: string[]
-  components: ComponentPattern[]
-  breakpoints: ResponsiveBreakpoint[]
-  motion: MotionToken[]
-  duration: number
-  accessMode: 'anonymous' | 'managed'
-  authWallDetected: boolean
-  finalUrl: string
-}
-
-export interface PageScreenshot {
-  url: string
-  path: string
-  viewport: string
-}
-
-export class AuthenticationRequiredError extends Error {
-  readonly code = 'AUTH_REQUIRED'
-
-  constructor(readonly detection: AuthWallDetection) {
-    super('Authentication is required to access the target page')
-    this.name = 'AuthenticationRequiredError'
-  }
-}
-
-export class AuthenticationCancelledError extends Error {
-  readonly code = 'AUTH_CANCELLED'
-
-  constructor() {
-    super('Authentication was cancelled')
-    this.name = 'AuthenticationCancelledError'
-  }
-}
-
-export class AuthenticationBrowserClosedError extends Error {
-  readonly code = 'AUTH_BROWSER_CLOSED'
-
-  constructor() {
-    super('The sign-in browser was closed before analysis could continue. Your saved sign-in may still be available.')
-    this.name = 'AuthenticationBrowserClosedError'
-  }
-}
-
-export interface ExtractedStyles {
-  colors: string[]
-  fontFamilies: string[]
-  fontSizes: string[]
-  fontWeights: string[]
-  lineHeights: string[]
-  letterSpacings: string[]
-  spacings: string[]
-  radii: string[]
-  shadows: string[]
-  borders: string[]
-  cssVariables: Record<string, string>
-  backgroundColors: string[]
-  textColors: string[]
-  zIndices: string[]
-  transitions: string[]
-  usageCount: Record<string, number>
-}
-
-export interface DesignToken {
-  colors: Record<string, string>
-  typography: {
-    fontFamilies: string[]
-    fontStacks: string[]
-    fontSizes: string[]
-    fontWeights: string[]
-    lineHeights: string[]
-    letterSpacings: string[]
-  }
-  spacing: string[]
-  radii: string[]
-  shadows: string[]
-  borders: string[]
-  zIndices: string[]
-  transitions: string[]
-  usageCount?: Record<string, number>
-}
+export { findBrowser } from './browser-finder.js'
+export {
+  AuthenticationBrowserClosedError,
+  AuthenticationCancelledError,
+  AuthenticationRequiredError,
+} from './errors.js'
+export type {
+  AnalysisOptions,
+  AnalysisResult,
+  AuthMode,
+  DarkModeResult,
+  DesignToken,
+  ExtractedStyles,
+  InteractionStyles,
+  LoginDecision,
+  LoginRequest,
+  PageScreenshot,
+} from './types.js'
 
 const VIEWPORTS: Record<string, { width: number; height: number }> = {
   desktop: { width: 1440, height: 900 },
   tablet: { width: 768, height: 1024 },
   mobile: { width: 375, height: 812 },
-}
-
-export function findBrowser(): string | undefined {
-  if (isWindows(process.platform)) {
-    const paths = [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    ]
-    for (const p of paths) {
-      if (fs.existsSync(p)) return p
-    }
-  }
-
-  if (isMacOS(process.platform)) {
-    const paths = [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ]
-    for (const p of paths) {
-      if (fs.existsSync(p)) return p
-    }
-  }
-
-  if (isLinux(process.platform)) {
-    const paths = [
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/microsoft-edge',
-      '/usr/bin/microsoft-edge-stable',
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-    ]
-    for (const p of paths) {
-      if (fs.existsSync(p)) return p
-    }
-  }
-
-  return undefined
 }
 
 interface BrowserRuntime {
@@ -514,93 +397,4 @@ export async function analyze(
   } finally {
     await closeRuntime(runtime)
   }
-}
-
-function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
-  const merged: ExtractedStyles = {
-    colors: [],
-    fontFamilies: [],
-    fontSizes: [],
-    fontWeights: [],
-    lineHeights: [],
-    letterSpacings: [],
-    spacings: [],
-    radii: [],
-    shadows: [],
-    borders: [],
-    cssVariables: {},
-    backgroundColors: [],
-    textColors: [],
-    zIndices: [],
-    transitions: [],
-    usageCount: {},
-  }
-
-  for (const styles of stylesList) {
-    merged.colors.push(...styles.colors)
-    merged.fontFamilies.push(...styles.fontFamilies)
-    merged.fontSizes.push(...styles.fontSizes)
-    merged.fontWeights.push(...styles.fontWeights)
-    merged.lineHeights.push(...styles.lineHeights)
-    merged.letterSpacings.push(...(styles.letterSpacings || []))
-    merged.spacings.push(...styles.spacings)
-    merged.radii.push(...styles.radii)
-    merged.shadows.push(...styles.shadows)
-    merged.borders.push(...styles.borders)
-    merged.backgroundColors.push(...styles.backgroundColors)
-    merged.textColors.push(...styles.textColors)
-    merged.zIndices.push(...(styles.zIndices || []))
-    merged.transitions.push(...(styles.transitions || []))
-    Object.assign(merged.cssVariables, styles.cssVariables)
-    for (const [key, count] of Object.entries(styles.usageCount)) {
-      merged.usageCount[key] = (merged.usageCount[key] || 0) + count
-    }
-  }
-
-  merged.colors = [...new Set(merged.colors)]
-  merged.fontFamilies = [...new Set(merged.fontFamilies)]
-  merged.fontSizes = [...new Set(merged.fontSizes)]
-  merged.fontWeights = [...new Set(merged.fontWeights)]
-  merged.lineHeights = [...new Set(merged.lineHeights)]
-  merged.spacings = [...new Set(merged.spacings)]
-  merged.radii = [...new Set(merged.radii)]
-  merged.shadows = [...new Set(merged.shadows)]
-  merged.borders = [...new Set(merged.borders)]
-  merged.backgroundColors = [...new Set(merged.backgroundColors)]
-  merged.textColors = [...new Set(merged.textColors)]
-
-  return merged
-}
-
-async function discoverSubPages(page: Page, baseUrl: string, max: number): Promise<string[]> {
-  const origin = new URL(baseUrl).origin
-  const links: string[] = await page.evaluate((orig: string) => {
-    const anchors = Array.from(
-      document.querySelectorAll('nav a, header a, [role="navigation"] a, .nav a, .sidebar a, a'),
-    )
-    const hrefs = anchors
-      .map((a) => a.getAttribute('href'))
-      .filter(Boolean)
-      .map((href) => {
-        try {
-          return new URL(href!, orig).href
-        } catch {
-          return null
-        }
-      })
-      .filter((h): h is string => h !== null && h.startsWith(orig))
-      .filter(
-        (h) =>
-          !h.includes('#') &&
-          !h.includes('logout') &&
-          !h.includes('signout') &&
-          !h.includes('/api/') &&
-          !h.includes('/auth/') &&
-          !h.endsWith('.pdf') &&
-          !h.endsWith('.zip'),
-      )
-    return [...new Set(hrefs)]
-  }, origin)
-
-  return links.filter((l) => l !== baseUrl && l !== baseUrl + '/').slice(0, max)
 }

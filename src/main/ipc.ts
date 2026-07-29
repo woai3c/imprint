@@ -29,6 +29,7 @@ import {
   generateTailwindTheme,
 } from '../core/export/index.js'
 import { detectAgentClis } from './agent-detect.js'
+import { enhanceWithAgentCli } from './agent-enhancer.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
 import { getLogDir, log } from './logger.js'
@@ -189,21 +190,27 @@ export function registerIpcHandlers() {
         // LLM semantic enhancement (optional, only if AI is configured)
         const settings = getSettings()
         const enhancedTokens = result.tokens
+        let enhancement = null
         if (settings.aiMode === 'apiKey' && settings.provider && settings.apiKey) {
           analysisStage = 'progress.enhancingWithAi'
           win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
-          const enhancement = await enhanceWithLlm(result.tokens, url, {
+          enhancement = await enhanceWithLlm(result.tokens, url, {
             provider: settings.provider,
             apiKey: settings.apiKey,
             baseUrl: settings.baseUrl || undefined,
           })
-          if (enhancement) {
-            for (const [oldName, newName] of Object.entries(enhancement.colorNames)) {
-              if (enhancedTokens.colors[oldName]) {
-                const value = enhancedTokens.colors[oldName]
-                delete enhancedTokens.colors[oldName]
-                enhancedTokens.colors[newName] = value
-              }
+        } else if (settings.aiMode === 'agentCli' && settings.agentCli) {
+          analysisStage = 'progress.enhancingWithAi'
+          win?.webContents.send('analysis:progress', { step: 'progress.enhancingWithAi', percent: 97 })
+          enhancement = await enhanceWithAgentCli(result.tokens, url, settings.agentCli)
+        }
+
+        if (enhancement) {
+          for (const [oldName, newName] of Object.entries(enhancement.colorNames)) {
+            if (enhancedTokens.colors[oldName]) {
+              const value = enhancedTokens.colors[oldName]
+              delete enhancedTokens.colors[oldName]
+              enhancedTokens.colors[newName] = value
             }
           }
         }

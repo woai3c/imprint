@@ -16,6 +16,7 @@ const failureScreenshotPath = path.join(resultDir, 'core-flow-failure.png')
 let fixtureServer
 let fixtureUrl
 let electronApp
+let fakeAgentDir
 let page
 let userDataDir
 
@@ -28,6 +29,7 @@ function launchApp(locale = 'en-US') {
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       IMPRINT_E2E: '1',
       IMPRINT_E2E_USER_DATA_DIR: userDataDir,
+      PATH: `${fakeAgentDir}${path.delimiter}${process.env.PATH || ''}`,
     },
     locale,
     timeout: 60_000,
@@ -60,6 +62,30 @@ const authFixture = Buffer.from(`<!doctype html>
 
 before(async () => {
   await fs.rm(failureScreenshotPath, { force: true })
+  fakeAgentDir = await fs.mkdtemp(path.join(os.tmpdir(), 'imprint-e2e-agent-'))
+  const fakeAgentSource = `if (process.argv.includes('--version')) {
+  console.log('codex 0.0.0-e2e')
+  process.exit(0)
+}
+let prompt = ''
+for await (const chunk of process.stdin) prompt += chunk
+const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
+console.log(JSON.stringify({
+  colorNames: colorName ? { [colorName]: 'e2e-agent-brand' } : {},
+  designSummary: 'E2E agent enhancement',
+  designIntent: 'Verify the local Agent CLI execution path',
+  featureTags: ['e2e-agent']
+}))
+`
+  await fs.writeFile(path.join(fakeAgentDir, 'fake-agent.mjs'), fakeAgentSource, 'utf-8')
+  if (process.platform === 'win32') {
+    await fs.writeFile(path.join(fakeAgentDir, 'codex.cmd'), '@echo off\r\nnode "%~dp0fake-agent.mjs" %*\r\n', 'utf-8')
+  } else {
+    const fakeAgentPath = path.join(fakeAgentDir, 'codex')
+    await fs.writeFile(fakeAgentPath, '#!/bin/sh\nexec node "$(dirname "$0")/fake-agent.mjs" "$@"\n', 'utf-8')
+    await fs.chmod(fakeAgentPath, 0o755)
+  }
+
   const fixture = await fs.readFile(fixturePath)
   fixtureServer = http.createServer((request, response) => {
     if (request.url?.startsWith('/failure')) {
@@ -101,6 +127,7 @@ before(async () => {
 after(async () => {
   await electronApp?.close()
   await new Promise((resolve) => fixtureServer?.close(resolve))
+  if (fakeAgentDir) await fs.rm(fakeAgentDir, { force: true, recursive: true })
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
 
@@ -201,6 +228,36 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.match(css || '', /:root\s*\{/)
     assert.match(css || '', /--color-/)
 
+    await page.evaluate(async () => {
+      await window.electronAPI.saveSettings({ aiMode: 'agentCli', agentCli: 'codex' })
+    })
+    const previousAgentScreenshotSrc = await page
+      .getByTestId('analysis-page-screenshot')
+      .first()
+      .locator('img')
+      .getAttribute('src')
+    await page.getByTestId('analyze-submit').click()
+    await page.waitForFunction(
+      (previousSrc) => {
+        const submit = document.querySelector('[data-testid="analyze-submit"]')
+        const screenshot = document.querySelector('[data-testid="analysis-page-screenshot"] img')
+        return (
+          submit instanceof HTMLButtonElement &&
+          !submit.disabled &&
+          screenshot instanceof HTMLImageElement &&
+          screenshot.src !== previousSrc
+        )
+      },
+      previousAgentScreenshotSrc,
+      { timeout: 90_000 },
+    )
+    await page.getByTestId('artifact-tab-json').click()
+    const agentTokens = JSON.parse((await page.getByTestId('artifact-content-json').textContent()) || '{}')
+    assert.equal(agentTokens.colors['e2e-agent-brand'], '#2563eb')
+    await page.evaluate(async () => {
+      await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
+    })
+
     await page.getByTestId('save-theme').click()
     await page.waitForFunction(
       () => document.querySelector('[data-testid="save-theme"]')?.getAttribute('aria-label') === 'Saved',
@@ -212,7 +269,8 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByText(fixtureUrl, { exact: true }).waitFor()
 
     await page.locator('a[href="#/history"]').click()
-    await page.getByText(fixtureUrl, { exact: true }).waitFor()
+    await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
+    assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
 
     await page.locator('a[href="#/templates"]').click()
     await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })

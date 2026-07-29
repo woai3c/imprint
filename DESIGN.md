@@ -232,6 +232,10 @@ to Imprint rather than an enterprise administration UI.
   is not enabled when the selected method is incomplete.
 - Keep Agent CLI detection behavior as visible supporting text beside the detected list and refresh action. Do not hide
   this explanation in a tooltip that can be clipped by the desktop shell.
+- When Agent CLI is active, run semantic enhancement non-interactively in an isolated temporary directory with the
+  strongest read-only or no-tool controls supported by that CLI. Bound execution time and output size, never log prompts
+  or responses, remove temporary data afterward, and fall back to deterministic extraction if the CLI is unavailable,
+  unauthenticated, times out, or returns invalid output.
 
 ## Export semantics
 

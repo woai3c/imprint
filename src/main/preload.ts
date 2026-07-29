@@ -33,6 +33,8 @@ const api = {
   exportToDirectory: (files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) =>
     ipcRenderer.invoke('export:toDirectory', files, assets, defaultDir),
   importTheme: (language?: string) => ipcRenderer.invoke('import:theme', language),
+  openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
+  logEvent: (level: 'info' | 'warn' | 'error', message: string) => ipcRenderer.send('log:event', level, message),
 
   // Save theme to library
   saveTheme: (data: {

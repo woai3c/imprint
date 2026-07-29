@@ -678,7 +678,8 @@
       "clearAll": "清除主题与分析记录",
       "confirmClear": "确认要清除全部主题与分析记录？设置不会被清除，此操作不可撤销。",
       "confirmClearTitle": "清除全部本地数据",
-      "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复；导入只支持单个主题的 Tokens JSON。"
+      "openLogs": "打开日志目录",
+      "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复；导入只支持单个主题的 Tokens JSON。运行日志保存在日志目录中，排查问题时可提供。"
     }
   },
   "progress": {

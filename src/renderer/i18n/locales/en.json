@@ -723,7 +723,8 @@
       "clearAll": "Clear Themes and Analysis History",
       "confirmClear": "Clear all themes and analysis records? Settings will be kept. This cannot be undone.",
       "confirmClearTitle": "Clear all local data",
-      "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Import accepts one theme Tokens JSON file."
+      "openLogs": "Open Logs Folder",
+      "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Import accepts one theme Tokens JSON file. Runtime logs live in the logs folder — include them when reporting issues."
     }
   },
   "progress": {

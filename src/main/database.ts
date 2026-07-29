@@ -4,6 +4,8 @@ import { app } from 'electron'
 
 import Database from 'better-sqlite3'
 
+import { log } from './logger.js'
+
 let db: Database.Database
 
 export function getDb(): Database.Database {
@@ -13,6 +15,7 @@ export function getDb(): Database.Database {
 export function initDatabase() {
   const dbPath = path.join(app.getPath('userData'), 'copy-design.db')
   db = new Database(dbPath)
+  log.info('db', `database opened at ${dbPath}`)
 
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')

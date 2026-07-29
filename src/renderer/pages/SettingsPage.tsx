@@ -419,6 +419,13 @@ export function SettingsPage() {
               >
                 {t('settings.data.clearAll')}
               </button>
+              <button
+                onClick={() => window.electronAPI.openLogsFolder()}
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                                 hover:bg-accent transition-colors"
+              >
+                {t('settings.data.openLogs')}
+              </button>
             </div>
             <p className="text-xs text-muted-foreground">{t('settings.data.tip')}</p>
           </div>

@@ -7,6 +7,7 @@ import { BrowserWindow, Menu, Tray, app, nativeImage, net, protocol } from 'elec
 import { isLinux, isMacOS, isWindows } from '../shared/platform.js'
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
+import { initLogger, log } from './logger.js'
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
@@ -21,6 +22,8 @@ if (process.env.IMPRINT_E2E === '1' && e2eUserDataDir) {
   app.setPath('userData', resolvedE2eUserDataDir)
   app.setPath('sessionData', path.join(resolvedE2eUserDataDir, 'session'))
 }
+
+initLogger()
 
 function getIconPath(...segments: string[]) {
   const iconRoot = app.isPackaged
@@ -127,12 +130,20 @@ if (!hasSingleInstanceLock) {
     },
   ])
 
-  app.on('second-instance', showMainWindow)
+  app.on('second-instance', () => {
+    log.info('app', 'second instance attempted, focusing existing window')
+    showMainWindow()
+  })
   app.on('before-quit', () => {
     isQuitting = true
+    log.info('app', 'quitting')
   })
 
   app.whenReady().then(() => {
+    log.info(
+      'app',
+      `ready: version=${app.getVersion()} platform=${process.platform} arch=${process.arch} packaged=${app.isPackaged}`,
+    )
     if (isWindows(process.platform)) app.setAppUserModelId('com.imprint.app')
 
     protocol.handle('imprint-file', (request) => {

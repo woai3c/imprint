@@ -33,6 +33,7 @@ import {
   generateScssVariables,
   generateTailwindTheme,
 } from './export.js'
+import { getLogDir, log } from './logger.js'
 import { getSettings, saveSettings } from './settings.js'
 
 type UnknownRecord = Record<string, unknown>
@@ -321,6 +322,11 @@ export function registerIpcHandlers() {
       const win = BrowserWindow.fromWebContents(event.sender)
       let analysisStage = 'progress.launchingBrowser'
 
+      log.info(
+        'analysis',
+        `start: url=${url} viewports=${options?.viewports?.join(',') ?? 'default'} maxPages=${options?.maxPages ?? 'default'} authMode=${options?.authMode ?? 'auto'}`,
+      )
+
       try {
         const result = await analyzeUrl(
           url,
@@ -408,6 +414,11 @@ export function registerIpcHandlers() {
           result.finalUrl ?? null,
         )
 
+        log.info(
+          'analysis',
+          `done: url=${url} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'}`,
+        )
+
         return {
           tokens: enhancedTokens,
           cssVariables: cssVars,
@@ -428,15 +439,18 @@ export function registerIpcHandlers() {
         }
       } catch (err: unknown) {
         if (err instanceof AuthenticationRequiredError) {
+          log.info('analysis', `auth required: url=${url}`)
           return {
             authRequired: true,
             detection: err.detection,
           }
         }
         if (err instanceof AuthenticationCancelledError) {
+          log.info('analysis', `cancelled at login decision: url=${url}`)
           return { cancelled: true }
         }
         const message = err instanceof Error ? err.message : String(err)
+        log.error('analysis', `failed during ${analysisStage}: url=${url} error=${message}`)
         console.error(`[imprint] analysis failed during ${analysisStage}:`, err)
         return { error: true, message, stage: analysisStage }
       }
@@ -498,6 +512,7 @@ export function registerIpcHandlers() {
     })
     if (result.canceled || !result.filePath) return { success: false, canceled: true }
     fs.writeFileSync(result.filePath, content, 'utf-8')
+    log.info('export', `file written: ${result.filePath}`)
     return { success: true, filePath: result.filePath }
   })
 
@@ -530,6 +545,7 @@ export function registerIpcHandlers() {
         }
       }
 
+      log.info('export', `directory export: ${targetDir} files=${files.length} assets=${assets.length}`)
       return { success: true, filePath: targetDir }
     },
   )
@@ -588,6 +604,7 @@ export function registerIpcHandlers() {
     if (result.canceled || !result.filePath) return { success: false, canceled: true }
 
     fs.writeFileSync(result.filePath, content, 'utf-8')
+    log.info('export', `theme exported: id=${id} format=${format} path=${result.filePath}`)
 
     const exportId = uuidv4()
     db.prepare('INSERT INTO exports (id, theme_id, format, file_path, created_at) VALUES (?, ?, ?, ?, ?)').run(
@@ -639,8 +656,13 @@ export function registerIpcHandlers() {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(themeId, themeName, JSON.stringify(tokens), cssVars, tailwind, designDoc, now, now)
 
+        log.info('import', `theme imported: file=${filePath} name=${themeName} id=${themeId}`)
         return { success: true, themeId }
       } catch (err: unknown) {
+        log.error(
+          'import',
+          `theme import failed: file=${filePath} error=${err instanceof Error ? err.message : String(err)}`,
+        )
         return { error: true, message: err instanceof Error ? err.message : String(err) }
       }
     }
@@ -654,7 +676,21 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('settings:save', (_event, settings: Record<string, unknown>) => {
+    // Never log the payload — it can contain API keys.
+    log.info('settings', `saved: ${Object.keys(settings).join(', ')}`)
     return saveSettings(settings as Parameters<typeof saveSettings>[0])
+  })
+
+  ipcMain.on('log:event', (_event, level: string, message: string) => {
+    const safeLevel = level === 'warn' || level === 'error' ? level : 'info'
+    const safeMessage = typeof message === 'string' ? message.slice(0, 2000) : String(message)
+    log[safeLevel]('renderer', safeMessage)
+  })
+
+  ipcMain.handle('app:openLogsFolder', async () => {
+    const logDir = getLogDir()
+    await shell.openPath(logDir)
+    return { success: true, path: logDir }
   })
 
   ipcMain.handle('settings:detectAgentClis', async () => {

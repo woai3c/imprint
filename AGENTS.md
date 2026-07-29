@@ -11,11 +11,13 @@ Imprint — Electron desktop app + standalone CLI + MCP server that extracts a w
 - `pnpm dev` — run the Electron app (electron-forge + Vite)
 - `pnpm build` — package the desktop app (NOT the CLI)
 - `pnpm build:cli` — compile `src/cli`, `src/core`, `src/mcp` to `dist/` via `tsconfig.cli.json`; required before running the `imprint` / `imprint-mcp` bin entries
-- `pnpm test:e2e` — package and launch Electron, analyze a local fixture without LLM credentials, and verify tokens plus SQLite-backed library/history flows; requires installed Chrome or Edge
-- `pnpm run ci` — typecheck + lint + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
+- `pnpm test` — run the Vitest unit suite for core analyzer behavior
+- `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
+- `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge
+- `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
 - `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
   trigger native Windows x64 and macOS arm64/x64 release builds
-- There is no unit-test runner; the E2E suite uses Node's test runner with `playwright-core`.
+- Unit tests use Vitest. E2E tests use Node's test runner with `playwright-core`.
 
 ## Architecture
 

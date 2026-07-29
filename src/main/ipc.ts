@@ -693,8 +693,8 @@ export function registerIpcHandlers() {
     return { success: true, path: logDir }
   })
 
-  ipcMain.handle('settings:detectAgentClis', async () => {
-    return detectAgentClis()
+  ipcMain.handle('settings:detectAgentClis', async (_event, force: unknown) => {
+    return detectAgentClis(force === true)
   })
 
   ipcMain.handle('settings:testApiKey', async (_event, provider: string, apiKey: string) => {

@@ -49,7 +49,7 @@ const api = {
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('settings:save', settings),
-  detectAgentClis: () => ipcRenderer.invoke('settings:detectAgentClis'),
+  detectAgentClis: (force = false) => ipcRenderer.invoke('settings:detectAgentClis', force),
   testApiKey: (provider: string, apiKey: string) => ipcRenderer.invoke('settings:testApiKey', provider, apiKey),
 
   // History

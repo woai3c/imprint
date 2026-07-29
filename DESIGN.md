@@ -223,6 +223,8 @@ to Imprint rather than an enterprise administration UI.
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
 - AI credentials, Agent CLI selection, and Theme Library export format stay in the main-process settings file. Never
   duplicate credentials into renderer storage.
+- Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
+  explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
 
 ## Export semantics
 

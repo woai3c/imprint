@@ -1,10 +1,12 @@
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { IconButton } from '../components/ui/IconButton'
 import { useFeedbackStore } from '../stores/feedback-store'
 
 interface AgentCliInfo {
@@ -12,6 +14,25 @@ interface AgentCliInfo {
   command: string
   version: string | null
   available: boolean
+}
+
+let cachedAgentClis: AgentCliInfo[] | null = null
+let activeAgentCliDetection: Promise<AgentCliInfo[]> | null = null
+
+async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]> {
+  if (activeAgentCliDetection) return activeAgentCliDetection
+  if (!force && cachedAgentClis) return cachedAgentClis
+
+  const detection = window.electronAPI.detectAgentClis(force)
+  activeAgentCliDetection = detection
+
+  try {
+    const result = await detection
+    cachedAgentClis = result
+    return result
+  } finally {
+    if (activeAgentCliDetection === detection) activeAgentCliDetection = null
+  }
 }
 
 interface Settings {
@@ -29,7 +50,7 @@ export function SettingsPage() {
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [agentClis, setAgentClis] = useState<AgentCliInfo[]>([])
+  const [agentClis, setAgentClis] = useState<AgentCliInfo[]>(() => cachedAgentClis ?? [])
   const [selectedCli, setSelectedCli] = useState('')
   const [detecting, setDetecting] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -60,9 +81,9 @@ export function SettingsPage() {
       setLoaded(true)
 
       if (s.aiMode === 'agentCli') {
-        setDetecting(true)
-        window.electronAPI
-          .detectAgentClis()
+        const showProgress = cachedAgentClis === null
+        if (showProgress) setDetecting(true)
+        requestAgentCliDetection(false)
           .then((result: AgentCliInfo[]) => {
             setAgentClis(result)
             if (!s.agentCli) {
@@ -75,9 +96,13 @@ export function SettingsPage() {
           })
           .catch((err: unknown) => {
             console.error('Failed to detect agent CLIs:', err)
+            window.electronAPI.logEvent(
+              'error',
+              `Initial Agent CLI detection failed in renderer: ${err instanceof Error ? err.message : String(err)}`,
+            )
           })
           .finally(() => {
-            setDetecting(false)
+            if (showProgress) setDetecting(false)
           })
       }
     })
@@ -91,7 +116,7 @@ export function SettingsPage() {
     setAiMode(mode)
     save({ aiMode: mode })
     if (mode === 'agentCli' && agentClis.length === 0) {
-      handleDetectClis()
+      handleDetectClis(false)
     }
   }
 
@@ -130,19 +155,25 @@ export function SettingsPage() {
     }
   }
 
-  const handleDetectClis = async () => {
-    setDetecting(true)
+  const handleDetectClis = async (force: boolean) => {
+    const showProgress = force || cachedAgentClis === null
+    if (showProgress) setDetecting(true)
     try {
-      const result = await window.electronAPI.detectAgentClis()
+      const result = await requestAgentCliDetection(force)
       setAgentClis(result)
       const firstAvailable = result.find((c: AgentCliInfo) => c.available)
       if (firstAvailable && !selectedCli) {
         handleCliSelect(firstAvailable.command)
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to detect agent CLIs:', err)
+      window.electronAPI.logEvent(
+        'error',
+        `Agent CLI detection failed in renderer: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      notify(t('feedback.actionFailed'), 'error')
     } finally {
-      setDetecting(false)
+      if (showProgress) setDetecting(false)
     }
   }
 
@@ -335,61 +366,64 @@ export function SettingsPage() {
             </div>
           ) : (
             <div className="p-4 rounded-lg border border-border">
-              <p className="text-sm text-muted-foreground mb-3">{t('settings.ai.detectDescription')}</p>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-1">
+                  <p className="text-sm text-muted-foreground">{t('settings.ai.detectDescription')}</p>
+                  <InfoTip text={t('settings.ai.detectHint')} align="right" />
+                </div>
+                <IconButton
+                  icon={RefreshCw}
+                  label={t('settings.ai.redetect')}
+                  onClick={() => handleDetectClis(true)}
+                  disabled={detecting}
+                  className="shrink-0"
+                />
+              </div>
 
-              {detecting ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {detecting && (
+                <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground" role="status">
                   <Loader2 size={16} className="animate-spin" />
                   {t('settings.ai.detecting')}
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {agentClis.map((cli) => (
-                    <label
-                      key={cli.command}
-                      className={`flex items-center gap-3 p-3 rounded-md border transition-colors cursor-pointer ${
-                        selectedCli === cli.command
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-muted-foreground/30'
-                      } ${!cli.available ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <input
-                        type="radio"
-                        name="agentCli"
-                        value={cli.command}
-                        checked={selectedCli === cli.command}
-                        onChange={(e) => handleCliSelect(e.target.value)}
-                        disabled={!cli.available}
-                        className="accent-primary"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{cli.name}</span>
-                          <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
-                        </div>
-                        {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
-                      </div>
-                      {cli.available ? (
-                        <CheckCircle2 size={14} className="text-success" />
-                      ) : (
-                        <XCircle size={14} className="text-muted-foreground" />
-                      )}
-                    </label>
-                  ))}
-                  {agentClis.length === 0 && !detecting && (
-                    <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>
-                  )}
-                </div>
               )}
 
-              <button
-                onClick={handleDetectClis}
-                disabled={detecting}
-                className="mt-3 h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
-                           hover:bg-accent transition-colors disabled:opacity-50"
-              >
-                {t('settings.ai.redetect')}
-              </button>
+              <div className="space-y-2">
+                {agentClis.map((cli) => (
+                  <label
+                    key={cli.command}
+                    className={`flex items-center gap-3 p-3 rounded-md border transition-colors cursor-pointer ${
+                      selectedCli === cli.command
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-muted-foreground/30'
+                    } ${!cli.available ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="agentCli"
+                      value={cli.command}
+                      checked={selectedCli === cli.command}
+                      onChange={(e) => handleCliSelect(e.target.value)}
+                      disabled={!cli.available}
+                      className="accent-primary"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{cli.name}</span>
+                        <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
+                      </div>
+                      {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
+                    </div>
+                    {cli.available ? (
+                      <CheckCircle2 size={14} className="text-success" />
+                    ) : (
+                      <XCircle size={14} className="text-muted-foreground" />
+                    )}
+                  </label>
+                ))}
+                {agentClis.length === 0 && !detecting && (
+                  <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>
+                )}
+              </div>
             </div>
           )}
         </section>

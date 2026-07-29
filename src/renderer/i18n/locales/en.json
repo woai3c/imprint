@@ -714,7 +714,8 @@
       "detecting": "Detecting...",
       "detectDescription": "Detect AI Agent CLIs installed on your system:",
       "redetect": "Re-detect",
-      "noCli": "Click \"Use Local AI Agent CLI\" above to auto-detect"
+      "detectHint": "Detection runs once per app launch and is then reused. If you install a new Agent CLI, use refresh to detect it.",
+      "noCli": "No supported AI Agent CLI was detected"
     },
     "data": {
       "title": "Data Management",

@@ -1,4 +1,6 @@
-import { execSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+
+import { log } from './logger.js'
 
 export interface AgentCliInfo {
   name: string
@@ -16,28 +18,101 @@ const AGENT_CLIS = [
   { name: 'Kimi CLI', command: 'kimi', versionFlag: '--version' },
 ]
 
-function checkCommand(command: string, versionFlag: string): string | null {
-  try {
-    const result = execSync(`${command} ${versionFlag}`, {
-      timeout: 5000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    const version = result.trim().split('\n')[0]
-    return version || 'installed'
-  } catch {
-    return null
-  }
+const DETECTION_TIMEOUT_MS = 5000
+
+let cachedResult: AgentCliInfo[] | null = null
+let activeDetection: Promise<AgentCliInfo[]> | null = null
+
+function checkCommand(name: string, command: string, versionFlag: string): Promise<string | null> {
+  const startedAt = Date.now()
+
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      [versionFlag],
+      {
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
+        timeout: DETECTION_TIMEOUT_MS,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        const durationMs = Date.now() - startedAt
+        if (error) {
+          const timedOut = 'killed' in error && error.killed
+          log.info(
+            'agent-cli',
+            `checked: name=${name} command=${command} available=false durationMs=${durationMs} reason=${
+              timedOut ? 'timeout' : 'unavailable'
+            }`,
+          )
+          resolve(null)
+          return
+        }
+
+        const version = stdout.trim().split(/\r?\n/)[0] || 'installed'
+        log.info(
+          'agent-cli',
+          `checked: name=${name} command=${command} available=true durationMs=${durationMs} version=${version}`,
+        )
+        resolve(version)
+      },
+    )
+  })
 }
 
-export function detectAgentClis(): AgentCliInfo[] {
-  return AGENT_CLIS.map(({ name, command, versionFlag }) => {
-    const version = checkCommand(command, versionFlag)
-    return {
-      name,
-      command,
-      version,
-      available: version !== null,
-    }
-  })
+async function runDetection(): Promise<AgentCliInfo[]> {
+  const startedAt = Date.now()
+  log.info('agent-cli', `detection started: commands=${AGENT_CLIS.length}`)
+
+  const result = await Promise.all(
+    AGENT_CLIS.map(async ({ name, command, versionFlag }) => {
+      const version = await checkCommand(name, command, versionFlag)
+      return {
+        name,
+        command,
+        version,
+        available: version !== null,
+      }
+    }),
+  )
+
+  cachedResult = result
+  const availableCommands = result.filter((cli) => cli.available).map((cli) => cli.command)
+  log.info(
+    'agent-cli',
+    `detection completed: available=${availableCommands.length}/${result.length} commands=${
+      availableCommands.join(',') || 'none'
+    } durationMs=${Date.now() - startedAt}`,
+  )
+
+  return result
+}
+
+export async function detectAgentClis(force = false): Promise<AgentCliInfo[]> {
+  if (activeDetection) {
+    log.info('agent-cli', 'detection request joined the active scan')
+    return activeDetection
+  }
+
+  if (!force && cachedResult) {
+    log.info('agent-cli', 'detection request served from the current app-session cache')
+    return cachedResult
+  }
+
+  if (force) {
+    log.info('agent-cli', 'manual re-detection requested')
+  }
+
+  const detection = runDetection()
+  activeDetection = detection
+
+  try {
+    return await detection
+  } catch (error: unknown) {
+    log.error('agent-cli', `detection failed: ${error instanceof Error ? error.message : String(error)}`)
+    throw error
+  } finally {
+    if (activeDetection === detection) activeDetection = null
+  }
 }

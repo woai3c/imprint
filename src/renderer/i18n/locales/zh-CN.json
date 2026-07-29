@@ -669,7 +669,8 @@
       "detecting": "正在检测...",
       "detectDescription": "检测系统中已安装的 AI Agent CLI：",
       "redetect": "重新检测",
-      "noCli": "点击上方「使用本地 AI Agent CLI」后自动检测"
+      "detectHint": "每次启动应用只自动检测一次，之后会复用结果。如果新安装了 Agent CLI，可点击刷新重新检测。",
+      "noCli": "未检测到支持的 AI Agent CLI"
     },
     "data": {
       "title": "数据管理",

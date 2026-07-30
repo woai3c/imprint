@@ -17,8 +17,9 @@ let activeAgentCliDetection: Promise<AgentCliInfo[]> | null = null
 
 const BASE_URL_OPTIONS: Record<string, Array<{ url: string; label: string }>> = {
   moonshotai: [
-    { url: 'https://api.moonshot.cn/v1', label: 'Moonshot API (api.moonshot.cn)' },
-    { url: 'https://api.kimi.com/coding/v1', label: 'Kimi Coding Plan (api.kimi.com)' },
+    { url: 'https://api.moonshot.cn/v1', label: 'Moonshot API — api.moonshot.cn (China)' },
+    { url: 'https://api.moonshot.ai/v1', label: 'Moonshot API — api.moonshot.ai (International)' },
+    { url: 'https://api.kimi.com/coding/v1', label: 'Kimi Coding Plan — api.kimi.com' },
   ],
 }
 

@@ -61,7 +61,16 @@ function requestSignal(config: AiProviderConfig): AbortSignal {
 
 async function readJsonResponse(response: Response): Promise<unknown> {
   const text = await response.text()
-  if (!response.ok) throw new Error(`AI provider returned HTTP ${response.status}`)
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const body = JSON.parse(text) as { error?: { message?: string }; message?: string }
+      detail = body?.error?.message || body?.message || ''
+    } catch {
+      detail = text.slice(0, 200)
+    }
+    throw new Error(`HTTP ${response.status}${detail ? ': ' + detail : ''}`)
+  }
   if (text.length > MAX_RESPONSE_CHARS) throw new Error('AI provider response exceeded the size limit')
   return JSON.parse(text)
 }
@@ -161,18 +170,21 @@ async function callOpenAiCompatible(
           ]),
         ]
       : prompt
+  const body: Record<string, unknown> = {
+    model,
+    messages: [{ role: 'user', content }],
+    max_tokens: 6000,
+  }
+  if (config.provider !== 'moonshotai') {
+    body.temperature = 0.2
+  }
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       Authorization: `Bearer ${config.apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content }],
-      temperature: 0.2,
-      max_tokens: 6000,
-    }),
+    body: JSON.stringify(body),
     signal: requestSignal(config),
   })
   const data = (await readJsonResponse(response)) as {

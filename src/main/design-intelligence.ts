@@ -344,6 +344,7 @@ export async function runDesignIntelligence(
         capabilityLevel: 'evidence-fallback',
         generatedAt: new Date().toISOString(),
         failureCode: code,
+        failureReason: error instanceof Error ? error.message.slice(0, 500) : undefined,
       },
     }
   }

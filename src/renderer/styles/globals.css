@@ -114,7 +114,7 @@
   margin-inline: auto;
 }
 
-.app-shell :is(h1, h2, h3) {
+.app-shell :is(h1, h2) {
   font-family: var(--font-heading, var(--font-body));
   line-height: var(--leading-heading, 1.25);
   letter-spacing: var(--tracking-heading, -0.02em);
@@ -218,7 +218,7 @@ html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom
   background: var(--art-content-bg, none);
 }
 
-html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) :is(h1, h2, h3) {
+html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) :is(h1, h2) {
   font-family: var(--font-heading);
   line-height: var(--leading-heading);
   letter-spacing: var(--tracking-heading);

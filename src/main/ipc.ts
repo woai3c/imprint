@@ -927,23 +927,55 @@ export function registerIpcHandlers() {
     }
 
     try {
-      const endpoint =
-        provider === 'google' ? `${baseUrl}/models?key=${encodeURIComponent(apiKey)}` : `${baseUrl}/models`
-      const headers: Record<string, string> =
+      const authHeaders: Record<string, string> =
         provider === 'anthropic'
           ? { 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }
           : provider === 'google'
             ? {}
             : { Authorization: `Bearer ${apiKey}` }
-      const res = await fetch(endpoint, {
-        headers,
-        signal: AbortSignal.timeout(10000),
-      })
-      if (res.ok) {
+      const timeout = AbortSignal.timeout(10_000)
+
+      const modelsEndpoint =
+        provider === 'google' ? `${baseUrl}/models?key=${encodeURIComponent(apiKey)}` : `${baseUrl}/models`
+      const modelsRes = await fetch(modelsEndpoint, { headers: authHeaders, signal: timeout })
+      if (modelsRes.ok) {
         return { success: true, message: 'Connection successful' }
       }
-      const text = await res.text().catch(() => '')
-      return { success: false, message: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+
+      if (modelsRes.status === 404) {
+        const chatRes = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { ...authHeaders, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: 'auto',
+            messages: [{ role: 'user', content: 'hi' }],
+            max_tokens: 1,
+          }),
+          signal: timeout,
+        })
+        if (chatRes.ok) {
+          return { success: true, message: 'Connection successful' }
+        }
+        const chatText = await chatRes.text().catch(() => '')
+        let detail = ''
+        try {
+          const body = JSON.parse(chatText) as { error?: { message?: string }; message?: string }
+          detail = body?.error?.message || body?.message || chatText.slice(0, 200)
+        } catch {
+          detail = chatText.slice(0, 200)
+        }
+        return { success: false, message: `HTTP ${chatRes.status}${detail ? ': ' + detail : ''}` }
+      }
+
+      const text = await modelsRes.text().catch(() => '')
+      let detail = ''
+      try {
+        const body = JSON.parse(text) as { error?: { message?: string }; message?: string }
+        detail = body?.error?.message || body?.message || text.slice(0, 200)
+      } catch {
+        detail = text.slice(0, 200)
+      }
+      return { success: false, message: `HTTP ${modelsRes.status}${detail ? ': ' + detail : ''}` }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       return { success: false, message: msg }

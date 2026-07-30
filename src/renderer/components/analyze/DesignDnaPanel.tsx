@@ -169,6 +169,9 @@ function StatusCard({
               ? t('analyze.designDna.managedNotice')
               : t(`analyze.designDna.statusDescription.${status}`)}
           </p>
+          {failed && meta?.failureReason && (
+            <p className="mt-1 break-all text-[10px] leading-4 text-destructive/80">{meta.failureReason}</p>
+          )}
           {meta?.provider && (
             <p className="mt-1 truncate text-[10px] text-muted-foreground">
               {meta.provider}

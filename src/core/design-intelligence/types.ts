@@ -32,6 +32,7 @@ export interface DesignIntelligenceMeta {
     output?: number
   }
   failureCode?: string
+  failureReason?: string
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
 }

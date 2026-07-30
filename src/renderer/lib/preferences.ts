@@ -50,7 +50,9 @@ export function getLanguagePreference(fallbackLanguage: string): AppLanguage {
     write(keys.language, stored)
     return stored
   }
-  return normalizeLanguage(fallbackLanguage)
+  const detected = normalizeLanguage(fallbackLanguage)
+  write(keys.language, detected)
+  return detected
 }
 
 export function setLanguagePreference(language: string): void {

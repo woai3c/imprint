@@ -10,6 +10,7 @@ import {
   buildEnhancementPrompt,
   parseEnhancementResponse,
 } from '../core/analyzer/llm-enhancer.js'
+import { normalizeAgentCliCommand } from '../shared/agent-clis.js'
 import { log } from './logger.js'
 
 const AGENT_TIMEOUT_MS = 120_000
@@ -20,12 +21,21 @@ type PromptMode = 'argument' | 'stdin'
 interface AgentInvocation {
   args: string[]
   promptMode: PromptMode
+  vision?: {
+    args?: string[]
+  }
+}
+
+export interface AgentCliImageInput {
+  name: string
+  sourcePath: string
 }
 
 const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
   xc: {
     args: ['--print', '--plan', '--max-turns', '1', '--no-plugins', '--no-hooks'],
     promptMode: 'stdin',
+    vision: {},
   },
   claude: {
     args: [
@@ -44,23 +54,71 @@ const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
       '--no-chrome',
     ],
     promptMode: 'stdin',
+    vision: {
+      // Image attachments are read from the whitelisted runtime directory, so vision runs must keep the Read tool.
+      args: [
+        '--print',
+        '--output-format',
+        'text',
+        '--allowedTools',
+        'Read',
+        '--max-turns',
+        '1',
+        '--permission-mode',
+        'plan',
+        '--no-session-persistence',
+        '--safe-mode',
+        '--disable-slash-commands',
+        '--no-chrome',
+      ],
+    },
   },
   codex: {
     args: ['exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never', '-'],
     promptMode: 'stdin',
+    vision: {},
   },
   opencode: {
     args: ['run', '--format', 'json'],
     promptMode: 'argument',
+    vision: {},
   },
   gemini: {
     args: ['--output-format', 'json'],
     promptMode: 'stdin',
+    vision: {},
   },
   kimi: {
     args: ['--prompt'],
     promptMode: 'argument',
+    vision: {},
   },
+}
+
+export function resolveAgentCliCapabilities(command: string): { vision: boolean } {
+  return { vision: Boolean(AGENT_INVOCATIONS[normalizeAgentCliCommand(command)]?.vision) }
+}
+
+export function buildVisionPromptSuffix(images: Array<{ name: string }>, language: 'en' | 'zh-CN'): string {
+  const list = images.map((image) => `- ./${image.name}`).join('\n')
+  if (language === 'zh-CN') {
+    return [
+      '',
+      '证据截图已作为文件放入当前工作目录：',
+      list,
+      '解读之前逐张查看这些图片，并在 JSON 输出顶层增加 "imageObservations" 数组，每张图片一项：',
+      '{"imageId": "图片文件名（不含扩展名）", "description": "一句话描述你实际看到的内容"}。',
+      '如果某张图片你实际无法看到，就不要为它生成条目。',
+    ].join('\n')
+  }
+  return [
+    '',
+    'Evidence screenshots are attached as files in the current working directory:',
+    list,
+    'Look at every attached image before interpreting, and add a top-level "imageObservations" array to the JSON output with one entry per image:',
+    '{"imageId": "image file name without extension", "description": "one sentence describing what you actually see"}.',
+    'If you cannot actually see an image, omit its entry.',
+  ].join('\n')
 }
 
 function executionEnvironment(): NodeJS.ProcessEnv {
@@ -173,22 +231,52 @@ async function executeAgent(
   invocation: AgentInvocation,
   prompt: string,
   signal?: AbortSignal,
+  images: AgentCliImageInput[] = [],
+  language: 'en' | 'zh-CN' = 'en',
 ): Promise<string> {
   const runtimeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'imprint-agent-'))
 
   try {
+    let effectivePrompt = prompt
+    let effectiveInvocation = invocation
+    if (images.length > 0 && invocation.vision) {
+      const attached: Array<{ name: string }> = []
+      for (const image of images) {
+        const safeName = image.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        await fs.copyFile(image.sourcePath, path.join(runtimeDir, safeName))
+        attached.push({ name: safeName })
+      }
+      await fs.writeFile(
+        path.join(runtimeDir, 'manifest.json'),
+        JSON.stringify(
+          {
+            task: 'design-interpretation',
+            images: attached.map((image) => image.name),
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+      effectivePrompt = prompt + buildVisionPromptSuffix(attached, language)
+      effectiveInvocation = invocation.vision.args ? { ...invocation, args: invocation.vision.args } : invocation
+    }
     if (process.platform === 'win32') {
       const executable = await resolveWindowsExecutable(command)
-      return await executeWindowsCommand(executable, invocation, prompt, runtimeDir, signal)
+      return await executeWindowsCommand(executable, effectiveInvocation, effectivePrompt, runtimeDir, signal)
     }
 
-    const args = invocation.promptMode === 'argument' ? [...invocation.args, prompt] : invocation.args
+    const args =
+      effectiveInvocation.promptMode === 'argument'
+        ? [...effectiveInvocation.args, effectivePrompt]
+        : effectiveInvocation.args
     return await executeFile(
       command,
       args,
       runtimeDir,
       executionEnvironment(),
-      invocation.promptMode === 'stdin' ? prompt : undefined,
+      effectiveInvocation.promptMode === 'stdin' ? effectivePrompt : undefined,
       signal,
     )
   } finally {
@@ -200,6 +288,8 @@ export async function executeAgentPrompt(
   command: string,
   prompt: string,
   signal?: AbortSignal,
+  images: AgentCliImageInput[] = [],
+  language: 'en' | 'zh-CN' = 'en',
 ): Promise<string | null> {
   const invocation = AGENT_INVOCATIONS[command]
   if (!invocation) {
@@ -207,7 +297,7 @@ export async function executeAgentPrompt(
     return null
   }
   try {
-    return await executeAgent(command, invocation, prompt, signal)
+    return await executeAgent(command, invocation, prompt, signal, images, language)
   } catch (error: unknown) {
     if (signal?.aborted) throw new DOMException('Agent task cancelled', 'AbortError')
     const reason =

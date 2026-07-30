@@ -260,6 +260,21 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('design-intelligence:skip', (_event, analysisId: string) => {
+    const db = getDb()
+    const record = db.prepare('SELECT id FROM analyses WHERE id = ?').get(analysisId)
+    if (!record) return { error: true }
+    designIntelligenceControllers.get(analysisId)?.abort()
+    designIntelligenceControllers.delete(analysisId)
+    const meta: DesignIntelligenceMeta = { status: 'skipped', capabilityLevel: 'evidence-only' }
+    db.prepare(
+      `UPDATE analyses
+       SET design_intelligence_status = ?, design_intelligence_meta_json = ?
+       WHERE id = ?`,
+    ).run(meta.status, JSON.stringify(meta), analysisId)
+    return { designIntelligence: meta }
+  })
+
   ipcMain.handle(
     'analyze:url',
     async (

@@ -55,6 +55,8 @@ export interface PageMediaLayerSnapshot {
   opacity?: string
   filter?: string
   blendMode?: string
+  naturalSize?: { width: number; height: number }
+  hasResponsiveSources?: boolean
 }
 
 export interface PageInteractionCandidateSnapshot {
@@ -488,6 +490,19 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
                 : computed.position === 'absolute' || computed.position === 'fixed'
                   ? 'decorative'
                   : 'unknown'
+      const imageElement = tag === 'IMG' ? (element as HTMLImageElement) : null
+      const sourceElement = tag === 'PICTURE' ? element.querySelector('img') : null
+      const responsiveImage = imageElement || sourceElement
+      const hasResponsiveSources = Boolean(
+        responsiveImage &&
+        (responsiveImage.srcset ||
+          responsiveImage.sizes ||
+          (tag === 'PICTURE' && element.querySelectorAll('source').length > 0)),
+      )
+      const naturalSize =
+        responsiveImage && responsiveImage.naturalWidth > 0
+          ? { width: responsiveImage.naturalWidth, height: responsiveImage.naturalHeight }
+          : undefined
       return [
         {
           key: `${kind}:${locatorFor(element)}`,
@@ -501,6 +516,8 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           opacity: computed.opacity,
           filter: computed.filter,
           blendMode: computed.mixBlendMode,
+          naturalSize,
+          hasResponsiveSources,
         },
       ]
     })

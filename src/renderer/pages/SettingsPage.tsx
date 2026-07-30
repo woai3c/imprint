@@ -3,6 +3,7 @@ import { CheckCircle2, CircleOff, KeyRound, Loader2, RefreshCw, Terminal, XCircl
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getAgentCliDisplayName } from '../../shared/agent-clis'
 import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
@@ -50,6 +51,7 @@ export function SettingsPage() {
   const [model, setModel] = useState('')
   const [modelSupportsVision, setModelSupportsVision] = useState(false)
   const [visionAnalysisConsent, setVisionAnalysisConsent] = useState(false)
+  const [managedVisionConsent, setManagedVisionConsent] = useState(false)
   const [agentClis, setAgentClis] = useState<AgentCliInfo[]>(() => cachedAgentClis ?? [])
   const [selectedCli, setSelectedCli] = useState('')
   const [detecting, setDetecting] = useState(false)
@@ -68,6 +70,7 @@ export function SettingsPage() {
       setModel(s.model || '')
       setModelSupportsVision(s.modelSupportsVision === true)
       setVisionAnalysisConsent(s.visionAnalysisConsent === true)
+      setManagedVisionConsent(s.managedVisionConsent === true)
       setSelectedCli(s.agentCli || '')
       setLoaded(true)
 
@@ -134,6 +137,11 @@ export function SettingsPage() {
   const handleVisionConsentChange = (value: boolean) => {
     setVisionAnalysisConsent(value)
     save({ visionAnalysisConsent: value })
+  }
+
+  const handleManagedVisionConsentChange = (value: boolean) => {
+    setManagedVisionConsent(value)
+    save({ managedVisionConsent: value })
   }
 
   const handleCliSelect = (command: string) => {
@@ -238,7 +246,7 @@ export function SettingsPage() {
     aiMode === 'apiKey' && hasApiKeyConfiguration
       ? t('settings.ai.activeApiKey', { provider: selectedProvider?.name || provider })
       : aiMode === 'agentCli' && hasAgentCliConfiguration
-        ? t('settings.ai.activeAgentCli', { name: selectedAgentCli?.name || selectedCli })
+        ? t('settings.ai.activeAgentCli', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
         : t('settings.ai.notConfigured')
   const activeEngineHint = hasActiveAiConfiguration
     ? t('settings.ai.activeHint')
@@ -249,8 +257,8 @@ export function SettingsPage() {
   const agentCliSummary = !selectedCli
     ? t('settings.ai.agentCliNotConfigured')
     : hasAgentCliConfiguration
-      ? t('settings.ai.agentCliConfigured', { name: selectedAgentCli?.name || selectedCli })
-      : t('settings.ai.agentCliUnavailable', { name: selectedAgentCli?.name || selectedCli })
+      ? t('settings.ai.agentCliConfigured', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
+      : t('settings.ai.agentCliUnavailable', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
 
   return (
     <div className="h-full flex flex-col overflow-auto">
@@ -458,6 +466,23 @@ export function SettingsPage() {
                       </span>
                     </span>
                   </label>
+                  {visionAnalysisConsent && (
+                    <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                      <input
+                        data-testid="managed-vision-consent"
+                        type="checkbox"
+                        checked={managedVisionConsent}
+                        onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
+                        className="mt-0.5 size-4 accent-primary"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
+                        </span>
+                      </span>
+                    </label>
+                  )}
                 </>
               )}
 
@@ -494,6 +519,42 @@ export function SettingsPage() {
               <p className="mb-4 rounded-lg bg-secondary/45 p-3 text-xs leading-5 text-muted-foreground">
                 {t('settings.ai.agentCliStructuralHint')}
               </p>
+              <div className="mb-4 space-y-2">
+                <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                  <input
+                    data-testid="agent-cli-vision-consent"
+                    type="checkbox"
+                    checked={visionAnalysisConsent}
+                    onChange={(event) => handleVisionConsentChange(event.target.checked)}
+                    className="mt-0.5 size-4 accent-primary"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{t('settings.ai.agentCliVisionConsent')}</span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                      {t('settings.ai.agentCliVisionConsentHint')}
+                    </span>
+                  </span>
+                </label>
+                {visionAnalysisConsent && (
+                  <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                    <input
+                      data-testid="managed-vision-consent"
+                      type="checkbox"
+                      checked={managedVisionConsent}
+                      onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
+                      className="mt-0.5 size-4 accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                        {t('settings.ai.managedVisionConsentHint', {
+                          provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
+                        })}
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>

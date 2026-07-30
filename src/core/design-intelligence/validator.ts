@@ -40,6 +40,7 @@ export interface ProfileValidationResult {
   profile: DesignProfile | null
   status: 'complete' | 'partial' | 'failed'
   rejected: string[]
+  imageObservationsValid?: boolean
 }
 
 function isSafeText(value: unknown, maxLength: number): value is string {
@@ -263,12 +264,21 @@ function requireEvidenceKind(
   return null
 }
 
+const GENERIC_IMAGE_DESCRIPTION =
+  /^(?:a |an |the )?(?:web ?page |site )?(?:screenshot|image|picture|photo|capture|截图|图片|图像|照片)(?:\s*(?:of|for|截图|图片))?[.。]?$/i
+
+function isSubstantiveImageDescription(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.length >= 12 && trimmed.length <= 240 && !GENERIC_IMAGE_DESCRIPTION.test(trimmed)
+}
+
 export function validateDesignProfile(
   value: unknown,
   evidence: DesignEvidence,
   expectedMode: IntelligenceInputMode,
   language: 'en' | 'zh-CN',
   allowedEvidenceIds?: Set<string>,
+  options?: { requireImageObservations?: string[] },
 ): ProfileValidationResult {
   const rejected: string[] = []
   if (
@@ -280,6 +290,23 @@ export function validateDesignProfile(
     return { profile: null, status: 'failed', rejected: ['root:invalid-schema-or-mode'] }
   }
   if (value.tokens || value.tokenValues) rejected.push('root:unexpected-token-values')
+  const requiredImageIds = options?.requireImageObservations || []
+  let imageObservationsValid: boolean | undefined
+  if (expectedMode === 'multimodal' && requiredImageIds.length > 0) {
+    const observations = Array.isArray(value.imageObservations) ? value.imageObservations : []
+    imageObservationsValid = requiredImageIds.every((imageId) =>
+      observations.some(
+        (entry) =>
+          isRecord(entry) &&
+          entry.imageId === imageId &&
+          typeof entry.description === 'string' &&
+          isSubstantiveImageDescription(entry.description),
+      ),
+    )
+    if (!imageObservationsValid) rejected.push('root:image-observations-self-check-failed')
+  }
+  // A failed image self-check means the model never saw the attachments; visual claims are capped as structural-only.
+  const claimMode: IntelligenceInputMode = imageObservationsValid === false ? 'structural-only' : expectedMode
   const knownColors = collectTokenColorValues(evidence)
   const coverage = evidence.coverage
   const noClassifiedMedia = coverage.mediaCoverage.classifiedRegions === 0
@@ -293,7 +320,7 @@ export function validateDesignProfile(
       .map((observation) => observation.id)
       .filter((evidenceId) => validIds.has(evidenceId)),
   )
-  const thesis = validateClaim(value.thesis, validIds, 'thesis', rejected, expectedMode, false, knownColors)
+  const thesis = validateClaim(value.thesis, validIds, 'thesis', rejected, claimMode, false, knownColors)
   if (!thesis || !Array.isArray(value.signatureMoves)) {
     return { profile: null, status: 'failed', rejected }
   }
@@ -302,15 +329,7 @@ export function validateDesignProfile(
       rejected.push(`signatureMoves.${index}:invalid-identity`)
       return []
     }
-    const claim = validateClaim(
-      candidate,
-      validIds,
-      `signatureMoves.${index}`,
-      rejected,
-      expectedMode,
-      false,
-      knownColors,
-    )
+    const claim = validateClaim(candidate, validIds, `signatureMoves.${index}`, rejected, claimMode, false, knownColors)
     if (!claim || !isSafeText(candidate.distinctiveness, 240)) return []
     return [
       {
@@ -340,7 +359,7 @@ export function validateDesignProfile(
         validIds,
         'composition',
         rejected,
-        expectedMode,
+        claimMode,
         false,
         knownColors,
       ),
@@ -355,7 +374,7 @@ export function validateDesignProfile(
         validIds,
         'composition',
         rejected,
-        expectedMode,
+        claimMode,
         false,
         knownColors,
       ),
@@ -370,7 +389,7 @@ export function validateDesignProfile(
         validIds,
         'composition',
         rejected,
-        expectedMode,
+        claimMode,
         false,
         knownColors,
       ),
@@ -379,7 +398,7 @@ export function validateDesignProfile(
       rejected,
     ),
     rhythm: requireEvidenceKind(
-      requiredClaim(value.composition, 'rhythm', validIds, 'composition', rejected, expectedMode, false, knownColors),
+      requiredClaim(value.composition, 'rhythm', validIds, 'composition', rejected, claimMode, false, knownColors),
       /^(?:image|section|layout)-/,
       'composition.rhythm',
       rejected,
@@ -392,7 +411,7 @@ export function validateDesignProfile(
       validIds,
       'attention',
       rejected,
-      expectedMode,
+      claimMode,
       true,
       knownColors,
     ),
@@ -401,7 +420,7 @@ export function validateDesignProfile(
       validIds,
       'attention.visualSequence',
       rejected,
-      expectedMode,
+      claimMode,
       5,
       true,
       knownColors,
@@ -412,7 +431,7 @@ export function validateDesignProfile(
       validIds,
       'attention',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -422,7 +441,7 @@ export function validateDesignProfile(
       validIds,
       'attention',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -433,7 +452,7 @@ export function validateDesignProfile(
         validIds,
         'visualLanguage.imagery',
         rejected,
-        expectedMode,
+        claimMode,
         true,
         knownColors,
       )
@@ -446,7 +465,7 @@ export function validateDesignProfile(
       validIds,
       'visualLanguage',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -456,7 +475,7 @@ export function validateDesignProfile(
       validIds,
       'visualLanguage',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -466,7 +485,7 @@ export function validateDesignProfile(
       validIds,
       'visualLanguage',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -476,7 +495,7 @@ export function validateDesignProfile(
       validIds,
       'visualLanguage',
       rejected,
-      expectedMode,
+      claimMode,
       false,
       knownColors,
     ),
@@ -487,7 +506,7 @@ export function validateDesignProfile(
           validIds,
           'visualLanguage.motion',
           rejected,
-          expectedMode,
+          claimMode,
           false,
           knownColors,
         )
@@ -516,7 +535,7 @@ export function validateDesignProfile(
               validIds,
               `sectionGrammar.${index}.composition`,
               rejected,
-              expectedMode,
+              claimMode,
               5,
               false,
               knownColors,
@@ -526,7 +545,7 @@ export function validateDesignProfile(
               validIds,
               `sectionGrammar.${index}.contentRhythm`,
               rejected,
-              expectedMode,
+              claimMode,
               5,
               false,
               knownColors,
@@ -536,7 +555,7 @@ export function validateDesignProfile(
               validIds,
               `sectionGrammar.${index}.transitionToNext`,
               rejected,
-              expectedMode,
+              claimMode,
               5,
               false,
               knownColors,
@@ -551,7 +570,7 @@ export function validateDesignProfile(
     interactionIds,
     'interactionLanguage.feedbackStyle',
     rejected,
-    expectedMode,
+    claimMode,
     knownColors,
   )
   const stateChangeAmplitude = validateInteractionClaim(
@@ -560,7 +579,7 @@ export function validateDesignProfile(
     interactionIds,
     'interactionLanguage.stateChangeAmplitude',
     rejected,
-    expectedMode,
+    claimMode,
     knownColors,
   )
   if (!feedbackStyle || !stateChangeAmplitude) return { profile: null, status: 'failed', rejected }
@@ -577,7 +596,7 @@ export function validateDesignProfile(
               validIds,
               `componentGrammar.${index}.rules`,
               rejected,
-              expectedMode,
+              claimMode,
               8,
               false,
               knownColors,
@@ -621,7 +640,7 @@ export function validateDesignProfile(
           validIds,
           `patterns.${index}.responsiveRules`,
           rejected,
-          expectedMode,
+          claimMode,
           6,
           false,
           knownColors,
@@ -641,7 +660,7 @@ export function validateDesignProfile(
               validIds,
               `patterns.${index}.structureRules`,
               rejected,
-              expectedMode,
+              claimMode,
               6,
               false,
               knownColors,
@@ -651,7 +670,7 @@ export function validateDesignProfile(
               validIds,
               `patterns.${index}.visualRules`,
               rejected,
-              expectedMode,
+              claimMode,
               6,
               true,
               knownColors,
@@ -662,7 +681,7 @@ export function validateDesignProfile(
               interactionIds,
               `patterns.${index}.interactionRules`,
               rejected,
-              expectedMode,
+              claimMode,
               6,
               knownColors,
             ),
@@ -732,7 +751,7 @@ export function validateDesignProfile(
   const profile: DesignProfile = {
     schemaVersion: '1',
     language,
-    inputMode: expectedMode,
+    inputMode: claimMode,
     thesis,
     signatureMoves,
     composition: composition as DesignProfile['composition'],
@@ -753,7 +772,7 @@ export function validateDesignProfile(
         interactionIds,
         'interactionLanguage.primaryDrivers',
         rejected,
-        expectedMode,
+        claimMode,
         5,
         knownColors,
       ),
@@ -768,7 +787,7 @@ export function validateDesignProfile(
                 interactionIds,
                 'interactionLanguage.scrollNarrative',
                 rejected,
-                expectedMode,
+                claimMode,
                 knownColors,
               ) || undefined,
           }
@@ -778,7 +797,7 @@ export function validateDesignProfile(
         validIds,
         'interactionLanguage.continuityRules',
         rejected,
-        expectedMode,
+        claimMode,
         6,
         false,
         knownColors,
@@ -794,7 +813,7 @@ export function validateDesignProfile(
         validIds,
         'transferRules.preserve',
         rejected,
-        expectedMode,
+        claimMode,
         6,
         false,
         knownColors,
@@ -804,7 +823,7 @@ export function validateDesignProfile(
         validIds,
         'transferRules.adapt',
         rejected,
-        expectedMode,
+        claimMode,
         6,
         false,
         knownColors,
@@ -814,7 +833,7 @@ export function validateDesignProfile(
         validIds,
         'transferRules.avoid',
         rejected,
-        expectedMode,
+        claimMode,
         6,
         false,
         knownColors,
@@ -831,5 +850,5 @@ export function validateDesignProfile(
   for (const kind of ['preserve', 'adapt', 'avoid'] as const) {
     if (profile.transferRules[kind].length === 0) rejected.push(`transferRules.${kind}:empty`)
   }
-  return { profile, status: rejected.length > 0 ? 'partial' : 'complete', rejected }
+  return { profile, status: rejected.length > 0 ? 'partial' : 'complete', rejected, imageObservationsValid }
 }

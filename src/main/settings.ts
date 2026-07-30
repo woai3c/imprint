@@ -12,7 +12,8 @@ const defaults: AppSettings = {
   baseUrl: '',
   model: '',
   modelSupportsVision: false,
-  visionAnalysisConsent: false,
+  visionAnalysisConsent: true,
+  managedVisionConsent: false,
   analysisDepth: 'standard',
   agentCli: '',
   exportFormat: 'markdown',
@@ -34,7 +35,8 @@ function readFromDisk(): AppSettings {
       ...defaults,
       ...saved,
       modelSupportsVision: saved.modelSupportsVision === true,
-      visionAnalysisConsent: saved.visionAnalysisConsent === true,
+      visionAnalysisConsent: saved.visionAnalysisConsent !== false,
+      managedVisionConsent: saved.managedVisionConsent === true,
       analysisDepth: saved.analysisDepth === 'deep' ? 'deep' : 'standard',
       exportFormat: isExportFormat(saved.exportFormat) ? saved.exportFormat : defaults.exportFormat,
     }
@@ -58,7 +60,8 @@ export function saveSettings(update: Partial<AppSettings>): AppSettings {
   const merged = { ...current, ...update }
   if (!isExportFormat(merged.exportFormat)) merged.exportFormat = defaults.exportFormat
   merged.modelSupportsVision = merged.modelSupportsVision === true
-  merged.visionAnalysisConsent = merged.visionAnalysisConsent === true
+  merged.visionAnalysisConsent = merged.visionAnalysisConsent !== false
+  merged.managedVisionConsent = merged.managedVisionConsent === true
   merged.analysisDepth = merged.analysisDepth === 'deep' ? 'deep' : 'standard'
   writeToDisk(merged)
   return merged

@@ -23,6 +23,7 @@ interface ArtifactPanelProps {
   onSaved: () => void
   onRetryIntelligence?: () => void
   onCancelIntelligence?: () => void
+  onSkipIntelligence?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
   onOpenEvidence?: (evidenceId: string) => void
 }
@@ -35,6 +36,7 @@ export function ArtifactPanel({
   onSaved,
   onRetryIntelligence,
   onCancelIntelligence,
+  onSkipIntelligence,
   onResultUpdate,
   onOpenEvidence,
 }: ArtifactPanelProps) {
@@ -191,6 +193,7 @@ export function ArtifactPanel({
             intelligenceProgress={intelligenceProgress}
             onRetry={onRetryIntelligence}
             onCancel={onCancelIntelligence}
+            onSkip={onSkipIntelligence}
             onResultUpdate={onResultUpdate}
             onOpenEvidence={onOpenEvidence}
           />

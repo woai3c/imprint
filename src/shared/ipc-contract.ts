@@ -30,6 +30,7 @@ export interface AppSettings {
   model: string
   modelSupportsVision: boolean
   visionAnalysisConsent: boolean
+  managedVisionConsent: boolean
   analysisDepth: 'standard' | 'deep'
   agentCli: string
   exportFormat: ThemeExportFormat
@@ -203,6 +204,9 @@ export interface ElectronAPI {
     force?: boolean,
   ) => Promise<DesignIntelligenceResponse>
   cancelDesignIntelligence: (analysisId: string) => Promise<{ success: boolean }>
+  skipDesignIntelligence: (
+    analysisId: string,
+  ) => Promise<{ designIntelligence?: DesignIntelligenceMeta; error?: boolean }>
   generateValidation: (
     analysisId: string,
     scenario: 'workflow' | 'content' | 'states',

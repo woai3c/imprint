@@ -27,7 +27,7 @@ export function generateDesignProfileMarkdown(profile: DesignProfile): string {
   const zh = profile.language === 'zh-CN'
   const labels = { confidence: zh ? '置信度' : 'Confidence', evidence: zh ? '证据' : 'Evidence' }
   return [
-    zh ? '## Design DNA / 设计基因' : '## Design DNA',
+    zh ? '## AI 设计解读' : '## AI Design Insights',
     '',
     zh
       ? '> 层级：Inferred / 已推断。以下主张来自经校验的证据综合，不代表原设计师的真实意图。'

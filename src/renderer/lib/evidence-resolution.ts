@@ -11,6 +11,7 @@ export interface EvidenceLightboxTarget {
   imageIndex: number
   rect: EvidenceHighlightRect
   label: string
+  cropPath?: string
 }
 
 export interface EvidenceDetailResolution {
@@ -51,6 +52,34 @@ export function resolveEvidenceOpen(
   const imageIndex = overviewImage ? screenshots.findIndex((screenshot) => screenshot.path === overviewImage.path) : -1
   const rect = target?.rect || image?.sourceRect || (directPage ? { x: 0, y: 0, width: 1, height: 1 } : undefined)
   if (page && imageIndex >= 0 && rect) {
+    const targetSectionId = target ? ('sectionId' in target ? target.sectionId : target.id) : undefined
+    const crop = page.images.find(
+      (candidate) =>
+        candidate.kind === 'region-crop' &&
+        candidate.sourceRect &&
+        (candidate.sectionId === targetSectionId ||
+          (rect.x >= candidate.sourceRect.x - 1e-6 &&
+            rect.y >= candidate.sourceRect.y - 1e-6 &&
+            rect.x + rect.width <= candidate.sourceRect.x + candidate.sourceRect.width + 1e-6 &&
+            rect.y + rect.height <= candidate.sourceRect.y + candidate.sourceRect.height + 1e-6)),
+    )
+    if (crop?.sourceRect) {
+      const source = crop.sourceRect
+      return {
+        type: 'lightbox',
+        target: {
+          imageIndex: 0,
+          rect: {
+            x: (rect.x - source.x) / source.width,
+            y: (rect.y - source.y) / source.height,
+            width: rect.width / source.width,
+            height: rect.height / source.height,
+          },
+          label: evidenceId,
+          cropPath: crop.path,
+        },
+      }
+    }
     return { type: 'lightbox', target: { imageIndex, rect, label: evidenceId } }
   }
   const field = (key: string, value?: string) => (value ? [{ key, value }] : [])

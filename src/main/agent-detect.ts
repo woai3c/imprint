@@ -1,16 +1,10 @@
 import { execFile } from 'node:child_process'
 
+import { AGENT_CLI_DEFINITIONS } from '../shared/agent-clis.js'
 import type { AgentCliInfo } from '../shared/ipc-contract.js'
 import { log } from './logger.js'
 
-const AGENT_CLIS = [
-  { name: 'X-Code CLI', command: 'xc', versionFlag: '--version' },
-  { name: 'Claude Code', command: 'claude', versionFlag: '--version' },
-  { name: 'Codex', command: 'codex', versionFlag: '--version' },
-  { name: 'OpenCode', command: 'opencode', versionFlag: '--version' },
-  { name: 'Gemini CLI', command: 'gemini', versionFlag: '--version' },
-  { name: 'Kimi CLI', command: 'kimi', versionFlag: '--version' },
-]
+const AGENT_CLIS = AGENT_CLI_DEFINITIONS
 
 const DETECTION_TIMEOUT_MS = 5000
 

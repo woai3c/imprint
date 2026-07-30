@@ -29,7 +29,12 @@ import type {
   ValidationReport,
 } from '../core/design-intelligence/types.js'
 import type { AppSettings } from '../shared/ipc-contract.js'
-import { enhanceWithAgentCli, executeAgentPrompt } from './agent-enhancer.js'
+import {
+  type AgentCliImageInput,
+  enhanceWithAgentCli,
+  executeAgentPrompt,
+  resolveAgentCliCapabilities,
+} from './agent-enhancer.js'
 
 export interface IntelligenceRunResult {
   tokens: DesignToken
@@ -53,7 +58,16 @@ export function chooseDesignIntelligenceRoute(
   model: string
 } {
   if (settings.aiMode === 'agentCli') {
-    return { mode: 'structural-only', provider: 'agent-cli', model: settings.agentCli }
+    const cliCapabilities = resolveAgentCliCapabilities(settings.agentCli)
+    const mayAttachImages =
+      cliCapabilities.vision &&
+      settings.visionAnalysisConsent &&
+      (evidence.source.accessMode === 'anonymous' || settings.managedVisionConsent)
+    return {
+      mode: mayAttachImages ? 'multimodal' : 'structural-only',
+      provider: 'agent-cli',
+      model: settings.agentCli,
+    }
   }
   const model = settings.model || getDefaultModel(settings.provider)
   const capabilities = resolveAiModelCapabilities(
@@ -62,7 +76,9 @@ export function chooseDesignIntelligenceRoute(
     settings.provider === 'custom' && settings.modelSupportsVision,
   )
   const maySendImages =
-    capabilities.vision && settings.visionAnalysisConsent && evidence.source.accessMode === 'anonymous'
+    capabilities.vision &&
+    settings.visionAnalysisConsent &&
+    (evidence.source.accessMode === 'anonymous' || settings.managedVisionConsent)
   return {
     mode: maySendImages ? 'multimodal' : 'structural-only',
     provider: settings.provider,
@@ -82,11 +98,30 @@ export function getInitialDesignIntelligenceMeta(
     return {
       status: 'not-requested',
       capabilityLevel: 'evidence-only',
+      inputMode: route.mode,
+      provider: route.provider,
+      model: route.model,
+      schemaVersion: '1',
+      promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
+    }
+  }
+  const modelLacksVision =
+    settings.aiMode === 'apiKey' &&
+    !resolveAiModelCapabilities(
+      settings.provider,
+      settings.model || getDefaultModel(settings.provider),
+      settings.provider === 'custom' && settings.modelSupportsVision,
+    ).vision
+  if (modelLacksVision) {
+    return {
+      status: 'not-requested',
+      capabilityLevel: 'evidence-only',
       inputMode: 'structural-only',
       provider: route.provider,
       model: route.model,
       schemaVersion: '1',
       promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
+      pendingChoice: 'model-no-vision',
     }
   }
   return {
@@ -106,8 +141,8 @@ function mimeTypeForPath(path: string): AiImageInput['mimeType'] {
   return 'image/png'
 }
 
-function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiImageInput[] {
-  const images: AiImageInput[] = []
+function selectAvailableImages(evidence: DesignEvidence, imageIds: string[]) {
+  const selected: Array<{ id: string; name: string; path: string; size: number }> = []
   let totalBytes = 0
   for (const imageId of imageIds) {
     const image = evidence.pages.flatMap((page) => page.images).find((candidate) => candidate.id === imageId)
@@ -117,16 +152,29 @@ function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiIma
       const stats = fs.statSync(image.path)
       if (stats.size > 8 * 1024 * 1024 || totalBytes + stats.size > 24 * 1024 * 1024) continue
       totalBytes += stats.size
-      images.push({
+      selected.push({
+        id: image.id,
         name: `${image.id}.${mimeTypeForPath(image.path).split('/')[1]}`,
-        mimeType: mimeTypeForPath(image.path),
-        base64: fs.readFileSync(image.path).toString('base64'),
+        path: image.path,
+        size: stats.size,
       })
     } catch {
       // A missing or changing screenshot is omitted; routing falls back to structural evidence when none remain.
     }
   }
-  return images
+  return selected
+}
+
+function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiImageInput[] {
+  return selectAvailableImages(evidence, imageIds).map((image) => ({
+    name: image.name,
+    mimeType: mimeTypeForPath(image.path),
+    base64: fs.readFileSync(image.path).toString('base64'),
+  }))
+}
+
+function collectSelectedImageFiles(evidence: DesignEvidence, imageIds: string[]): AgentCliImageInput[] {
+  return selectAvailableImages(evidence, imageIds).map((image) => ({ name: image.name, sourcePath: image.path }))
 }
 
 function failureCode(error: unknown, timedOut = false): string {
@@ -157,20 +205,25 @@ export async function runDesignIntelligence(
     }
   }
 
+  const isAgentCli = settings.aiMode === 'agentCli'
   let route = chooseDesignIntelligenceRoute(settings, evidence)
   let evidencePackage = selectEvidencePackage(evidence, route.mode)
-  let images = route.mode === 'multimodal' ? loadSelectedImages(evidence, evidencePackage.imageIds) : []
+  let images = route.mode === 'multimodal' && !isAgentCli ? loadSelectedImages(evidence, evidencePackage.imageIds) : []
+  let cliImages =
+    route.mode === 'multimodal' && isAgentCli
+      ? collectSelectedImageFiles(evidence, evidencePackage.imageIds)
+      : ([] as AgentCliImageInput[])
   if (route.mode === 'multimodal') {
-    evidencePackage = restrictEvidencePackageImages(
-      evidencePackage,
-      images.map((image) => image.name.replace(/\.[^.]+$/, '')),
-    )
+    const availableIds = (isAgentCli ? cliImages : images).map((image) => image.name.replace(/\.[^.]+$/, ''))
+    evidencePackage = restrictEvidencePackageImages(evidencePackage, availableIds)
     if (evidencePackage.imageIds.length === 0) {
       route = { ...route, mode: 'structural-only' }
       evidencePackage = selectEvidencePackage(evidence, route.mode)
       images = []
+      cliImages = []
     }
   }
+  const requireImageObservations = isAgentCli && route.mode === 'multimodal' ? evidencePackage.imageIds : undefined
   const fingerprint = createEvidenceFingerprint(
     evidence,
     route.mode,
@@ -238,32 +291,30 @@ export async function runDesignIntelligence(
             taskImages,
           )
         : {
-            text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal)) || '',
+            text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, cliImages, language)) || '',
             model: settings.agentCli,
           }
-    let response = await invoke(prompt, images)
-    if (!response.text) throw new Error('DesignProfile output is empty')
-    let validation = validateDesignProfile(
-      extractProfileCandidate(response.text),
-      evidence,
-      route.mode,
-      language,
-      listEvidencePackageIds(evidencePackage),
-    )
-    if (!validation.profile) {
-      response = await invoke(buildDesignProfileRepairPrompt(prompt, response.text, validation.rejected))
-      validation = validateDesignProfile(
-        extractProfileCandidate(response.text),
+    const validateCandidate = (text: string) =>
+      validateDesignProfile(
+        extractProfileCandidate(text),
         evidence,
         route.mode,
         language,
         listEvidencePackageIds(evidencePackage),
+        requireImageObservations ? { requireImageObservations } : undefined,
       )
+    let response = await invoke(prompt, images)
+    if (!response.text) throw new Error('DesignProfile output is empty')
+    let validation = validateCandidate(response.text)
+    if (!validation.profile || validation.imageObservationsValid === false) {
+      response = await invoke(buildDesignProfileRepairPrompt(prompt, response.text, validation.rejected))
+      validation = validateCandidate(response.text)
     }
     if (!validation.profile) throw new Error('DesignProfile output failed schema validation')
     validation.profile.tokenAliases = renameValidation.accepted
     const reconstructionBrief = generateReconstructionBrief(validation.profile, evidence, tokens)
-    const capabilityLevel = route.mode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
+    const effectiveMode = validation.profile.inputMode
+    const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
     const recipe = createValidationRecipe('workflow', validation.profile, tokens)
     const validationReport = validateRecipe(recipe, validation.profile, tokens, capabilityLevel)
     return {
@@ -275,8 +326,10 @@ export async function runDesignIntelligence(
       meta: {
         ...baseMeta,
         status: validation.status,
+        capabilityLevel,
+        inputMode: effectiveMode,
         generatedAt: new Date().toISOString(),
-        inputImageCount: images.length,
+        inputImageCount: isAgentCli ? cliImages.length : images.length,
         tokenUsage: 'usage' in response ? response.usage : undefined,
       },
     }

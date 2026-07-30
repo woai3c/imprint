@@ -24,6 +24,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [intelligenceRunning, setIntelligenceRunning] = useState(false)
   const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [lightboxCrop, setLightboxCrop] = useState<string | null>(null)
   const [lightboxHighlight, setLightboxHighlight] = useState<{
     imageIndex: number
     rect: { x: number; y: number; width: number; height: number }
@@ -94,11 +95,23 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     }
   }
 
+  const skipIntelligence = async () => {
+    if (!result?.analysisId) return
+    try {
+      const response = await window.electronAPI.skipDesignIntelligence(result.analysisId)
+      if (response.error || !response.designIntelligence) throw new Error('Skip failed')
+      setResult((current) => (current ? { ...current, designIntelligence: response.designIntelligence } : current))
+    } catch {
+      /* keep the current record state when skipping fails */
+    }
+  }
+
   const openEvidence = (evidenceId: string) => {
     if (!result?.designEvidence) return
     const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
     if (resolution.type === 'lightbox') {
       setEvidenceDetail(null)
+      setLightboxCrop(resolution.target.cropPath ? getScreenshotUrl(resolution.target.cropPath) : null)
       setLightboxHighlight(resolution.target)
       setLightboxIndex(resolution.target.imageIndex)
       return
@@ -165,6 +178,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                 setIntelligenceRunning(false)
                 setIntelligenceProgress(null)
               }}
+              onSkipIntelligence={skipIntelligence}
               onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
               onOpenEvidence={openEvidence}
             />
@@ -173,7 +187,10 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
       </div>
       {lightboxIndex !== null && result && (
         <ScreenshotLightbox
-          images={getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path))}
+          images={[
+            ...(lightboxCrop ? [lightboxCrop] : []),
+            ...getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path)),
+          ]}
           index={lightboxIndex}
           highlight={
             lightboxHighlight?.imageIndex === lightboxIndex
@@ -187,6 +204,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           onClose={() => {
             setLightboxIndex(null)
             setLightboxHighlight(null)
+            setLightboxCrop(null)
           }}
         />
       )}

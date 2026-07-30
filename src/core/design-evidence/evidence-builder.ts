@@ -22,7 +22,7 @@ export interface CapturedPageEvidence {
   snapshot: PageEvidenceSnapshot
   interactionStyles?: InteractionStyles
   interactionObservations?: InteractionObservationSnapshot[]
-  supplementalImages?: Array<Omit<EvidenceImage, 'id'>>
+  supplementalImages?: Array<Omit<EvidenceImage, 'id' | 'sectionId'> & { sectionKey?: string }>
 }
 
 export interface BuildDesignEvidenceInput {
@@ -143,8 +143,9 @@ function buildResponsiveObservations(
         viewportOrder.indexOf(a.snapshot.viewport) - viewportOrder.indexOf(b.snapshot.viewport) ||
         a.snapshot.width - b.snapshot.width,
     )
-    const fromCapture = pageCaptures[0]
-    for (const toCapture of pageCaptures.slice(1)) {
+    for (let captureIndex = 0; captureIndex < pageCaptures.length - 1; captureIndex += 1) {
+      const fromCapture = pageCaptures[captureIndex]
+      const toCapture = pageCaptures[captureIndex + 1]
       const fromByKey = new Map(fromCapture.snapshot.sections.map((section) => [section.key, section]))
       const toByKey = new Map(toCapture.snapshot.sections.map((section) => [section.key, section]))
       for (const key of new Set([...fromByKey.keys(), ...toByKey.keys()])) {
@@ -286,6 +287,15 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
     }
 
+    const page = pages[pages.length - 1]
+    for (const image of page.images) {
+      const sectionKey = (image as { sectionKey?: string }).sectionKey
+      if (sectionKey) {
+        image.sectionId = sectionIds.get(`${captureKey}|${sectionKey}`)
+        delete (image as { sectionKey?: string }).sectionKey
+      }
+    }
+
     for (const section of capture.snapshot.sections) {
       const sectionId = sectionIds.get(`${captureKey}|${section.key}`)!
       const sectionComponents = capture.snapshot.components.filter((component) => component.sectionKey === section.key)
@@ -423,6 +433,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         opacity: media.opacity,
         filter: media.filter,
         blendMode: media.blendMode,
+        naturalSize: media.naturalSize,
+        hasResponsiveSources: media.hasResponsiveSources,
       })
     }
   }

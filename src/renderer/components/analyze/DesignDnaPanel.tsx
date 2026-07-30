@@ -1,10 +1,10 @@
-import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 
 import type { DesignToken } from '../../../core/analyzer/types'
-import { generateAgentContextBundle } from '../../../core/design-intelligence/agent-context'
 import type { DesignClaim, DesignIntelligenceMeta, ValidationReport } from '../../../core/design-intelligence/types'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 import { useFeedbackStore } from '../../stores/feedback-store'
@@ -17,6 +17,7 @@ interface DesignDnaPanelProps {
   intelligenceProgress?: { step: string; percent: number } | null
   onRetry?: () => void
   onCancel?: () => void
+  onSkip?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
   onOpenEvidence?: (evidenceId: string) => void
 }
@@ -75,6 +76,50 @@ function ClaimCard({
   )
 }
 
+function VisionChoiceCard({ onStructural, onSkip }: { onStructural?: () => void; onSkip?: () => void }) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  return (
+    <section
+      data-testid="design-intelligence-vision-choice"
+      className="rounded-xl border border-primary/30 bg-primary/5 p-4"
+    >
+      <p className="text-sm font-semibold">{t('analyze.designDna.visionChoice.title')}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.designDna.visionChoice.description')}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {onStructural && (
+          <button
+            type="button"
+            data-testid="design-intelligence-choice-structural"
+            onClick={onStructural}
+            className="min-h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t('analyze.designDna.visionChoice.structural')}
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="design-intelligence-choice-switch-model"
+          onClick={() => navigate('/settings')}
+          className="min-h-8 rounded-md bg-secondary px-3 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t('analyze.designDna.visionChoice.switchModel')}
+        </button>
+        {onSkip && (
+          <button
+            type="button"
+            data-testid="design-intelligence-choice-skip"
+            onClick={onSkip}
+            className="min-h-8 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t('analyze.designDna.visionChoice.skip')}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function StatusCard({
   meta,
   running,
@@ -116,16 +161,9 @@ function StatusCard({
           <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-success" />
         ) : failed ? (
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-destructive" />
-        ) : (
-          <Sparkles size={18} className="mt-0.5 shrink-0 text-muted-foreground" />
-        )}
+        ) : null}
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold">{t(`analyze.designDna.status.${status}`)}</p>
-            <span className="rounded-full bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
-              {meta?.capabilityLevel || 'evidence-only'}
-            </span>
-          </div>
+          <p className="text-sm font-semibold">{t(`analyze.designDna.status.${status}`)}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {managedEvidence && status === 'not-requested'
               ? t('analyze.designDna.managedNotice')
@@ -135,7 +173,7 @@ function StatusCard({
             <p className="mt-1 truncate text-[11px] text-muted-foreground">
               {meta.provider}
               {meta.model ? ` · ${meta.model}` : ''}
-              {meta.inputMode ? ` · ${meta.inputMode}` : ''}
+              {meta.inputMode ? ` · ${t(`analyze.designDna.inputMode.${meta.inputMode}`)}` : ''}
             </p>
           )}
           {running && progress && (
@@ -171,6 +209,16 @@ function StatusCard({
             {t('analyze.designDna.reinterpret')}
           </button>
         )}
+        {status === 'skipped' && onRetry && (
+          <button
+            type="button"
+            data-testid="design-intelligence-start-anyway"
+            onClick={onRetry}
+            className="min-h-8 shrink-0 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t('analyze.designDna.startAnyway')}
+          </button>
+        )}
         {status === 'not-requested' && managedEvidence && onRetry && (
           <button
             type="button"
@@ -202,21 +250,17 @@ export function DesignDnaPanel({
   intelligenceProgress,
   onRetry,
   onCancel,
+  onSkip,
   onResultUpdate,
   onOpenEvidence,
 }: DesignDnaPanelProps) {
   const { t } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
-  const [task, setTask] = useState('')
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(result.validationReport || null)
   const [validating, setValidating] = useState(false)
   const profile = result.designProfile
   const evidence = result.designEvidence
   const meta = result.designIntelligence
-  const context = useMemo(() => {
-    if (!task.trim() || !evidence) return null
-    return generateAgentContextBundle(task.trim(), meta?.capabilityLevel || 'evidence-only', evidence, profile)
-  }, [evidence, meta?.capabilityLevel, profile, task])
   const claimGroups: Array<{ title: string; claims: Array<[string, DesignClaim]> }> = profile
     ? [
         {
@@ -296,6 +340,10 @@ export function DesignDnaPanel({
         onCancel={onCancel}
         managedEvidence={evidence?.source.accessMode === 'managed'}
       />
+
+      {!intelligenceRunning && meta?.pendingChoice === 'model-no-vision' && meta.status === 'not-requested' && (
+        <VisionChoiceCard onStructural={onRetry} onSkip={onSkip} />
+      )}
 
       {!profile ? (
         <DesignEvidencePanel evidence={evidence} />
@@ -428,39 +476,15 @@ export function DesignDnaPanel({
         </>
       )}
 
-      {evidence && (
-        <section className="rounded-xl border border-border/60 bg-background p-4">
-          <h3 className="text-sm font-semibold">{t('analyze.designDna.taskContext')}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.designDna.taskContextHelp')}</p>
-          <div className="mt-3 flex gap-2">
-            <input
-              value={task}
-              onChange={(event) => setTask(event.target.value)}
-              aria-label={t('analyze.designDna.taskContext')}
-              placeholder={t('analyze.designDna.taskPlaceholder')}
-              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button
-              type="button"
-              disabled={!context}
-              onClick={() => context && copyText(JSON.stringify(context, null, 2))}
-              className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-3 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            >
-              <Copy size={12} />
-              {t('analyze.designDna.copyContext')}
-            </button>
-          </div>
-          {result.reconstructionBrief && (
-            <button
-              type="button"
-              onClick={() => copyText(result.reconstructionBrief || '')}
-              className="mt-2 inline-flex items-center gap-1.5 rounded text-xs font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Copy size={12} />
-              {t('analyze.designDna.copyBrief')}
-            </button>
-          )}
-        </section>
+      {result.reconstructionBrief && (
+        <button
+          type="button"
+          onClick={() => copyText(result.reconstructionBrief || '')}
+          className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Copy size={12} />
+          {t('analyze.designDna.copyBrief')}
+        </button>
       )}
 
       {profile && result.analysisId && (

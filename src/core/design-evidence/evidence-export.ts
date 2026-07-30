@@ -26,8 +26,8 @@ export function generateDesignEvidenceBrief(
   lines.push(
     intelligenceMode
       ? zh
-        ? `> 层级：Observed / 已观察。以下内容来自浏览器观察和确定性代码分析。后续 Design DNA 使用 \`${intelligenceMode}\` 输入模式推断，不能修改这些事实。`
-        : `> Layer: Observed. The following content comes from browser observations and deterministic code analysis. The later Design DNA uses \`${intelligenceMode}\` input and cannot modify these facts.`
+        ? `> 层级：Observed / 已观察。以下内容来自浏览器观察和确定性代码分析。后续 AI 解读使用 \`${intelligenceMode}\` 输入模式推断，不能修改这些事实。`
+        : `> Layer: Observed. The following content comes from browser observations and deterministic code analysis. The later AI interpretation uses \`${intelligenceMode}\` input and cannot modify these facts.`
       : zh
         ? '> 层级：Observed / 已观察。能力级别：`evidence-only`。以下内容来自浏览器观察和确定性代码分析；未生成 AI 视觉主张、标志性手法或迁移规则。'
         : '> Layer: Observed. Capability level: `evidence-only`. The following content comes from browser observations and deterministic code analysis; no AI visual thesis, signature moves, or transfer rules were generated.',

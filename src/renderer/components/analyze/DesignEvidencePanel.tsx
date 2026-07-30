@@ -1,5 +1,3 @@
-import { Boxes, Eye, Image, Layers3, MonitorSmartphone, MousePointerClick } from 'lucide-react'
-
 import { useTranslation } from 'react-i18next'
 
 import type { DesignEvidence } from '../../../core/design-evidence/types'
@@ -14,7 +12,9 @@ const LIMITATION_KEYS: Record<string, string> = {
   'no-sections-detected': 'noSections',
   'safe-active-interactions-not-observed': 'noActiveInteractions',
   'some-safe-interactions-skipped': 'noActiveInteractions',
+  'no-interaction-states-observed': 'noInteractionStates',
   'no-major-media-detected': 'noMedia',
+  'no-classified-media-regions': 'noMediaClassification',
 }
 
 export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
@@ -36,21 +36,24 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
     evidence.interactionStyles.hover.length +
     evidence.interactionStyles.focus.length +
     evidence.interactionStyles.active.length
+  const activeObservationCount = evidence.interactionObservations.filter(
+    (observation) => observation.safety === 'safe-active',
+  ).length
+  const responsiveCount = evidence.responsiveObservations.length
+  const stateFacts = [
+    passiveStateCount > 0 ? t('analyze.overview.statesPassive', { count: passiveStateCount }) : null,
+    activeObservationCount > 0 ? t('analyze.overview.statesActive', { count: activeObservationCount }) : null,
+    responsiveCount > 0 ? t('analyze.overview.statesResponsive', { count: responsiveCount }) : null,
+  ].filter((fact): fact is string => Boolean(fact))
+  const visibleLimitations = evidence.limitations.filter((limitation) => !limitation.startsWith('skipped-interaction:'))
 
   return (
     <div data-testid="design-evidence-overview" className="space-y-5 p-6">
       <section className="rounded-xl border border-border/60 bg-background p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('analyze.overview.capability')}
-            </p>
-            <h2 className="mt-1 text-lg font-semibold">{t('analyze.overview.title')}</h2>
-          </div>
-          <span className="rounded-full border border-border bg-secondary px-2.5 py-1 font-mono text-xs text-foreground">
-            evidence-only
-          </span>
-        </div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('analyze.overview.capability')}
+        </p>
+        <h2 className="mt-1 text-lg font-semibold">{t('analyze.overview.title')}</h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
           {t('analyze.overview.evidenceOnlyDescription')}
         </p>
@@ -61,28 +64,21 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
         className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6"
       >
         {[
-          { icon: Eye, value: pageCount, label: t('analyze.overview.pages') },
-          { icon: Layers3, value: evidence.sections.length, label: t('analyze.overview.sections') },
-          { icon: Boxes, value: evidence.components.length, label: t('analyze.overview.components') },
+          { value: pageCount, label: t('analyze.overview.pages') },
+          { value: evidence.sections.length, label: t('analyze.overview.sections') },
+          { value: evidence.components.length, label: t('analyze.overview.components') },
+          { value: evidence.coverage.viewportCoverage.length, label: t('analyze.overview.viewports') },
           {
-            icon: MonitorSmartphone,
-            value: evidence.coverage.viewportCoverage.length,
-            label: t('analyze.overview.viewports'),
-          },
-          {
-            icon: MousePointerClick,
             value: `${evidence.coverage.interactionCoverage.safelyObserved}/${evidence.coverage.interactionCoverage.candidates}`,
             label: t('analyze.overview.interactions'),
           },
           {
-            icon: Image,
             value: `${evidence.coverage.mediaCoverage.classifiedRegions}/${evidence.coverage.mediaCoverage.majorRegions}`,
             label: t('analyze.overview.media'),
           },
-        ].map(({ icon: Icon, value, label }) => (
+        ].map(({ value, label }) => (
           <div key={label} className="rounded-xl border border-border/60 bg-background p-4">
-            <Icon size={16} className="text-primary" aria-hidden="true" />
-            <p className="mt-3 text-xl font-semibold">{value}</p>
+            <p className="text-xl font-semibold">{value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{label}</p>
           </div>
         ))}
@@ -103,7 +99,7 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
             if (!page) return null
             const roles = topologyPage.sectionIds
               .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
-              .filter((role): role is NonNullable<typeof role> => Boolean(role))
+              .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown')
             return (
               <article key={topologyPage.pageId} className="rounded-lg bg-secondary/45 p-3">
                 <div className="flex items-center gap-2 text-xs">
@@ -113,11 +109,13 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={page.url}>
                     {page.url}
                   </span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {t(`analyze.overview.pageRoles.${topologyPage.role}`, {
-                      defaultValue: topologyPage.role,
-                    })}
-                  </span>
+                  {topologyPage.role !== 'unknown' && (
+                    <span className="shrink-0 text-muted-foreground">
+                      {t(`analyze.overview.pageRoles.${topologyPage.role}`, {
+                        defaultValue: topologyPage.role,
+                      })}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   {roles.length > 0 ? (
@@ -142,28 +140,26 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
       <div className="grid gap-5 xl:grid-cols-2">
         <section className="rounded-xl border border-border/60 bg-background p-5">
           <h3 className="text-sm font-semibold">{t('analyze.overview.statesTitle')}</h3>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {t('analyze.overview.statesSummary', {
-              passive: passiveStateCount,
-              active: evidence.interactionObservations.filter((observation) => observation.safety === 'safe-active')
-                .length,
-              responsive: evidence.responsiveObservations.length,
-            })}
-          </p>
+          {stateFacts.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm leading-6 text-muted-foreground">
+              {stateFacts.map((fact) => (
+                <li key={fact}>{fact}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('analyze.overview.statesEmpty')}</p>
+          )}
         </section>
 
         <section className="rounded-xl border border-border/60 bg-background p-5">
           <h3 className="text-sm font-semibold">{t('analyze.overview.limitationsTitle')}</h3>
-          {evidence.limitations.length > 0 ? (
+          {visibleLimitations.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm leading-5 text-muted-foreground">
-              {evidence.limitations.map((limitation) => (
-                <li key={limitation} className="flex gap-2">
-                  <span aria-hidden="true">•</span>
-                  <span>
-                    {t(`analyze.overview.limitations.${LIMITATION_KEYS[limitation] || 'unknown'}`, {
-                      limitation,
-                    })}
-                  </span>
+              {visibleLimitations.map((limitation) => (
+                <li key={limitation}>
+                  {t(`analyze.overview.limitations.${LIMITATION_KEYS[limitation] || 'unknown'}`, {
+                    limitation,
+                  })}
                 </li>
               ))}
             </ul>

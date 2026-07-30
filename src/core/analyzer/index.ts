@@ -328,7 +328,7 @@ export async function analyze(
           ? await observeSafeInteractions(page, evidenceSnapshot, options.depth === 'deep' ? 12 : 6)
           : []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
-      if (i === 0 || vpName === 'mobile') {
+      if (i === 0 || vpName !== 'desktop') {
         const viewportPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-viewport.png`)
         await page.screenshot({ path: viewportPath, fullPage: false })
         supplementalImages.push({
@@ -371,6 +371,7 @@ export async function analyze(
               width: Math.round(clip.width),
               height: Math.round(clip.height),
               sourceRect: section.rect,
+              sectionKey: section.key,
             })
           } catch {
             // Full-page evidence remains available when a dynamic region cannot be clipped reliably.

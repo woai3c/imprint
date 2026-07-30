@@ -6,7 +6,7 @@ export type Confidence = 'high' | 'medium' | 'low'
 export type IntelligenceInputMode = 'multimodal' | 'structural-only'
 export type AnalysisCapabilityLevel = 'evidence-only' | 'structural-ai' | 'multimodal-ai' | 'evidence-fallback'
 export type DesignIntelligenceStatus =
-  'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'unsupported'
+  'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'skipped' | 'unsupported'
 
 export interface AiModelCapabilities {
   text: boolean
@@ -32,6 +32,7 @@ export interface DesignIntelligenceMeta {
     output?: number
   }
   failureCode?: string
+  pendingChoice?: 'model-no-vision'
 }
 
 export interface EvidenceRef {

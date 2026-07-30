@@ -7,6 +7,9 @@ release-notes.md
 test-results/
 coverage/
 
+# Internal working documents
+DESIGN_DNA_PROPOSAL.md
+
 # Database
 *.db
 *.db-shm

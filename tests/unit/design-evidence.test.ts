@@ -32,7 +32,7 @@ const tokens: DesignToken = {
   transitions: ['0.2s'],
 }
 
-function createSnapshot(viewport: 'desktop' | 'mobile', width: number): PageEvidenceSnapshot {
+function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number): PageEvidenceSnapshot {
   return {
     url: 'https://example.com/',
     viewport,
@@ -50,8 +50,8 @@ function createSnapshot(viewport: 'desktop' | 'mobile', width: number): PageEvid
         styles: {
           backgroundColor: 'rgb(255, 255, 255)',
           color: 'rgb(17, 24, 39)',
-          display: viewport === 'desktop' ? 'flex' : 'block',
-          gap: viewport === 'desktop' ? '24px' : '8px',
+          display: viewport === 'mobile' ? 'block' : 'flex',
+          gap: viewport === 'desktop' ? '24px' : viewport === 'tablet' ? '16px' : '8px',
         },
       },
       {
@@ -59,9 +59,9 @@ function createSnapshot(viewport: 'desktop' | 'mobile', width: number): PageEvid
         order: 1,
         role: 'hero',
         rect: {
-          x: viewport === 'desktop' ? 0.15 : 0.05,
+          x: viewport === 'desktop' ? 0.15 : viewport === 'tablet' ? 0.1 : 0.05,
           y: 0.12,
-          width: viewport === 'desktop' ? 0.7 : 0.9,
+          width: viewport === 'desktop' ? 0.7 : viewport === 'tablet' ? 0.8 : 0.9,
           height: 0.3,
         },
         layoutMode: 'flow',
@@ -190,6 +190,94 @@ describe('Design Evidence', () => {
     expect(evidence.interactionObservations).toEqual(
       expect.arrayContaining([expect.objectContaining({ driver: 'hover', safety: 'passive' })]),
     )
+  })
+
+  it('diffs adjacent viewport pairs for three-viewport analyses', () => {
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-3vp',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\desktop.png', viewport: 'desktop' },
+          snapshot: createSnapshot('desktop', 1440),
+        },
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\tablet.png', viewport: 'tablet' },
+          snapshot: createSnapshot('tablet', 768),
+        },
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\mobile.png', viewport: 'mobile' },
+          snapshot: createSnapshot('mobile', 375),
+        },
+      ],
+    })
+
+    const pairs = evidence.responsiveObservations.map(
+      (observation) => `${observation.fromViewport}->${observation.toViewport}`,
+    )
+    expect(pairs).toContain('desktop->tablet')
+    expect(pairs).toContain('tablet->mobile')
+    expect(pairs).not.toContain('desktop->mobile')
+    expect(evidence.coverage.viewportCoverage).toEqual(['desktop', 'tablet', 'mobile'])
+  })
+
+  it('keeps responsive media attributes and links region crops to sections', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.mediaLayers = [
+      {
+        key: 'image:hero-img',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'narrative',
+        rect: { x: 0.2, y: 0.15, width: 0.5, height: 0.25 },
+        naturalSize: { width: 2400, height: 1200 },
+        hasResponsiveSources: true,
+      },
+    ]
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-media',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\media.png', viewport: 'desktop' },
+          snapshot,
+          supplementalImages: [
+            {
+              kind: 'region-crop',
+              path: 'C:\\evidence\\media-region.png',
+              width: 960,
+              height: 480,
+              sourceRect: { x: 0.15, y: 0.12, width: 0.7, height: 0.3 },
+              sectionKey: 'hero:1',
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(evidence.mediaLayers[0]).toMatchObject({
+      naturalSize: { width: 2400, height: 1200 },
+      hasResponsiveSources: true,
+    })
+    const heroSection = evidence.sections.find((section) => section.role === 'hero')!
+    const crop = evidence.pages[0].images.find((image) => image.kind === 'region-crop')!
+    expect(crop.sectionId).toBe(heroSection.id)
   })
 
   it('records passive ARIA and scroll-snap observations and itemizes skipped candidates', () => {

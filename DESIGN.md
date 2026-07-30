@@ -155,42 +155,64 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
-## Design Evidence and Design DNA
+## Design Evidence and AI design insights
+
+Terminology: the user-facing name for AI interpretation is "AI design insights" (zh "AI 设计解读"); internal code
+identifiers (DesignProfile, design-intelligence) are never shown in the UI. User copy must be plain language a
+non-technical user understands — internal identifiers (`evidence-only`, `structural-only`, limitation codes,
+capability levels) never appear as labels; unknown page or section roles are omitted rather than labeled "unknown".
+Secondary options (such as analysis depth) explain themselves through a small info affordance whose message appears on
+hover and keyboard focus; primary options keep visible adjacent help text. Result tab labels never wrap — when space
+runs out, the tab strip scrolls horizontally instead.
 
 - Every completed analysis opens on **Overview**. The overview is useful without AI: it shows source coverage, page
-  topology, detected sections, component instances, viewport evidence, observed states, and explicit limitations.
+  structure, detected sections, component instances, viewport evidence, observed states, and explicit limitations.
 - Label deterministic browser and code results as **Observed**. Reserve **Inferred** for a validated DesignProfile and
   **Generated** for reconstruction briefs or validation scenarios. Never present one layer as another.
-- `evidence-only` is a complete supported result, not an error or a setup advertisement. It must state that no AI visual
-  thesis, signature moves, or transfer rules were generated while keeping Tokens, DESIGN.md, implementation exports,
-  and Design Evidence JSON available.
+- The evidence-only overview is a complete supported result, not an error or a setup advertisement. It states plainly
+  that everything shown was directly observed by the browser, without displaying capability tags or internal mode
+  names.
 - Keep Design Evidence JSON separate from Tokens JSON. The former carries source, topology, geometry, component,
   responsive, state, media, coverage, and limitation facts; the latter remains the portable token artifact.
 - Legacy history records without Design Evidence retain their saved artifacts and show a concise compatibility notice
   instead of fabricated topology.
-- Page topology is a compact ordered map, not a decorative site diagram. Use localized section roles and preserve the
+- Page structure is a compact ordered map, not a decorative site diagram. Use localized section roles and preserve the
   source URL and viewport beside every sequence.
-- Limitations belong beside coverage. Explain missing pages, viewports, media, or safe active interaction observations
-  as evidence boundaries rather than generic warnings.
-- Design DNA runs after deterministic extraction and never blocks the first usable result. Its status card distinguishes
-  pending, complete, partial, failed, and not-configured states; retry reruns only interpretation, never the browser.
-- Every Design DNA claim cites real evidence IDs and displays its confidence. Selecting a section, component, layout, or
-  media reference opens the related screenshot and highlights its normalized evidence rectangle. Evidence that has no
-  genuine screenshot region (topology layers, cross-page patterns, token-level references) opens a compact evidence
-  detail instead — never a fabricated full-frame highlight.
-- A completed or partial Design DNA offers "Re-interpret design language" alongside the failure retry; both rerun only
+- Limitations belong beside coverage. Each recorded limitation maps to a plain-language explanation; internal debug
+  entries (such as per-candidate skip records) never reach the UI.
+- AI design insights run after deterministic extraction and never block the first usable result. The status card
+  distinguishes pending, complete, partial, failed, skipped, and not-configured states; retry reruns only
+  interpretation, never the browser. Status icons are reserved for running, success, and failure — neutral states use
+  text alone, and the UI never decorates status lines with capability tags.
+- When the configured model cannot see screenshots, analysis does not silently degrade: the status card offers an
+  explicit three-way choice — generate a structural interpretation, switch to a vision-capable model in Settings, or
+  skip AI interpretation. Skipping is persisted and reversible from the status card.
+- Every AI claim cites real evidence IDs and displays its confidence. Selecting a section, component, layout, or
+  media reference opens the related screenshot and highlights its normalized evidence rectangle; when the evidence lies
+  inside a captured region crop, the crop opens directly with the rectangle remapped into crop-local coordinates.
+  Evidence that has no genuine screenshot region (topology layers, cross-page patterns, token-level references) opens a
+  compact evidence detail instead — never a fabricated full-frame highlight.
+- A completed or partial interpretation offers "Re-interpret" alongside the failure retry; both rerun only
   the AI layer on the stored evidence, never the browser.
 - Structural-only interpretation must never be styled or worded as full visual analysis. Screenshot input requires a
-  vision-capable model plus explicit settings consent, is limited to selected anonymous public-page images, and is
-  always disabled for signed-in analysis. Signed-in evidence stays local until the user explicitly starts structural
-  interpretation from its status card; the card names the provider and warns that account or internal information may
-  be present.
+  vision-capable model plus the settings consent, which defaults to on for new installations because it materially
+  improves interpretation; existing installs keep their saved choice, and the toggle stays one click away in Settings.
+  Signed-in evidence stays local until the user explicitly starts interpretation from its status card, and signed-in
+  screenshots are sent only when the separate signed-in vision consent in Settings is enabled (off by default); its
+  copy names the provider and warns that account or internal information may be present.
+- Agent CLI interpretation runs in an isolated temporary directory containing only the task manifest and whitelisted
+  evidence images, removed after the run. With screenshot consent, images are attached as explicit file references;
+  whether the model actually sees them depends on the CLI's own configuration, so multimodal CLI runs must pass an
+  image-observation self-check or the result degrades to structural-only. Product copy must never claim that a local
+  Agent CLI keeps data on the machine — uploads follow the CLI's own configuration.
+- Responsive evidence compares adjacent viewport pairs (desktop to tablet, tablet to mobile) rather than only the
+  widest capture against the rest, so three-viewport analyses describe each transition separately.
 - The Overview groups thesis, signature moves, composition, attention, visual language, transfer rules, and
   uncertainties. Profile JSON remains a separate versioned artifact; AI token names are aliases and never replace
   deterministic token keys.
-- Task context is generated on demand from the current profile, evidence, and user task. Reconstruction briefs prohibit
-  copying source text, logos, page composition, or media and travel with DESIGN.md plus the target UI's source or
-  screenshot.
+- The app never asks users to compose prompts or task descriptions for an external agent — that conversation belongs in
+  the user's own agent. Generated reconstruction briefs remain one-click copyable; they prohibit copying source text,
+  logos, page composition, or media and travel with DESIGN.md plus the target UI's source or screenshot.
 - Validation scenarios use an allowlisted renderer rather than model-authored HTML. Report token-scale, rule-reference,
   state, contrast, overflow, and reduced-motion checks independently, including evidence, interpretation, or generation
   failure layers; never collapse them into a single opaque quality score.
@@ -269,8 +291,10 @@ to Imprint rather than an enterprise administration UI.
 - AI credentials, Agent CLI selection, and Theme Library export format stay in the main-process settings file. Never
   duplicate credentials into renderer storage.
 - Model ID, custom-model vision capability, screenshot consent, and the standard/deep analysis choice stay with
-  main-process settings. The consent copy must name the active provider, state that only selected anonymous public
-  screenshots may be sent, and state that signed-in pages require an explicit structural-only request.
+  main-process settings. The consent copy must name the active provider, state in plain words that site screenshots are
+  sent to the AI to improve interpretation, and state that signed-in pages require a separate explicit consent.
+- A saved Agent CLI selection always displays the product name from the shared CLI registry (never a raw or legacy
+  command string), whether or not detection has run in the current session.
 - Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
   explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
 - Treat Agent CLI detection and selection as separate actions. Detection only reports candidates; it never selects one

@@ -1,6 +1,6 @@
 import type { EvidencePackage } from './types.js'
 
-export const DESIGN_PROFILE_PROMPT_VERSION = '1'
+export const DESIGN_PROFILE_PROMPT_VERSION = '2'
 
 export function buildDesignInterpretationPrompt(evidencePackage: EvidencePackage, language: 'en' | 'zh-CN'): string {
   const outputLanguage = language === 'zh-CN' ? 'Simplified Chinese' : 'English'

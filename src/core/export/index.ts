@@ -339,8 +339,8 @@ export function generateDesignDoc(
     lines.push(
       designProfile
         ? zh
-          ? '- 使用导出的 token 和 CSS 变量实现页面；只把 Design DNA 中经过校验并带证据引用的规则作为可迁移推断。'
-          : '- Implement with the exported tokens and CSS variables; treat only validated, evidence-cited Design DNA rules as transferable inference.'
+          ? '- 使用导出的 token 和 CSS 变量实现页面；只把 AI 解读中经过校验并带证据引用的规则作为可迁移推断。'
+          : '- Implement with the exported tokens and CSS variables; treat only validated, evidence-cited AI interpretation rules as transferable inference.'
         : zh
           ? '- 使用导出的 token 和 CSS 变量实现页面，不要把区块顺序或单个组件实例误称为可迁移的设计意图。'
           : '- Implement with the exported tokens and CSS variables; do not present section order or individual component instances as inferred, transferable design intent.',

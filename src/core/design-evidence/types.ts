@@ -21,6 +21,7 @@ export interface EvidenceImage {
   height: number
   contentHash?: string
   sourceRect?: NormalizedRect
+  sectionId?: string
 }
 
 export interface EvidencePage {
@@ -150,6 +151,8 @@ export interface MediaLayerEvidence {
   opacity?: string
   filter?: string
   blendMode?: string
+  naturalSize?: { width: number; height: number }
+  hasResponsiveSources?: boolean
 }
 
 export interface EvidenceCoverage {

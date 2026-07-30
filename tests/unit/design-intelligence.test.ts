@@ -242,6 +242,7 @@ describe('Design intelligence', () => {
       model: 'gpt-4o',
       modelSupportsVision: false,
       visionAnalysisConsent: false,
+      managedVisionConsent: false,
       analysisDepth: 'standard',
       agentCli: '',
       exportFormat: 'markdown',
@@ -262,6 +263,107 @@ describe('Design intelligence', () => {
         source: { ...evidence.source, accessMode: 'managed' },
       }),
     ).toMatchObject({ status: 'not-requested', capabilityLevel: 'evidence-only' })
+  })
+
+  it('defers to an explicit choice when the configured model lacks vision', () => {
+    const settings: AppSettings = {
+      aiMode: 'apiKey',
+      provider: 'deepseek',
+      apiKey: 'test-only',
+      baseUrl: '',
+      model: 'deepseek-chat',
+      modelSupportsVision: false,
+      visionAnalysisConsent: true,
+      managedVisionConsent: false,
+      analysisDepth: 'standard',
+      agentCli: '',
+      exportFormat: 'markdown',
+    }
+    const meta = getInitialDesignIntelligenceMeta(settings, evidence)
+    expect(meta).toMatchObject({
+      status: 'not-requested',
+      capabilityLevel: 'evidence-only',
+      inputMode: 'structural-only',
+      pendingChoice: 'model-no-vision',
+    })
+
+    const visionSettings = { ...settings, provider: 'openai', model: 'gpt-4o' }
+    expect(getInitialDesignIntelligenceMeta(visionSettings, evidence)).toMatchObject({
+      status: 'pending',
+      capabilityLevel: 'multimodal-ai',
+    })
+  })
+
+  it('sends signed-in screenshots only with the dedicated consent', () => {
+    const settings: AppSettings = {
+      aiMode: 'apiKey',
+      provider: 'openai',
+      apiKey: 'test-only',
+      baseUrl: '',
+      model: 'gpt-4o',
+      modelSupportsVision: false,
+      visionAnalysisConsent: true,
+      managedVisionConsent: false,
+      analysisDepth: 'standard',
+      agentCli: '',
+      exportFormat: 'markdown',
+    }
+    const managedEvidence: DesignEvidence = {
+      ...evidence,
+      source: { ...evidence.source, accessMode: 'managed' },
+    }
+    expect(chooseDesignIntelligenceRoute(settings, managedEvidence).mode).toBe('structural-only')
+    expect(chooseDesignIntelligenceRoute({ ...settings, managedVisionConsent: true }, managedEvidence).mode).toBe(
+      'multimodal',
+    )
+    expect(
+      chooseDesignIntelligenceRoute(
+        { ...settings, aiMode: 'agentCli', agentCli: 'codex', managedVisionConsent: true },
+        managedEvidence,
+      ).mode,
+    ).toBe('multimodal')
+    expect(
+      chooseDesignIntelligenceRoute({ ...settings, aiMode: 'agentCli', agentCli: 'codex' }, managedEvidence).mode,
+    ).toBe('structural-only')
+  })
+
+  it('degrades multimodal profiles that fail the image-observation self-check', () => {
+    const withoutObservations = validateDesignProfile(
+      rawProfile('multimodal'),
+      evidence,
+      'multimodal',
+      'en',
+      undefined,
+      { requireImageObservations: ['image-a'] },
+    )
+    expect(withoutObservations.profile).not.toBeNull()
+    expect(withoutObservations.imageObservationsValid).toBe(false)
+    expect(withoutObservations.rejected).toContain('root:image-observations-self-check-failed')
+    expect(withoutObservations.profile?.inputMode).toBe('structural-only')
+
+    const withObservations = validateDesignProfile(
+      {
+        ...rawProfile('multimodal'),
+        imageObservations: [{ imageId: 'image-a', description: 'A spacious hero with a single primary action.' }],
+      },
+      evidence,
+      'multimodal',
+      'en',
+      undefined,
+      { requireImageObservations: ['image-a'] },
+    )
+    expect(withObservations.imageObservationsValid).toBe(true)
+    expect(withObservations.profile?.inputMode).toBe('multimodal')
+
+    const genericObservations = validateDesignProfile(
+      { ...rawProfile('multimodal'), imageObservations: [{ imageId: 'image-a', description: 'screenshot' }] },
+      evidence,
+      'multimodal',
+      'en',
+      undefined,
+      { requireImageObservations: ['image-a'] },
+    )
+    expect(genericObservations.imageObservationsValid).toBe(false)
   })
 
   it('keeps structural evidence packages path-free and image-free', () => {

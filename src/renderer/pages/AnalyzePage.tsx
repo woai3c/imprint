@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Info, Loader2 } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -52,6 +52,7 @@ export function AnalyzePage() {
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [lightboxCrop, setLightboxCrop] = useState<string | null>(null)
   const [lightboxHighlight, setLightboxHighlight] = useState<{
     imageIndex: number
     rect: { x: number; y: number; width: number; height: number }
@@ -140,6 +141,16 @@ export function AnalyzePage() {
     } finally {
       store.setIntelligenceRunning(false)
       store.setIntelligenceProgress(null)
+    }
+  }
+
+  const skipDesignIntelligence = async (analysisId: string) => {
+    try {
+      const response = await window.electronAPI.skipDesignIntelligence(analysisId)
+      if (response.error || !response.designIntelligence) throw new Error('Skip failed')
+      store.mergeResult({ analysisId, designIntelligence: response.designIntelligence })
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
     }
   }
 
@@ -263,6 +274,7 @@ export function AnalyzePage() {
     const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
     if (resolution.type === 'lightbox') {
       setEvidenceDetail(null)
+      setLightboxCrop(resolution.target.cropPath ? getScreenshotUrl(resolution.target.cropPath) : null)
       setLightboxHighlight(resolution.target)
       setLightboxIndex(resolution.target.imageIndex)
       return
@@ -358,25 +370,41 @@ export function AnalyzePage() {
           <span id="analysis-page-count-help" className="min-w-64 flex-1 leading-5 text-muted-foreground">
             {t('analyze.pageCount.help')}
           </span>
-          <label htmlFor="analysis-depth" className="ml-auto shrink-0 font-medium text-foreground">
-            {t('analyze.depth.label')}
-          </label>
-          <select
-            id="analysis-depth"
-            data-testid="analysis-depth"
-            value={analysisDepth}
-            onChange={(event) => {
-              const depth = event.target.value as 'standard' | 'deep'
-              setAnalysisDepth(depth)
-              void window.electronAPI.saveSettings({ analysisDepth: depth })
-            }}
-            disabled={analyzing}
-            title={t(`analyze.depth.${analysisDepth}Help`)}
-            className="h-7 shrink-0 cursor-pointer rounded-md border border-input bg-background px-2 font-medium text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-          >
-            <option value="standard">{t('analyze.depth.standard')}</option>
-            <option value="deep">{t('analyze.depth.deep')}</option>
-          </select>
+          <div className="group relative z-50 ml-auto flex shrink-0 items-center gap-2">
+            <label htmlFor="analysis-depth" className="shrink-0 font-medium text-foreground">
+              {t('analyze.depth.label')}
+            </label>
+            <select
+              id="analysis-depth"
+              data-testid="analysis-depth"
+              value={analysisDepth}
+              onChange={(event) => {
+                const depth = event.target.value as 'standard' | 'deep'
+                setAnalysisDepth(depth)
+                void window.electronAPI.saveSettings({ analysisDepth: depth })
+              }}
+              disabled={analyzing}
+              aria-describedby="analysis-depth-help"
+              className="h-7 shrink-0 cursor-pointer rounded-md border border-input bg-background px-2 font-medium text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            >
+              <option value="standard">{t('analyze.depth.standard')}</option>
+              <option value="deep">{t('analyze.depth.deep')}</option>
+            </select>
+            <button
+              type="button"
+              aria-label={t(`analyze.depth.${analysisDepth}Help`)}
+              className="flex h-5 w-5 cursor-help items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Info size={13} aria-hidden="true" />
+            </button>
+            <div
+              id="analysis-depth-help"
+              role="tooltip"
+              className="pointer-events-none invisible absolute right-0 top-full mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 text-xs leading-5 text-muted-foreground opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+            >
+              {t(`analyze.depth.${analysisDepth}Help`)}
+            </div>
+          </div>
         </div>
 
         {!hasAiConfig && !aiTipDismissed && !result && !failure && (
@@ -474,7 +502,10 @@ export function AnalyzePage() {
             result={result}
             analyzing={analyzing}
             onRetryWithLogin={handleRetryWithLogin}
-            onOpenLightbox={setLightboxIndex}
+            onOpenLightbox={(index) => {
+              setLightboxCrop(null)
+              setLightboxIndex(index)
+            }}
           />
           <ArtifactPanel
             result={result}
@@ -484,6 +515,7 @@ export function AnalyzePage() {
             onSaved={() => setSaved(true)}
             onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
             onCancelIntelligence={handleCancelIntelligence}
+            onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}
             onResultUpdate={store.mergeResult}
             onOpenEvidence={handleOpenEvidence}
           />
@@ -523,7 +555,10 @@ export function AnalyzePage() {
       )}
       {lightboxIndex !== null && result && (
         <ScreenshotLightbox
-          images={getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path))}
+          images={[
+            ...(lightboxCrop ? [lightboxCrop] : []),
+            ...getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path)),
+          ]}
           index={lightboxIndex}
           highlight={
             lightboxHighlight?.imageIndex === lightboxIndex
@@ -537,6 +572,7 @@ export function AnalyzePage() {
           onClose={() => {
             setLightboxIndex(null)
             setLightboxHighlight(null)
+            setLightboxCrop(null)
           }}
         />
       )}

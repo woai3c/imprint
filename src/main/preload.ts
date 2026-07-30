@@ -25,6 +25,7 @@ const api = {
   startDesignIntelligence: (analysisId: string, language?: string, force = false) =>
     ipcRenderer.invoke('design-intelligence:start', analysisId, language, force),
   cancelDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:cancel', analysisId),
+  skipDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:skip', analysisId),
   generateValidation: (analysisId: string, scenario: 'workflow' | 'content' | 'states') =>
     ipcRenderer.invoke('validation:start', analysisId, scenario),
   submitLoginDecision: (requestId: string, decision: 'continue' | 'anonymous' | 'cancel') =>

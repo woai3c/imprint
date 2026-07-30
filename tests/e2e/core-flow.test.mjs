@@ -69,9 +69,34 @@ before(async () => {
 }
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
+try {
+  const { appendFileSync } = await import('node:fs')
+  appendFileSync(
+    process.env.FAKE_AGENT_LOG || 'fake-agent-invocations.log',
+    JSON.stringify({ argv: process.argv.slice(2), promptHead: prompt.slice(0, 120), promptLength: prompt.length }) + '\\n',
+  )
+} catch {}
+if (prompt.includes('section observer')) {
+  const sectionIds = [...new Set([...prompt.matchAll(/"id":"(section-[^"]+)"/g)].map((match) => match[1]))]
+  console.log(JSON.stringify({
+    observations: sectionIds.map((sectionId) => ({
+      sectionId,
+      structure: 'A stacked band pairs a dominant heading with a compact action cluster.',
+      visualRelations: 'Heading scale outweighs body text while the action sits inside the same column.',
+      states: '',
+      limitations: '',
+      evidenceIds: [sectionId]
+    }))
+  }))
+  process.exit(0)
+}
 if (prompt.includes('design-language interpreter')) {
   const unique = (values) => [...new Set(values)]
   const ids = unique([...prompt.matchAll(/"id":"((?:section|layout|image|component|interaction|responsive)-[^"]+)"/g)].map((match) => match[1]))
+  const inputMode = prompt.includes('The input mode is multimodal') ? 'multimodal' : 'structural-only'
+  const attachedImageIds = unique(
+    [...prompt.matchAll(/- \\.\\/([\\w.-]+\\.(?:png|jpe?g|webp))/g)].map((match) => match[1].replace(/\\.[^.]+$/, '')),
+  )
   const sectionIds = ids.filter((id) => id.startsWith('section-'))
   const refs = (sectionIds.length >= 2 ? sectionIds.slice(0, 2) : ids.slice(0, 2)).map((evidenceId) => ({
     evidenceId,
@@ -98,7 +123,11 @@ if (prompt.includes('design-language interpreter')) {
   console.log(JSON.stringify({
     schemaVersion: '1',
     language: 'en',
-    inputMode: 'structural-only',
+    inputMode,
+    imageObservations: attachedImageIds.map((imageId) => ({
+      imageId,
+      description: 'Screenshot of the fixture page showing its hero band and card sections.'
+    })),
     thesis: claim(),
     signatureMoves: [{
       ...claim('A saturated action accent punctuates otherwise quiet neutral content surfaces'),
@@ -228,6 +257,10 @@ console.log(JSON.stringify({
 after(async () => {
   await electronApp?.close()
   await new Promise((resolve) => fixtureServer?.close(resolve))
+  if (process.env.IMPRINT_E2E_KEEP_USER_DATA === '1') {
+    console.log('kept userDataDir:', userDataDir)
+    return
+  }
   if (fakeAgentDir) await fs.rm(fakeAgentDir, { force: true, recursive: true })
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
@@ -289,7 +322,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
     assert.match(
       (await page.getByTestId('analysis-evidence-coverage').textContent()) || '',
-      /sections.*component instances.*viewports/i,
+      /sections.*components.*screen sizes/i,
     )
     assert.equal(await page.getByTestId('example-components').count(), 0)
     await page.getByTestId('analysis-page-screenshot').first().locator('img').click()

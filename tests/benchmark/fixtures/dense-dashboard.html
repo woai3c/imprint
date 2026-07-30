@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Metricbase Console</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f4f5f7;
+        color: #1c2430;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        font-size: 13px;
+      }
+      header {
+        background: #101828;
+        color: #e4e7ec;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        gap: 24px;
+        position: sticky;
+        top: 0;
+      }
+      .brand {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      nav {
+        display: flex;
+        gap: 2px;
+      }
+      nav a {
+        color: #98a2b3;
+        text-decoration: none;
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      nav a.active,
+      nav a:hover {
+        color: #fff;
+        background: #1d2939;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: #fff;
+        border-bottom: 1px solid #e4e7ec;
+      }
+      .toolbar h1 {
+        font-size: 16px;
+        margin: 0;
+      }
+      .btn {
+        background: #155eef;
+        color: #fff;
+        border: 0;
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      .btn:hover {
+        background: #004eeb;
+      }
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 12px 16px;
+      }
+      .kpi {
+        background: #fff;
+        border: 1px solid #e4e7ec;
+        border-radius: 6px;
+        padding: 10px 12px;
+      }
+      .kpi .label {
+        color: #667085;
+        font-size: 12px;
+      }
+      .kpi .value {
+        font-size: 22px;
+        font-weight: 600;
+        margin-top: 2px;
+      }
+      .kpi .delta {
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .up {
+        color: #067647;
+      }
+      .down {
+        color: #b42318;
+      }
+      .panel {
+        margin: 0 16px 16px;
+        background: #fff;
+        border: 1px solid #e4e7ec;
+        border-radius: 6px;
+      }
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid #e4e7ec;
+      }
+      .tabs [role='tab'] {
+        background: none;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        padding: 10px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        color: #667085;
+      }
+      .tabs [role='tab'][aria-selected='true'] {
+        color: #155eef;
+        border-bottom-color: #155eef;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 1px solid #eef1f4;
+        font-size: 13px;
+      }
+      th {
+        color: #667085;
+        font-weight: 500;
+        background: #f9fafb;
+      }
+      tr:hover td {
+        background: #f9fafb;
+      }
+      .status {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .ok {
+        background: #dcfae6;
+        color: #067647;
+      }
+      .warn {
+        background: #fef0c7;
+        color: #b54708;
+      }
+      footer {
+        padding: 12px 16px;
+        color: #98a2b3;
+        font-size: 12px;
+      }
+      @media (max-width: 768px) {
+        .kpis {
+          grid-template-columns: 1fr 1fr;
+        }
+        nav a {
+          padding: 6px 6px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Metricbase</span>
+      <nav>
+        <a href="#overview" class="active">Overview</a>
+        <a href="#streams">Streams</a>
+        <a href="#alerts">Alerts</a>
+        <a href="#settings">Settings</a>
+      </nav>
+    </header>
+    <main>
+      <section class="toolbar">
+        <h1>Production overview</h1>
+        <button class="btn" type="button">New stream</button>
+      </section>
+      <section class="kpis">
+        <div class="kpi">
+          <div class="label">Events / min</div>
+          <div class="value">48,210</div>
+          <div class="delta up">+4.2%</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Error rate</div>
+          <div class="value">0.18%</div>
+          <div class="delta down">-0.03%</div>
+        </div>
+        <div class="kpi">
+          <div class="label">P95 latency</div>
+          <div class="value">212ms</div>
+          <div class="delta up">-11ms</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Active sources</div>
+          <div class="value">136</div>
+          <div class="delta up">+6</div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="tabs" role="tablist">
+          <button role="tab" type="button" aria-selected="true" aria-controls="tab-streams">Streams</button>
+          <button role="tab" type="button" aria-selected="false" aria-controls="tab-quotas">Quotas</button>
+        </div>
+        <div id="tab-streams" role="tabpanel">
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Region</th>
+                <th>Throughput</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>api-gateway</td>
+                <td>us-east</td>
+                <td>21.4k/min</td>
+                <td><span class="status ok">healthy</span></td>
+              </tr>
+              <tr>
+                <td>checkout-worker</td>
+                <td>eu-west</td>
+                <td>9.8k/min</td>
+                <td><span class="status ok">healthy</span></td>
+              </tr>
+              <tr>
+                <td>legacy-importer</td>
+                <td>us-west</td>
+                <td>1.1k/min</td>
+                <td><span class="status warn">lagging</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="tab-quotas" role="tabpanel" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th>Used</th>
+                <th>Limit</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Events</td>
+                <td>61%</td>
+                <td>500M/mo</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <footer>Metricbase Console v4.2 — all times UTC</footer>
+    <script>
+      const tabs = [...document.querySelectorAll('[role="tab"]')]
+      tabs.forEach((tab) =>
+        tab.addEventListener('click', () => {
+          tabs.forEach((item) => {
+            const selected = item === tab
+            item.setAttribute('aria-selected', String(selected))
+            document.getElementById(item.getAttribute('aria-controls')).hidden = !selected
+          })
+        }),
+      )
+    </script>
+  </body>
+</html>

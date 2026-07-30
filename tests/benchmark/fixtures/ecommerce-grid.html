@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northbeam Outfitters</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #111827;
+        font-family: Helvetica, Arial, sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 32px;
+        padding: 14px 24px;
+        border-bottom: 1px solid #e5e7eb;
+        position: sticky;
+        top: 0;
+        background: #fff;
+      }
+      .brand {
+        font-weight: 700;
+        font-size: 18px;
+      }
+      nav {
+        display: flex;
+        gap: 20px;
+        flex: 1;
+      }
+      nav a {
+        color: #374151;
+        text-decoration: none;
+        font-size: 14px;
+      }
+      .cart {
+        border: 1px solid #111827;
+        background: #fff;
+        padding: 7px 16px;
+        font-size: 14px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+      .cart:hover {
+        background: #111827;
+        color: #fff;
+      }
+      .promo {
+        background: #111827;
+        color: #f9fafb;
+        text-align: center;
+        font-size: 13px;
+        padding: 8px;
+        letter-spacing: 0.04em;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        min-height: 340px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .hero .copy {
+        padding: 64px 40px;
+      }
+      .hero h1 {
+        font-size: 44px;
+        margin: 0 0 16px;
+        line-height: 1.1;
+      }
+      .hero p {
+        color: #4b5563;
+        font-size: 17px;
+        margin: 0 0 24px;
+      }
+      .hero .visual {
+        background: linear-gradient(200deg, #d1d5db, #9ca3af);
+        background-size: cover;
+      }
+      .shop {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
+      }
+      .shop h2 {
+        font-size: 24px;
+        margin: 0 0 24px;
+      }
+      .products {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+      }
+      .product {
+        border: 1px solid #e5e7eb;
+      }
+      .product .photo {
+        height: 180px;
+        background: linear-gradient(160deg, #e5e7eb, #cbd5e1);
+      }
+      .product:nth-child(2) .photo {
+        background: linear-gradient(160deg, #dbeafe, #bfdbfe);
+      }
+      .product:nth-child(3) .photo {
+        background: linear-gradient(160deg, #dcfce7, #bbf7d0);
+      }
+      .product:nth-child(4) .photo {
+        background: linear-gradient(160deg, #fee2e2, #fecaca);
+      }
+      .product .info {
+        padding: 14px;
+      }
+      .product h3 {
+        font-size: 15px;
+        margin: 0 0 6px;
+      }
+      .price {
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .product button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 8px;
+        border: 1px solid #111827;
+        background: #fff;
+        font-size: 13px;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+      .product button:hover {
+        background: #111827;
+        color: #fff;
+      }
+      .newsletter {
+        background: #f3f4f6;
+        padding: 56px 24px;
+        text-align: center;
+      }
+      .newsletter h2 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      .newsletter p {
+        color: #4b5563;
+        margin: 0 0 20px;
+      }
+      .newsletter button {
+        background: #111827;
+        color: #fff;
+        border: 0;
+        padding: 10px 24px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .newsletter .panel {
+        color: #4b5563;
+        font-size: 14px;
+        margin-top: 12px;
+      }
+      footer {
+        padding: 32px 24px;
+        display: flex;
+        justify-content: space-between;
+        color: #6b7280;
+        font-size: 13px;
+        border-top: 1px solid #e5e7eb;
+      }
+      @media (max-width: 768px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+        .hero .visual {
+          min-height: 160px;
+        }
+        .products {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="promo">Free carbon-neutral shipping over $75</div>
+    <header>
+      <span class="brand">Northbeam</span>
+      <nav>
+        <a href="#new">New arrivals</a>
+        <a href="#outerwear">Outerwear</a>
+        <a href="#gear">Gear</a>
+        <a href="#sale">Sale</a>
+      </nav>
+      <button class="cart" type="button">Cart (2)</button>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="copy">
+          <h1>Built for the shoulder season</h1>
+          <p>Layering pieces that handle 5 degrees of uncertainty in either direction.</p>
+          <button class="cart" type="button">Shop the drop</button>
+        </div>
+        <div class="visual" role="img" aria-label="Layered outerwear on a trail"></div>
+      </section>
+      <section class="shop">
+        <h2>This week's picks</h2>
+        <div class="products">
+          <div class="product">
+            <div class="photo"></div>
+            <div class="info">
+              <h3>Traverse Shell</h3>
+              <span class="price">$148</span><button type="button">Add to cart</button>
+            </div>
+          </div>
+          <div class="product">
+            <div class="photo"></div>
+            <div class="info">
+              <h3>Ridgeline Fleece</h3>
+              <span class="price">$92</span><button type="button">Add to cart</button>
+            </div>
+          </div>
+          <div class="product">
+            <div class="photo"></div>
+            <div class="info">
+              <h3>Basecamp Tee</h3>
+              <span class="price">$34</span><button type="button">Add to cart</button>
+            </div>
+          </div>
+          <div class="product">
+            <div class="photo"></div>
+            <div class="info">
+              <h3>Scree Pant</h3>
+              <span class="price">$110</span><button type="button">Add to cart</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="newsletter">
+        <h2>Field notes, monthly</h2>
+        <p>Gear tests and route write-ups. No discount spam.</p>
+        <button type="button" aria-expanded="false" aria-controls="newsletter-panel">Subscribe</button>
+        <div class="panel" id="newsletter-panel" hidden>
+          One email a month. Unsubscribe anytime with a single click.
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Northbeam Outfitters</span>
+      <span>Support — Shipping — Returns</span>
+    </footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

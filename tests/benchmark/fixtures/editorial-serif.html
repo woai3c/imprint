@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Slow Review</title>
+    <style>
+      body {
+        margin: 0;
+        background: #faf7f2;
+        color: #23201b;
+        font-family: Georgia, 'Times New Roman', serif;
+        line-height: 1.7;
+      }
+      header {
+        border-bottom: 1px solid #d8d2c6;
+        padding: 18px 0;
+      }
+      .masthead {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .brand {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      nav a {
+        margin-left: 24px;
+        color: #23201b;
+        text-decoration: none;
+        font-size: 15px;
+      }
+      nav a:hover {
+        text-decoration: underline;
+      }
+      .hero {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 96px 24px 72px;
+      }
+      .hero h1 {
+        font-size: 52px;
+        line-height: 1.15;
+        margin: 0 0 24px;
+        font-weight: 400;
+      }
+      .hero .dek {
+        font-size: 20px;
+        color: #5b554a;
+        font-style: italic;
+        margin: 0 0 32px;
+      }
+      .byline {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #8a8172;
+      }
+      article {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 24px 64px;
+        font-size: 18px;
+      }
+      article p {
+        margin: 0 0 28px;
+      }
+      article p:first-of-type::first-letter {
+        font-size: 56px;
+        line-height: 1;
+        float: left;
+        padding: 6px 10px 0 0;
+        color: #9a3b2e;
+      }
+      blockquote {
+        margin: 40px 0;
+        padding-left: 24px;
+        border-left: 3px solid #9a3b2e;
+        font-style: italic;
+        font-size: 22px;
+      }
+      .related {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 56px 24px 72px;
+      }
+      .related h2 {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: #8a8172;
+        border-top: 1px solid #d8d2c6;
+        padding-top: 28px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+        margin-top: 28px;
+      }
+      .card {
+        border-top: 2px solid #23201b;
+        padding-top: 16px;
+      }
+      .card h3 {
+        font-size: 21px;
+        margin: 0 0 10px;
+        font-weight: 400;
+      }
+      .card p {
+        font-size: 15px;
+        color: #5b554a;
+        margin: 0;
+      }
+      .notes {
+        max-width: 640px;
+        margin: 0 auto 72px;
+        padding: 0 24px;
+      }
+      .notes button {
+        background: none;
+        border: 0;
+        border-bottom: 1px solid #9a3b2e;
+        color: #9a3b2e;
+        font: inherit;
+        font-size: 15px;
+        cursor: pointer;
+        padding: 2px 0;
+      }
+      .notes .panel {
+        font-size: 14px;
+        color: #5b554a;
+        padding: 12px 0 0;
+      }
+      footer {
+        border-top: 1px solid #d8d2c6;
+        padding: 36px 24px;
+        text-align: center;
+        font-size: 14px;
+        color: #8a8172;
+      }
+      @media (max-width: 768px) {
+        .hero {
+          padding: 56px 20px 48px;
+        }
+        .hero h1 {
+          font-size: 34px;
+        }
+        .cards {
+          grid-template-columns: 1fr;
+          gap: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="masthead">
+        <span class="brand">The Slow Review</span>
+        <nav>
+          <a href="#essays">Essays</a>
+          <a href="#notes">Notes</a>
+          <a href="#about">About</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>On the patience of well-made things</h1>
+        <p class="dek">Why the objects that last are rarely the ones that hurry.</p>
+        <span class="byline">By M. Alcott — Issue 42</span>
+      </section>
+      <article>
+        <p>
+          A chair that has been sat in for thirty years tells you something a new chair cannot. The wear is not damage;
+          it is a record of use, written slowly into the wood.
+        </p>
+        <p>
+          We mistake speed for progress in most things. But typography, like furniture, rewards those willing to set a
+          line and then look at it for a long time.
+        </p>
+        <blockquote>The best tools disappear into the work, leaving only the rhythm of making.</blockquote>
+        <p>
+          This is why the printed page, for all its supposed obsolescence, still teaches the screen how to behave:
+          generous margins, a measure of sixty-odd characters, and silence where silence is due.
+        </p>
+      </article>
+      <section class="notes">
+        <button type="button" aria-expanded="false" aria-controls="footnote-1">Read the editor's footnote</button>
+        <div class="panel" id="footnote-1" hidden>
+          This issue was set in a single measure to preserve the reading rhythm across devices.
+        </div>
+      </section>
+      <section class="related">
+        <h2>Further reading</h2>
+        <div class="cards">
+          <div class="card">
+            <h3>The margins of the page</h3>
+            <p>On whitespace as an editorial decision rather than an absence.</p>
+          </div>
+          <div class="card">
+            <h3>In praise of slow software</h3>
+            <p>Tools that respect attention tend to outlive tools that demand it.</p>
+          </div>
+          <div class="card">
+            <h3>A taxonomy of patina</h3>
+            <p>What wear patterns reveal about how people actually live.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>The Slow Review — published quarterly, read slowly.</footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

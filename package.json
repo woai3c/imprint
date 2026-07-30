@@ -35,7 +35,9 @@
     "release:verify": "node scripts/verify-release.mjs",
     "release:notes": "node scripts/extract-release-notes.mjs",
     "release:collect": "node scripts/collect-release-artifacts.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:benchmark": "vitest run -c vitest.benchmark.config.ts",
+    "test:benchmark:live": "node scripts/benchmark-live.mjs"
   },
   "bin": {
     "imprint": "./dist/cli/index.js",

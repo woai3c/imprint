@@ -33,6 +33,16 @@ export interface DesignIntelligenceMeta {
   }
   failureCode?: string
   pendingChoice?: 'model-no-vision'
+  pipeline?: 'single-pass' | 'two-pass'
+}
+
+export interface SectionObservation {
+  sectionId: string
+  structure: string
+  visualRelations: string
+  states: string
+  limitations: string
+  evidenceIds: string[]
 }
 
 export interface EvidenceRef {

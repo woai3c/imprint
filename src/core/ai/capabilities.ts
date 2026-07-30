@@ -1,18 +1,15 @@
 import type { AiModelCapabilities } from '../design-intelligence/types.js'
+import { getCatalogModel, getRecommendedModel } from './model-catalog.js'
 
 export function getDefaultModel(provider: string): string {
-  const models: Record<string, string> = {
-    openai: 'gpt-4o-mini',
-    anthropic: 'claude-3-5-haiku-20241022',
-    google: 'gemini-2.0-flash',
-    deepseek: 'deepseek-chat',
-    moonshotai: 'moonshot-v1-8k',
-    alibaba: 'qwen-plus',
-    zhipu: 'glm-4-flash',
-    xai: 'grok-3-mini',
-    custom: '',
-  }
-  return models[provider] || ''
+  return getRecommendedModel(provider)?.id ?? ''
+}
+
+// Catalog providers never trust a saved model that left the catalog (retired or renamed
+// upstream); they fall back to the recommended model. `custom` keeps free-text IDs.
+export function resolveEffectiveModel(provider: string, savedModel: string): string {
+  if (provider === 'custom') return savedModel
+  return getCatalogModel(provider, savedModel)?.id ?? getDefaultModel(provider)
 }
 
 export function getDefaultBaseUrl(provider: string): string {
@@ -31,6 +28,15 @@ export function getDefaultBaseUrl(provider: string): string {
 }
 
 export function resolveAiModelCapabilities(provider: string, model: string, customVision = false): AiModelCapabilities {
+  const catalogEntry = getCatalogModel(provider, model)
+  if (catalogEntry) {
+    return {
+      text: true,
+      vision: catalogEntry.vision,
+      structuredOutput: true,
+      ...(catalogEntry.vision ? { imageInputMethod: 'inline-base64' as const, maxImages: 6 } : {}),
+    }
+  }
   const normalized = model.toLowerCase()
   const vision =
     provider === 'openai'

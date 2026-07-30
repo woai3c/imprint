@@ -7,12 +7,22 @@ import {
   restrictEvidencePackageImages,
   selectEvidencePackage,
 } from './evidence-selector.js'
+import { extractObservationCandidate, validateSectionObservations } from './observation-pass.js'
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
   buildDesignProfileRepairPrompt,
+  buildObservationRepairPrompt,
+  buildSectionObservationPrompt,
 } from './prompt.js'
-import type { AnalysisCapabilityLevel, DesignIntelligenceMeta, DesignProfile, IntelligenceInputMode } from './types.js'
+import type {
+  AnalysisCapabilityLevel,
+  DesignIntelligenceMeta,
+  DesignProfile,
+  EvidencePackage,
+  IntelligenceInputMode,
+  SectionObservation,
+} from './types.js'
 import { extractProfileCandidate, validateDesignProfile } from './validator.js'
 
 export interface InterpretationProviderConfig {
@@ -32,6 +42,116 @@ export interface InterpretEvidenceOptions {
 export interface InterpretEvidenceResult {
   profile: DesignProfile
   meta: DesignIntelligenceMeta
+}
+
+export interface InterpretationInvokeResult {
+  text: string
+  model?: string
+  usage?: {
+    input?: number
+    output?: number
+  }
+}
+
+export type InterpretationInvoke = (prompt: string, images: AiImageInput[]) => Promise<InterpretationInvokeResult>
+
+export interface InterpretationPipelineOptions {
+  mode: IntelligenceInputMode
+  language: 'en' | 'zh-CN'
+  invoke: InterpretationInvoke
+  observationImages?: AiImageInput[]
+  synthesisImages?: AiImageInput[]
+  requireImageObservations?: string[]
+}
+
+export interface InterpretationPipelineResult {
+  profile: DesignProfile
+  status: 'complete' | 'partial'
+  pipeline: 'single-pass' | 'two-pass'
+  imageObservationsValid?: boolean
+  model?: string
+  usage?: {
+    input?: number
+    output?: number
+  }
+}
+
+export function splitImagesByPass(
+  evidence: DesignEvidence,
+  images: AiImageInput[],
+): { observationImages: AiImageInput[]; synthesisImages: AiImageInput[] } {
+  const kindById = new Map(evidence.pages.flatMap((page) => page.images).map((image) => [image.id, image.kind]))
+  const idOf = (image: AiImageInput) => image.name.replace(/\.[^.]+$/, '')
+  return {
+    observationImages: images.filter((image) => kindById.get(idOf(image)) === 'region-crop'),
+    synthesisImages: images.filter((image) => kindById.get(idOf(image)) !== 'region-crop'),
+  }
+}
+
+async function runObservationPass(
+  evidencePackage: EvidencePackage,
+  language: 'en' | 'zh-CN',
+  invoke: InterpretationInvoke,
+  images: AiImageInput[],
+): Promise<SectionObservation[] | null> {
+  try {
+    const prompt = buildSectionObservationPrompt(evidencePackage, language)
+    let response = await invoke(prompt, images)
+    let validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
+    if (validation.observations.length === 0 && response.text) {
+      response = await invoke(buildObservationRepairPrompt(prompt, response.text, validation.rejected), images)
+      validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
+    }
+    return validation.observations.length > 0 ? validation.observations : null
+  } catch {
+    // Observation failures degrade to a single-pass synthesis; the profile run must not fail because notes failed.
+    return null
+  }
+}
+
+export async function runInterpretationPipeline(
+  evidence: DesignEvidence,
+  evidencePackage: EvidencePackage,
+  options: InterpretationPipelineOptions,
+): Promise<InterpretationPipelineResult> {
+  const observations = await runObservationPass(
+    evidencePackage,
+    options.language,
+    options.invoke,
+    options.observationImages || [],
+  )
+  const prompt = buildDesignInterpretationPrompt(evidencePackage, options.language, observations || undefined)
+  const synthesisImages = options.synthesisImages || []
+  const validateCandidate = (text: string) =>
+    validateDesignProfile(
+      extractProfileCandidate(text),
+      evidence,
+      options.mode,
+      options.language,
+      listEvidencePackageIds(evidencePackage),
+      options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
+    )
+  let response = await options.invoke(prompt, synthesisImages)
+  if (!response.text) throw new Error('DesignProfile output is empty')
+  let validation = validateCandidate(response.text)
+  if (!validation.profile || validation.imageObservationsValid === false) {
+    response = await options.invoke(
+      buildDesignProfileRepairPrompt(prompt, response.text, validation.rejected),
+      synthesisImages,
+    )
+    validation = validateCandidate(response.text)
+  }
+  if (!validation.profile) {
+    throw new Error(`DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}`)
+  }
+  return {
+    profile: validation.profile,
+    status: validation.status === 'complete' ? 'complete' : 'partial',
+    pipeline: observations ? 'two-pass' : 'single-pass',
+    imageObservationsValid: validation.imageObservationsValid,
+    model: response.model,
+    usage: response.usage,
+  }
 }
 
 export async function interpretDesignEvidence(
@@ -58,68 +178,51 @@ export async function interpretDesignEvidence(
     }
   }
   const model = options.provider.model || ''
-  const originalPrompt = buildDesignInterpretationPrompt(evidencePackage, options.language)
-  let response = await callAiProvider(
-    {
-      provider: options.provider.provider,
-      apiKey: options.provider.apiKey,
-      baseUrl: options.provider.baseUrl,
-      model: options.provider.model,
-      signal: timeoutSignal,
-    },
-    originalPrompt,
-    images,
-  )
-  let validation = validateDesignProfile(
-    extractProfileCandidate(response.text),
-    evidence,
-    options.mode,
-    options.language,
-    listEvidencePackageIds(evidencePackage),
-  )
-  if (!validation.profile) {
-    response = await callAiProvider(
-      {
-        provider: options.provider.provider,
-        apiKey: options.provider.apiKey,
-        baseUrl: options.provider.baseUrl,
-        model: options.provider.model,
-        signal: timeoutSignal,
-      },
-      buildDesignProfileRepairPrompt(originalPrompt, response.text, validation.rejected),
-    )
-    validation = validateDesignProfile(
-      extractProfileCandidate(response.text),
-      evidence,
-      options.mode,
-      options.language,
-      listEvidencePackageIds(evidencePackage),
-    )
-  }
-  if (!validation.profile) {
-    throw new Error(`DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}`)
-  }
+  const { observationImages, synthesisImages } = splitImagesByPass(evidence, images)
+  const result = await runInterpretationPipeline(evidence, evidencePackage, {
+    mode: options.mode,
+    language: options.language,
+    invoke: (prompt, passImages) =>
+      callAiProvider(
+        {
+          provider: options.provider.provider,
+          apiKey: options.provider.apiKey,
+          baseUrl: options.provider.baseUrl,
+          model: options.provider.model,
+          signal: timeoutSignal,
+        },
+        prompt,
+        passImages,
+      ),
+    observationImages,
+    synthesisImages,
+    requireImageObservations:
+      options.mode === 'multimodal' ? synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, '')) : undefined,
+  })
   const capabilityLevel: AnalysisCapabilityLevel = options.mode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
   return {
-    profile: validation.profile,
+    profile: result.profile,
     meta: {
-      status: validation.status,
+      status: result.status,
       capabilityLevel,
       inputMode: options.mode,
       provider: options.provider.provider,
-      model: response.model || model,
+      model: result.model || model,
       generatedAt: new Date().toISOString(),
       schemaVersion: '1',
       promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
+      pipeline: result.pipeline,
       inputFingerprint: createEvidenceFingerprint(
         evidence,
         options.mode,
         options.provider.provider,
-        response.model || model,
+        result.model || model,
         evidencePackage.imageIds,
+        DESIGN_PROFILE_PROMPT_VERSION,
+        '1',
       ),
       inputImageCount: images.length,
-      tokenUsage: response.usage,
+      tokenUsage: result.usage,
     },
   }
 }

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Loopward — Close the feedback loop</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #0f172a;
+        font-family: Inter, 'Segoe UI', sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        background: rgb(255 255 255 / 92%);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        padding: 14px 32px;
+        gap: 32px;
+        z-index: 10;
+      }
+      .brand {
+        font-weight: 700;
+        font-size: 17px;
+      }
+      nav {
+        display: flex;
+        gap: 24px;
+        flex: 1;
+      }
+      nav a {
+        color: #475569;
+        text-decoration: none;
+        font-size: 14px;
+      }
+      .btn-primary {
+        background: #4f46e5;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .btn-primary:hover {
+        background: #4338ca;
+        box-shadow: 0 4px 14px rgb(79 70 229 / 35%);
+      }
+      .hero {
+        text-align: center;
+        padding: 96px 24px 80px;
+        background: radial-gradient(ellipse 70% 60% at 50% 0%, #eef2ff, #fff);
+      }
+      .hero .eyebrow {
+        display: inline-block;
+        background: #eef2ff;
+        color: #4f46e5;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 5px 14px;
+        border-radius: 999px;
+        margin-bottom: 20px;
+      }
+      .hero h1 {
+        font-size: 52px;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        margin: 0 auto 20px;
+        max-width: 720px;
+      }
+      .hero p {
+        font-size: 18px;
+        color: #475569;
+        max-width: 560px;
+        margin: 0 auto 32px;
+      }
+      .hero .btn-primary {
+        font-size: 16px;
+        padding: 13px 28px;
+      }
+      .logos {
+        display: flex;
+        justify-content: center;
+        gap: 48px;
+        padding: 32px 24px;
+        color: #94a3b8;
+        font-weight: 600;
+        font-size: 15px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .features {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 88px 24px;
+      }
+      .features h2 {
+        text-align: center;
+        font-size: 34px;
+        letter-spacing: -0.01em;
+        margin: 0 0 12px;
+      }
+      .features .sub {
+        text-align: center;
+        color: #475569;
+        margin: 0 0 56px;
+        font-size: 17px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+      }
+      .card {
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 28px;
+      }
+      .card .icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: #eef2ff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 18px;
+      }
+      .card h3 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      .card p {
+        color: #475569;
+        font-size: 15px;
+        margin: 0;
+      }
+      .cta {
+        background: #0f172a;
+        color: #f8fafc;
+        text-align: center;
+        padding: 80px 24px;
+      }
+      .cta h2 {
+        font-size: 32px;
+        margin: 0 0 12px;
+      }
+      .cta p {
+        color: #94a3b8;
+        margin: 0 0 28px;
+      }
+      .cta button {
+        background: #4f46e5;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        font: inherit;
+        font-weight: 600;
+        font-size: 15px;
+        padding: 12px 26px;
+        cursor: pointer;
+      }
+      .cta .panel {
+        color: #94a3b8;
+        font-size: 14px;
+        margin-top: 14px;
+      }
+      footer {
+        padding: 40px 32px;
+        display: flex;
+        justify-content: space-between;
+        color: #64748b;
+        font-size: 14px;
+      }
+      @media (max-width: 768px) {
+        .hero {
+          padding: 56px 20px;
+        }
+        .hero h1 {
+          font-size: 34px;
+        }
+        .cards {
+          grid-template-columns: 1fr;
+        }
+        .logos {
+          gap: 20px;
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Loopward</span>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#changelog">Changelog</a>
+      </nav>
+      <button class="btn-primary" type="button">Start free</button>
+    </header>
+    <main>
+      <section class="hero">
+        <span class="eyebrow">New: roadmap voting</span>
+        <h1>Close the loop between feedback and shipping</h1>
+        <p>Collect, triage, and answer user feedback in one place — then tell people when their thing ships.</p>
+        <button class="btn-primary" type="button">Start free trial</button>
+      </section>
+      <section class="logos">
+        <span>Fieldwork</span><span>Cairn Labs</span><span>Northloop</span><span>Statice</span>
+      </section>
+      <section class="features">
+        <h2>Everything the loop needs</h2>
+        <p class="sub">Three tools that used to live in three tabs.</p>
+        <div class="cards">
+          <div class="card">
+            <div class="icon">
+              <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#4f46e5" /></svg>
+            </div>
+            <h3>Collect</h3>
+            <p>Embeddable boards and in-app widgets feed one triage queue.</p>
+          </div>
+          <div class="card">
+            <div class="icon">
+              <svg width="20" height="20" viewBox="0 0 20 20">
+                <rect x="2" y="2" width="16" height="16" rx="4" fill="#4f46e5" />
+              </svg>
+            </div>
+            <h3>Prioritize</h3>
+            <p>Votes, revenue weighting, and effort estimates in one ranking.</p>
+          </div>
+          <div class="card">
+            <div class="icon">
+              <svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 2 L18 18 L2 18 Z" fill="#4f46e5" /></svg>
+            </div>
+            <h3>Announce</h3>
+            <p>Changelogs that notify exactly the users who asked.</p>
+          </div>
+        </div>
+      </section>
+      <section class="cta">
+        <h2>Ship the thing they asked for</h2>
+        <p>Free for up to 200 tracked requests.</p>
+        <button type="button" aria-expanded="false" aria-controls="cta-panel">Start free trial</button>
+        <div class="panel" id="cta-panel" hidden>
+          Fourteen days on the full plan. No card required, cancel with one click.
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Loopward Inc.</span>
+      <span>Security — Status — Terms</span>
+    </footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ Imprint — Electron desktop app + standalone CLI + MCP server that extracts a w
 - `pnpm test` — run the Vitest unit suite for core analyzer behavior
 - `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
 - `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge
+- `pnpm test:benchmark` — run the Design DNA benchmark corpus (annotated fixtures, real browser); see `tests/benchmark/README.md`
 - `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
 - `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
   trigger native Windows x64 and macOS arm64/x64 release builds
@@ -27,7 +28,7 @@ Three entry points share the extraction engine:
 2. CLI: `src/cli/index.ts` (`imprint` bin).
 3. MCP stdio server: `src/mcp/server.ts` (`imprint-mcp` bin), exposes `imprint_extract` / `imprint_compare` tools to AI agents.
 
-Data flow: Playwright (playwright-core) loads the target site -> `style-extractor.ts` pulls computed styles from the DOM -> `color-cluster.ts` clusters colors -> `token-builder.ts` builds design tokens -> `export` generates CSS/Tailwind/JSON/MD. In the app, results are stored in SQLite (better-sqlite3, `<userData>/copy-design.db`, schema created in `src/main/database.ts`); LLM is only used for optional semantic token naming and validated example generation (`llm-enhancer.ts`), never for extraction.
+Data flow: Playwright (playwright-core) loads the target site -> `style-extractor.ts` pulls computed styles from the DOM -> `color-cluster.ts` clusters colors -> `token-builder.ts` builds design tokens -> `export` generates CSS/Tailwind/JSON/MD. In the app, results are stored in SQLite (better-sqlite3, `<userData>/copy-design.db`, schema created in `src/main/database.ts`); LLM is only used for optional semantic token naming (`semantic-enhancer.ts`), validated example generation (`example-generator.ts`), and Design DNA interpretation (`design-intelligence/`), never for extraction.
 
 Desktop window, tray, single-instance, and platform lifecycle logic lives in `src/main/index.ts`.
 

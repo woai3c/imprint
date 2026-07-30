@@ -1,25 +1,24 @@
 import fs from 'node:fs'
 
-import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
-import { type AiImageInput, type AiResponse, callAiProvider } from '../core/ai/provider.js'
-import { enhanceWithLlm } from '../core/analyzer/llm-enhancer.js'
+import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
+import { type AiImageInput, callAiProvider } from '../core/ai/provider.js'
+import { generateExamplesWithLlm } from '../core/analyzer/example-generator.js'
+import { enhanceSemanticNaming } from '../core/analyzer/semantic-enhancer.js'
 import { validateColorRenames } from '../core/analyzer/token-renamer.js'
 import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
-  buildDesignInterpretationPrompt,
-  buildDesignProfileRepairPrompt,
+  type InterpretationInvoke,
   createEvidenceFingerprint,
   createValidationRecipe,
-  extractProfileCandidate,
   generateAgentContextBundle,
   generateReconstructionBrief,
-  listEvidencePackageIds,
   restrictEvidencePackageImages,
+  runInterpretationPipeline,
   selectEvidencePackage,
-  validateDesignProfile,
+  splitImagesByPass,
   validateRecipe,
 } from '../core/design-intelligence/index.js'
 import type {
@@ -35,6 +34,7 @@ import {
   executeAgentPrompt,
   resolveAgentCliCapabilities,
 } from './agent-enhancer.js'
+import { log } from './logger.js'
 
 export interface IntelligenceRunResult {
   tokens: DesignToken
@@ -69,7 +69,7 @@ export function chooseDesignIntelligenceRoute(
       model: settings.agentCli,
     }
   }
-  const model = settings.model || getDefaultModel(settings.provider)
+  const model = resolveEffectiveModel(settings.provider, settings.model)
   const capabilities = resolveAiModelCapabilities(
     settings.provider,
     model,
@@ -109,7 +109,7 @@ export function getInitialDesignIntelligenceMeta(
     settings.aiMode === 'apiKey' &&
     !resolveAiModelCapabilities(
       settings.provider,
-      settings.model || getDefaultModel(settings.provider),
+      resolveEffectiveModel(settings.provider, settings.model),
       settings.provider === 'custom' && settings.modelSupportsVision,
     ).vision
   if (modelLacksVision) {
@@ -223,7 +223,6 @@ export async function runDesignIntelligence(
       cliImages = []
     }
   }
-  const requireImageObservations = isAgentCli && route.mode === 'multimodal' ? evidencePackage.imageIds : undefined
   const fingerprint = createEvidenceFingerprint(
     evidence,
     route.mode,
@@ -253,87 +252,92 @@ export async function runDesignIntelligence(
       components: [],
       language,
     }
-    const enhancement =
+    const providerConfig = {
+      provider: settings.provider,
+      apiKey: settings.apiKey,
+      baseUrl: settings.baseUrl || undefined,
+      model: resolveEffectiveModel(settings.provider, settings.model),
+      signal: runSignal,
+    }
+    const [renameProposals, generatedExamples] =
       settings.aiMode === 'apiKey'
-        ? await enhanceWithLlm(
-            tokens,
-            evidence.source.requestedUrl,
-            {
-              provider: settings.provider,
-              apiKey: settings.apiKey,
-              baseUrl: settings.baseUrl || undefined,
-              model: settings.model || undefined,
-              signal: runSignal,
-            },
-            enhancementContext,
-          )
+        ? await Promise.all([
+            enhanceSemanticNaming(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext),
+            generateExamplesWithLlm(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext),
+          ])
         : await enhanceWithAgentCli(
             tokens,
             evidence.source.requestedUrl,
             settings.agentCli,
             enhancementContext,
             runSignal,
-          )
-    const renameValidation = validateColorRenames(tokens, enhancement?.renames || [])
-    const examples = enhancement?.examples || []
-    const prompt = buildDesignInterpretationPrompt(evidencePackage, language)
-    const invoke = async (taskPrompt: string, taskImages: AiImageInput[] = []): Promise<AiResponse> =>
-      settings.aiMode === 'apiKey'
-        ? callAiProvider(
-            {
-              provider: settings.provider,
-              apiKey: settings.apiKey,
-              baseUrl: settings.baseUrl || undefined,
-              model: settings.model || undefined,
-              signal: runSignal,
-            },
-            taskPrompt,
-            taskImages,
-          )
-        : {
-            text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, cliImages, language)) || '',
-            model: settings.agentCli,
-          }
-    const validateCandidate = (text: string) =>
-      validateDesignProfile(
-        extractProfileCandidate(text),
-        evidence,
-        route.mode,
-        language,
-        listEvidencePackageIds(evidencePackage),
-        requireImageObservations ? { requireImageObservations } : undefined,
-      )
-    let response = await invoke(prompt, images)
-    if (!response.text) throw new Error('DesignProfile output is empty')
-    let validation = validateCandidate(response.text)
-    if (!validation.profile || validation.imageObservationsValid === false) {
-      response = await invoke(buildDesignProfileRepairPrompt(prompt, response.text, validation.rejected))
-      validation = validateCandidate(response.text)
+          ).then((enhancement) => [enhancement.renames, enhancement.examples] as const)
+    const renameValidation = validateColorRenames(tokens, renameProposals || [])
+    const examples = generatedExamples || []
+    const cliImageByName = new Map(cliImages.map((image) => [image.name, image]))
+    const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
+      if (settings.aiMode === 'apiKey') {
+        return callAiProvider(
+          {
+            provider: settings.provider,
+            apiKey: settings.apiKey,
+            baseUrl: settings.baseUrl || undefined,
+            model: resolveEffectiveModel(settings.provider, settings.model),
+            signal: runSignal,
+          },
+          taskPrompt,
+          passImages,
+        )
+      }
+      const passCliImages = passImages.flatMap((image) => {
+        const cliImage = cliImageByName.get(image.name)
+        return cliImage ? [cliImage] : []
+      })
+      return {
+        text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)) || '',
+        model: settings.agentCli,
+      }
     }
-    if (!validation.profile) throw new Error('DesignProfile output failed schema validation')
-    validation.profile.tokenAliases = renameValidation.accepted
-    const reconstructionBrief = generateReconstructionBrief(validation.profile, evidence, tokens)
-    const effectiveMode = validation.profile.inputMode
+    const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
+    const { observationImages, synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
+    const synthesisImageIds = synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, ''))
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: route.mode,
+      language,
+      invoke,
+      observationImages,
+      synthesisImages,
+      requireImageObservations: isAgentCli && route.mode === 'multimodal' ? synthesisImageIds : undefined,
+    })
+    result.profile.tokenAliases = renameValidation.accepted
+    const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
+    const effectiveMode = result.profile.inputMode
     const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
-    const recipe = createValidationRecipe('workflow', validation.profile, tokens)
-    const validationReport = validateRecipe(recipe, validation.profile, tokens, capabilityLevel)
+    const recipe = createValidationRecipe('workflow', result.profile, tokens)
+    const validationReport = validateRecipe(recipe, result.profile, tokens, capabilityLevel)
     return {
       tokens,
-      profile: validation.profile,
+      profile: result.profile,
       examples,
       reconstructionBrief,
       validationReport,
       meta: {
         ...baseMeta,
-        status: validation.status,
+        status: result.status,
         capabilityLevel,
         inputMode: effectiveMode,
+        pipeline: result.pipeline,
         generatedAt: new Date().toISOString(),
         inputImageCount: isAgentCli ? cliImages.length : images.length,
-        tokenUsage: 'usage' in response ? response.usage : undefined,
+        tokenUsage: result.usage,
       },
     }
   } catch (error: unknown) {
+    const code = failureCode(error, timeoutSignal.aborted && !signal?.aborted)
+    log.error(
+      'design-intelligence',
+      `run failed: provider=${baseMeta.provider} code=${code} reason=${error instanceof Error ? error.message.slice(0, 300) : 'unknown'}`,
+    )
     return {
       tokens,
       profile: null,
@@ -345,7 +349,7 @@ export async function runDesignIntelligence(
         status: 'failed',
         capabilityLevel: 'evidence-fallback',
         generatedAt: new Date().toISOString(),
-        failureCode: failureCode(error, timeoutSignal.aborted && !signal?.aborted),
+        failureCode: code,
       },
     }
   }

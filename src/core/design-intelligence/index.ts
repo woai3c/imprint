@@ -1,6 +1,16 @@
 export { generateAgentContextBundle } from './agent-context.js'
-export { interpretDesignEvidence } from './interpreter.js'
-export type { InterpretEvidenceOptions, InterpretEvidenceResult, InterpretationProviderConfig } from './interpreter.js'
+export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
+export type {
+  InterpretEvidenceOptions,
+  InterpretEvidenceResult,
+  InterpretationInvoke,
+  InterpretationInvokeResult,
+  InterpretationPipelineOptions,
+  InterpretationPipelineResult,
+  InterpretationProviderConfig,
+} from './interpreter.js'
+export { extractObservationCandidate, validateSectionObservations } from './observation-pass.js'
+export type { ObservationValidationResult } from './observation-pass.js'
 export {
   createEvidenceFingerprint,
   listEvidenceIds,
@@ -12,6 +22,8 @@ export {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
   buildDesignProfileRepairPrompt,
+  buildObservationRepairPrompt,
+  buildSectionObservationPrompt,
 } from './prompt.js'
 export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'
 export { compareDesignProfiles } from './profile-compare.js'

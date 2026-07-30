@@ -1,0 +1,22 @@
+{
+  "fixture": "playful-marketing",
+  "description": "Playful snack brand: warm orange palette, pill buttons, large radii, gradient hero with rounded bottom.",
+  "expectedSectionRoles": ["header", "hero", "content", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "referenceProfile": {
+    "thesis": "Friendliness is structural: every control is a pill, every card a soft rounded tile, and warm orange gradients close each section like a smile.",
+    "signatureMoves": [
+      "The hero ends in a 48px bottom radius, making the page feel like stacked bubbles.",
+      "Flavor cards lead with a plain color swatch instead of photography."
+    ],
+    "transferPreserve": ["Keep buttons pill-shaped with a hover lift and use warm gradients for section transitions."],
+    "transferAvoid": ["Do not introduce sharp corners, dense data tables, or cool corporate blues."]
+  }
+}

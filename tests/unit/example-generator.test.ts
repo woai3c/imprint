@@ -2,9 +2,9 @@ import { describe, expect, test } from 'vitest'
 
 import {
   applyColorRenamesToExamples,
-  buildEnhancementPrompt,
-  parseEnhancementResponse,
-} from '../../src/core/analyzer/llm-enhancer.js'
+  buildExamplePrompt,
+  parseExampleResponse,
+} from '../../src/core/analyzer/example-generator.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 
 function createTokens(): DesignToken {
@@ -30,46 +30,24 @@ function createTokens(): DesignToken {
   }
 }
 
-describe('LLM enhancement protocol', () => {
-  test('requests structured renames and compact examples from extracted evidence', () => {
-    const prompt = buildEnhancementPrompt(createTokens(), 'https://example.com', {
+describe('Example generation protocol', () => {
+  test('requests compact examples built on the available CSS variables', () => {
+    const prompt = buildExamplePrompt(createTokens(), 'https://example.com', {
       featureTags: ['minimal palette'],
       language: 'zh-CN',
     })
 
-    expect(prompt).toContain('"renames"')
-    expect(prompt).toContain('"tokenId"')
     expect(prompt).toContain('"examples"')
+    expect(prompt).toContain('--color-primary')
     expect(prompt).toContain('minimal palette')
     expect(prompt).toContain('Simplified Chinese')
+    expect(prompt).not.toContain('"renames"')
     expect(prompt).not.toContain('designSummary')
     expect(prompt).not.toContain('designIntent')
   })
 
-  test('parses wrapped rename output from an Agent CLI', () => {
-    const response = JSON.stringify({
-      type: 'result',
-      result: JSON.stringify({
-        renames: [{ tokenId: 'primary', name: 'action-brand' }],
-      }),
-    })
-
-    expect(parseEnhancementResponse(response)).toEqual({
-      renames: [{ tokenId: 'primary', name: 'action-brand' }],
-      examples: [],
-    })
-  })
-
-  test('normalizes the previous colorNames shape for compatibility', () => {
-    expect(parseEnhancementResponse('{"colorNames":{"primary":"action-brand"}}')).toEqual({
-      renames: [{ tokenId: 'primary', name: 'action-brand' }],
-      examples: [],
-    })
-  })
-
   test('accepts safe AI examples and rejects executable or externally loaded HTML', () => {
     const response = JSON.stringify({
-      renames: [],
       examples: [
         {
           title: 'Action card',
@@ -86,15 +64,29 @@ describe('LLM enhancement protocol', () => {
       ],
     })
 
-    expect(parseEnhancementResponse(response)).toEqual({
-      renames: [],
-      examples: [
-        {
-          title: 'Action card',
-          html: '<article style="color: var(--color-background)"><button>Continue</button></article>',
-        },
-      ],
+    expect(parseExampleResponse(response)).toEqual([
+      {
+        title: 'Action card',
+        html: '<article style="color: var(--color-background)"><button>Continue</button></article>',
+      },
+    ])
+  })
+
+  test('parses examples wrapped in an Agent CLI envelope', () => {
+    const response = JSON.stringify({
+      type: 'result',
+      result: JSON.stringify({
+        examples: [{ title: 'Card', html: '<article style="color: var(--color-primary)">Card</article>' }],
+      }),
     })
+
+    expect(parseExampleResponse(response)).toEqual([
+      { title: 'Card', html: '<article style="color: var(--color-primary)">Card</article>' },
+    ])
+  })
+
+  test('returns an empty list for unrelated output', () => {
+    expect(parseExampleResponse('{"designSummary":"generic summary"}')).toEqual([])
   })
 
   test('updates color variable references after accepted semantic renames', () => {
@@ -104,9 +96,5 @@ describe('LLM enhancement protocol', () => {
         [{ tokenId: 'primary', name: 'action-brand' }],
       ),
     ).toEqual([{ title: 'Card', html: '<article style="background: var(--color-action-brand)">Card</article>' }])
-  })
-
-  test('rejects output that only contains unused narrative fields', () => {
-    expect(parseEnhancementResponse('{"designSummary":"generic summary","featureTags":["modern"]}')).toBeNull()
   })
 })

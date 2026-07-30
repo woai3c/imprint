@@ -3,6 +3,7 @@ import { CheckCircle2, CircleOff, KeyRound, Loader2, RefreshCw, Terminal, XCircl
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getCatalogModel, getCatalogModels, getRecommendedModel } from '../../core/ai/model-catalog'
 import { getAgentCliDisplayName } from '../../shared/agent-clis'
 import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
@@ -99,6 +100,10 @@ export function SettingsPage() {
     window.electronAPI.saveSettings(patch)
   }
 
+  // Catalog providers never show an empty picker: fall back to the recommended model.
+  const effectiveModel = model || getRecommendedModel(provider)?.id || ''
+  const selectedCatalogModel = getCatalogModel(provider, effectiveModel)
+
   const handleAiModeChange = (mode: 'apiKey' | 'agentCli') => {
     setAiMode(mode)
     save({ aiMode: mode })
@@ -110,7 +115,11 @@ export function SettingsPage() {
   const handleProviderChange = (v: string) => {
     setProvider(v)
     setTestResult(null)
-    save({ provider: v })
+    // Catalog providers always start from the recommended current-generation model so a
+    // stale ID from another provider (or a retired model) can never linger.
+    const nextModel = v === 'custom' ? '' : (getRecommendedModel(v)?.id ?? '')
+    setModel(nextModel)
+    save({ provider: v, model: nextModel })
   }
 
   const handleApiKeyChange = (v: string) => {
@@ -407,16 +416,50 @@ export function SettingsPage() {
                     <label htmlFor="ai-model" className="text-sm font-medium block mb-1.5">
                       {t('settings.ai.model')}
                     </label>
-                    <input
-                      id="ai-model"
-                      type="text"
-                      value={model}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      placeholder={t('settings.ai.modelPlaceholder')}
-                      className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.modelHint')}</p>
+                    {provider === 'custom' ? (
+                      <>
+                        <input
+                          id="ai-model"
+                          type="text"
+                          value={model}
+                          onChange={(e) => handleModelChange(e.target.value)}
+                          placeholder={t('settings.ai.modelPlaceholder')}
+                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.modelHint')}</p>
+                      </>
+                    ) : (
+                      <>
+                        <select
+                          id="ai-model"
+                          value={effectiveModel}
+                          onChange={(e) => handleModelChange(e.target.value)}
+                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          {getCatalogModels(provider).map((entry) => (
+                            <option key={entry.id} value={entry.id}>
+                              {entry.label}
+                            </option>
+                          ))}
+                          {effectiveModel && !selectedCatalogModel && (
+                            <option value={effectiveModel}>
+                              {t('settings.ai.modelLegacy', { model: effectiveModel })}
+                            </option>
+                          )}
+                        </select>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {selectedCatalogModel
+                            ? `${t('settings.ai.modelPrice', { price: selectedCatalogModel.price })} · ${
+                                selectedCatalogModel.vision
+                                  ? t('settings.ai.modelVisionYes')
+                                  : t('settings.ai.modelVisionNo')
+                              }`
+                            : t('settings.ai.modelCatalogHint')}
+                        </p>
+                      </>
+                    )}
                   </div>
                   {provider === 'custom' && (
                     <>

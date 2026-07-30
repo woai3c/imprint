@@ -1,0 +1,22 @@
+{
+  "fixture": "brutalist",
+  "description": "Brutalist studio page: black borders, monospace type, zero radius, one yellow accent block.",
+  "expectedSectionRoles": ["header", "hero", "feature-group", "action", "footer"],
+  "minSections": 5,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "referenceProfile": {
+    "thesis": "Structure is the aesthetic: visible 4px black borders divide the page into cells, and monospace uppercase type replaces decoration entirely.",
+    "signatureMoves": [
+      "An inverted black cell inside the three-cell grid creates contrast without imagery.",
+      "A single saturated yellow block carries all emphasis on the page."
+    ],
+    "transferPreserve": ["Keep borders visible, corners square, and type in uppercase monospace."],
+    "transferAvoid": ["Do not add rounded corners, shadows, gradients, or soft pastel surfaces."]
+  }
+}

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tidewell — Sleep better, nightly</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f0f9ff;
+        color: #0c4a6e;
+        font-family: 'Segoe UI', Helvetica, sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 32px;
+      }
+      .brand {
+        font-size: 22px;
+        font-weight: 700;
+        color: #0369a1;
+      }
+      nav a {
+        margin-left: 20px;
+        color: #0c4a6e;
+        text-decoration: none;
+        font-size: 15px;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        align-items: center;
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 64px 32px 80px;
+        gap: 48px;
+      }
+      .hero h1 {
+        font-size: 46px;
+        line-height: 1.12;
+        margin: 0 0 18px;
+        color: #082f49;
+      }
+      .hero p {
+        font-size: 18px;
+        color: #075985;
+        margin: 0 0 28px;
+      }
+      .stores {
+        display: flex;
+        gap: 12px;
+      }
+      .stores button {
+        background: #082f49;
+        color: #e0f2fe;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 20px;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+      }
+      .stores button:hover {
+        transform: translateY(-2px);
+      }
+      .phone {
+        width: 240px;
+        height: 480px;
+        margin: 0 auto;
+        border-radius: 36px;
+        background: linear-gradient(170deg, #0ea5e9, #0369a1);
+        box-shadow:
+          0 24px 48px rgb(3 105 161 / 30%),
+          inset 0 0 0 8px #082f49;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .phone svg {
+        opacity: 0.9;
+      }
+      .features {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 24px 32px 80px;
+      }
+      .features h2 {
+        text-align: center;
+        font-size: 30px;
+        color: #082f49;
+        margin: 0 0 40px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 26px;
+        box-shadow: 0 8px 24px rgb(3 105 161 / 10%);
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 19px;
+        color: #0369a1;
+      }
+      .card p {
+        margin: 0;
+        color: #075985;
+        font-size: 15px;
+      }
+      .sound {
+        text-align: center;
+        padding: 0 32px 88px;
+      }
+      .sound h2 {
+        font-size: 26px;
+        color: #082f49;
+        margin: 0 0 10px;
+      }
+      .sound p {
+        color: #075985;
+        margin: 0 0 22px;
+      }
+      .sound button {
+        background: #0ea5e9;
+        color: #fff;
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 30px;
+        font: inherit;
+        font-weight: 600;
+        font-size: 15px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      .sound button:hover {
+        background: #0284c7;
+      }
+      .sound .panel {
+        color: #075985;
+        font-size: 14px;
+        margin-top: 12px;
+      }
+      footer {
+        text-align: center;
+        padding: 28px;
+        color: #38bdf8;
+        font-size: 14px;
+      }
+      @media (max-width: 768px) {
+        .hero {
+          grid-template-columns: 1fr;
+          text-align: center;
+          padding: 40px 24px 56px;
+        }
+        .stores {
+          justify-content: center;
+        }
+        .hero h1 {
+          font-size: 32px;
+        }
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Tidewell</span>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#science">Science</a>
+        <a href="#download">Download</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <div>
+          <h1>Fall asleep to the tide, not the timeline</h1>
+          <p>Adaptive soundscapes that fade as you drift off and hush before your alarm.</p>
+          <div class="stores">
+            <button type="button">App Store</button>
+            <button type="button">Google Play</button>
+          </div>
+        </div>
+        <div class="phone">
+          <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Waveform preview">
+            <path
+              d="M10 70 Q 30 30 50 70 T 90 70 T 130 70"
+              stroke="#e0f2fe"
+              stroke-width="6"
+              fill="none"
+              stroke-linecap="round"
+            />
+          </svg>
+        </div>
+      </section>
+      <section class="features">
+        <h2>Built around your night</h2>
+        <div class="cards">
+          <div class="card">
+            <h3>Adaptive fade</h3>
+            <p>Sound thins out as your movement stills, never cutting off abruptly.</p>
+          </div>
+          <div class="card">
+            <h3>Morning hush</h3>
+            <p>A ten-minute quiet window before your alarm so you surface gently.</p>
+          </div>
+          <div class="card">
+            <h3>Offline library</h3>
+            <p>Every soundscape downloads for flights and dead zones.</p>
+          </div>
+        </div>
+      </section>
+      <section class="sound">
+        <h2>Hear a preview</h2>
+        <p>Thirty seconds of the "Low Tide" soundscape.</p>
+        <button type="button" aria-expanded="false" aria-controls="sound-panel">Play preview</button>
+        <div class="panel" id="sound-panel" hidden>
+          The preview plays in the app; this page keeps the demo description short.
+        </div>
+      </section>
+    </main>
+    <footer>Tidewell — rest is a feature, not a luxury.</footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

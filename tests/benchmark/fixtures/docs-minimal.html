@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clearline Docs</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #24292f;
+        font-family: -apple-system, 'Segoe UI', sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      header {
+        height: 52px;
+        border-bottom: 1px solid #e6e8eb;
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        gap: 20px;
+      }
+      .brand {
+        font-weight: 600;
+      }
+      header input {
+        margin-left: auto;
+        padding: 5px 10px;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        font-size: 14px;
+        width: 200px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        min-height: calc(100vh - 52px);
+      }
+      nav {
+        border-right: 1px solid #e6e8eb;
+        padding: 20px 12px;
+      }
+      nav .group {
+        margin-bottom: 18px;
+      }
+      nav .group-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #57606a;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0 8px 6px;
+      }
+      nav a {
+        display: block;
+        color: #24292f;
+        text-decoration: none;
+        padding: 5px 8px;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      nav a:hover {
+        background: #f3f4f6;
+      }
+      nav a.active {
+        background: #ddf4ff;
+        color: #0969da;
+      }
+      article {
+        max-width: 760px;
+        padding: 32px 48px 80px;
+      }
+      article h1 {
+        font-size: 28px;
+        margin: 0 0 16px;
+      }
+      article h2 {
+        font-size: 20px;
+        margin: 36px 0 10px;
+        padding-top: 12px;
+        border-top: 1px solid #e6e8eb;
+      }
+      code {
+        background: #f6f8fa;
+        border-radius: 4px;
+        padding: 2px 5px;
+        font-size: 13px;
+        font-family: ui-monospace, monospace;
+      }
+      pre {
+        background: #f6f8fa;
+        border-radius: 8px;
+        padding: 14px;
+        font-size: 13px;
+        overflow-x: auto;
+      }
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin: 4px 0;
+      }
+      .callout {
+        border: 1px solid #ddf4ff;
+        background: #f6fbff;
+        border-left: 3px solid #0969da;
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin: 20px 0;
+      }
+      .callout button {
+        background: none;
+        border: 0;
+        color: #0969da;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+      }
+      .callout .panel {
+        font-size: 14px;
+        color: #57606a;
+        padding-top: 8px;
+      }
+      footer {
+        border-top: 1px solid #e6e8eb;
+        padding: 20px 48px;
+        color: #57606a;
+        font-size: 13px;
+      }
+      @media (max-width: 768px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        nav {
+          border-right: 0;
+          border-bottom: 1px solid #e6e8eb;
+        }
+        article {
+          padding: 24px 20px 56px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Clearline</span>
+      <input type="search" placeholder="Search docs" aria-label="Search docs" />
+    </header>
+    <div class="layout">
+      <nav>
+        <div class="group">
+          <div class="group-title">Getting started</div>
+          <a href="#install" class="active">Installation</a>
+          <a href="#config">Configuration</a>
+          <a href="#first-run">First run</a>
+        </div>
+        <div class="group">
+          <div class="group-title">Guides</div>
+          <a href="#pipelines">Pipelines</a>
+          <a href="#plugins">Plugins</a>
+        </div>
+      </nav>
+      <main>
+        <article>
+          <h1>Installation</h1>
+          <p>Clearline installs as a single binary. Package managers are supported for every major platform.</p>
+          <pre>
+brew install clearline
+clearline init my-project</pre>
+          <h2>Configuration</h2>
+          <p>
+            Configuration lives in <code>clearline.toml</code> at the project root. Sensible defaults mean most files
+            stay under ten lines.
+          </p>
+          <ul>
+            <li>One file per project, checked into version control</li>
+            <li>Environment overrides with the <code>CLEARLINE_</code> prefix</li>
+            <li>Schema validation on every run</li>
+          </ul>
+          <div class="callout">
+            <strong>Tip:</strong> run <code>clearline doctor</code> after upgrading.
+            <button type="button" aria-expanded="false" aria-controls="tip-panel">Why?</button>
+            <div class="panel" id="tip-panel" hidden>
+              The doctor command verifies that your config schema matches the installed version.
+            </div>
+          </div>
+          <h2>First run</h2>
+          <p>The first run builds a local cache. Subsequent runs reuse it and typically finish in under a second.</p>
+        </article>
+      </main>
+    </div>
+    <footer>Clearline Docs — edit this page on the project repository.</footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

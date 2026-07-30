@@ -6,6 +6,7 @@ release-assets/
 release-notes.md
 test-results/
 coverage/
+tests/benchmark/results/
 
 # Internal working documents
 DESIGN_DNA_PROPOSAL.md

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAW/FORM Studio</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff;
+        color: #000;
+        font-family: 'Courier New', monospace;
+      }
+      * {
+        border-radius: 0 !important;
+      }
+      header {
+        border-bottom: 4px solid #000;
+        padding: 12px 16px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .brand {
+        font-weight: 700;
+        font-size: 20px;
+        text-transform: uppercase;
+      }
+      nav a {
+        color: #000;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-left: 16px;
+      }
+      .hero {
+        border-bottom: 4px solid #000;
+        padding: 64px 16px;
+      }
+      .hero h1 {
+        font-size: 96px;
+        line-height: 0.95;
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: -0.03em;
+      }
+      .hero p {
+        font-size: 18px;
+        max-width: 560px;
+        border: 2px solid #000;
+        padding: 12px;
+        background: #ffff00;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border-bottom: 4px solid #000;
+      }
+      .cell {
+        border-right: 4px solid #000;
+        padding: 24px 16px;
+        min-height: 180px;
+      }
+      .cell:last-child {
+        border-right: 0;
+      }
+      .cell h2 {
+        font-size: 28px;
+        text-transform: uppercase;
+        margin: 0 0 12px;
+      }
+      .cell p {
+        font-size: 14px;
+      }
+      .cell:nth-child(2) {
+        background: #000;
+        color: #fff;
+      }
+      .manifesto {
+        padding: 48px 16px;
+        border-bottom: 4px solid #000;
+      }
+      .manifesto h2 {
+        font-size: 40px;
+        text-transform: uppercase;
+        margin: 0 0 16px;
+      }
+      .manifesto button {
+        background: #000;
+        color: #fff;
+        border: 0;
+        font: inherit;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 12px 20px;
+        cursor: pointer;
+      }
+      .manifesto button:hover {
+        background: #ffff00;
+        color: #000;
+      }
+      .manifesto .panel {
+        border: 2px solid #000;
+        padding: 12px;
+        margin-top: 12px;
+        font-size: 14px;
+        max-width: 560px;
+      }
+      footer {
+        padding: 16px;
+        font-size: 12px;
+        text-transform: uppercase;
+        display: flex;
+        justify-content: space-between;
+      }
+      @media (max-width: 768px) {
+        .hero h1 {
+          font-size: 48px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .cell {
+          border-right: 0;
+          border-bottom: 4px solid #000;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">RAW/FORM</span>
+      <nav>
+        <a href="#work">Work</a>
+        <a href="#studio">Studio</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Design is not decoration</h1>
+        <p>A studio for structure-first identities, posters, and interfaces. No gradients were harmed.</p>
+      </section>
+      <section class="grid">
+        <div class="cell">
+          <h2>01 / Structure</h2>
+          <p>Every layout starts from a grid you can defend in an argument.</p>
+        </div>
+        <div class="cell">
+          <h2>02 / Contrast</h2>
+          <p>Black on white. Big next to small. Nothing in between without a reason.</p>
+        </div>
+        <div class="cell">
+          <h2>03 / Honesty</h2>
+          <p>Borders stay visible. Boxes stay boxes. Content stays readable.</p>
+        </div>
+      </section>
+      <section class="manifesto">
+        <h2>Read the manifesto</h2>
+        <button type="button" aria-expanded="false" aria-controls="manifesto-panel">Expand manifesto</button>
+        <div class="panel" id="manifesto-panel" hidden>
+          We publish one principle a week. Each principle must survive being printed in one color on cheap paper.
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>RAW/FORM Studio</span>
+      <span>Est. 2019 — No rounded corners since day one</span>
+    </footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

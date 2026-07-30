@@ -1,0 +1,24 @@
+{
+  "fixture": "dark-neon",
+  "description": "Dark AV event page: near-black surfaces, cyan and magenta neon glows, outlined glowing buttons, uppercase letterspaced type.",
+  "expectedSectionRoles": ["header", "hero", "content", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "referenceProfile": {
+    "thesis": "Night-club signal: near-black surfaces let two neon accents carry everything — cyan for information and action, magenta for dates and the season pass.",
+    "signatureMoves": [
+      "Glow shadows replace elevation; buttons are transparent outlines that fill on hover.",
+      "Radial neon washes at hero edges suggest stage lighting without images."
+    ],
+    "transferPreserve": [
+      "Keep surfaces near-black and use only the two neon accents with letterspaced uppercase type."
+    ],
+    "transferAvoid": ["Do not add light surfaces, corporate grays, or a third accent color."]
+  }
+}

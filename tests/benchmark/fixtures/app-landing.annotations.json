@@ -1,0 +1,24 @@
+{
+  "fixture": "app-landing",
+  "description": "Sleep app landing: sky-blue palette, split hero with CSS phone mock, soft rounded cards, pill preview button.",
+  "expectedSectionRoles": ["header", "hero", "content", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["css-background"],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "referenceProfile": {
+    "thesis": "Calm is conveyed through a single sky-blue family: soft tints for surfaces, deep navy for text and store buttons, and generous radii on every element.",
+    "signatureMoves": [
+      "A pure-CSS phone mock stands in for app screenshots, keeping the page asset-free.",
+      "Store buttons use the darkest navy so download reads as the page's one commitment."
+    ],
+    "transferPreserve": [
+      "Stay inside the blue family, keep radii large, and let one dark button mark the primary action."
+    ],
+    "transferAvoid": ["Do not add warm accent colors, sharp corners, or dense feature tables."]
+  }
+}

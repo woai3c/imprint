@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ana Soto — Selected Works</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f5f4f0;
+        color: #1a1a18;
+        font-family: 'Gill Sans', 'Segoe UI', sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 28px 40px;
+      }
+      .brand {
+        font-size: 18px;
+        letter-spacing: 0.06em;
+      }
+      nav a {
+        margin-left: 28px;
+        color: #1a1a18;
+        text-decoration: none;
+        font-size: 14px;
+        letter-spacing: 0.04em;
+      }
+      nav a:hover {
+        color: #8c6a3f;
+      }
+      .intro {
+        padding: 80px 40px 96px;
+        max-width: 900px;
+      }
+      .intro h1 {
+        font-size: 40px;
+        font-weight: 400;
+        line-height: 1.3;
+        margin: 0;
+      }
+      .intro h1 em {
+        color: #8c6a3f;
+      }
+      .works {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 40px;
+        padding: 0 40px 96px;
+      }
+      .work {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+      }
+      .work figure {
+        margin: 0;
+      }
+      .work svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #e4e2dc;
+      }
+      .work figcaption {
+        display: flex;
+        justify-content: space-between;
+        font-size: 14px;
+        padding-top: 12px;
+        color: #57554e;
+      }
+      .work:hover figcaption {
+        color: #8c6a3f;
+      }
+      .work:nth-child(2) {
+        margin-top: 80px;
+      }
+      .about {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        padding: 0 40px 96px;
+        align-items: start;
+      }
+      .about h2 {
+        font-size: 26px;
+        font-weight: 400;
+        margin: 0 0 16px;
+      }
+      .about p {
+        font-size: 16px;
+        line-height: 1.8;
+        color: #57554e;
+        margin: 0 0 16px;
+      }
+      .about button {
+        background: none;
+        border: 1px solid #1a1a18;
+        padding: 10px 22px;
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        transition:
+          background 0.2s ease,
+          color 0.2s ease;
+      }
+      .about button:hover {
+        background: #1a1a18;
+        color: #f5f4f0;
+      }
+      .about .panel {
+        font-size: 14px;
+        color: #57554e;
+        padding-top: 12px;
+      }
+      footer {
+        padding: 28px 40px;
+        font-size: 13px;
+        color: #8a877d;
+        display: flex;
+        justify-content: space-between;
+      }
+      @media (max-width: 768px) {
+        .intro {
+          padding: 48px 24px 56px;
+        }
+        .works {
+          grid-template-columns: 1fr;
+          padding: 0 24px 56px;
+          gap: 28px;
+        }
+        .work:nth-child(2) {
+          margin-top: 0;
+        }
+        .about {
+          grid-template-columns: 1fr;
+          padding: 0 24px 56px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">ANA SOTO</span>
+      <nav>
+        <a href="#works">Works</a>
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </header>
+    <main>
+      <section class="intro">
+        <h1>Print and identity work with <em>quiet structure</em> and long horizons.</h1>
+      </section>
+      <section class="works">
+        <a class="work" href="#work-1">
+          <figure>
+            <svg viewBox="0 0 400 300" role="img" aria-label="Abstract composition in ochre and grey">
+              <rect width="400" height="300" fill="#d8d4c8" />
+              <circle cx="140" cy="150" r="80" fill="#8c6a3f" />
+              <rect x="240" y="70" width="120" height="160" fill="#3a3a36" />
+            </svg>
+            <figcaption><span>Meridian Press identity</span><span>2025</span></figcaption>
+          </figure>
+        </a>
+        <a class="work" href="#work-2">
+          <figure>
+            <svg viewBox="0 0 400 300" role="img" aria-label="Poster with horizontal bands">
+              <rect width="400" height="300" fill="#e8e6e0" />
+              <rect x="0" y="60" width="400" height="24" fill="#1a1a18" />
+              <rect x="0" y="120" width="400" height="24" fill="#8c6a3f" />
+              <rect x="0" y="180" width="400" height="24" fill="#1a1a18" />
+            </svg>
+            <figcaption><span>Season poster series</span><span>2024</span></figcaption>
+          </figure>
+        </a>
+      </section>
+      <section class="about">
+        <div>
+          <h2>About the practice</h2>
+          <p>
+            Fifteen years across print, packaging, and wayfinding. The studio takes on four projects a year and finishes
+            them properly.
+          </p>
+        </div>
+        <div>
+          <button type="button" aria-expanded="false" aria-controls="about-panel">Full client list</button>
+          <div class="panel" id="about-panel" hidden>
+            Selected clients: Meridian Press, Halvar Editions, the North Quay Biennale.
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Ana Soto Studio</span>
+      <span>Porto — working worldwide</span>
+    </footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

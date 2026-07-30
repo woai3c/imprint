@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bubblebox — Snacks that pop</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fff7ed;
+        color: #431407;
+        font-family: 'Trebuchet MS', Verdana, sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+      }
+      .brand {
+        font-size: 24px;
+        font-weight: 800;
+        color: #ea580c;
+      }
+      nav a {
+        margin-left: 16px;
+        color: #431407;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .pill {
+        background: #ea580c;
+        color: #fff !important;
+        padding: 8px 18px;
+        border-radius: 999px;
+        transition:
+          transform 0.2s ease,
+          background 0.2s ease;
+      }
+      .pill:hover {
+        background: #c2410c;
+        transform: translateY(-2px);
+      }
+      .hero {
+        text-align: center;
+        padding: 72px 24px 88px;
+        background: linear-gradient(160deg, #ffedd5, #fed7aa);
+        border-radius: 0 0 48px 48px;
+      }
+      .hero h1 {
+        font-size: 56px;
+        margin: 0 0 16px;
+        line-height: 1.1;
+      }
+      .hero p {
+        font-size: 20px;
+        max-width: 520px;
+        margin: 0 auto 32px;
+      }
+      .hero .pill {
+        display: inline-block;
+        font-size: 18px;
+        padding: 14px 32px;
+        text-decoration: none;
+      }
+      .flavors {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 72px 24px;
+      }
+      .flavors h2 {
+        text-align: center;
+        font-size: 32px;
+        margin: 0 0 40px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 12px 32px rgb(234 88 12 / 12%);
+      }
+      .swatch {
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
+        margin-bottom: 16px;
+      }
+      .mango {
+        background: #fb923c;
+      }
+      .berry {
+        background: #e879f9;
+      }
+      .lime {
+        background: #a3e635;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      .card p {
+        margin: 0;
+        color: #7c2d12;
+      }
+      .quiz {
+        background: #431407;
+        color: #ffedd5;
+        text-align: center;
+        padding: 64px 24px;
+        border-radius: 48px 48px 0 0;
+      }
+      .quiz h2 {
+        font-size: 30px;
+        margin: 0 0 12px;
+      }
+      .quiz button {
+        background: #fbbf24;
+        color: #431407;
+        border: 0;
+        font: inherit;
+        font-weight: 700;
+        font-size: 16px;
+        padding: 12px 28px;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .quiz button:hover {
+        transform: scale(1.05);
+      }
+      .quiz .panel {
+        max-width: 480px;
+        margin: 16px auto 0;
+        font-size: 15px;
+      }
+      footer {
+        background: #431407;
+        color: #fdba74;
+        text-align: center;
+        padding: 24px;
+        font-size: 14px;
+      }
+      @media (max-width: 768px) {
+        .hero h1 {
+          font-size: 36px;
+        }
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Bubblebox</span>
+      <nav>
+        <a href="#flavors">Flavors</a>
+        <a href="#story">Story</a>
+        <a href="#quiz" class="pill">Take the quiz</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Snacks that pop back</h1>
+        <p>Small-batch popped clusters in flavors that refuse to sit quietly on the shelf.</p>
+        <a class="pill" href="#flavors">Meet the flavors</a>
+      </section>
+      <section class="flavors">
+        <h2>Three ways to pop</h2>
+        <div class="cards">
+          <div class="card">
+            <div class="swatch mango"></div>
+            <h3>Mango Rush</h3>
+            <p>Sun-sweet mango with a chili wink at the end.</p>
+          </div>
+          <div class="card">
+            <div class="swatch berry"></div>
+            <h3>Berry Bounce</h3>
+            <p>Dark berries folded into a crackly cluster.</p>
+          </div>
+          <div class="card">
+            <div class="swatch lime"></div>
+            <h3>Lime Zoom</h3>
+            <p>Sharp lime over a sea-salt crunch base.</p>
+          </div>
+        </div>
+      </section>
+      <section class="quiz">
+        <h2>Find your flavor twin</h2>
+        <p>Four questions, zero wrong answers.</p>
+        <button type="button" aria-expanded="false" aria-controls="quiz-panel">Start the quiz</button>
+        <div class="panel" id="quiz-panel" hidden>Question one: pick a texture — crackly, chewy, or pillowy.</div>
+      </section>
+    </main>
+    <footer>Bubblebox Snacks — popped weekly, shipped everywhere.</footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

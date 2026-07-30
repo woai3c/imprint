@@ -3,13 +3,15 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import type { DesignToken } from '../core/analyzer/index.js'
 import {
-  type EnhancementContext,
-  type LlmEnhancement,
-  buildEnhancementPrompt,
-  parseEnhancementResponse,
-} from '../core/analyzer/llm-enhancer.js'
+  type ExampleGenerationContext,
+  buildExamplePrompt,
+  parseExampleResponse,
+} from '../core/analyzer/example-generator.js'
+import type { DesignToken } from '../core/analyzer/index.js'
+import { buildSemanticNamingPrompt, parseSemanticNamingResponse } from '../core/analyzer/semantic-enhancer.js'
+import type { ColorRenameProposal } from '../core/analyzer/token-renamer.js'
+import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import { normalizeAgentCliCommand } from '../shared/agent-clis.js'
 import { log } from './logger.js'
 
@@ -311,46 +313,52 @@ export async function executeAgentPrompt(
   }
 }
 
+export interface AgentCliEnhancement {
+  renames: ColorRenameProposal[] | null
+  examples: GeneratedExampleComponent[] | null
+}
+
 export async function enhanceWithAgentCli(
   tokens: DesignToken,
   url: string,
   command: string,
-  context: EnhancementContext = {},
+  context: ExampleGenerationContext = {},
   signal?: AbortSignal,
-): Promise<LlmEnhancement | null> {
+): Promise<AgentCliEnhancement> {
   const invocation = AGENT_INVOCATIONS[command]
   if (!invocation) {
     log.error('agent-cli', `enhancement skipped: unsupported command=${command}`)
-    return null
+    return { renames: null, examples: null }
   }
 
-  const startedAt = Date.now()
-  try {
-    const response = await executeAgentPrompt(command, buildEnhancementPrompt(tokens, url, context), signal)
-    if (!response) return null
-    const enhancement = parseEnhancementResponse(response)
-    if (!enhancement) {
-      log.error(
-        'agent-cli',
-        `enhancement failed: command=${command} durationMs=${Date.now() - startedAt} reason=invalid-output`,
-      )
+  const runTask = async <T>(
+    kind: 'naming' | 'examples',
+    prompt: string,
+    parse: (text: string) => T,
+  ): Promise<T | null> => {
+    const startedAt = Date.now()
+    try {
+      const response = await executeAgentPrompt(command, prompt, signal)
+      if (!response) return null
+      const parsed = parse(response)
+      log.info('agent-cli', `${kind} completed: command=${command} durationMs=${Date.now() - startedAt}`)
+      return parsed
+    } catch (error: unknown) {
+      if (signal?.aborted) throw new DOMException('Agent enhancement cancelled', 'AbortError')
+      const reason =
+        error instanceof Error && 'killed' in error && error.killed
+          ? 'timeout'
+          : error instanceof Error && 'code' in error
+            ? `exit-${String(error.code)}`
+            : 'execution-error'
+      log.error('agent-cli', `${kind} failed: command=${command} durationMs=${Date.now() - startedAt} reason=${reason}`)
       return null
     }
-
-    log.info('agent-cli', `enhancement completed: command=${command} durationMs=${Date.now() - startedAt}`)
-    return enhancement
-  } catch (error: unknown) {
-    if (signal?.aborted) throw new DOMException('Agent enhancement cancelled', 'AbortError')
-    const reason =
-      error instanceof Error && 'killed' in error && error.killed
-        ? 'timeout'
-        : error instanceof Error && 'code' in error
-          ? `exit-${String(error.code)}`
-          : 'execution-error'
-    log.error(
-      'agent-cli',
-      `enhancement failed: command=${command} durationMs=${Date.now() - startedAt} reason=${reason}`,
-    )
-    return null
   }
+
+  const [renames, examples] = await Promise.all([
+    runTask('naming', buildSemanticNamingPrompt(tokens, url, context), parseSemanticNamingResponse),
+    runTask('examples', buildExamplePrompt(tokens, url, context), parseExampleResponse),
+  ])
+  return { renames, examples }
 }

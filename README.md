@@ -102,18 +102,46 @@ and the AI step can be retried independently.
 
 ## CLI and MCP intelligence
 
-CLI extraction never calls an AI provider unless `--intelligence` is explicitly set. API keys are read from
-`IMPRINT_AI_API_KEY` or the provider's standard environment variable.
+CLI extraction never calls an AI provider unless `--intelligence` is explicitly set. API keys are read from process
+environment variables only — `IMPRINT_AI_API_KEY` (generic override, checked first) or the provider's standard
+variable:
+
+| Provider     | Environment variable                                 |
+| ------------ | ---------------------------------------------------- |
+| `openai`     | `OPENAI_API_KEY`                                     |
+| `anthropic`  | `ANTHROPIC_API_KEY`                                  |
+| `google`     | `GOOGLE_GENERATIVE_AI_API_KEY`                       |
+| `deepseek`   | `DEEPSEEK_API_KEY`                                   |
+| `moonshotai` | `MOONSHOT_API_KEY`                                   |
+| `alibaba`    | `ALIBABA_API_KEY`                                    |
+| `zhipu`      | `ZHIPU_API_KEY`                                      |
+| `xai`        | `XAI_API_KEY`                                        |
+| `custom`     | `IMPRINT_AI_API_KEY` (with `--base-url` / `baseUrl`) |
 
 ```bash
 pnpm build:cli
+export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
-imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
+imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
 imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
 ```
 
 The MCP server keeps `imprint_extract` deterministic. Use `imprint_interpret` for an explicit provider call, or set
-`depth: "language"` on `imprint_compare` to compare two validated structural profiles.
+`depth: "language"` on `imprint_compare` to compare two validated structural profiles. Pass the API key through your
+MCP client's server configuration, for example:
+
+```json
+{
+  "mcpServers": {
+    "imprint": {
+      "command": "imprint-mcp",
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
+    }
+  }
+}
+```
+
+AI keys configured here are independent of the desktop app's Settings — each entry point reads only its own source.
 
 ## Download
 

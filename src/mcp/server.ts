@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import * as readline from 'node:readline'
 
 import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
+import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
 import type { AiImageInput } from '../core/ai/provider.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
@@ -124,21 +125,6 @@ const TOOLS = [
   },
 ]
 
-function providerApiKey(provider: string): string {
-  const names: Record<string, string> = {
-    openai: 'OPENAI_API_KEY',
-    anthropic: 'ANTHROPIC_API_KEY',
-    google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-    deepseek: 'DEEPSEEK_API_KEY',
-    moonshotai: 'MOONSHOT_API_KEY',
-    alibaba: 'ALIBABA_API_KEY',
-    zhipu: 'ZHIPU_API_KEY',
-    xai: 'XAI_API_KEY',
-    custom: 'IMPRINT_AI_API_KEY',
-  }
-  return process.env.IMPRINT_AI_API_KEY || process.env[names[provider] || 'IMPRINT_AI_API_KEY'] || ''
-}
-
 function loadEvidenceImages(evidence: DesignEvidence, mode: IntelligenceInputMode): AiImageInput[] {
   if (mode !== 'multimodal') return []
   const imageIds = new Set(selectEvidencePackage(evidence, mode).imageIds)
@@ -171,9 +157,11 @@ async function interpretResult(
   mode: IntelligenceInputMode,
 ): Promise<DesignProfile> {
   const provider = String(params.provider || '')
-  const apiKey = providerApiKey(provider)
+  const apiKey = providerApiKeyFromEnv(provider)
   if (!provider || !apiKey) {
-    throw new Error('Explicit interpretation requires a provider and its API key environment variable')
+    throw new Error(
+      `Explicit interpretation requires a provider and its API key. Set ${PROVIDER_KEY_ENV[provider] || 'IMPRINT_AI_API_KEY'} (or the generic IMPRINT_AI_API_KEY) in the MCP server's environment.`,
+    )
   }
   const { interpretDesignEvidence } = await import('../core/design-intelligence/interpreter.js')
   const result = await interpretDesignEvidence(evidence, {

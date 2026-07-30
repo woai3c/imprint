@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pulsegrid — Live AV nights</title>
+    <style>
+      body {
+        margin: 0;
+        background: #05060f;
+        color: #e2e8f0;
+        font-family: 'Arial Narrow', Arial, sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 28px;
+        border-bottom: 1px solid #1e2235;
+      }
+      .brand {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: #22d3ee;
+        text-shadow: 0 0 18px rgb(34 211 238 / 60%);
+      }
+      nav a {
+        margin-left: 22px;
+        color: #94a3b8;
+        text-decoration: none;
+        font-size: 14px;
+        letter-spacing: 0.1em;
+      }
+      nav a:hover {
+        color: #22d3ee;
+      }
+      .hero {
+        position: relative;
+        text-align: center;
+        padding: 110px 24px 120px;
+        background:
+          radial-gradient(ellipse 60% 50% at 50% 110%, rgb(34 211 238 / 16%), transparent),
+          radial-gradient(ellipse 40% 40% at 80% 0%, rgb(232 121 249 / 12%), transparent);
+      }
+      .hero h1 {
+        font-size: 64px;
+        margin: 0 0 18px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .hero h1 span {
+        color: #22d3ee;
+        text-shadow: 0 0 24px rgb(34 211 238 / 70%);
+      }
+      .hero p {
+        color: #94a3b8;
+        font-size: 18px;
+        margin: 0 0 36px;
+      }
+      .hero button {
+        background: transparent;
+        color: #22d3ee;
+        border: 1px solid #22d3ee;
+        padding: 13px 34px;
+        font: inherit;
+        font-size: 15px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow:
+          0 0 20px rgb(34 211 238 / 30%),
+          inset 0 0 12px rgb(34 211 238 / 12%);
+        transition:
+          box-shadow 0.2s ease,
+          background 0.2s ease;
+      }
+      .hero button:hover {
+        background: rgb(34 211 238 / 12%);
+        box-shadow: 0 0 32px rgb(34 211 238 / 50%);
+      }
+      .lineup {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 72px 24px;
+      }
+      .lineup h2 {
+        font-size: 28px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0 0 36px;
+        color: #e879f9;
+        text-shadow: 0 0 16px rgb(232 121 249 / 50%);
+      }
+      .nights {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+      .night {
+        border: 1px solid #1e2235;
+        background: #0a0d1c;
+        padding: 24px;
+      }
+      .night .date {
+        color: #22d3ee;
+        font-size: 13px;
+        letter-spacing: 0.16em;
+      }
+      .night h3 {
+        font-size: 22px;
+        margin: 10px 0 8px;
+      }
+      .night p {
+        color: #94a3b8;
+        font-size: 14px;
+        margin: 0;
+      }
+      .night:hover {
+        border-color: #22d3ee;
+      }
+      .tickets {
+        text-align: center;
+        padding: 64px 24px 88px;
+      }
+      .tickets h2 {
+        font-size: 26px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin: 0 0 20px;
+      }
+      .tickets button {
+        background: #e879f9;
+        color: #05060f;
+        border: 0;
+        padding: 13px 36px;
+        font: inherit;
+        font-weight: 700;
+        font-size: 15px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow: 0 0 24px rgb(232 121 249 / 45%);
+      }
+      .tickets .panel {
+        color: #94a3b8;
+        font-size: 14px;
+        margin-top: 14px;
+      }
+      footer {
+        border-top: 1px solid #1e2235;
+        padding: 24px 28px;
+        color: #64748b;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+      }
+      @media (max-width: 768px) {
+        .hero {
+          padding: 64px 20px 72px;
+        }
+        .hero h1 {
+          font-size: 38px;
+        }
+        .nights {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">PULSEGRID</span>
+      <nav>
+        <a href="#lineup">Lineup</a>
+        <a href="#venue">Venue</a>
+        <a href="#tickets">Tickets</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Signal in <span>the dark</span></h1>
+        <p>Monthly audiovisual nights — modular sets, reactive visuals, one room.</p>
+        <button type="button">Get tickets</button>
+      </section>
+      <section class="lineup">
+        <h2>Next three nights</h2>
+        <div class="nights">
+          <div class="night">
+            <span class="date">FEB 06</span>
+            <h3>Vantablue</h3>
+            <p>Live modular set with strobing depth-mapped visuals.</p>
+          </div>
+          <div class="night">
+            <span class="date">FEB 20</span>
+            <h3>Sirena Hex</h3>
+            <p>Granular vocal processing over 170bpm frameworks.</p>
+          </div>
+          <div class="night">
+            <span class="date">MAR 06</span>
+            <h3>Low Orbit</h3>
+            <p>Ambient opener into a four-deck closing relay.</p>
+          </div>
+        </div>
+      </section>
+      <section class="tickets">
+        <h2>Season pass</h2>
+        <button type="button" aria-expanded="false" aria-controls="tickets-panel">Join the grid</button>
+        <div class="panel" id="tickets-panel" hidden>
+          Season passes cover all six spring nights and include the recordings archive.
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Pulsegrid Collective</span>
+      <span>18+ — Basement venue, East district</span>
+    </footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

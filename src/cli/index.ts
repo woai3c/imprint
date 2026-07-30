@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
+import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
 import type { AiImageInput } from '../core/ai/provider.js'
 import { analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
@@ -57,20 +58,7 @@ function parseArgs(args: string[]): { url: string; options: CliOptions } {
   return { url, options }
 }
 
-function providerApiKey(provider: string): string {
-  const names: Record<string, string> = {
-    openai: 'OPENAI_API_KEY',
-    anthropic: 'ANTHROPIC_API_KEY',
-    google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-    deepseek: 'DEEPSEEK_API_KEY',
-    moonshotai: 'MOONSHOT_API_KEY',
-    alibaba: 'ALIBABA_API_KEY',
-    zhipu: 'ZHIPU_API_KEY',
-    xai: 'XAI_API_KEY',
-    custom: 'IMPRINT_AI_API_KEY',
-  }
-  return process.env.IMPRINT_AI_API_KEY || process.env[names[provider] || 'IMPRINT_AI_API_KEY'] || ''
-}
+const providerApiKey = providerApiKeyFromEnv
 
 function mimeTypeForPath(filePath: string): AiImageInput['mimeType'] {
   if (/\.jpe?g$/i.test(filePath)) return 'image/jpeg'
@@ -176,7 +164,7 @@ async function main() {
     const apiKey = providerApiKey(options.provider)
     if (!apiKey) {
       throw new Error(
-        `Missing API key. Set IMPRINT_AI_API_KEY or the standard environment variable for ${options.provider}.`,
+        `Missing API key for provider "${options.provider}". Set ${PROVIDER_KEY_ENV[options.provider] || 'IMPRINT_AI_API_KEY'} (or the generic IMPRINT_AI_API_KEY). Run imprint --help for the full list.`,
       )
     }
     const mode: IntelligenceInputMode = options.intelligence === 'vision' ? 'multimodal' : 'structural-only'
@@ -305,6 +293,17 @@ function printUsage() {
     --base-url <url>    Optional custom OpenAI-compatible API base URL
     --allow-screenshots Required consent for vision mode; signed-in evidence is still excluded
     --model-supports-vision Declare image support for a custom OpenAI-compatible model
+
+  Environment (API keys for --intelligence):
+    IMPRINT_AI_API_KEY            Generic override, checked first for any provider
+    OPENAI_API_KEY                provider: openai
+    ANTHROPIC_API_KEY             provider: anthropic
+    GOOGLE_GENERATIVE_AI_API_KEY  provider: google
+    DEEPSEEK_API_KEY              provider: deepseek
+    MOONSHOT_API_KEY              provider: moonshotai
+    ALIBABA_API_KEY               provider: alibaba
+    ZHIPU_API_KEY                 provider: zhipu
+    XAI_API_KEY                   provider: xai
 
   Examples:
     imprint extract https://vercel.com

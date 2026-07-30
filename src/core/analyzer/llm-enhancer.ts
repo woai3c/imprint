@@ -1,4 +1,5 @@
 import { isRecord } from '../../shared/type-guards.js'
+import { callAiProvider } from '../ai/provider.js'
 import { generateDesignPrinciples } from './agent-guide.js'
 import type { ComponentPattern } from './component-detect.js'
 import type { ColorRenameProposal } from './token-renamer.js'
@@ -25,6 +26,7 @@ export interface LlmConfig {
   apiKey: string
   baseUrl?: string
   model?: string
+  signal?: AbortSignal
 }
 
 /**
@@ -40,9 +42,10 @@ export async function enhanceWithLlm(
 
   try {
     const prompt = buildEnhancementPrompt(tokens, url, context)
-    const response = await callLlm(config, prompt)
-    return parseEnhancementResponse(response)
+    const response = await callAiProvider(config, prompt)
+    return parseEnhancementResponse(response.text)
   } catch {
+    if (config.signal?.aborted) throw new DOMException('AI enhancement cancelled', 'AbortError')
     return null
   }
 }
@@ -116,32 +119,6 @@ Example rules:
 - Do not invent external assets or use scripts, event handlers, forms, iframes, style tags, URLs, src, or href attributes
 - Keep each HTML fragment under 6000 characters and the combined examples concise
 - Return only the JSON object, without Markdown fences or commentary`
-}
-
-async function callLlm(config: LlmConfig, prompt: string): Promise<string> {
-  const baseUrl = config.baseUrl || getDefaultBaseUrl(config.provider)
-  const model = config.model || getDefaultModel(config.provider)
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-      max_tokens: 1800,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error(`LLM API error: ${response.status}`)
-  }
-
-  const data = (await response.json()) as { choices: Array<{ message: { content: string } }> }
-  return data.choices[0]?.message?.content || ''
 }
 
 interface EnhancementPayload {
@@ -301,30 +278,4 @@ export function applyColorRenamesToExamples(
       example.html,
     ),
   }))
-}
-
-function getDefaultBaseUrl(provider: string): string {
-  const urls: Record<string, string> = {
-    openai: 'https://api.openai.com/v1',
-    anthropic: 'https://api.anthropic.com/v1',
-    deepseek: 'https://api.deepseek.com/v1',
-    moonshot: 'https://api.moonshot.cn/v1',
-    zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    silicon: 'https://api.siliconflow.cn/v1',
-  }
-  return urls[provider] || urls['openai']
-}
-
-function getDefaultModel(provider: string): string {
-  const models: Record<string, string> = {
-    openai: 'gpt-4o-mini',
-    anthropic: 'claude-3-5-haiku-20241022',
-    deepseek: 'deepseek-chat',
-    moonshot: 'moonshot-v1-8k',
-    zhipu: 'glm-4-flash',
-    qwen: 'qwen-turbo',
-    silicon: 'Qwen/Qwen2.5-7B-Instruct',
-  }
-  return models[provider] || 'gpt-4o-mini'
 }

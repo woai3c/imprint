@@ -7,6 +7,7 @@ import type {
   AnalyzeResponse,
   AuthMode,
   AuthWallDetection,
+  DesignIntelligenceResponse,
   LoginDecision,
   LoginRequiredEvent,
 } from '../../shared/ipc-contract'
@@ -14,10 +15,12 @@ import { AuthRequiredDialog } from '../components/AuthRequiredDialog'
 import { BrowserSessionsDialog } from '../components/BrowserSessionsDialog'
 import { PageHeader } from '../components/PageHeader'
 import { ArtifactPanel } from '../components/analyze/ArtifactPanel'
+import { EvidenceDetailCard, type EvidenceDetailData } from '../components/analyze/EvidenceDetailCard'
 import { ResultOverview } from '../components/analyze/ResultOverview'
 import { ScreenshotLightbox } from '../components/analyze/ScreenshotLightbox'
 import { Alert } from '../components/ui/Alert'
 import { EmptyState } from '../components/ui/EmptyState'
+import { resolveEvidenceOpen } from '../lib/evidence-resolution'
 import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
@@ -47,12 +50,20 @@ export function AnalyzePage() {
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
+  const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [lightboxHighlight, setLightboxHighlight] = useState<{
+    imageIndex: number
+    rect: { x: number; y: number; width: number; height: number }
+    label: string
+  } | null>(null)
+  const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s) => {
       const configured = s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli)
       setHasAiConfig(configured)
+      setAnalysisDepth(s.analysisDepth === 'deep' ? 'deep' : 'standard')
     })
   }, [])
 
@@ -67,6 +78,11 @@ export function AnalyzePage() {
     const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
       store.setProgress(p)
     })
+    const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(
+      (p: { step: string; percent: number }) => {
+        store.setIntelligenceProgress(p)
+      },
+    )
     const unsubscribeLogin = window.electronAPI.onLoginRequired((request: LoginRequiredEvent) => {
       store.setAnalyzing(true)
       setAuthPrompt({
@@ -78,6 +94,7 @@ export function AnalyzePage() {
     })
     return () => {
       unsubscribeProgress()
+      unsubscribeIntelligenceProgress()
       unsubscribeLogin()
     }
   }, [store])
@@ -93,12 +110,46 @@ export function AnalyzePage() {
     return t(step, { defaultValue: step })
   }
 
+  const runDesignIntelligence = async (analysisId: string, force = false) => {
+    store.setIntelligenceRunning(true)
+    store.setIntelligenceProgress({ step: 'progress.interpretingDesignLanguage', percent: 8 })
+    try {
+      const response: DesignIntelligenceResponse = await window.electronAPI.startDesignIntelligence(
+        analysisId,
+        i18n.language,
+        force,
+      )
+      if (response.error) {
+        notify(t('analyze.designDna.fallbackNotice'), 'error')
+        return
+      }
+      store.mergeResult(response)
+      const status = response.designIntelligence?.status
+      if (response.designIntelligence?.failureCode === 'cancelled') {
+        notify(t('analyze.designDna.cancelledNotice'))
+        return
+      }
+      notify(
+        status === 'complete' || status === 'partial'
+          ? t('analyze.designDna.completeNotice')
+          : t('analyze.designDna.fallbackNotice'),
+        status === 'complete' || status === 'partial' ? 'success' : 'error',
+      )
+    } catch {
+      notify(t('analyze.designDna.fallbackNotice'), 'error')
+    } finally {
+      store.setIntelligenceRunning(false)
+      store.setIntelligenceProgress(null)
+    }
+  }
+
   const runAnalysis = async (targetUrl: string, authMode: AuthMode): Promise<AnalysisOutcome> => {
     try {
       const res: AnalyzeResponse = await window.electronAPI.analyzeUrl(targetUrl, {
         authMode,
         maxPages: pageCount,
         language: i18n.language,
+        depth: analysisDepth,
       })
       if (res.authRequired && res.detection) {
         store.setProgress(null)
@@ -128,6 +179,9 @@ export function AnalyzePage() {
       store.setResult(data, targetUrl)
       setAuthPrompt(null)
       notify(t('analyze.completeTip'), 'success')
+      if (data.analysisId && data.designIntelligence?.status === 'pending') {
+        void runDesignIntelligence(data.analysisId)
+      }
       return 'complete'
     } catch (err) {
       console.error('Analysis failed:', err)
@@ -202,6 +256,31 @@ export function AnalyzePage() {
   const handleRetryFailure = async () => {
     if (!failure) return
     await startAnalysis(failure.url, failure.authMode)
+  }
+
+  const handleOpenEvidence = (evidenceId: string) => {
+    if (!result?.designEvidence) return
+    const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
+    if (resolution.type === 'lightbox') {
+      setEvidenceDetail(null)
+      setLightboxHighlight(resolution.target)
+      setLightboxIndex(resolution.target.imageIndex)
+      return
+    }
+    setEvidenceDetail({
+      ...resolution.detail,
+      fields: resolution.detail.fields.map((field) => ({
+        label: t(`analyze.evidenceDetail.fields.${field.key}`),
+        value: field.value,
+      })),
+    })
+  }
+
+  const handleCancelIntelligence = async () => {
+    if (!result?.analysisId) return
+    await window.electronAPI.cancelDesignIntelligence(result.analysisId)
+    store.setIntelligenceRunning(false)
+    store.setIntelligenceProgress(null)
   }
 
   return (
@@ -279,6 +358,25 @@ export function AnalyzePage() {
           <span id="analysis-page-count-help" className="min-w-64 flex-1 leading-5 text-muted-foreground">
             {t('analyze.pageCount.help')}
           </span>
+          <label htmlFor="analysis-depth" className="ml-auto shrink-0 font-medium text-foreground">
+            {t('analyze.depth.label')}
+          </label>
+          <select
+            id="analysis-depth"
+            data-testid="analysis-depth"
+            value={analysisDepth}
+            onChange={(event) => {
+              const depth = event.target.value as 'standard' | 'deep'
+              setAnalysisDepth(depth)
+              void window.electronAPI.saveSettings({ analysisDepth: depth })
+            }}
+            disabled={analyzing}
+            title={t(`analyze.depth.${analysisDepth}Help`)}
+            className="h-7 shrink-0 cursor-pointer rounded-md border border-input bg-background px-2 font-medium text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          >
+            <option value="standard">{t('analyze.depth.standard')}</option>
+            <option value="deep">{t('analyze.depth.deep')}</option>
+          </select>
         </div>
 
         {!hasAiConfig && !aiTipDismissed && !result && !failure && (
@@ -378,7 +476,17 @@ export function AnalyzePage() {
             onRetryWithLogin={handleRetryWithLogin}
             onOpenLightbox={setLightboxIndex}
           />
-          <ArtifactPanel result={result} saved={saved} onSaved={() => setSaved(true)} />
+          <ArtifactPanel
+            result={result}
+            saved={saved}
+            intelligenceRunning={store.intelligenceRunning}
+            intelligenceProgress={store.intelligenceProgress}
+            onSaved={() => setSaved(true)}
+            onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
+            onCancelIntelligence={handleCancelIntelligence}
+            onResultUpdate={store.mergeResult}
+            onOpenEvidence={handleOpenEvidence}
+          />
         </div>
       ) : (
         !analyzing &&
@@ -410,12 +518,26 @@ export function AnalyzePage() {
         />
       )}
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
+      {evidenceDetail && lightboxIndex === null && (
+        <EvidenceDetailCard detail={evidenceDetail} onClose={() => setEvidenceDetail(null)} />
+      )}
       {lightboxIndex !== null && result && (
         <ScreenshotLightbox
           images={getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path))}
           index={lightboxIndex}
-          onIndexChange={setLightboxIndex}
-          onClose={() => setLightboxIndex(null)}
+          highlight={
+            lightboxHighlight?.imageIndex === lightboxIndex
+              ? { rect: lightboxHighlight.rect, label: lightboxHighlight.label }
+              : undefined
+          }
+          onIndexChange={(index) => {
+            setLightboxIndex(index)
+            if (lightboxHighlight?.imageIndex !== index) setLightboxHighlight(null)
+          }}
+          onClose={() => {
+            setLightboxIndex(null)
+            setLightboxHighlight(null)
+          }}
         />
       )}
     </div>

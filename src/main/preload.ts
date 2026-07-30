@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { ElectronAPI, LoginRequiredEvent } from '../shared/ipc-contract.js'
+import type { ElectronAPI, LoginRequiredEvent, SaveThemeData } from '../shared/ipc-contract.js'
 
 const api = {
   platform: process.platform,
@@ -19,8 +19,14 @@ const api = {
       useSession?: boolean
       authMode?: 'auto' | 'anonymous' | 'managed'
       language?: string
+      depth?: 'standard' | 'deep'
     },
   ) => ipcRenderer.invoke('analyze:url', url, options),
+  startDesignIntelligence: (analysisId: string, language?: string, force = false) =>
+    ipcRenderer.invoke('design-intelligence:start', analysisId, language, force),
+  cancelDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:cancel', analysisId),
+  generateValidation: (analysisId: string, scenario: 'workflow' | 'content' | 'states') =>
+    ipcRenderer.invoke('validation:start', analysisId, scenario),
   submitLoginDecision: (requestId: string, decision: 'continue' | 'anonymous' | 'cancel') =>
     ipcRenderer.invoke('analysis:loginDecision', requestId, decision),
   listBrowserSessions: () => ipcRenderer.invoke('browserSessions:list'),
@@ -38,20 +44,14 @@ const api = {
   logEvent: (level: 'info' | 'warn' | 'error', message: string) => ipcRenderer.send('log:event', level, message),
 
   // Save theme to library
-  saveTheme: (data: {
-    url: string
-    tokens: Record<string, unknown>
-    cssVariables: string
-    tailwindTheme: string
-    designDoc: string
-    screenshots: string[]
-  }) => ipcRenderer.invoke('themes:save', data),
+  saveTheme: (data: SaveThemeData) => ipcRenderer.invoke('themes:save', data),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('settings:save', settings),
   detectAgentClis: (force = false) => ipcRenderer.invoke('settings:detectAgentClis', force),
-  testApiKey: (provider: string, apiKey: string) => ipcRenderer.invoke('settings:testApiKey', provider, apiKey),
+  testApiKey: (provider: string, apiKey: string, baseUrl?: string) =>
+    ipcRenderer.invoke('settings:testApiKey', provider, apiKey, baseUrl),
 
   // History
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
@@ -68,6 +68,11 @@ const api = {
     const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
     ipcRenderer.on('analysis:progress', handler)
     return () => ipcRenderer.removeListener('analysis:progress', handler)
+  },
+  onDesignIntelligenceProgress: (callback: (progress: { step: string; percent: number }) => void) => {
+    const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
+    ipcRenderer.on('design-intelligence:progress', handler)
+    return () => ipcRenderer.removeListener('design-intelligence:progress', handler)
   },
   onLoginRequired: (callback: (request: LoginRequiredEvent) => void) => {
     const handler = (_event: unknown, request: LoginRequiredEvent) => callback(request)

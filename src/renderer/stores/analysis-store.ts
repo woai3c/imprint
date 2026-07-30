@@ -19,10 +19,15 @@ interface AnalysisStore {
   failure: AnalysisFailure | null
   analyzing: boolean
   progress: { step: string; percent: number } | null
+  intelligenceRunning: boolean
+  intelligenceProgress: { step: string; percent: number } | null
   setResult: (result: AnalysisResultData, url: string) => void
+  mergeResult: (result: Partial<AnalysisResultData>) => void
   setFailure: (failure: AnalysisFailure | null) => void
   setAnalyzing: (v: boolean) => void
   setProgress: (p: { step: string; percent: number } | null) => void
+  setIntelligenceRunning: (v: boolean) => void
+  setIntelligenceProgress: (p: { step: string; percent: number } | null) => void
   setUrl: (url: string) => void
   setPageCount: (pageCount: number) => void
 }
@@ -34,11 +39,31 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   failure: null,
   analyzing: false,
   progress: null,
+  intelligenceRunning: false,
+  intelligenceProgress: null,
   setResult: (result, url) =>
-    set({ lastResult: result, lastUrl: url, failure: null, analyzing: false, progress: null }),
+    set({
+      lastResult: result,
+      lastUrl: url,
+      failure: null,
+      analyzing: false,
+      progress: null,
+      intelligenceRunning: false,
+      intelligenceProgress: null,
+    }),
+  mergeResult: (result) =>
+    set((state) => {
+      if (!state.lastResult) return state
+      if (result.analysisId && state.lastResult.analysisId && result.analysisId !== state.lastResult.analysisId) {
+        return state
+      }
+      return { lastResult: { ...state.lastResult, ...result } }
+    }),
   setFailure: (failure) => set({ failure, analyzing: false, progress: null }),
   setAnalyzing: (v) => set({ analyzing: v }),
   setProgress: (p) => set({ progress: p }),
+  setIntelligenceRunning: (v) => set({ intelligenceRunning: v }),
+  setIntelligenceProgress: (p) => set({ intelligenceProgress: p }),
   setUrl: (url) => set({ lastUrl: url }),
   setPageCount: (pageCount) => set({ pageCount: setAnalysisPageCountPreference(pageCount) }),
 }))

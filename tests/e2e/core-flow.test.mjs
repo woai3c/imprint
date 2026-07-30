@@ -69,6 +69,96 @@ before(async () => {
 }
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
+if (prompt.includes('design-language interpreter')) {
+  const unique = (values) => [...new Set(values)]
+  const ids = unique([...prompt.matchAll(/"id":"((?:section|layout|image|component|interaction|responsive)-[^"]+)"/g)].map((match) => match[1]))
+  const sectionIds = ids.filter((id) => id.startsWith('section-'))
+  const refs = (sectionIds.length >= 2 ? sectionIds.slice(0, 2) : ids.slice(0, 2)).map((evidenceId) => ({
+    evidenceId,
+    note: 'Observed fixture evidence'
+  }))
+  const claim = (statement = 'Centered content bands use deliberate spacing to establish a repeatable reading rhythm') => ({
+    statement,
+    implementation: 'Use centered content bands and keep the observed spacing rhythm across primary sections.',
+    confidence: refs.length >= 2 ? 'high' : 'medium',
+    evidence: refs
+  })
+  const responsiveId = ids.find((id) => id.startsWith('responsive-'))
+  const interactionId = ids.find((id) => id.startsWith('interaction-'))
+  const interactionClaim = {
+    ...claim('Small state changes provide restrained feedback without disrupting layout'),
+    confidence: 'medium',
+    evidence: interactionId ? [{ evidenceId: interactionId, note: 'Observed target state difference' }] : refs
+  }
+  const continuity = {
+    ...claim('Desktop groups reflow into a narrow single-column sequence while preserving hierarchy'),
+    confidence: 'medium',
+    evidence: responsiveId ? [{ evidenceId: responsiveId, note: 'Observed responsive reflow' }] : refs
+  }
+  console.log(JSON.stringify({
+    schemaVersion: '1',
+    language: 'en',
+    inputMode: 'structural-only',
+    thesis: claim(),
+    signatureMoves: [{
+      ...claim('A saturated action accent punctuates otherwise quiet neutral content surfaces'),
+      id: 'move-accent-punctuation',
+      name: 'Accent punctuation',
+      distinctiveness: 'A focused action color is paired with broad neutral fields.'
+    }],
+    composition: {
+      containerStrategy: claim(),
+      alignmentStrategy: claim(),
+      densityAndWhitespace: claim(),
+      rhythm: claim()
+    },
+    attention: {
+      entryPoint: claim(),
+      visualSequence: [claim()],
+      actionHierarchy: claim(),
+      contrastStrategy: claim()
+    },
+    visualLanguage: {
+      color: claim(),
+      typography: claim(),
+      shape: claim(),
+      surfaces: claim()
+    },
+    sectionGrammar: [{
+      role: 'hero',
+      composition: [claim()],
+      contentRhythm: [claim()],
+      transitionToNext: [claim()]
+    }],
+    interactionLanguage: {
+      primaryDrivers: [interactionClaim],
+      feedbackStyle: interactionClaim,
+      stateChangeAmplitude: interactionClaim,
+      continuityRules: [continuity]
+    },
+    componentGrammar: [{ component: 'button', role: 'primary action', rules: [claim()] }],
+    patterns: [{
+      id: 'pattern-action-cluster',
+      name: 'Action cluster',
+      role: 'Keep related calls to action together',
+      structureRules: [claim()],
+      visualRules: [claim()],
+      interactionRules: [interactionClaim],
+      responsiveRules: [continuity],
+      tokenRefs: [],
+      evidenceRefs: refs.map((reference) => reference.evidenceId),
+      sourceInstances: 2,
+      confidence: 'medium'
+    }],
+    transferRules: {
+      preserve: [claim()],
+      adapt: [claim()],
+      avoid: [claim()]
+    },
+    uncertainties: []
+  }))
+  process.exit(0)
+}
 const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
 console.log(JSON.stringify({
   renames: colorName
@@ -195,7 +285,12 @@ test('extracts a local design system without LLM credentials and persists it', {
 
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 3)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 4)
+    await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
+    assert.match(
+      (await page.getByTestId('analysis-evidence-coverage').textContent()) || '',
+      /sections.*component instances.*viewports/i,
+    )
     assert.equal(await page.getByTestId('example-components').count(), 0)
     await page.getByTestId('analysis-page-screenshot').first().locator('img').click()
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'visible' })
@@ -204,7 +299,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     const lightboxImage = page.getByTestId('analysis-screenshot-lightbox-image')
     const lightboxImageBox = await lightboxImage.boundingBox()
     assert.ok(lightboxImageBox, 'Expected the screenshot lightbox image to have a bounding box')
-    const initialTransform = await lightboxImage.evaluate((element) => element.style.transform)
+    const initialTransform = await lightboxImage.evaluate((element) => element.parentElement?.style.transform || '')
     await page.mouse.move(
       lightboxImageBox.x + lightboxImageBox.width / 2,
       lightboxImageBox.y + lightboxImageBox.height / 2,
@@ -216,7 +311,7 @@ test('extracts a local design system without LLM credentials and persists it', {
       { steps: 5 },
     )
     await page.mouse.up()
-    const draggedTransform = await lightboxImage.evaluate((element) => element.style.transform)
+    const draggedTransform = await lightboxImage.evaluate((element) => element.parentElement?.style.transform || '')
     assert.notEqual(draggedTransform, initialTransform)
     assert.match(draggedTransform, /translate3d\((?!0px, 0px)/)
     await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
@@ -225,6 +320,18 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByRole('tooltip').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-page-count').selectOption('1')
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
+
+    await page.getByTestId('artifact-tab-evidence').click()
+    const evidenceText = await page.getByTestId('artifact-content-evidence').textContent()
+    const evidence = JSON.parse(evidenceText || '{}')
+    assert.equal(evidence.schemaVersion, '1')
+    assert.ok(evidence.topology.pages.length >= 1)
+    assert.ok(evidence.sections.length >= 1)
+    assert.ok(evidence.interactionObservations.length >= 1)
+    assert.ok(evidence.coverage.interactionCoverage.safelyObserved >= 1)
+    assert.ok(evidence.pages[0].images.some((image) => image.kind === 'viewport-crop'))
+    assert.ok(evidence.pages[0].images.some((image) => image.kind === 'region-crop'))
+    assert.match(evidence.pages[0].images[0].contentHash, /^[a-f0-9]{64}$/)
 
     await page.getByTestId('artifact-tab-json').click()
     const tokenText = await page.getByTestId('artifact-content-json').textContent()
@@ -263,18 +370,21 @@ test('extracts a local design system without LLM credentials and persists it', {
       previousAgentScreenshotSrc,
       { timeout: 90_000 },
     )
+    await page.getByTestId('artifact-tab-profile').waitFor({ state: 'visible', timeout: 60_000 })
+    await page.getByTestId('artifact-tab-overview').click()
+    await page
+      .locator(
+        '[data-testid="design-intelligence-status-complete"], [data-testid="design-intelligence-status-partial"]',
+      )
+      .waitFor({ state: 'visible' })
     await page.getByTestId('artifact-tab-json').click()
     const agentTokens = JSON.parse((await page.getByTestId('artifact-content-json').textContent()) || '{}')
-    assert.equal(agentTokens.colors['e2e-agent-brand'], '#2563eb')
+    assert.equal(agentTokens.colors.primary, '#2563eb')
+    assert.equal(agentTokens.colors['e2e-agent-brand'], undefined)
     assert.equal(agentTokens.colors['Invalid Name'], undefined)
     assert.equal(agentTokens.colors['should-be-rejected'], undefined)
     assert.equal(agentTokens.colors.background, tokens.colors.background)
     await page.getByTestId('artifact-tab-preview').click()
-    assert.equal(
-      await page.getByText('e2e-agent-brand', { exact: true }).count(),
-      2,
-      'The accepted semantic name must be shared by light and dark color tokens',
-    )
     await page.getByTestId('example-components').waitFor({ state: 'visible' })
     assert.equal(await page.getByTestId('example-component-frame').count(), 1)
     const aiExampleFrame = page.getByTestId('example-component-frame')
@@ -282,7 +392,15 @@ test('extracts a local design system without LLM credentials and persists it', {
       await aiExampleFrame.evaluate((frame) => frame.contentDocument?.body.textContent || ''),
       /AI example card/,
     )
-    assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-e2e-agent-brand/)
+    assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-primary/)
+    await page.getByTestId('artifact-tab-profile').click()
+    const designProfile = JSON.parse((await page.getByTestId('artifact-content-profile').textContent()) || '{}')
+    assert.equal(designProfile.thesis.confidence, 'high')
+    assert.equal(designProfile.tokenAliases[0].name, 'e2e-agent-brand')
+    await page.getByTestId('artifact-tab-overview').click()
+    await page.getByTestId('design-evidence-link').first().click()
+    await page.getByTestId('analysis-evidence-highlight').waitFor({ state: 'visible' })
+    await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
     await page.evaluate(async () => {
       await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
     })
@@ -349,7 +467,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page
       .locator(`[data-testid="analysis-result"][data-source-url="${privateUrl}"][data-access-mode="managed"]`)
       .waitFor({ state: 'visible', timeout: 90_000 })
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 1)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 2)
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'detached', timeout: 30_000 })
 
     await page.getByTestId('browser-sessions-open').click()
@@ -361,7 +479,11 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.getByTestId('browser-session').count(), 1)
     await page.getByRole('button', { name: 'Close website sign-ins' }).click()
 
-    const previousScreenshotSrc = await page.getByTestId('analysis-page-screenshot').locator('img').getAttribute('src')
+    const previousScreenshotSrc = await page
+      .getByTestId('analysis-page-screenshot')
+      .first()
+      .locator('img')
+      .getAttribute('src')
     await page.getByTestId('analyze-url').fill(privateUrl)
     await page.getByTestId('analyze-submit').click()
     await page.waitForFunction(
@@ -393,7 +515,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('auth-continue-anonymous').click()
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-result').getAttribute('data-access-mode'), 'anonymous')
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 1)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 2)
 
     t.diagnostic('Intentionally triggering a connection failure to verify the durable error and retry UI')
     const failureUrl = `${fixtureUrl}failure`

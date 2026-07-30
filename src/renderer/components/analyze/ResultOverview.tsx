@@ -24,6 +24,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
 
   const pageScreenshots = getPageScreenshots(result)
   const analyzedPageCount = new Set(pageScreenshots.map((screenshot) => screenshot.url)).size
+  const coverage = result.designEvidence?.coverage
 
   let hostname = ''
   try {
@@ -90,6 +91,19 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
               <strong className="text-foreground">{radiiCount}</strong> {t('preview.statRadii')}
             </span>
           </div>
+
+          {result.designEvidence && (
+            <div
+              data-testid="analysis-evidence-coverage"
+              className="mt-4 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground"
+            >
+              {t('analyze.overview.sourceCoverage', {
+                sections: result.designEvidence.sections.length,
+                components: result.designEvidence.components.length,
+                viewports: coverage?.viewportCoverage.length || 0,
+              })}
+            </div>
+          )}
 
           <div className="mt-3 text-xs">
             {result.hasDarkMode ? (

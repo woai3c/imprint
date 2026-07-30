@@ -105,7 +105,32 @@
         <h1>Local Design Fixture</h1>
         <p>A stable offline target for the Imprint extraction flow.</p>
         <button type="button">Primary action</button>
+        <button type="button" aria-expanded="false" aria-controls="fixture-details">Show details</button>
+        <div id="fixture-details" hidden>Restorable disclosure content</div>
+        <button type="button" aria-expanded="false" aria-controls="unsafe-write-details">Unsafe remote toggle</button>
+        <div id="unsafe-write-details" hidden>Unsafe write content</div>
       </section>
+      <form action="/unsafe-submit" method="post">
+        <button aria-expanded="false" aria-controls="unsafe-details">Form action that must not be inspected</button>
+        <div id="unsafe-details" hidden>Unsafe form-controlled content</div>
+      </form>
     </main>
+    <script>
+      const disclosure = document.querySelector('[aria-controls="fixture-details"]')
+      const details = document.querySelector('#fixture-details')
+      disclosure.addEventListener('click', () => {
+        const expanded = disclosure.getAttribute('aria-expanded') === 'true'
+        disclosure.setAttribute('aria-expanded', String(!expanded))
+        details.hidden = expanded
+      })
+      const unsafeWrite = document.querySelector('[aria-controls="unsafe-write-details"]')
+      const unsafeWriteDetails = document.querySelector('#unsafe-write-details')
+      unsafeWrite.addEventListener('click', () => {
+        const expanded = unsafeWrite.getAttribute('aria-expanded') === 'true'
+        unsafeWrite.setAttribute('aria-expanded', String(!expanded))
+        unsafeWriteDetails.hidden = expanded
+        void fetch('/unsafe-write', { method: 'POST', body: 'must-not-leave-the-browser' })
+      })
+    </script>
   </body>
 </html>

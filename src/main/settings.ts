@@ -10,6 +10,10 @@ const defaults: AppSettings = {
   provider: '',
   apiKey: '',
   baseUrl: '',
+  model: '',
+  modelSupportsVision: false,
+  visionAnalysisConsent: false,
+  analysisDepth: 'standard',
   agentCli: '',
   exportFormat: 'markdown',
 }
@@ -29,6 +33,9 @@ function readFromDisk(): AppSettings {
     return {
       ...defaults,
       ...saved,
+      modelSupportsVision: saved.modelSupportsVision === true,
+      visionAnalysisConsent: saved.visionAnalysisConsent === true,
+      analysisDepth: saved.analysisDepth === 'deep' ? 'deep' : 'standard',
       exportFormat: isExportFormat(saved.exportFormat) ? saved.exportFormat : defaults.exportFormat,
     }
   } catch {
@@ -50,6 +57,9 @@ export function saveSettings(update: Partial<AppSettings>): AppSettings {
   const current = readFromDisk()
   const merged = { ...current, ...update }
   if (!isExportFormat(merged.exportFormat)) merged.exportFormat = defaults.exportFormat
+  merged.modelSupportsVision = merged.modelSupportsVision === true
+  merged.visionAnalysisConsent = merged.visionAnalysisConsent === true
+  merged.analysisDepth = merged.analysisDepth === 'deep' ? 'deep' : 'standard'
   writeToDisk(merged)
   return merged
 }

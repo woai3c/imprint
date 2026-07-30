@@ -188,33 +188,76 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 export async function extractInteractionStyles(page: Page): Promise<InteractionStyles> {
   return await page.evaluate(() => {
     const interactions: InteractionStyles = { hover: [], focus: [], active: [] }
+    const safeProperties = new Set([
+      'background-color',
+      'border-color',
+      'border-bottom-color',
+      'border-left-color',
+      'border-right-color',
+      'border-top-color',
+      'box-shadow',
+      'color',
+      'display',
+      'filter',
+      'fill',
+      'height',
+      'max-height',
+      'max-width',
+      'opacity',
+      'outline',
+      'outline-color',
+      'outline-offset',
+      'outline-style',
+      'outline-width',
+      'rotate',
+      'scale',
+      'stroke',
+      'text-decoration',
+      'text-decoration-color',
+      'text-decoration-line',
+      'text-decoration-thickness',
+      'text-shadow',
+      'text-underline-offset',
+      'transform',
+      'translate',
+      'visibility',
+      'width',
+    ])
 
-    for (const sheet of document.styleSheets) {
-      try {
-        for (const rule of sheet.cssRules) {
-          if (!(rule instanceof CSSStyleRule)) continue
+    const visitRules = (rules: CSSRuleList) => {
+      for (const rule of rules) {
+        if (rule instanceof CSSStyleRule) {
           const selector = rule.selectorText
-
-          let target: Record<string, string>[] | null = null
-          if (selector.includes(':hover')) target = interactions.hover
-          else if (selector.includes(':focus')) target = interactions.focus
-          else if (selector.includes(':active')) target = interactions.active
-
-          if (!target) continue
+          const targets: Array<Record<string, string>[]> = []
+          if (selector.includes(':hover')) targets.push(interactions.hover)
+          if (selector.includes(':focus')) targets.push(interactions.focus)
+          if (selector.includes(':active')) targets.push(interactions.active)
+          if (targets.length === 0) continue
 
           const props: Record<string, string> = {}
           for (let i = 0; i < rule.style.length; i++) {
             const prop = rule.style[i]
             const value = rule.style.getPropertyValue(prop)
-            if (value && !prop.startsWith('-webkit-') && !prop.startsWith('-moz-')) {
+            const unsafeValue = /(?:url\s*\(|data:|https?:|javascript:)/i.test(value)
+            if (value && safeProperties.has(prop) && !unsafeValue) {
               props[prop] = value.trim()
             }
           }
 
           if (Object.keys(props).length > 0) {
-            target.push(props)
+            targets.forEach((target) => target.push(props))
           }
+          continue
         }
+
+        const nestedRules = 'cssRules' in rule ? (rule as CSSMediaRule).cssRules : null
+        if (nestedRules) visitRules(nestedRules)
+      }
+    }
+
+    for (const sheet of document.styleSheets) {
+      try {
+        visitRules(sheet.cssRules)
       } catch {
         // Cross-origin stylesheets
       }

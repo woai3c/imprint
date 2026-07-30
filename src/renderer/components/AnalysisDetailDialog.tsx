@@ -3,8 +3,12 @@ import { Loader2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { resolveEvidenceOpen } from '../lib/evidence-resolution'
+import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import type { AnalysisResultData } from '../stores/analysis-store'
 import { ArtifactPanel } from './analyze/ArtifactPanel'
+import { EvidenceDetailCard, type EvidenceDetailData } from './analyze/EvidenceDetailCard'
+import { ScreenshotLightbox } from './analyze/ScreenshotLightbox'
 
 interface AnalysisDetailDialogProps {
   analysisId: string
@@ -17,12 +21,26 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [intelligenceRunning, setIntelligenceRunning] = useState(false)
+  const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [lightboxHighlight, setLightboxHighlight] = useState<{
+    imageIndex: number
+    rect: { x: number; y: number; width: number; height: number }
+    label: string
+  } | null>(null)
+  const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && lightboxIndex === null) onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [lightboxIndex, onClose])
+
+  useEffect(() => {
+    const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(setIntelligenceProgress)
 
     window.electronAPI
       .getAnalysis(analysisId)
@@ -32,6 +50,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           return
         }
         setResult({
+          analysisId: data.id,
           tokens: data.tokens,
           cssVariables: data.cssVariables,
           tailwindTheme: data.tailwindTheme,
@@ -46,14 +65,52 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           hasDarkMode: data.hasDarkMode,
           accessMode: data.accessMode ?? undefined,
           authWallDetected: data.authWallDetected,
+          designEvidence: data.designEvidence ?? undefined,
+          designIntelligence: data.designIntelligence,
+          designProfile: data.designProfile,
+          reconstructionBrief: data.reconstructionBrief,
+          agentContext: data.agentContext,
+          validationReport: data.validationReport,
         })
         setSaved(!!data.themeId)
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false))
 
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [analysisId, onClose])
+    return () => {
+      unsubscribeIntelligenceProgress()
+    }
+  }, [analysisId])
+
+  const retryIntelligence = async () => {
+    if (!result?.analysisId) return
+    setIntelligenceRunning(true)
+    try {
+      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, undefined, true)
+      setResult((current) => (current ? { ...current, ...response } : current))
+    } finally {
+      setIntelligenceRunning(false)
+      setIntelligenceProgress(null)
+    }
+  }
+
+  const openEvidence = (evidenceId: string) => {
+    if (!result?.designEvidence) return
+    const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
+    if (resolution.type === 'lightbox') {
+      setEvidenceDetail(null)
+      setLightboxHighlight(resolution.target)
+      setLightboxIndex(resolution.target.imageIndex)
+      return
+    }
+    setEvidenceDetail({
+      ...resolution.detail,
+      fields: resolution.detail.fields.map((field) => ({
+        label: t(`analyze.evidenceDetail.fields.${field.key}`),
+        value: field.value,
+      })),
+    })
+  }
 
   return (
     <div
@@ -95,10 +152,47 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 p-4">
-            <ArtifactPanel result={result} saved={saved} onSaved={() => setSaved(true)} />
+            <ArtifactPanel
+              result={result}
+              saved={saved}
+              intelligenceRunning={intelligenceRunning}
+              intelligenceProgress={intelligenceProgress}
+              onSaved={() => setSaved(true)}
+              onRetryIntelligence={retryIntelligence}
+              onCancelIntelligence={async () => {
+                if (!result.analysisId) return
+                await window.electronAPI.cancelDesignIntelligence(result.analysisId)
+                setIntelligenceRunning(false)
+                setIntelligenceProgress(null)
+              }}
+              onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
+              onOpenEvidence={openEvidence}
+            />
           </div>
         )}
       </div>
+      {lightboxIndex !== null && result && (
+        <ScreenshotLightbox
+          images={getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path))}
+          index={lightboxIndex}
+          highlight={
+            lightboxHighlight?.imageIndex === lightboxIndex
+              ? { rect: lightboxHighlight.rect, label: lightboxHighlight.label }
+              : undefined
+          }
+          onIndexChange={(index) => {
+            setLightboxIndex(index)
+            setLightboxHighlight(null)
+          }}
+          onClose={() => {
+            setLightboxIndex(null)
+            setLightboxHighlight(null)
+          }}
+        />
+      )}
+      {evidenceDetail && lightboxIndex === null && (
+        <EvidenceDetailCard detail={evidenceDetail} onClose={() => setEvidenceDetail(null)} />
+      )}
     </div>
   )
 }

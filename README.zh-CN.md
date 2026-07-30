@@ -7,7 +7,7 @@
 
   <p>
     提取颜色、字体、间距、圆角、阴影和组件风格，
-    导出为 DESIGN.md、CSS Variables、Tailwind CSS 主题和 JSON Design Tokens。
+    导出为 DESIGN.md、CSS Variables、Tailwind CSS 主题、JSON Design Tokens 和可追溯 Design Evidence。
   </p>
 
   <p>
@@ -52,6 +52,7 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 | 功能          | 说明                                                              |
 | ------------- | ----------------------------------------------------------------- |
 | 网站分析      | 输入 URL，自动分析网页视觉风格                                    |
+| 可追溯证据    | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制              |
 | 截图分析      | 从 UI 截图中提取设计规律                                          |
 | 设计系统生成  | 提取颜色、字体、间距、圆角、阴影和组件风格                        |
 | AI 友好文档   | 导出 DESIGN.md，可直接作为 AI Coding 上下文                       |
@@ -73,14 +74,42 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 
 ### 应该导出哪一种？
 
-| 目标                               | 推荐输出              | 一起提供             |
-| ---------------------------------- | --------------------- | -------------------- |
-| 让 AI 修改已有 UI                  | **DESIGN.md**         | 当前 UI 截图或源代码 |
-| 直接在 CSS 项目中实现              | **CSS Variables**     | 现有样式入口文件     |
-| 直接在 Tailwind v4 项目中实现      | **Tailwind `@theme`** | 项目的主题样式文件   |
-| 交给工具链或需要结构化数据的 Agent | **Tokens JSON**       | 具体的自动化任务说明 |
+| 目标                               | 推荐输出                 | 一起提供             |
+| ---------------------------------- | ------------------------ | -------------------- |
+| 让 AI 修改已有 UI                  | **DESIGN.md**            | 当前 UI 截图或源代码 |
+| 直接在 CSS 项目中实现              | **CSS Variables**        | 现有样式入口文件     |
+| 直接在 Tailwind v4 项目中实现      | **Tailwind `@theme`**    | 项目的主题样式文件   |
+| 交给工具链或需要结构化数据的 Agent | **Tokens JSON**          | 具体的自动化任务说明 |
+| 审计来源页面的实际观察范围         | **Design Evidence JSON** | 对应页面截图         |
 
 如果只给 AI 一个导出文件，请选择 **DESIGN.md**。
+
+## Design Evidence 与 Design DNA
+
+每次分析会先生成确定性的 `DesignEvidence`：多视口截图、页面拓扑、归一化区块与组件几何、响应式差异、安全交互观察、
+媒体层、覆盖范围和限制。它不依赖 AI，并与 Tokens JSON 分开保存。
+
+配置 API 厂商或 Agent CLI 后，印记会把受预算约束的证据包解读为经过校验、带版本号的 `DesignProfile`。桌面端概览会
+展示设计主张、标志性手法、迁移规则、置信度和可点击的证据引用。AI 建议的 token 名称只作为 alias 保存，不会替换实际
+提取的 token key。
+
+截图输入默认关闭。只有支持视觉输入的 API 模型，并且用户在设置中明确授权后，才会选择少量匿名公开页面截图；登录后
+页面默认不会向任何已配置的 AI 发送内容，只有用户明确请求结构解读后才会发送结构化证据，截图始终不会发送。Agent
+CLI 也只使用结构化证据。即使设计解读失败，token、证据、截图和实现导出仍然完整可用，并且可以只重试 AI 步骤。
+
+## CLI 与 MCP 智能模式
+
+CLI 只有在明确传入 `--intelligence` 时才会调用 AI 厂商。API Key 从 `IMPRINT_AI_API_KEY` 或对应厂商的标准环境变量读取。
+
+```bash
+pnpm build:cli
+imprint extract https://example.com --viewport all --format evidence
+imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
+imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
+```
+
+MCP 的 `imprint_extract` 始终是确定性提取。显式调用 `imprint_interpret` 才会访问 AI 厂商；也可以给
+`imprint_compare` 传入 `depth: "language"`，比较两个经过校验的结构化 DesignProfile。
 
 ## 下载安装
 
@@ -142,6 +171,8 @@ src/
 │
 ├── core/                # 共享提取引擎（CLI + MCP + 桌面）
 │   ├── analyzer/        # 样式提取、颜色聚类、Token 构建
+│   ├── design-evidence/ # 稳定的观察证据与覆盖信息
+│   ├── design-intelligence/ # 已校验 Profile、简报、上下文与验证
 │   └── export/          # CSS / Tailwind / JSON / Markdown / SCSS 生成器
 │
 ├── cli/                 # CLI 入口（imprint 命令）

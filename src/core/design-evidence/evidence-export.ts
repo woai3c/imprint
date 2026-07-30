@@ -1,0 +1,142 @@
+import type { DocLanguage } from '../analyzer/agent-guide.js'
+import type { DesignEvidence } from './types.js'
+
+export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
+  return JSON.stringify(evidence, null, 2)
+}
+
+export function generateDesignEvidenceBrief(
+  evidence: DesignEvidence,
+  language: DocLanguage = 'en',
+  intelligenceMode?: 'structural-only' | 'multimodal',
+): string {
+  const zh = language === 'zh-CN'
+  const lines: string[] = []
+  const pageCount = new Set(evidence.pages.map((page) => page.url)).size
+  const passiveStates =
+    evidence.interactionStyles.hover.length +
+    evidence.interactionStyles.focus.length +
+    evidence.interactionStyles.active.length
+  const safeActiveStates = evidence.interactionObservations.filter(
+    (observation) => observation.safety === 'safe-active',
+  ).length
+
+  lines.push(zh ? '## 设计证据概览' : '## Design Evidence Overview')
+  lines.push('')
+  lines.push(
+    intelligenceMode
+      ? zh
+        ? `> 层级：Observed / 已观察。以下内容来自浏览器观察和确定性代码分析。后续 Design DNA 使用 \`${intelligenceMode}\` 输入模式推断，不能修改这些事实。`
+        : `> Layer: Observed. The following content comes from browser observations and deterministic code analysis. The later Design DNA uses \`${intelligenceMode}\` input and cannot modify these facts.`
+      : zh
+        ? '> 层级：Observed / 已观察。能力级别：`evidence-only`。以下内容来自浏览器观察和确定性代码分析；未生成 AI 视觉主张、标志性手法或迁移规则。'
+        : '> Layer: Observed. Capability level: `evidence-only`. The following content comes from browser observations and deterministic code analysis; no AI visual thesis, signature moves, or transfer rules were generated.',
+  )
+  lines.push('')
+  lines.push(zh ? `- 来源：${evidence.source.finalUrl}` : `- Final source: ${evidence.source.finalUrl}`)
+  lines.push(
+    zh
+      ? `- 访问方式：${evidence.source.accessMode === 'managed' ? 'Imprint 独立登录会话' : '访客'}`
+      : `- Access: ${evidence.source.accessMode === 'managed' ? 'managed Imprint session' : 'anonymous visitor'}`,
+  )
+  lines.push(
+    zh
+      ? `- 覆盖：${pageCount} 个页面、${evidence.pages.length} 个页面/视口证据、${evidence.sections.length} 个区块、${evidence.components.length} 个组件实例`
+      : `- Coverage: ${pageCount} pages, ${evidence.pages.length} page/viewport captures, ${evidence.sections.length} sections, ${evidence.components.length} component instances`,
+  )
+  lines.push(
+    zh
+      ? `- 状态证据：${passiveStates} 条被动样式规则、${safeActiveStates} 条安全主动观察、${evidence.coverage.interactionCoverage.skipped} 个跳过候选`
+      : `- State evidence: ${passiveStates} passive style rules, ${safeActiveStates} safe active observations, ${evidence.coverage.interactionCoverage.skipped} skipped candidates`,
+  )
+  lines.push(
+    zh
+      ? `- 媒体证据：${evidence.coverage.mediaCoverage.majorRegions} 个主要区域，${evidence.coverage.mediaCoverage.classifiedRegions} 个已分类区域`
+      : `- Media evidence: ${evidence.coverage.mediaCoverage.majorRegions} major regions, ${evidence.coverage.mediaCoverage.classifiedRegions} classified regions`,
+  )
+  lines.push('')
+
+  lines.push(zh ? '### 页面拓扑' : '### Page Topology')
+  lines.push('')
+  for (const topologyPage of evidence.topology.pages) {
+    const page = evidence.pages.find((candidate) => candidate.id === topologyPage.pageId)
+    if (!page) continue
+    const roles = topologyPage.sectionIds
+      .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
+      .filter(Boolean)
+    lines.push(
+      `- \`${page.viewport}\` ${page.url}: ${roles.join(' → ') || (zh ? '未识别区块' : 'no sections detected')}`,
+    )
+  }
+
+  lines.push('')
+  lines.push(zh ? '### 确定性实现值' : '### Deterministic Implementation Values')
+  lines.push('')
+  Object.entries(evidence.tokens.colors).forEach(([name, value]) => {
+    lines.push(`- \`--color-${name}: ${value}\``)
+  })
+  if (evidence.tokens.typography.fontStacks.length > 0) {
+    lines.push(
+      `- ${zh ? '字体栈' : 'Font stacks'}: ${evidence.tokens.typography.fontStacks
+        .map((value) => `\`${value}\``)
+        .join(', ')}`,
+    )
+  }
+  if (evidence.tokens.spacing.length > 0) {
+    lines.push(`- ${zh ? '间距' : 'Spacing'}: ${evidence.tokens.spacing.map((value) => `\`${value}\``).join(', ')}`)
+  }
+  if (evidence.tokens.radii.length > 0) {
+    lines.push(`- ${zh ? '圆角' : 'Radii'}: ${evidence.tokens.radii.map((value) => `\`${value}\``).join(', ')}`)
+  }
+
+  if (evidence.components.length > 0) {
+    lines.push('')
+    lines.push(zh ? '### 代表组件实例' : '### Representative Component Instances')
+    lines.push('')
+    for (const component of evidence.components.slice(0, 20)) {
+      lines.push(
+        `- \`${component.id}\` ${component.type}: ${Object.entries(component.styles)
+          .slice(0, 8)
+          .map(([name, value]) => `${name}=${value}`)
+          .join(', ')}${component.tokenRefs.length > 0 ? ` [${component.tokenRefs.join(', ')}]` : ''}`,
+      )
+    }
+  }
+
+  if (evidence.interactionObservations.length > 0) {
+    lines.push('')
+    lines.push(zh ? '### 状态观察' : '### State Observations')
+    lines.push('')
+    for (const observation of evidence.interactionObservations.slice(0, 24)) {
+      lines.push(
+        `- \`${observation.id}\` ${observation.safety}/${observation.driver}: ${observation.changedProperties.join(
+          ', ',
+        )}`,
+      )
+    }
+  }
+
+  if (evidence.responsiveObservations.length > 0) {
+    lines.push('')
+    lines.push(zh ? '### 响应式结构观察' : '### Responsive Structure Observations')
+    lines.push('')
+    for (const observation of evidence.responsiveObservations.slice(0, 20)) {
+      lines.push(
+        zh
+          ? `- ${observation.fromViewport} → ${observation.toViewport}：${observation.changeType}（${observation.changedProperties.join('、')}）`
+          : `- ${observation.fromViewport} → ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties.join(', ')})`,
+      )
+    }
+  }
+
+  lines.push('')
+  lines.push(zh ? '### 证据限制' : '### Evidence Limitations')
+  lines.push('')
+  if (evidence.limitations.length === 0) {
+    lines.push(zh ? '- 未记录限制。' : '- No limitations were recorded.')
+  } else {
+    for (const limitation of evidence.limitations) lines.push(`- \`${limitation}\``)
+  }
+
+  return lines.join('\n')
+}

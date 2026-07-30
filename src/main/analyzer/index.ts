@@ -12,6 +12,7 @@ export interface ElectronAnalysisOptions {
   useSession?: boolean
   authMode?: AuthMode
   extractDarkMode?: boolean
+  depth?: 'standard' | 'deep'
 }
 
 export async function analyzeUrl(

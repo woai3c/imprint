@@ -42,18 +42,23 @@
     "emptyTitle": "输入网站 URL 开始分析",
     "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
     "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
-    "tabPreview": "设计令牌",
+    "tabOverview": "概览",
+    "tabPreview": "Tokens",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS 变量",
     "tabJson": "Tokens JSON",
+    "tabProfile": "Profile JSON",
+    "tabEvidence": "证据 JSON",
     "copyCurrent": "复制 {{format}}",
     "exportCurrent": "导出 {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
       "tailwind": "Tailwind v4",
       "css": "CSS 变量",
-      "json": "Tokens JSON"
+      "json": "Tokens JSON",
+      "profile": "Design Profile JSON",
+      "evidence": "Design Evidence JSON"
     },
     "aiExport": {
       "title": "配合 AI 编程助手使用",
@@ -69,6 +74,13 @@
       "option": "最多 {{count}} 页",
       "help": "默认 3 页（可选 1–5 页），包含输入 URL 和同站页面；页面不足时按实际数量完成。"
     },
+    "depth": {
+      "label": "深度",
+      "standard": "标准",
+      "deep": "深度",
+      "standardHelp": "采集桌面与移动证据，并执行最多 6 个可恢复主动观察。",
+      "deepHelp": "采集桌面、平板与移动证据，并使用更大的有界交互预算。"
+    },
     "evidence": {
       "title": "已分析页面",
       "summary": "{{pages}} 个页面 · {{screenshots}} 张截图",
@@ -81,6 +93,209 @@
       "prevScreenshot": "上一张截图",
       "nextScreenshot": "下一张截图",
       "counter": "{{current}} / {{total}}"
+    },
+    "evidenceDetail": {
+      "title": "证据详情",
+      "close": "关闭证据详情",
+      "noRegion": "该证据没有对应的具体截图区域。",
+      "kinds": {
+        "page": "页面",
+        "image": "截图",
+        "section": "区块",
+        "component": "组件",
+        "layout": "布局节点",
+        "media": "媒体层",
+        "interaction": "交互状态",
+        "responsive": "响应式变化",
+        "layer": "拓扑层",
+        "pattern": "跨页面模式",
+        "target": "交互目标",
+        "unknown": "证据"
+      },
+      "fields": {
+        "role": "角色",
+        "layoutMode": "布局模式",
+        "driver": "驱动方式",
+        "trigger": "触发器",
+        "changed": "变化属性",
+        "changeType": "变化类型",
+        "summary": "摘要",
+        "url": "URL",
+        "viewport": "视口",
+        "section": "区块"
+      }
+    },
+    "designDna": {
+      "title": "Design DNA / 设计基因",
+      "thesis": "设计主张",
+      "signatureMoves": "标志性手法",
+      "composition": "构图方式",
+      "attention": "注意力层级",
+      "visualLanguage": "视觉语言",
+      "interactionLanguage": "交互语言",
+      "sectionGrammar": "区块语法",
+      "componentGrammar": "组件语法",
+      "patterns": "可迁移模式",
+      "sourceInstances": "{{count}} 个来源实例",
+      "preserve": "必须保持",
+      "adapt": "可以适配",
+      "avoid": "必须避免",
+      "uncertainties": "不确定项",
+      "retry": "重试设计解读",
+      "reinterpret": "重新理解设计语言",
+      "interpretManaged": "解读结构",
+      "managedNotice": "这份已登录分析可能包含账户或内部信息。在你明确请求结构解读之前，不会向已配置的 AI 发送任何内容；截图始终不会发送。",
+      "cancel": "取消",
+      "cancelledNotice": "Design DNA 解读已取消；确定性证据仍可正常使用。",
+      "completeNotice": "Design DNA 设计解读已完成。",
+      "fallbackNotice": "Design DNA 解读不可用；确定性证据和实现导出仍可正常使用。",
+      "confidence": {
+        "high": "高",
+        "medium": "中",
+        "low": "低"
+      },
+      "status": {
+        "not-configured": "尚未配置 Design DNA",
+        "not-requested": "未请求 Design DNA",
+        "pending": "正在解读设计语言",
+        "cancelled": "Design DNA 解读已取消",
+        "complete": "Design DNA 已完成",
+        "partial": "Design DNA 已完成，但存在限制",
+        "failed": "Design DNA 解读失败",
+        "unsupported": "当前引擎不支持 Design DNA"
+      },
+      "statusDescription": {
+        "not-configured": "请在设置中配置 API 厂商或 Agent CLI。浏览器证据和实现导出不依赖 AI。",
+        "not-requested": "本次只请求了确定性浏览器证据。",
+        "pending": "提取结果已经可以使用，设计解读会在后台独立完成。",
+        "cancelled": "AI 任务已取消；确定性证据和实现导出仍可正常使用。",
+        "complete": "所有设计主张都已通过稳定证据引用校验。",
+        "partial": "已保留可用主张，并移除或降级缺乏证据的内容。",
+        "failed": "服务返回结果不可用；任何确定性 token 和证据都未被替换。",
+        "unsupported": "所选引擎无法执行设计语言解读。"
+      },
+      "taskContext": "任务级 Agent 上下文",
+      "taskContextHelp": "描述你要实现的 UI；印记只会复制相关规则、token、证据摘要与限制。",
+      "taskPlaceholder": "例如：实现响应式账户设置页",
+      "copyContext": "复制上下文",
+      "copyBrief": "复制 AI 重构简报",
+      "validation": "确定性验证",
+      "validationHelp": "渲染白名单中性场景，再分别检查 token、规则、状态、对比度与布局，不输出不透明的单一评分。",
+      "safePreview": "安全配方预览",
+      "previewRegion": "预览区域：{{region}}",
+      "failureLayer": "失败层级：{{layer}}",
+      "layers": {
+        "evidence": "证据",
+        "interpretation": "解读",
+        "generation": "生成"
+      },
+      "scenarios": {
+        "workflow": "工作流",
+        "content": "内容",
+        "states": "状态"
+      },
+      "previewContent": {
+        "title": "创建新项目",
+        "description": "检查信息并确认下一步操作。",
+        "summary": "用于检查层级、节奏与表面处理的中性内容区块。",
+        "confirm": "确认",
+        "cancel": "取消",
+        "field": "示例字段",
+        "error": "请检查此内容"
+      },
+      "checks": {
+        "profile-grounding": {
+          "rule": "迁移规则保留证据引用",
+          "passed": "每条必须保持规则都保留了至少一个已校验证据引用。",
+          "failed": "至少一条必须保持规则没有证据引用。",
+          "suggestion": "移除不受支持的规则，或基于补充证据重新解读。"
+        },
+        "token-spacing": {
+          "rule": "只使用已观察的间距值",
+          "passed": "配方中的所有间距都来自提取的间距 token。",
+          "failed": "配方中包含超出间距刻度的值。",
+          "suggestion": "使用已提取的间距值替换超出刻度的值。"
+        },
+        "rule-references": {
+          "rule": "只引用经过校验的 DesignProfile 规则",
+          "passed": "所有规则引用都存在。",
+          "failed": "至少一个规则引用不存在。",
+          "suggestion": "移除不在已校验 Profile 中的引用。"
+        },
+        "state-coverage": {
+          "rule": "状态场景包含聚焦和错误表面",
+          "passed": "状态配方包含聚焦和错误字段。",
+          "failed": "状态配方缺少聚焦或错误覆盖。",
+          "unknown": "此场景不执行完整状态验证。",
+          "suggestion": "在状态配方中加入白名单聚焦与错误字段状态。"
+        },
+        "text-contrast": {
+          "rule": "主要文字和表面颜色达到 WCAG AA 对比度",
+          "passed": "推断的主要颜色组合达到 4.5:1 门槛。",
+          "failed": "推断的主要颜色组合低于 4.5:1 门槛。",
+          "unknown": "无法可靠识别主要文字与表面 token 组合。",
+          "suggestion": "选择对比度更高的已提取前景色与表面色。"
+        },
+        "horizontal-overflow": {
+          "rule": "中性验证配方避免固定宽度横向溢出",
+          "passed": "白名单布局使用有界响应式列，且没有固定宽度。",
+          "failed": "配方要求超过四列。",
+          "suggestion": "将验证网格缩减为不超过四个响应式列。"
+        },
+        "reduced-motion": {
+          "rule": "中性验证配方在减少动态效果时仍可使用",
+          "passed": "白名单配方不包含必需动画或依赖时间的交互。"
+        }
+      }
+    },
+    "overview": {
+      "capability": "当前结果",
+      "title": "已观察的设计证据",
+      "evidenceOnlyDescription": "此概览只包含浏览器观察事实和确定性结构，不声称已经生成 AI 视觉主张、标志性手法或迁移规则。",
+      "legacyTitle": "此记录没有 Design Evidence",
+      "legacyDescription": "这条分析创建于 Design Evidence 协议之前；已保存的 token 和实现导出仍可正常使用。",
+      "coverageTitle": "证据覆盖",
+      "pages": "来源页面",
+      "sections": "区块",
+      "components": "组件实例",
+      "viewports": "视口",
+      "interactions": "安全交互",
+      "media": "已分类媒体",
+      "topologyTitle": "页面拓扑",
+      "sectionCoverage": "{{percent}}% 的页面证据包含已识别区块",
+      "noSections": "未识别到可靠区块",
+      "statesTitle": "状态与响应式行为",
+      "statesSummary": "已记录 {{passive}} 条被动状态规则、{{active}} 条安全主动观察和 {{responsive}} 条响应式区块差异。",
+      "limitationsTitle": "证据限制",
+      "noLimitations": "没有记录证据限制。",
+      "sourceCoverage": "{{sections}} 个区块 · {{components}} 个组件实例 · {{viewports}} 个视口",
+      "pageRoles": {
+        "landing": "落地页",
+        "content": "内容页",
+        "product": "产品页",
+        "pricing": "定价页",
+        "account": "账户页",
+        "unknown": "未知角色"
+      },
+      "sectionRoles": {
+        "header": "页头",
+        "navigation": "导航",
+        "hero": "首屏",
+        "content": "内容",
+        "feature-group": "功能组",
+        "media": "媒体",
+        "action": "操作",
+        "footer": "页脚",
+        "unknown": "未知"
+      },
+      "limitations": {
+        "fewerPages": "网站提供的可用同站页面少于请求数量。",
+        "singleViewport": "本次只采集了一个视口，无法比较响应式结构。",
+        "noSections": "没有区块边界达到确定性识别门槛。",
+        "noActiveInteractions": "部分安全交互候选因超过观察预算，或无法可靠恢复而被跳过。",
+        "noMedia": "已采集页面中没有识别到主要媒体区域。",
+        "unknown": "{{limitation}}"
+      }
     },
     "viewports": {
       "desktop": "桌面",
@@ -661,7 +876,15 @@
       "provider": "LLM 厂商",
       "selectProvider": "选择厂商...",
       "apiKey": "API Key",
+      "model": "模型",
+      "modelPlaceholder": "使用厂商默认模型",
+      "modelHint": "留空时使用印记内置的厂商默认值；端点要求固定模型时请填写精确模型 ID。",
       "baseUrl": "Base URL",
+      "customVision": "此自定义模型支持图片输入",
+      "customVisionHint": "仅在 OpenAI 兼容端点和所选模型都支持内联图片时启用。",
+      "visionConsent": "允许发送公开页面截图进行视觉解读",
+      "visionConsentHint": "当所选模型支持图片时，印记可将匿名公开分析中的少量截图发送给 {{provider}}。登录页面始终只使用结构化证据。",
+      "agentCliStructuralHint": "Agent CLI 设计解读只使用结构化证据。除非未来明确加入附件能力，否则不会向 CLI 提供截图文件。",
       "testConnection": "测试连接",
       "testFailed": "连接测试失败",
       "testing": "测试中...",
@@ -700,6 +923,10 @@
     "enhancingWithAi": "AI 语义增强...",
     "discoveringPages": "正在发现站内页面...",
     "analyzingPage": "正在分析第 {{current}}/{{total}} 页...",
+    "interpretingDesignLanguage": "正在解读设计语言...",
+    "validatingDesignLanguage": "正在验证设计语言配方...",
+    "designLanguageFallback": "设计解读降级，正在保留确定性证据...",
+    "designLanguageComplete": "设计语言解读完成",
     "done": "完成"
   },
   "preview": {

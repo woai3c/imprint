@@ -42,18 +42,23 @@
     "emptyTitle": "Enter a URL to start analyzing",
     "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
     "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
-    "tabPreview": "Design Tokens",
+    "tabOverview": "Overview",
+    "tabPreview": "Tokens",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS Variables",
     "tabJson": "Tokens JSON",
+    "tabProfile": "Profile JSON",
+    "tabEvidence": "Evidence JSON",
     "copyCurrent": "Copy {{format}}",
     "exportCurrent": "Export {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
       "tailwind": "Tailwind v4",
       "css": "CSS variables",
-      "json": "Tokens JSON"
+      "json": "Tokens JSON",
+      "profile": "Design Profile JSON",
+      "evidence": "Design Evidence JSON"
     },
     "aiExport": {
       "title": "Use with AI Coding Agents",
@@ -69,6 +74,13 @@
       "option": "Up to {{count}} pages",
       "help": "Default: 3 (choose 1–5). Includes this URL and same-site pages; if fewer exist, only those are analyzed."
     },
+    "depth": {
+      "label": "Depth",
+      "standard": "Standard",
+      "deep": "Deep",
+      "standardHelp": "Desktop and mobile evidence with up to six restorable active observations.",
+      "deepHelp": "Desktop, tablet, and mobile evidence with a larger bounded interaction budget."
+    },
     "evidence": {
       "title": "Analyzed pages",
       "summary": "{{pages}} pages · {{screenshots}} screenshots",
@@ -81,6 +93,209 @@
       "prevScreenshot": "Previous screenshot",
       "nextScreenshot": "Next screenshot",
       "counter": "{{current}} / {{total}}"
+    },
+    "evidenceDetail": {
+      "title": "Evidence detail",
+      "close": "Close evidence detail",
+      "noRegion": "This evidence is not linked to a specific screenshot region.",
+      "kinds": {
+        "page": "Page",
+        "image": "Screenshot",
+        "section": "Section",
+        "component": "Component",
+        "layout": "Layout node",
+        "media": "Media layer",
+        "interaction": "Interaction state",
+        "responsive": "Responsive change",
+        "layer": "Topology layer",
+        "pattern": "Cross-page pattern",
+        "target": "Interaction target",
+        "unknown": "Evidence"
+      },
+      "fields": {
+        "role": "Role",
+        "layoutMode": "Layout mode",
+        "driver": "Driver",
+        "trigger": "Trigger",
+        "changed": "Changed properties",
+        "changeType": "Change type",
+        "summary": "Summary",
+        "url": "URL",
+        "viewport": "Viewport",
+        "section": "Section"
+      }
+    },
+    "designDna": {
+      "title": "Design DNA",
+      "thesis": "Design thesis",
+      "signatureMoves": "Signature moves",
+      "composition": "Composition",
+      "attention": "Attention hierarchy",
+      "visualLanguage": "Visual language",
+      "interactionLanguage": "Interaction language",
+      "sectionGrammar": "Section grammar",
+      "componentGrammar": "Component grammar",
+      "patterns": "Transferable patterns",
+      "sourceInstances": "{{count}} source instances",
+      "preserve": "Preserve",
+      "adapt": "Adapt",
+      "avoid": "Avoid",
+      "uncertainties": "Uncertainties",
+      "retry": "Retry interpretation",
+      "reinterpret": "Re-interpret design language",
+      "interpretManaged": "Interpret structure",
+      "managedNotice": "This signed-in analysis may contain account or internal information. Nothing is sent to the configured AI until you explicitly request structural interpretation; screenshots are never sent.",
+      "cancel": "Cancel",
+      "cancelledNotice": "Design DNA interpretation was cancelled; deterministic evidence remains available.",
+      "completeNotice": "Design DNA interpretation is ready.",
+      "fallbackNotice": "Design DNA interpretation was unavailable. Deterministic evidence and exports remain available.",
+      "confidence": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "status": {
+        "not-configured": "Design DNA is not configured",
+        "not-requested": "Design DNA was not requested",
+        "pending": "Interpreting design language",
+        "cancelled": "Design DNA interpretation cancelled",
+        "complete": "Design DNA complete",
+        "partial": "Design DNA complete with limitations",
+        "failed": "Design DNA interpretation failed",
+        "unsupported": "Design DNA is unsupported"
+      },
+      "statusDescription": {
+        "not-configured": "Configure an API provider or Agent CLI in Settings. Browser evidence and implementation exports do not require AI.",
+        "not-requested": "Only deterministic browser evidence was requested.",
+        "pending": "The extracted result is already usable while interpretation continues separately.",
+        "cancelled": "The AI task was cancelled. Deterministic evidence and implementation exports remain available.",
+        "complete": "Claims were validated against stable evidence references.",
+        "partial": "Usable claims were kept; unsupported or weak claims were removed or downgraded.",
+        "failed": "The provider result could not be used. No deterministic token or evidence was replaced.",
+        "unsupported": "The selected engine cannot run this interpretation."
+      },
+      "taskContext": "Task-specific agent context",
+      "taskContextHelp": "Describe the UI you are building. Imprint will copy only the relevant rules, tokens, evidence summary, and limitations.",
+      "taskPlaceholder": "Example: Build a responsive account settings page",
+      "copyContext": "Copy context",
+      "copyBrief": "Copy reconstruction brief",
+      "validation": "Deterministic validation",
+      "validationHelp": "Render an allowlisted neutral scenario, then check tokens, rules, states, contrast, and layout without a single opaque score.",
+      "safePreview": "Safe recipe preview",
+      "previewRegion": "Preview: {{region}}",
+      "failureLayer": "Failure layer: {{layer}}",
+      "layers": {
+        "evidence": "evidence",
+        "interpretation": "interpretation",
+        "generation": "generation"
+      },
+      "scenarios": {
+        "workflow": "Workflow",
+        "content": "Content",
+        "states": "States"
+      },
+      "previewContent": {
+        "title": "Create a new item",
+        "description": "Review the information and confirm the next step.",
+        "summary": "A neutral content block for checking hierarchy, rhythm, and surface treatment.",
+        "confirm": "Confirm",
+        "cancel": "Cancel",
+        "field": "Example field",
+        "error": "Review this value"
+      },
+      "checks": {
+        "profile-grounding": {
+          "rule": "Transferred rules retain evidence citations",
+          "passed": "Every preserve rule retains at least one validated evidence citation.",
+          "failed": "At least one preserve rule has no evidence citation.",
+          "suggestion": "Remove the unsupported rule or reinterpret it from additional evidence."
+        },
+        "token-spacing": {
+          "rule": "Use only observed spacing values",
+          "passed": "All recipe gaps use extracted spacing tokens.",
+          "failed": "The recipe contains an off-scale gap.",
+          "suggestion": "Replace off-scale gaps with extracted spacing values."
+        },
+        "rule-references": {
+          "rule": "Reference only validated DesignProfile rules",
+          "passed": "Every rule reference exists.",
+          "failed": "At least one rule reference does not exist.",
+          "suggestion": "Remove references that are not present in the validated profile."
+        },
+        "state-coverage": {
+          "rule": "State scenarios include focus and error surfaces",
+          "passed": "The state recipe includes focus and error fields.",
+          "failed": "The state recipe is missing focus or error coverage.",
+          "unknown": "This scenario does not attempt full state validation.",
+          "suggestion": "Add allowlisted focus and error field states to the state recipe."
+        },
+        "text-contrast": {
+          "rule": "Primary text and surface colors meet WCAG AA contrast",
+          "passed": "The inferred primary pair meets the 4.5:1 threshold.",
+          "failed": "The inferred primary pair is below the 4.5:1 threshold.",
+          "unknown": "A reliable primary text/surface token pair could not be identified.",
+          "suggestion": "Choose a higher-contrast extracted foreground/surface pair."
+        },
+        "horizontal-overflow": {
+          "rule": "Neutral validation recipes avoid fixed-width horizontal overflow",
+          "passed": "The allowlisted layout uses bounded responsive columns and no fixed width.",
+          "failed": "The recipe requests more than four columns.",
+          "suggestion": "Reduce the validation grid to four or fewer responsive columns."
+        },
+        "reduced-motion": {
+          "rule": "The neutral validation recipe remains usable with reduced motion",
+          "passed": "The allowlisted recipe contains no required animation or time-dependent interaction."
+        }
+      }
+    },
+    "overview": {
+      "capability": "Current result",
+      "title": "Observed design evidence",
+      "evidenceOnlyDescription": "This overview contains browser-observed facts and deterministic structure. It does not claim an AI visual thesis, signature moves, or transfer rules.",
+      "legacyTitle": "Design evidence is unavailable for this record",
+      "legacyDescription": "This analysis predates the Design Evidence schema. Its saved tokens and implementation exports remain available.",
+      "coverageTitle": "Evidence coverage",
+      "pages": "source pages",
+      "sections": "sections",
+      "components": "component instances",
+      "viewports": "viewports",
+      "interactions": "safe interactions",
+      "media": "classified media",
+      "topologyTitle": "Page topology",
+      "sectionCoverage": "{{percent}}% of captures include detected sections",
+      "noSections": "No reliable sections detected",
+      "statesTitle": "States and responsive behavior",
+      "statesSummary": "{{passive}} passive state rules, {{active}} safe active observations, and {{responsive}} responsive section differences were recorded.",
+      "limitationsTitle": "Evidence limitations",
+      "noLimitations": "No evidence limitations were recorded.",
+      "sourceCoverage": "{{sections}} sections · {{components}} component instances · {{viewports}} viewports",
+      "pageRoles": {
+        "landing": "Landing",
+        "content": "Content",
+        "product": "Product",
+        "pricing": "Pricing",
+        "account": "Account",
+        "unknown": "Unknown role"
+      },
+      "sectionRoles": {
+        "header": "Header",
+        "navigation": "Navigation",
+        "hero": "Hero",
+        "content": "Content",
+        "feature-group": "Feature group",
+        "media": "Media",
+        "action": "Action",
+        "footer": "Footer",
+        "unknown": "Unknown"
+      },
+      "limitations": {
+        "fewerPages": "The website exposed fewer usable same-site pages than requested.",
+        "singleViewport": "Only one viewport was captured, so responsive structure could not be compared.",
+        "noSections": "No section boundary met the deterministic confidence threshold.",
+        "noActiveInteractions": "Some safe interaction candidates were skipped because they exceeded the observation budget or could not be restored reliably.",
+        "noMedia": "No major media region was detected in the captured pages.",
+        "unknown": "{{limitation}}"
+      }
     },
     "viewports": {
       "desktop": "Desktop",
@@ -706,7 +921,15 @@
       "provider": "LLM Provider",
       "selectProvider": "Select provider...",
       "apiKey": "API Key",
+      "model": "Model",
+      "modelPlaceholder": "Use provider default",
+      "modelHint": "Leave blank to use Imprint's provider default. Set an exact model ID when your endpoint requires one.",
       "baseUrl": "Base URL",
+      "customVision": "This custom model accepts image input",
+      "customVisionHint": "Enable only when the OpenAI-compatible endpoint and selected model support inline image input.",
+      "visionConsent": "Allow public-page screenshots for visual interpretation",
+      "visionConsentHint": "When the selected model supports images, Imprint may send a limited set of screenshots from anonymous public analyses to {{provider}}. Signed-in pages are always structural-only.",
+      "agentCliStructuralHint": "Agent CLI interpretation is structural-only. It receives a bounded evidence package without screenshot files unless attachment support is added explicitly.",
       "testConnection": "Test Connection",
       "testFailed": "Connection test failed",
       "testing": "Testing...",
@@ -745,6 +968,10 @@
     "enhancingWithAi": "AI semantic enhancement...",
     "discoveringPages": "Discovering site pages...",
     "analyzingPage": "Analyzing page {{current}}/{{total}}...",
+    "interpretingDesignLanguage": "Interpreting design language...",
+    "validatingDesignLanguage": "Validating the design-language recipe...",
+    "designLanguageFallback": "Keeping deterministic evidence after interpretation fallback...",
+    "designLanguageComplete": "Design language interpretation complete",
     "done": "Done"
   },
   "preview": {

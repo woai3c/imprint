@@ -78,10 +78,28 @@ function runMigrations() {
     ['access_mode', `TEXT`],
     ['auth_wall_detected', `INTEGER DEFAULT 0`],
     ['final_url', `TEXT`],
+    ['design_evidence_json', `TEXT`],
+    ['evidence_coverage_json', `TEXT`],
+    ['design_profile_json', `TEXT`],
+    ['design_intelligence_status', `TEXT NOT NULL DEFAULT 'not-requested'`],
+    ['design_intelligence_meta_json', `TEXT`],
+    ['validation_report_json', `TEXT`],
   ]
   for (const [name, definition] of analysisResultColumns) {
     if (!analysisColumns.includes(name)) {
       db.exec(`ALTER TABLE analyses ADD COLUMN ${name} ${definition}`)
     }
+  }
+
+  const themeColumns = (db.prepare(`PRAGMA table_info(themes)`).all() as Array<{ name: string }>).map(
+    (column) => column.name,
+  )
+  const themeIntelligenceColumns: Array<[string, string]> = [
+    ['design_evidence_json', `TEXT`],
+    ['design_profile_json', `TEXT`],
+    ['design_intelligence_meta_json', `TEXT`],
+  ]
+  for (const [name, definition] of themeIntelligenceColumns) {
+    if (!themeColumns.includes(name)) db.exec(`ALTER TABLE themes ADD COLUMN ${name} ${definition}`)
   }
 }

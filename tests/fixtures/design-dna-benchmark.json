@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "1",
+  "description": "Local benchmark descriptors for deterministic evidence and DesignProfile regression tests. No third-party assets are bundled.",
+  "annotationLegend": {
+    "family": "Human-labelled content and product topology family.",
+    "viewports": "Required deterministic capture coverage.",
+    "traits": "Human-labelled signature structure, media, density, or interaction observations. Each case must preserve at least two traits in transfer rules and cite their source evidence.",
+    "safeInteractionExpectation": "Fixtures in an interactive family must expose only restorable tabs, disclosures, dialogs, or passive CSS states."
+  },
+  "artifactExpectations": {
+    "evidence-only": ["topology", "sections", "components", "coverage", "limitations"],
+    "structural-ai": ["thesis", "signatureMoves", "transferRules", "agentContext"],
+    "multimodal-ai": ["visualLanguage", "attention", "regionEvidence", "uncertainties"]
+  },
+  "reviewRubric": [
+    "groundedness",
+    "specificity",
+    "executability",
+    "transferability",
+    "distinctiveness",
+    "restraint",
+    "safety"
+  ],
+  "cases": [
+    {
+      "id": "editorial-airy",
+      "family": "editorial",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["large-type", "asymmetric-grid", "quiet-actions"]
+    },
+    {
+      "id": "editorial-dense",
+      "family": "editorial",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["compact-type", "multi-column", "rule-lines"]
+    },
+    {
+      "id": "commerce-minimal",
+      "family": "commerce",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["product-grid", "neutral-surface", "strong-primary-action"]
+    },
+    {
+      "id": "commerce-expressive",
+      "family": "commerce",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["oversized-media", "accent-fields", "sticky-purchase"]
+    },
+    {
+      "id": "dashboard-compact",
+      "family": "product",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["dense-table", "persistent-nav", "status-colors"]
+    },
+    {
+      "id": "dashboard-spacious",
+      "family": "product",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["card-grid", "wide-gutters", "quiet-chrome"]
+    },
+    {
+      "id": "docs-hierarchical",
+      "family": "content",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["three-pane", "code-surfaces", "sticky-outline"]
+    },
+    {
+      "id": "docs-linear",
+      "family": "content",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["single-column", "progressive-disclosure", "inline-navigation"]
+    },
+    {
+      "id": "portfolio-cinematic",
+      "family": "narrative",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["full-bleed-media", "scroll-sequence", "overlay-type"]
+    },
+    {
+      "id": "portfolio-modular",
+      "family": "narrative",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["project-cards", "modular-grid", "caption-rhythm"]
+    },
+    {
+      "id": "landing-technical",
+      "family": "marketing",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["diagram-hero", "proof-bands", "code-demo"]
+    },
+    {
+      "id": "landing-human",
+      "family": "marketing",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["portrait-media", "warm-palette", "testimonial-rhythm"]
+    },
+    {
+      "id": "pricing-comparison",
+      "family": "marketing",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["plan-grid", "featured-plan", "feature-matrix"]
+    },
+    {
+      "id": "pricing-configurator",
+      "family": "marketing",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["slider-input", "live-summary", "sticky-action"]
+    },
+    {
+      "id": "account-formal",
+      "family": "account",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["sectioned-form", "subdued-nav", "explicit-save"]
+    },
+    {
+      "id": "account-conversational",
+      "family": "account",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["guided-steps", "helper-copy", "soft-feedback"]
+    },
+    {
+      "id": "media-gallery",
+      "family": "media",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["masonry", "lightbox", "filter-tabs"]
+    },
+    {
+      "id": "media-story",
+      "family": "media",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["chapter-scroll", "ambient-video", "caption-overlays"]
+    },
+    {
+      "id": "community-feed",
+      "family": "social",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["repeated-cards", "reaction-states", "composer"]
+    },
+    {
+      "id": "community-forum",
+      "family": "social",
+      "viewports": ["desktop", "mobile"],
+      "traits": ["topic-table", "metadata-density", "nested-replies"]
+    }
+  ]
+}

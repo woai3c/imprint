@@ -6,11 +6,15 @@ import { useTranslation } from 'react-i18next'
 interface ScreenshotLightboxProps {
   images: string[]
   index: number
+  highlight?: {
+    rect: { x: number; y: number; width: number; height: number }
+    label: string
+  }
   onIndexChange: (index: number) => void
   onClose: () => void
 }
 
-export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: ScreenshotLightboxProps) {
+export function ScreenshotLightbox({ images, index, highlight, onIndexChange, onClose }: ScreenshotLightboxProps) {
   const { t } = useTranslation()
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -54,7 +58,7 @@ export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: Sc
     }
   }
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLImageElement>) => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (scale <= 1) return
     event.preventDefault()
     event.stopPropagation()
@@ -69,7 +73,7 @@ export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: Sc
     setDragging(true)
   }
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     event.preventDefault()
@@ -79,7 +83,7 @@ export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: Sc
     })
   }
 
-  const handlePointerEnd = (event: ReactPointerEvent<HTMLImageElement>) => {
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -170,24 +174,44 @@ export function ScreenshotLightbox({ images, index, onIndexChange, onClose }: Sc
           <span className="border-l border-white/20 pl-2 text-xs text-white/80">{t('analyze.evidence.dragHint')}</span>
         )}
       </div>
-      <img
-        data-testid="analysis-screenshot-lightbox-image"
-        src={src}
-        alt={t('analyze.evidence.lightboxAlt')}
-        draggable={false}
-        className={`max-h-[90vh] max-w-[90vw] touch-none select-none rounded-lg object-contain shadow-2xl ${
+      <div
+        className={`relative touch-none select-none ${
           scale > 1 ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
         } ${dragging ? '' : 'transition-transform duration-150'}`}
         style={{
           transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${scale})`,
         }}
         onClick={(e) => e.stopPropagation()}
-        onDragStart={(e) => e.preventDefault()}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
-      />
+      >
+        <img
+          data-testid="analysis-screenshot-lightbox-image"
+          src={src}
+          alt={t('analyze.evidence.lightboxAlt')}
+          draggable={false}
+          className="block max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+          onDragStart={(e) => e.preventDefault()}
+        />
+        {highlight && (
+          <div
+            data-testid="analysis-evidence-highlight"
+            className="pointer-events-none absolute rounded border-2 border-amber-300 bg-amber-300/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.16)]"
+            style={{
+              left: `${highlight.rect.x * 100}%`,
+              top: `${highlight.rect.y * 100}%`,
+              width: `${highlight.rect.width * 100}%`,
+              height: `${highlight.rect.height * 100}%`,
+            }}
+          >
+            <span className="absolute -top-7 left-0 max-w-64 truncate rounded bg-amber-300 px-2 py-1 font-mono text-[10px] text-black">
+              {highlight.label}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

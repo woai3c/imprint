@@ -1,8 +1,15 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
+import {
+  type CapturedPageEvidence,
+  buildDesignEvidence,
+  extractPageEvidence,
+  observeSafeInteractions,
+} from '../design-evidence/index.js'
 import { detectAuthWall } from './auth-wall.js'
 import { findBrowser } from './browser-finder.js'
 import { getManagedProfileDir, hasManagedProfile, markManagedSession } from './browser-session.js'
@@ -32,6 +39,7 @@ import type {
 export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 export type { AuthWallDetection, AuthWallReason } from './auth-wall.js'
+export type { DesignEvidence } from '../design-evidence/types.js'
 export { findBrowser } from './browser-finder.js'
 export {
   AuthenticationBrowserClosedError,
@@ -113,6 +121,18 @@ async function navigatePage(page: Page, url: string, timeout = 30000): Promise<n
   return response?.status()
 }
 
+function mergeInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
+  for (const kind of ['hover', 'focus', 'active'] as const) {
+    const seen = new Set(target[kind].map((styles) => JSON.stringify(styles)))
+    for (const styles of source[kind]) {
+      const fingerprint = JSON.stringify(styles)
+      if (seen.has(fingerprint)) continue
+      target[kind].push(styles)
+      seen.add(fingerprint)
+    }
+  }
+}
+
 /**
  * Core analysis engine — no Electron dependency.
  * Accepts a `dataDir` for file output (screenshots, session cache).
@@ -123,7 +143,8 @@ export async function analyze(
   onProgress?: (step: string, percent: number) => void,
 ): Promise<AnalysisResult> {
   const startTime = Date.now()
-  const viewportNames = options.viewports || ['desktop']
+  const analysisId = randomUUID()
+  const viewportNames = options.viewports || ['desktop', 'mobile']
   const pageLimit = Math.min(5, Math.max(1, Math.floor(options.maxPages ?? 3)))
   const screenshotDir = path.join(options.dataDir, 'screenshots')
   if (!fs.existsSync(screenshotDir)) {
@@ -261,7 +282,8 @@ export async function analyze(
     const allStyles: ExtractedStyles[] = []
     const screenshots: string[] = []
     const pageScreenshots: PageScreenshot[] = []
-    let allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
+    const capturedPageEvidence: CapturedPageEvidence[] = []
+    const allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
     let darkModeResult: DarkModeResult | null = null
     let components: ComponentPattern[] = []
     let breakpoints: ResponsiveBreakpoint[] = []
@@ -285,9 +307,8 @@ export async function analyze(
       const styles = await extractStyles(page)
       allStyles.push(styles)
 
-      if (i === 0) {
-        allInteractions = await extractInteractionStyles(page)
-      }
+      const pageInteractionStyles = await extractInteractionStyles(page)
+      mergeInteractionStyles(allInteractions, pageInteractionStyles)
 
       if (i === 0 && options.extractDarkMode !== false) {
         darkModeResult = await extractDarkMode(page)
@@ -301,12 +322,75 @@ export async function analyze(
       }
 
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
+      const evidenceSnapshot = await extractPageEvidence(page, vpName)
+      const interactionObservations =
+        i === 0 && accessMode === 'anonymous' && !authDetection.detected
+          ? await observeSafeInteractions(page, evidenceSnapshot, options.depth === 'deep' ? 12 : 6)
+          : []
+      const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
+      if (i === 0 || vpName === 'mobile') {
+        const viewportPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-viewport.png`)
+        await page.screenshot({ path: viewportPath, fullPage: false })
+        supplementalImages.push({
+          kind: 'viewport-crop',
+          path: viewportPath,
+          width: viewport.width,
+          height: viewport.height,
+          sourceRect: {
+            x: 0,
+            y: 0,
+            width: Math.min(1, viewport.width / evidenceSnapshot.width),
+            height: Math.min(1, viewport.height / evidenceSnapshot.height),
+          },
+        })
+      }
+      if (i === 0) {
+        const representativeSections = [...evidenceSnapshot.sections]
+          .sort((first, second) => {
+            const priority = (role: string) => (role === 'hero' ? 3 : role === 'media' ? 2 : role === 'action' ? 1 : 0)
+            return (
+              priority(second.role) - priority(first.role) ||
+              second.rect.width * second.rect.height - first.rect.width * first.rect.height
+            )
+          })
+          .slice(0, 2)
+        for (let sectionIndex = 0; sectionIndex < representativeSections.length; sectionIndex += 1) {
+          const section = representativeSections[sectionIndex]
+          const clip = {
+            x: Math.max(0, section.rect.x * evidenceSnapshot.width),
+            y: Math.max(0, section.rect.y * evidenceSnapshot.height),
+            width: Math.max(1, section.rect.width * evidenceSnapshot.width),
+            height: Math.max(1, section.rect.height * evidenceSnapshot.height),
+          }
+          const regionPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-region-${sectionIndex + 1}.png`)
+          try {
+            await page.screenshot({ path: regionPath, clip })
+            supplementalImages.push({
+              kind: 'region-crop',
+              path: regionPath,
+              width: Math.round(clip.width),
+              height: Math.round(clip.height),
+              sourceRect: section.rect,
+            })
+          } catch {
+            // Full-page evidence remains available when a dynamic region cannot be clipped reliably.
+          }
+        }
+      }
       await page.screenshot({ path: screenshotPath, fullPage: true })
       screenshots.push(screenshotPath)
-      pageScreenshots.push({
+      const pageScreenshot = {
         url: page.url(),
         path: screenshotPath,
         viewport: vpName,
+      }
+      pageScreenshots.push(pageScreenshot)
+      capturedPageEvidence.push({
+        screenshot: pageScreenshot,
+        snapshot: evidenceSnapshot,
+        interactionStyles: pageInteractionStyles,
+        interactionObservations,
+        supplementalImages,
       })
 
       if (page !== initialPage) await page.close()
@@ -352,14 +436,23 @@ export async function analyze(
 
           const subStyles = await extractStyles(subPage)
           allStyles.push(subStyles)
+          const pageInteractionStyles = await extractInteractionStyles(subPage)
+          mergeInteractionStyles(allInteractions, pageInteractionStyles)
 
           const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}.png`)
+          const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
           await subPage.screenshot({ path: screenshotPath, fullPage: true })
           screenshots.push(screenshotPath)
-          pageScreenshots.push({
+          const pageScreenshot = {
             url: subPage.url(),
             path: screenshotPath,
             viewport: mainViewportName,
+          }
+          pageScreenshots.push(pageScreenshot)
+          capturedPageEvidence.push({
+            screenshot: pageScreenshot,
+            snapshot: evidenceSnapshot,
+            interactionStyles: pageInteractionStyles,
           })
         } catch {
           // Sub-page failed to load, skip it
@@ -378,11 +471,27 @@ export async function analyze(
     onProgress?.('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(mergedStyles, clusteredColors)
     const featureTags = generateFeatureTags(tokens, mergedStyles)
+    const designEvidence = buildDesignEvidence({
+      analysisId,
+      requestedUrl: url,
+      finalUrl,
+      accessMode,
+      authWallDetected,
+      expectedPageCount: pageLimit,
+      tokens,
+      featureTags,
+      interactionStyles: allInteractions,
+      breakpoints,
+      motion,
+      captures: capturedPageEvidence,
+    })
 
     onProgress?.('progress.done', 100)
 
     return {
+      analysisId,
       tokens,
+      designEvidence,
       screenshots,
       pageScreenshots,
       rawStyles: mergedStyles,

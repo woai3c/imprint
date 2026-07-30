@@ -9,6 +9,8 @@ import { chromium } from 'playwright-core'
 
 import { findBrowser } from '../../dist/core/analyzer/browser-finder.js'
 import { detectComponents } from '../../dist/core/analyzer/component-detect.js'
+import { observeSafeInteractions } from '../../dist/core/design-evidence/interaction-observer.js'
+import { extractPageEvidence } from '../../dist/core/design-evidence/page-extractor.js'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixturePath = path.join(repoRoot, 'tests', 'e2e', 'fixtures', 'design-system.html')
@@ -16,10 +18,12 @@ const fixturePath = path.join(repoRoot, 'tests', 'e2e', 'fixtures', 'design-syst
 let browser
 let fixtureServer
 let fixtureUrl
+let unsafeWriteRequests = 0
 
 before(async () => {
   const fixture = await fs.readFile(fixturePath)
-  fixtureServer = http.createServer((_request, response) => {
+  fixtureServer = http.createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/unsafe-write') unsafeWriteRequests += 1
     response.writeHead(200, {
       'cache-control': 'no-store',
       'content-length': fixture.length,
@@ -66,7 +70,7 @@ test('detects visible semantic components and a visually bounded card', async ()
   const components = await detectComponents(page)
   const byType = new Map(components.map((component) => [component.type, component]))
 
-  assert.equal(byType.get('button')?.count, 1)
+  assert.equal(byType.get('button')?.count, 4)
   assert.ok((byType.get('button')?.confidence || 0) >= 0.95)
   assert.deepEqual(byType.get('button')?.evidence, ['native-element'])
 
@@ -78,5 +82,19 @@ test('detects visible semantic components and a visually bounded card', async ()
   assert.ok(byType.get('card')?.evidence.includes('border-boundary'))
 
   assert.equal(byType.has('modal'), false, 'Hidden dialogs must not be reported')
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  assert.equal(evidence.interactionCandidates.length, 2)
+  assert.equal(evidence.interactionCandidates[0].kind, 'disclosure')
+  for (const candidate of evidence.interactionCandidates) {
+    assert.equal(
+      await page.locator(candidate.locator).evaluate((element) => Boolean(element.closest('form'))),
+      false,
+      'Form controls must never enter the safe active-interaction allowlist',
+    )
+  }
+  const observations = await observeSafeInteractions(page, evidence, 10)
+  assert.equal(observations.length, 1, 'Only the restorable local disclosure should produce active evidence')
+  assert.equal(unsafeWriteRequests, 0, 'Non-GET side effects must be blocked before reaching the fixture server')
   await page.close()
 })

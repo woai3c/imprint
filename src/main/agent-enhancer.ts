@@ -80,6 +80,7 @@ function executeFile(
   cwd: string,
   env: NodeJS.ProcessEnv,
   input?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -92,6 +93,7 @@ function executeFile(
         maxBuffer: AGENT_MAX_OUTPUT_BYTES,
         timeout: AGENT_TIMEOUT_MS,
         windowsHide: true,
+        signal,
       },
       (error, stdout) => {
         if (error) {
@@ -122,6 +124,7 @@ async function executeWindowsCommand(
   invocation: AgentInvocation,
   prompt: string,
   runtimeDir: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!/\.(?:cmd|bat)$/i.test(executable)) {
     const args = invocation.promptMode === 'argument' ? [...invocation.args, prompt] : invocation.args
@@ -131,6 +134,7 @@ async function executeWindowsCommand(
       runtimeDir,
       executionEnvironment(),
       invocation.promptMode === 'stdin' ? prompt : undefined,
+      signal,
     )
   }
 
@@ -159,16 +163,23 @@ async function executeWindowsCommand(
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
     runtimeDir,
     env,
+    undefined,
+    signal,
   )
 }
 
-async function executeAgent(command: string, invocation: AgentInvocation, prompt: string): Promise<string> {
+async function executeAgent(
+  command: string,
+  invocation: AgentInvocation,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const runtimeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'imprint-agent-'))
 
   try {
     if (process.platform === 'win32') {
       const executable = await resolveWindowsExecutable(command)
-      return await executeWindowsCommand(executable, invocation, prompt, runtimeDir)
+      return await executeWindowsCommand(executable, invocation, prompt, runtimeDir, signal)
     }
 
     const args = invocation.promptMode === 'argument' ? [...invocation.args, prompt] : invocation.args
@@ -178,9 +189,35 @@ async function executeAgent(command: string, invocation: AgentInvocation, prompt
       runtimeDir,
       executionEnvironment(),
       invocation.promptMode === 'stdin' ? prompt : undefined,
+      signal,
     )
   } finally {
     await fs.rm(runtimeDir, { force: true, recursive: true })
+  }
+}
+
+export async function executeAgentPrompt(
+  command: string,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const invocation = AGENT_INVOCATIONS[command]
+  if (!invocation) {
+    log.error('agent-cli', `task skipped: unsupported command=${command}`)
+    return null
+  }
+  try {
+    return await executeAgent(command, invocation, prompt, signal)
+  } catch (error: unknown) {
+    if (signal?.aborted) throw new DOMException('Agent task cancelled', 'AbortError')
+    const reason =
+      error instanceof Error && 'killed' in error && error.killed
+        ? 'timeout'
+        : error instanceof Error && 'code' in error
+          ? `exit-${String(error.code)}`
+          : 'execution-error'
+    log.error('agent-cli', `task failed: command=${command} reason=${reason}`)
+    return null
   }
 }
 
@@ -189,6 +226,7 @@ export async function enhanceWithAgentCli(
   url: string,
   command: string,
   context: EnhancementContext = {},
+  signal?: AbortSignal,
 ): Promise<LlmEnhancement | null> {
   const invocation = AGENT_INVOCATIONS[command]
   if (!invocation) {
@@ -198,7 +236,8 @@ export async function enhanceWithAgentCli(
 
   const startedAt = Date.now()
   try {
-    const response = await executeAgent(command, invocation, buildEnhancementPrompt(tokens, url, context))
+    const response = await executeAgentPrompt(command, buildEnhancementPrompt(tokens, url, context), signal)
+    if (!response) return null
     const enhancement = parseEnhancementResponse(response)
     if (!enhancement) {
       log.error(
@@ -211,6 +250,7 @@ export async function enhanceWithAgentCli(
     log.info('agent-cli', `enhancement completed: command=${command} durationMs=${Date.now() - startedAt}`)
     return enhancement
   } catch (error: unknown) {
+    if (signal?.aborted) throw new DOMException('Agent enhancement cancelled', 'AbortError')
     const reason =
       error instanceof Error && 'killed' in error && error.killed
         ? 'timeout'

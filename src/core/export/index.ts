@@ -7,6 +7,12 @@ import {
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import type { ComponentPattern } from '../analyzer/component-detect.js'
 import type { DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
+import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
+import type { DesignEvidence } from '../design-evidence/types.js'
+import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
+import type { DesignProfile } from '../design-intelligence/types.js'
+
+export { generateDesignEvidenceJson, generateDesignProfileJson }
 
 const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
 const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
@@ -148,6 +154,9 @@ export function generateDesignDoc(
   _components?: ComponentPattern[],
   language: DocLanguage = 'en',
   exampleComponents: readonly GeneratedExampleComponent[] = [],
+  designEvidence?: DesignEvidence,
+  designProfile?: DesignProfile | null,
+  reconstructionBrief?: string,
 ): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
@@ -174,6 +183,28 @@ export function generateDesignDoc(
   }
 
   lines.push('')
+
+  if (designEvidence) {
+    lines.push(generateDesignEvidenceBrief(designEvidence, language, designProfile?.inputMode))
+    lines.push('')
+  }
+
+  if (designProfile) {
+    lines.push(generateDesignProfileMarkdown(designProfile))
+    lines.push('')
+    if (reconstructionBrief) {
+      lines.push(zh ? '## AI 重构上下文' : '## AI Reconstruction Context')
+      lines.push('')
+      lines.push(
+        zh
+          ? '> 层级：Generated / 已生成。以下简报由代码从已校验 DesignProfile 构造，不能作为来源网站证据。'
+          : '> Layer: Generated. This brief is constructed in code from the validated DesignProfile and is not source-site evidence.',
+      )
+      lines.push('')
+      lines.push(reconstructionBrief)
+      lines.push('')
+    }
+  }
 
   // Colors
   lines.push(zh ? '## 颜色\n' : '## Colors\n')
@@ -291,18 +322,38 @@ export function generateDesignDoc(
     })
   }
 
-  // Design Principles
-  lines.push('')
-  lines.push(generateDesignPrinciples(tokens, language))
+  if (!designEvidence) {
+    lines.push('')
+    lines.push(generateDesignPrinciples(tokens, language))
+  }
 
   if (exampleComponents.length > 0) {
     lines.push('\n---\n')
     lines.push(generateExampleComponents(exampleComponents, language))
   }
 
-  // Agent Prompt Guide
-  lines.push(generateAgentGuide(tokens, url, language))
-  lines.push(generateDosAndDonts(tokens, language))
+  if (designEvidence) {
+    lines.push('')
+    lines.push(zh ? '## 使用这些观察证据' : '## Using These Observations')
+    lines.push('')
+    lines.push(
+      designProfile
+        ? zh
+          ? '- 使用导出的 token 和 CSS 变量实现页面；只把 Design DNA 中经过校验并带证据引用的规则作为可迁移推断。'
+          : '- Implement with the exported tokens and CSS variables; treat only validated, evidence-cited Design DNA rules as transferable inference.'
+        : zh
+          ? '- 使用导出的 token 和 CSS 变量实现页面，不要把区块顺序或单个组件实例误称为可迁移的设计意图。'
+          : '- Implement with the exported tokens and CSS variables; do not present section order or individual component instances as inferred, transferable design intent.',
+    )
+    lines.push(
+      zh
+        ? '- 进行 AI UI 修改时，请同时提供本文件以及当前 UI 的截图或源代码。'
+        : '- For AI-assisted UI revisions, provide this file together with the current UI screenshot or source code.',
+    )
+  } else {
+    lines.push(generateAgentGuide(tokens, url, language))
+    lines.push(generateDosAndDonts(tokens, language))
+  }
 
   return lines.join('\n')
 }

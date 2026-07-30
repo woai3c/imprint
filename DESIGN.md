@@ -155,6 +155,46 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
+## Design Evidence and Design DNA
+
+- Every completed analysis opens on **Overview**. The overview is useful without AI: it shows source coverage, page
+  topology, detected sections, component instances, viewport evidence, observed states, and explicit limitations.
+- Label deterministic browser and code results as **Observed**. Reserve **Inferred** for a validated DesignProfile and
+  **Generated** for reconstruction briefs or validation scenarios. Never present one layer as another.
+- `evidence-only` is a complete supported result, not an error or a setup advertisement. It must state that no AI visual
+  thesis, signature moves, or transfer rules were generated while keeping Tokens, DESIGN.md, implementation exports,
+  and Design Evidence JSON available.
+- Keep Design Evidence JSON separate from Tokens JSON. The former carries source, topology, geometry, component,
+  responsive, state, media, coverage, and limitation facts; the latter remains the portable token artifact.
+- Legacy history records without Design Evidence retain their saved artifacts and show a concise compatibility notice
+  instead of fabricated topology.
+- Page topology is a compact ordered map, not a decorative site diagram. Use localized section roles and preserve the
+  source URL and viewport beside every sequence.
+- Limitations belong beside coverage. Explain missing pages, viewports, media, or safe active interaction observations
+  as evidence boundaries rather than generic warnings.
+- Design DNA runs after deterministic extraction and never blocks the first usable result. Its status card distinguishes
+  pending, complete, partial, failed, and not-configured states; retry reruns only interpretation, never the browser.
+- Every Design DNA claim cites real evidence IDs and displays its confidence. Selecting a section, component, layout, or
+  media reference opens the related screenshot and highlights its normalized evidence rectangle. Evidence that has no
+  genuine screenshot region (topology layers, cross-page patterns, token-level references) opens a compact evidence
+  detail instead — never a fabricated full-frame highlight.
+- A completed or partial Design DNA offers "Re-interpret design language" alongside the failure retry; both rerun only
+  the AI layer on the stored evidence, never the browser.
+- Structural-only interpretation must never be styled or worded as full visual analysis. Screenshot input requires a
+  vision-capable model plus explicit settings consent, is limited to selected anonymous public-page images, and is
+  always disabled for signed-in analysis. Signed-in evidence stays local until the user explicitly starts structural
+  interpretation from its status card; the card names the provider and warns that account or internal information may
+  be present.
+- The Overview groups thesis, signature moves, composition, attention, visual language, transfer rules, and
+  uncertainties. Profile JSON remains a separate versioned artifact; AI token names are aliases and never replace
+  deterministic token keys.
+- Task context is generated on demand from the current profile, evidence, and user task. Reconstruction briefs prohibit
+  copying source text, logos, page composition, or media and travel with DESIGN.md plus the target UI's source or
+  screenshot.
+- Validation scenarios use an allowlisted renderer rather than model-authored HTML. Report token-scale, rule-reference,
+  state, contrast, overflow, and reduced-motion checks independently, including evidence, interpretation, or generation
+  failure layers; never collapse them into a single opaque quality score.
+
 ## Authenticated analysis
 
 - Start URL analysis in an isolated visitor context. Do not read or copy the user's everyday Chrome profile.
@@ -228,6 +268,9 @@ to Imprint rather than an enterprise administration UI.
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
 - AI credentials, Agent CLI selection, and Theme Library export format stay in the main-process settings file. Never
   duplicate credentials into renderer storage.
+- Model ID, custom-model vision capability, screenshot consent, and the standard/deep analysis choice stay with
+  main-process settings. The consent copy must name the active provider, state that only selected anonymous public
+  screenshots may be sent, and state that signed-in pages require an explicit structural-only request.
 - Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
   explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
 - Treat Agent CLI detection and selection as separate actions. Detection only reports candidates; it never selects one

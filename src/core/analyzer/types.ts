@@ -1,3 +1,4 @@
+import type { DesignEvidence } from '../design-evidence/types.js'
 import type { AuthWallDetection } from './auth-wall.js'
 import type { ComponentPattern } from './component-detect.js'
 import type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
@@ -16,6 +17,7 @@ export interface AnalysisOptions {
   useSession?: boolean
   authMode?: AuthMode
   extractDarkMode?: boolean
+  depth?: 'standard' | 'deep'
   dataDir: string
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
 }
@@ -82,7 +84,9 @@ export interface GeneratedExampleComponent {
 }
 
 export interface AnalysisResult {
+  analysisId: string
   tokens: DesignToken
+  designEvidence: DesignEvidence
   screenshots: string[]
   pageScreenshots: PageScreenshot[]
   rawStyles: ExtractedStyles

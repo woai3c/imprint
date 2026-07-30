@@ -7,7 +7,7 @@
 
   <p>
     Extract colors, typography, spacing, radii, shadows, and component styles,
-    then export them as DESIGN.md, CSS Variables, Tailwind CSS themes, and JSON Design Tokens.
+    then export them as DESIGN.md, CSS Variables, Tailwind CSS themes, JSON Design Tokens, and traceable Design Evidence.
   </p>
 
   <p>
@@ -49,18 +49,19 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 
 ## Features
 
-| Feature                  | Description                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| Website analysis         | Analyze visual styles directly from a URL                                             |
-| Screenshot analysis      | Extract design patterns from UI screenshots                                           |
-| Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance          |
-| AI-ready documentation   | Export DESIGN.md for AI coding agents                                                 |
-| Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                  |
-| Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli              |
-| Local-first storage      | Store project data locally with SQLite                                                |
-| Live theme preview       | Apply extracted styles to Imprint and inspect the result                              |
-| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more           |
-| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states |
+| Feature                  | Description                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Website analysis         | Analyze visual styles directly from a URL                                                       |
+| Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations |
+| Screenshot analysis      | Extract design patterns from UI screenshots                                                     |
+| Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance                    |
+| AI-ready documentation   | Export DESIGN.md for AI coding agents                                                           |
+| Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                            |
+| Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli                        |
+| Local-first storage      | Store project data locally with SQLite                                                          |
+| Live theme preview       | Apply extracted styles to Imprint and inspect the result                                        |
+| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                     |
+| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states           |
 
 ## Use with AI Coding Agents
 
@@ -73,14 +74,46 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 
 ### Which format should I export?
 
-| Goal                                                   | Recommended output    | Include with it                      |
-| ------------------------------------------------------ | --------------------- | ------------------------------------ |
-| Ask AI to revise an existing UI                        | **DESIGN.md**         | Current UI screenshot or source code |
-| Implement directly in a CSS project                    | **CSS Variables**     | The existing style entry file        |
-| Implement directly in a Tailwind v4 project            | **Tailwind `@theme`** | The project's theme stylesheet       |
-| Use a toolchain or an agent that needs structured data | **Tokens JSON**       | A precise automation task            |
+| Goal                                                   | Recommended output       | Include with it                      |
+| ------------------------------------------------------ | ------------------------ | ------------------------------------ |
+| Ask AI to revise an existing UI                        | **DESIGN.md**            | Current UI screenshot or source code |
+| Implement directly in a CSS project                    | **CSS Variables**        | The existing style entry file        |
+| Implement directly in a Tailwind v4 project            | **Tailwind `@theme`**    | The project's theme stylesheet       |
+| Use a toolchain or an agent that needs structured data | **Tokens JSON**          | A precise automation task            |
+| Audit how the source pages were observed               | **Design Evidence JSON** | The related screenshots              |
 
 If you give AI only one exported file, choose **DESIGN.md**.
+
+## Design Evidence and Design DNA
+
+Every analysis first produces deterministic `DesignEvidence`: multi-viewport screenshots, page topology, normalized
+section and component geometry, responsive differences, safe interaction observations, media layers, coverage, and
+limitations. This result works without AI and is stored separately from Tokens JSON.
+
+When an API provider or Agent CLI is configured, Imprint interprets that bounded evidence package as a validated,
+versioned `DesignProfile`. The desktop Overview shows its thesis, signature moves, transfer rules, confidence, and
+clickable evidence references. AI-suggested token names remain aliases; they never replace extracted token keys.
+
+Screenshot input is opt-in. It requires a vision-capable API model and explicit consent in Settings, only uses a limited
+selection from anonymous public pages, and is never sent for signed-in analyses. Signed-in evidence is not sent to any
+configured AI until the user explicitly requests structural interpretation. Agent CLI interpretation is
+structural-only. If interpretation fails, tokens, evidence, screenshots, and implementation exports remain available,
+and the AI step can be retried independently.
+
+## CLI and MCP intelligence
+
+CLI extraction never calls an AI provider unless `--intelligence` is explicitly set. API keys are read from
+`IMPRINT_AI_API_KEY` or the provider's standard environment variable.
+
+```bash
+pnpm build:cli
+imprint extract https://example.com --viewport all --format evidence
+imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
+imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
+```
+
+The MCP server keeps `imprint_extract` deterministic. Use `imprint_interpret` for an explicit provider call, or set
+`depth: "language"` on `imprint_compare` to compare two validated structural profiles.
 
 ## Download
 
@@ -142,6 +175,8 @@ src/
 │
 ├── core/                # Shared extraction engine (CLI + MCP + Desktop)
 │   ├── analyzer/        # Style extraction, color clustering, token building
+│   ├── design-evidence/ # Stable observed evidence and coverage
+│   ├── design-intelligence/ # Validated profiles, briefs, context, validation
 │   └── export/          # CSS / Tailwind / JSON / Markdown / SCSS generators
 │
 ├── cli/                 # CLI entry point (imprint bin)

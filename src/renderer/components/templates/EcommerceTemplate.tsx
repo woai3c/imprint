@@ -33,7 +33,7 @@ export function EcommerceTemplate() {
           </div>
           <button className="relative">
             <span className="text-sm">{t('templates.examples.ecommerce.cart')}</span>
-            <span className="absolute -right-2 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">
+            <span className="absolute -right-2 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
               3
             </span>
           </button>

@@ -123,7 +123,7 @@ export function TemplatesPage() {
                   aria-pressed={currentThemeId === theme.id && !extractedThemeId}
                   title={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
                 />
-                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[11px] text-background opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[10px] text-background opacity-0 transition-opacity group-hover:opacity-100">
                   {t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
                 </span>
               </div>
@@ -146,7 +146,7 @@ export function TemplatesPage() {
                   aria-pressed={extractedThemeId === theme.id}
                   title={getThemeLabel(theme)}
                 />
-                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[11px] text-background opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[10px] text-background opacity-0 transition-opacity group-hover:opacity-100">
                   {getThemeLabel(theme)}
                 </span>
               </div>
@@ -170,7 +170,7 @@ export function TemplatesPage() {
             return (
               <section key={group} className="rounded-xl border border-border/60 bg-card/50 p-2.5">
                 <div className="mb-2 flex items-center justify-between px-1">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {t(`templates.groups.${group}`)}
                   </h3>
                   <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">

@@ -34,6 +34,7 @@ export interface AppSettings {
   analysisDepth: 'standard' | 'deep'
   agentCli: string
   exportFormat: ThemeExportFormat
+  proxyServer: string
 }
 
 export interface AgentCliInfo {

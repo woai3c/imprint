@@ -32,10 +32,15 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
   }
 
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
-  const passiveStateCount =
-    evidence.interactionStyles.hover.length +
-    evidence.interactionStyles.focus.length +
-    evidence.interactionStyles.active.length
+  const hoverCount = evidence.interactionStyles.hover.length
+  const focusCount = evidence.interactionStyles.focus.length
+  const activeCount = evidence.interactionStyles.active.length
+  const passiveStateCount = hoverCount + focusCount + activeCount
+
+  const driverCounts = new Map<string, number>()
+  for (const obs of evidence.interactionObservations) {
+    driverCounts.set(obs.driver, (driverCounts.get(obs.driver) || 0) + 1)
+  }
   const activeObservationCount = evidence.interactionObservations.filter(
     (observation) => observation.safety === 'safe-active',
   ).length
@@ -149,24 +154,48 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
           ) : (
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('analyze.overview.statesEmpty')}</p>
           )}
+
+          {(passiveStateCount > 0 || driverCounts.size > 0) && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-3">
+              {hoverCount > 0 && (
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
+                  hover ×{hoverCount}
+                </span>
+              )}
+              {focusCount > 0 && (
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
+                  focus ×{focusCount}
+                </span>
+              )}
+              {activeCount > 0 && (
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
+                  active ×{activeCount}
+                </span>
+              )}
+              {[...driverCounts.entries()].map(([driver, count]) => (
+                <span key={driver} className="rounded-md bg-primary/10 px-2 py-1 text-xs text-primary">
+                  {driver} ×{count}
+                </span>
+              ))}
+            </div>
+          )}
         </section>
 
-        <section className="rounded-xl border border-border/60 bg-background p-5">
-          <h3 className="text-sm font-semibold">{t('analyze.overview.limitationsTitle')}</h3>
-          {visibleLimitations.length > 0 ? (
+        {visibleLimitations.length > 0 && (
+          <section className="rounded-xl border border-border/60 bg-background p-5">
+            <h3 className="text-sm font-semibold">{t('analyze.overview.limitationsTitle')}</h3>
             <ul className="mt-3 space-y-2 text-sm leading-5 text-muted-foreground">
               {visibleLimitations.map((limitation) => (
                 <li key={limitation}>
                   {t(`analyze.overview.limitations.${LIMITATION_KEYS[limitation] || 'unknown'}`, {
                     limitation,
+                    pages: pageCount,
                   })}
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">{t('analyze.overview.noLimitations')}</p>
-          )}
-        </section>
+          </section>
+        )}
       </div>
     </div>
   )

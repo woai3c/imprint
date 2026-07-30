@@ -26,6 +26,8 @@
   --color-warning-strong: oklch(47% 0.11 75);
   --color-warning-foreground: oklch(24% 0.06 80);
   --color-success: oklch(62% 0.14 160);
+  --color-popover: oklch(100% 0 0);
+  --color-popover-foreground: oklch(14.5% 0.02 250);
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -80,6 +82,14 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--color-muted-foreground);
   }
+
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Theme switches swap dozens of variables at once; letting every element animate
@@ -104,10 +114,14 @@
   margin-inline: auto;
 }
 
-.app-shell :is(h1, h2, h3, h4) {
+.app-shell :is(h1, h2, h3) {
   font-family: var(--font-heading, var(--font-body));
   line-height: var(--leading-heading, 1.25);
   letter-spacing: var(--tracking-heading, -0.02em);
+}
+
+.app-shell h4 {
+  line-height: var(--leading-heading, 1.25);
 }
 
 .app-shell .text-xs {
@@ -204,7 +218,7 @@ html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom
   background: var(--art-content-bg, none);
 }
 
-html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) :is(h1, h2, h3, h4) {
+html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) :is(h1, h2, h3) {
   font-family: var(--font-heading);
   line-height: var(--leading-heading);
   letter-spacing: var(--tracking-heading);

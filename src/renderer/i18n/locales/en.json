@@ -43,22 +43,16 @@
     "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
     "noAiHint": "Basic extraction works without AI. For semantic enhancement (naming, design intent), configure an AI engine in Settings.",
     "tabOverview": "Overview",
-    "tabPreview": "Tokens",
+    "tabPreview": "Visual Preview",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS Variables",
-    "tabJson": "Tokens JSON",
-    "tabProfile": "Insights JSON",
-    "tabEvidence": "Evidence JSON",
     "copyCurrent": "Copy {{format}}",
     "exportCurrent": "Export {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
       "tailwind": "Tailwind v4",
-      "css": "CSS variables",
-      "json": "Tokens JSON",
-      "profile": "Design Profile JSON",
-      "evidence": "Design Evidence JSON"
+      "css": "CSS variables"
     },
     "aiExport": {
       "title": "Use with AI Coding Agents",
@@ -302,7 +296,7 @@
         "unknown": "Unknown"
       },
       "limitations": {
-        "fewerPages": "The site had fewer analyzable same-site pages than you selected, so fewer pages were captured.",
+        "fewerPages": "The site had fewer analyzable pages than requested ({{pages}} captured).",
         "singleViewport": "Only one screen size was captured, so layout changes across sizes could not be compared.",
         "noSections": "No clear page sections could be identified.",
         "noActiveInteractions": "Some interactions were not observed because they could not be triggered safely.",
@@ -965,6 +959,11 @@
       "selectCli": "Select {{name}}",
       "deselectCli": "Deselect {{name}}",
       "noCli": "No supported AI CLI was detected"
+    },
+    "network": {
+      "title": "Network Proxy",
+      "proxyLabel": "Proxy Server",
+      "proxyHint": "Leave empty to auto-detect system proxy. Use for Clash/V2Ray/SSR proxies when TUN mode doesn't work."
     },
     "data": {
       "title": "Data Management",

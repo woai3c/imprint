@@ -66,13 +66,13 @@ export function KanbanTemplate() {
                     {card.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-secondary-foreground"
+                        className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground"
                       >
                         {tag}
                       </span>
                     ))}
                     <span
-                      className={`ml-auto rounded px-1.5 py-0.5 text-[11px] ${
+                      className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${
                         card.priority === 'high'
                           ? 'bg-destructive/10 text-destructive'
                           : card.priority === 'medium'

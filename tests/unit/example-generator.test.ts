@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import {
-  applyColorRenamesToExamples,
-  buildExamplePrompt,
-  parseExampleResponse,
-} from '../../src/core/analyzer/example-generator.js'
+import { buildExamplePrompt, parseExampleResponse } from '../../src/core/analyzer/example-generator.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 
 function createTokens(): DesignToken {
@@ -87,14 +83,5 @@ describe('Example generation protocol', () => {
 
   test('returns an empty list for unrelated output', () => {
     expect(parseExampleResponse('{"designSummary":"generic summary"}')).toEqual([])
-  })
-
-  test('updates color variable references after accepted semantic renames', () => {
-    expect(
-      applyColorRenamesToExamples(
-        [{ title: 'Card', html: '<article style="background: var(--color-primary)">Card</article>' }],
-        [{ tokenId: 'primary', name: 'action-brand' }],
-      ),
-    ).toEqual([{ title: 'Card', html: '<article style="background: var(--color-action-brand)">Card</article>' }])
   })
 })

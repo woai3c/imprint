@@ -13,6 +13,7 @@ export interface ElectronAnalysisOptions {
   authMode?: AuthMode
   extractDarkMode?: boolean
   depth?: 'standard' | 'deep'
+  proxyServer?: string
 }
 
 export async function analyzeUrl(

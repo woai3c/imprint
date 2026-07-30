@@ -166,12 +166,12 @@ function ColorCard({
         <span className="min-w-0 truncate text-xs font-semibold text-foreground leading-tight" title={name}>
           {name}
         </span>
-        <span className="shrink-0 py-px px-1 text-[0.55rem] font-semibold uppercase tracking-wider rounded text-muted-foreground bg-secondary">
+        <span className="shrink-0 py-px px-1 text-[10px] font-semibold uppercase tracking-wider rounded text-muted-foreground bg-secondary">
           {getGroupLabel(name)}
         </span>
       </div>
       {usage && (
-        <span className="text-[0.65rem] text-muted-foreground leading-tight truncate">
+        <span className="text-[10px] text-muted-foreground leading-tight truncate">
           {t('preview.frequencyRank', { rank: usage.rank })} ({t('preview.occurrences', { count: usage.count })})
         </span>
       )}
@@ -179,7 +179,7 @@ function ColorCard({
         type="button"
         onClick={handleCopy}
         aria-label={t('preview.copyValue', { value })}
-        className="self-start text-left text-[0.68rem] font-mono text-muted-foreground cursor-pointer transition-colors duration-150 hover:text-foreground"
+        className="self-start text-left text-[10px] font-mono text-muted-foreground cursor-pointer transition-colors duration-150 hover:text-foreground"
       >
         {value}
       </button>
@@ -322,7 +322,7 @@ function SpacingShapeSection({
                 <div className="w-14 h-14 border-2 border-foreground/20 bg-muted/20" style={{ borderRadius: value }} />
                 <div className="text-center">
                   <span className="block text-xs font-medium text-foreground/70">radius-{i + 1}</span>
-                  <span className="block font-mono text-[11px] text-muted-foreground">{value}</span>
+                  <span className="block font-mono text-[10px] text-muted-foreground">{value}</span>
                 </div>
               </div>
             ))}
@@ -344,7 +344,7 @@ function ShadowSection({ shadows, t }: { shadows: string[]; t: (key: string) => 
             <div className="w-20 h-20 rounded-xl bg-background" style={{ boxShadow: value }} />
             <div className="text-center">
               <span className="block text-xs font-medium text-foreground/70">shadow-{names[i] || i + 1}</span>
-              <span className="block font-mono text-[11px] text-muted-foreground max-w-28 truncate" title={value}>
+              <span className="block font-mono text-[10px] text-muted-foreground max-w-28 truncate" title={value}>
                 {value}
               </span>
             </div>

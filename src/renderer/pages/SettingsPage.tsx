@@ -3,6 +3,7 @@ import { CheckCircle2, CircleOff, KeyRound, Loader2, RefreshCw, Terminal, XCircl
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { getDefaultBaseUrl } from '../../core/ai/capabilities'
 import { getCatalogModel, getCatalogModels, getRecommendedModel } from '../../core/ai/model-catalog'
 import { getAgentCliDisplayName } from '../../shared/agent-clis'
 import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
@@ -13,6 +14,13 @@ import { useFeedbackStore } from '../stores/feedback-store'
 
 let cachedAgentClis: AgentCliInfo[] | null = null
 let activeAgentCliDetection: Promise<AgentCliInfo[]> | null = null
+
+const BASE_URL_OPTIONS: Record<string, Array<{ url: string; label: string }>> = {
+  moonshotai: [
+    { url: 'https://api.moonshot.cn/v1', label: 'Moonshot API (api.moonshot.cn)' },
+    { url: 'https://api.kimi.com/coding/v1', label: 'Kimi Coding Plan (api.kimi.com)' },
+  ],
+}
 
 const PROVIDERS = [
   { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
@@ -51,13 +59,13 @@ export function SettingsPage() {
   const [customBaseUrl, setCustomBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [modelSupportsVision, setModelSupportsVision] = useState(false)
-  const [visionAnalysisConsent, setVisionAnalysisConsent] = useState(false)
-  const [managedVisionConsent, setManagedVisionConsent] = useState(false)
+  const [managedVisionConsent, setManagedVisionConsent] = useState(true)
   const [agentClis, setAgentClis] = useState<AgentCliInfo[]>(() => cachedAgentClis ?? [])
   const [selectedCli, setSelectedCli] = useState('')
   const [detecting, setDetecting] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [proxyServer, setProxyServer] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -70,9 +78,9 @@ export function SettingsPage() {
       setCustomBaseUrl(s.baseUrl || '')
       setModel(s.model || '')
       setModelSupportsVision(s.modelSupportsVision === true)
-      setVisionAnalysisConsent(s.visionAnalysisConsent === true)
-      setManagedVisionConsent(s.managedVisionConsent === true)
+      setManagedVisionConsent(s.managedVisionConsent !== false)
       setSelectedCli(s.agentCli || '')
+      setProxyServer(s.proxyServer || '')
       setLoaded(true)
 
       if (s.aiMode === 'agentCli') {
@@ -141,11 +149,6 @@ export function SettingsPage() {
   const handleModelSupportsVisionChange = (value: boolean) => {
     setModelSupportsVision(value)
     save({ modelSupportsVision: value })
-  }
-
-  const handleVisionConsentChange = (value: boolean) => {
-    setVisionAnalysisConsent(value)
-    save({ visionAnalysisConsent: value })
   }
 
   const handleManagedVisionConsentChange = (value: boolean) => {
@@ -461,80 +464,85 @@ export function SettingsPage() {
                       </>
                     )}
                   </div>
-                  {provider === 'custom' && (
-                    <>
-                      <div>
-                        <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
-                          {t('settings.ai.baseUrl')}
-                          <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
-                        </label>
-                        <input
-                          id="ai-base-url"
-                          type="text"
-                          value={customBaseUrl}
-                          onChange={(e) => handleBaseUrlChange(e.target.value)}
-                          placeholder="https://api.example.com/v1"
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                      <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
-                        <input
-                          type="checkbox"
-                          checked={modelSupportsVision}
-                          onChange={(event) => handleModelSupportsVisionChange(event.target.checked)}
-                          className="mt-0.5 size-4 accent-primary"
-                        />
-                        <span>
-                          <span className="block text-sm font-medium">{t('settings.ai.customVision')}</span>
-                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                            {t('settings.ai.customVisionHint')}
-                          </span>
-                        </span>
+                  {BASE_URL_OPTIONS[provider] && (
+                    <div>
+                      <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
+                        {t('settings.ai.baseUrl')}
                       </label>
-                    </>
+                      <select
+                        id="ai-base-url"
+                        value={customBaseUrl || getDefaultBaseUrl(provider)}
+                        onChange={(e) =>
+                          handleBaseUrlChange(e.target.value === getDefaultBaseUrl(provider) ? '' : e.target.value)
+                        }
+                        className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-ring"
+                      >
+                        {BASE_URL_OPTIONS[provider].map((opt) => (
+                          <option key={opt.url} value={opt.url}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   )}
-                  <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
-                    <input
-                      data-testid="vision-analysis-consent"
-                      type="checkbox"
-                      checked={visionAnalysisConsent}
-                      onChange={(event) => handleVisionConsentChange(event.target.checked)}
-                      className="mt-0.5 size-4 accent-primary"
-                    />
-                    <span>
-                      <span className="block text-sm font-medium">{t('settings.ai.visionConsent')}</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t('settings.ai.visionConsentHint', { provider: selectedProvider?.name || provider })}
-                      </span>
-                    </span>
-                  </label>
-                  {visionAnalysisConsent && (
-                    <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                  {provider === 'custom' && (
+                    <div>
+                      <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
+                        {t('settings.ai.baseUrl')}
+                        <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
+                      </label>
                       <input
-                        data-testid="managed-vision-consent"
+                        id="ai-base-url"
+                        type="text"
+                        value={customBaseUrl}
+                        onChange={(e) => handleBaseUrlChange(e.target.value)}
+                        placeholder="https://api.example.com/v1"
+                        className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                   placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                  )}
+                  {provider === 'custom' && (
+                    <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                      <input
                         type="checkbox"
-                        checked={managedVisionConsent}
-                        onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
+                        checked={modelSupportsVision}
+                        onChange={(event) => handleModelSupportsVisionChange(event.target.checked)}
                         className="mt-0.5 size-4 accent-primary"
                       />
                       <span>
-                        <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
+                        <span className="block text-sm font-medium">{t('settings.ai.customVision')}</span>
                         <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                          {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
+                          {t('settings.ai.customVisionHint')}
                         </span>
                       </span>
                     </label>
                   )}
+                  <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                    <input
+                      data-testid="managed-vision-consent"
+                      type="checkbox"
+                      checked={managedVisionConsent}
+                      onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
+                      className="mt-0.5 size-4 accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                        {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
+                      </span>
+                    </span>
+                  </label>
                 </>
               )}
 
               {provider && apiKey && (
-                <div className="flex items-center gap-3">
+                <div className="space-y-2">
                   <button
                     onClick={handleTestConnection}
                     disabled={testing}
-                    className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm
+                    className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
                                hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     {testing ? (
@@ -547,12 +555,16 @@ export function SettingsPage() {
                     )}
                   </button>
                   {testResult && (
-                    <span
-                      className={`text-xs flex items-center gap-1 ${testResult.success ? 'text-success' : 'text-destructive'}`}
+                    <p
+                      className={`text-xs flex items-start gap-1.5 leading-5 ${testResult.success ? 'text-success' : 'text-destructive'}`}
                     >
-                      {testResult.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                      {testResult.message}
-                    </span>
+                      {testResult.success ? (
+                        <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+                      ) : (
+                        <XCircle size={14} className="mt-0.5 shrink-0" />
+                      )}
+                      <span className="break-all">{testResult.message}</span>
+                    </p>
                   )}
                 </div>
               )}
@@ -563,40 +575,23 @@ export function SettingsPage() {
                 {t('settings.ai.agentCliStructuralHint')}
               </p>
               <div className="mb-4 space-y-2">
-                <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
                   <input
-                    data-testid="agent-cli-vision-consent"
+                    data-testid="managed-vision-consent"
                     type="checkbox"
-                    checked={visionAnalysisConsent}
-                    onChange={(event) => handleVisionConsentChange(event.target.checked)}
+                    checked={managedVisionConsent}
+                    onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
                     className="mt-0.5 size-4 accent-primary"
                   />
                   <span>
-                    <span className="block text-sm font-medium">{t('settings.ai.agentCliVisionConsent')}</span>
+                    <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
                     <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                      {t('settings.ai.agentCliVisionConsentHint')}
+                      {t('settings.ai.managedVisionConsentHint', {
+                        provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
+                      })}
                     </span>
                   </span>
                 </label>
-                {visionAnalysisConsent && (
-                  <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
-                    <input
-                      data-testid="managed-vision-consent"
-                      type="checkbox"
-                      checked={managedVisionConsent}
-                      onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
-                      className="mt-0.5 size-4 accent-primary"
-                    />
-                    <span>
-                      <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t('settings.ai.managedVisionConsentHint', {
-                          provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
-                        })}
-                      </span>
-                    </span>
-                  </label>
-                )}
               </div>
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -680,6 +675,30 @@ export function SettingsPage() {
               </div>
             </div>
           )}
+        </section>
+
+        <section>
+          <h3 className="text-lg font-semibold mb-4">{t('settings.network.title')}</h3>
+          <div className="space-y-3 rounded-lg border border-border p-4">
+            <div>
+              <label htmlFor="proxy-server" className="block text-sm font-medium">
+                {t('settings.network.proxyLabel')}
+              </label>
+              <input
+                id="proxy-server"
+                data-testid="proxy-server"
+                type="text"
+                value={proxyServer}
+                onChange={(e) => {
+                  setProxyServer(e.target.value)
+                  save({ proxyServer: e.target.value })
+                }}
+                placeholder="http://127.0.0.1:7890"
+                className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none transition-colors focus:border-primary"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t('settings.network.proxyHint')}</p>
+            </div>
+          </div>
         </section>
 
         <section>

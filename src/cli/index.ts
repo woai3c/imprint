@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
 import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
-import type { AiImageInput } from '../core/ai/provider.js'
+import { type AiImageInput, mimeTypeForPath } from '../core/ai/provider.js'
 import { analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
@@ -59,12 +59,6 @@ function parseArgs(args: string[]): { url: string; options: CliOptions } {
 }
 
 const providerApiKey = providerApiKeyFromEnv
-
-function mimeTypeForPath(filePath: string): AiImageInput['mimeType'] {
-  if (/\.jpe?g$/i.test(filePath)) return 'image/jpeg'
-  if (/\.webp$/i.test(filePath)) return 'image/webp'
-  return 'image/png'
-}
 
 function loadEvidenceImages(
   evidence: Parameters<typeof selectEvidencePackage>[0],

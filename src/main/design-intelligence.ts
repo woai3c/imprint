@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
-import { type AiImageInput, callAiProvider } from '../core/ai/provider.js'
+import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import { generateExamplesWithLlm } from '../core/analyzer/example-generator.js'
 import { enhanceSemanticNaming } from '../core/analyzer/semantic-enhancer.js'
 import { validateColorRenames } from '../core/analyzer/token-renamer.js'
@@ -133,12 +133,6 @@ export function getInitialDesignIntelligenceMeta(
     schemaVersion: '1',
     promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
   }
-}
-
-function mimeTypeForPath(path: string): AiImageInput['mimeType'] {
-  if (/\.jpe?g$/i.test(path)) return 'image/jpeg'
-  if (/\.webp$/i.test(path)) return 'image/webp'
-  return 'image/png'
 }
 
 function selectAvailableImages(evidence: DesignEvidence, imageIds: string[]) {

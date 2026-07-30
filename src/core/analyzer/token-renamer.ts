@@ -70,17 +70,3 @@ export function validateColorRenames(
 
   return { accepted, rejected }
 }
-
-export function applyColorRenames(tokens: DesignToken, renames: readonly ColorRenameProposal[]): DesignToken {
-  if (renames.length === 0) return tokens
-
-  const namesByTokenId = new Map(renames.map((rename) => [rename.tokenId, rename.name]))
-  const colors = Object.fromEntries(
-    Object.entries(tokens.colors).map(([tokenId, value]) => [namesByTokenId.get(tokenId) || tokenId, value]),
-  )
-
-  return {
-    ...tokens,
-    colors,
-  }
-}

@@ -38,7 +38,7 @@ export function EvidenceDetailCard({ detail, onClose }: { detail: EvidenceDetail
           <X size={14} />
         </button>
       </div>
-      <p className="mt-2 font-mono text-[11px] break-all text-muted-foreground">{detail.id}</p>
+      <p className="mt-2 font-mono text-[10px] break-all text-muted-foreground">{detail.id}</p>
       {detail.fields.length > 0 && (
         <dl className="mt-2 space-y-1">
           {detail.fields.map((field) => (
@@ -49,7 +49,7 @@ export function EvidenceDetailCard({ detail, onClose }: { detail: EvidenceDetail
           ))}
         </dl>
       )}
-      <p className="mt-3 text-[11px] leading-4 text-muted-foreground">{t('analyze.evidenceDetail.noRegion')}</p>
+      <p className="mt-3 text-[10px] leading-4 text-muted-foreground">{t('analyze.evidenceDetail.noRegion')}</p>
     </div>
   )
 }

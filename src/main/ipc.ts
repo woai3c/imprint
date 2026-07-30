@@ -298,10 +298,12 @@ export function registerIpcHandlers() {
       )
 
       try {
+        const currentSettings = getSettings()
         const effectiveOptions = {
           ...options,
           viewports:
             options?.viewports || (options?.depth === 'deep' ? ['desktop', 'tablet', 'mobile'] : ['desktop', 'mobile']),
+          proxyServer: currentSettings.proxyServer || undefined,
         }
         const result = await analyzeUrl(
           url,

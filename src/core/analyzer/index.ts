@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -70,13 +71,53 @@ interface BrowserRuntime {
   context: BrowserContext
 }
 
+function detectSystemProxy(): string | undefined {
+  const envProxy =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy
+  if (envProxy) return envProxy
+
+  if (process.platform === 'win32') {
+    try {
+      const raw = execSync(
+        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable',
+        { encoding: 'utf8', timeout: 3000 },
+      )
+      if (/ProxyEnable\s+REG_DWORD\s+0x1/i.test(raw)) {
+        const serverRaw = execSync(
+          'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer',
+          { encoding: 'utf8', timeout: 3000 },
+        )
+        const match = serverRaw.match(/ProxyServer\s+REG_SZ\s+(.+)/i)
+        if (match?.[1]) {
+          const server = match[1].trim()
+          return server.includes('://') ? server : `http://${server}`
+        }
+      }
+    } catch {
+      /* registry read failed — no proxy */
+    }
+  }
+
+  return undefined
+}
+
 async function launchRuntime(
   executablePath: string,
   mode: 'anonymous' | 'managed',
   dataDir: string,
   url: string,
   headless: boolean,
+  explicitProxy?: string,
 ): Promise<BrowserRuntime> {
+  const proxyServer = explicitProxy || detectSystemProxy()
+  const proxyConfig = proxyServer ? { proxy: { server: proxyServer } } : {}
+  if (proxyServer) console.log('[imprint] using proxy:', proxyServer)
+
   if (mode === 'managed') {
     const profileDir = getManagedProfileDir(dataDir, url)
     fs.mkdirSync(profileDir, { recursive: true })
@@ -85,6 +126,7 @@ async function launchRuntime(
       headless,
       args: ['--disable-blink-features=AutomationControlled', '--no-default-browser-check', '--no-first-run'],
       viewport: VIEWPORTS.desktop,
+      ...proxyConfig,
     })
     return { browser: null, context }
   }
@@ -94,7 +136,7 @@ async function launchRuntime(
     headless,
     args: ['--disable-blink-features=AutomationControlled'],
   })
-  const context = await browser.newContext()
+  const context = await browser.newContext(proxyConfig)
   return { browser, context }
 }
 
@@ -169,7 +211,7 @@ export async function analyze(
   let finalUrl = url
 
   try {
-    runtime = await launchRuntime(executablePath, accessMode, options.dataDir, url, true)
+    runtime = await launchRuntime(executablePath, accessMode, options.dataDir, url, true, options.proxyServer)
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
     await initialPage.setViewportSize(initialViewport)
 
@@ -187,7 +229,7 @@ export async function analyze(
 
       onProgress?.('progress.preparingAuthenticatedAnalysis', 8)
       try {
-        managedRuntime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true)
+        managedRuntime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true, options.proxyServer)
         const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
         await managedPage.setViewportSize(initialViewport)
         const managedResponseStatus = await navigatePage(managedPage, url)
@@ -227,7 +269,7 @@ export async function analyze(
       initialPage = null
 
       onProgress?.('progress.openingLoginBrowser', 7)
-      runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, false)
+      runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, false, options.proxyServer)
       let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
       await loginPage.setViewportSize(initialViewport)
       responseStatus = await navigatePage(loginPage, url)
@@ -264,7 +306,7 @@ export async function analyze(
 
       if (continueAnonymously) {
         await closeRuntime(runtime)
-        runtime = await launchRuntime(executablePath, 'anonymous', options.dataDir, url, true)
+        runtime = await launchRuntime(executablePath, 'anonymous', options.dataDir, url, true, options.proxyServer)
         accessMode = 'anonymous'
         initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
         await initialPage.setViewportSize(initialViewport)

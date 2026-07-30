@@ -301,8 +301,8 @@ export const builtinThemes: AppTheme[] = [
     },
     tokens: createThemeTokens({
       typography: {
-        fontBody: '"Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
-        fontHeading: '"Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif',
+        fontBody: '"Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif',
+        fontHeading: '"Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", "PingFang SC", serif',
         letterSpacing: {
           body: '0.01em',
           heading: '0.045em',
@@ -574,8 +574,8 @@ export const builtinThemes: AppTheme[] = [
     },
     tokens: createThemeTokens({
       typography: {
-        fontBody: '"Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
-        fontHeading: '"Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif',
+        fontBody: '"Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif',
+        fontHeading: '"Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", "PingFang SC", serif',
         letterSpacing: {
           body: '0.01em',
           heading: '0.055em',

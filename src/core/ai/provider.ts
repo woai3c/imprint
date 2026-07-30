@@ -14,6 +14,12 @@ export interface AiImageInput {
   base64: string
 }
 
+export function mimeTypeForPath(filePath: string): AiImageInput['mimeType'] {
+  if (/\.jpe?g$/i.test(filePath)) return 'image/jpeg'
+  if (/\.webp$/i.test(filePath)) return 'image/webp'
+  return 'image/png'
+}
+
 export interface AiResponse {
   text: string
   model: string

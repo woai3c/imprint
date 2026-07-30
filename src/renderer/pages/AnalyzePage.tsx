@@ -46,7 +46,7 @@ export function AnalyzePage() {
   const store = useAnalysisStore()
   const notify = useFeedbackStore((state) => state.show)
   const [saved, setSaved] = useState(false)
-  const [hasAiConfig, setHasAiConfig] = useState(true)
+  const [hasAiConfig, setHasAiConfig] = useState<boolean | null>(null)
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
@@ -61,11 +61,17 @@ export function AnalyzePage() {
   const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
 
   useEffect(() => {
-    window.electronAPI.getSettings().then((s) => {
-      const configured = s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli)
-      setHasAiConfig(configured)
-      setAnalysisDepth(s.analysisDepth === 'deep' ? 'deep' : 'standard')
-    })
+    const refresh = () => {
+      window.electronAPI.getSettings().then((s) => {
+        const configured = s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli)
+        setHasAiConfig(configured)
+        if (!configured) setAiTipDismissed(false)
+        setAnalysisDepth(s.analysisDepth === 'deep' ? 'deep' : 'standard')
+      })
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
   }, [])
 
   const analyzing = store.analyzing
@@ -370,7 +376,7 @@ export function AnalyzePage() {
           <span id="analysis-page-count-help" className="min-w-64 flex-1 leading-5 text-muted-foreground">
             {t('analyze.pageCount.help')}
           </span>
-          <div className="group relative z-50 ml-auto flex shrink-0 items-center gap-2">
+          <div className="group/depth relative ml-auto flex shrink-0 items-center gap-2">
             <label htmlFor="analysis-depth" className="shrink-0 font-medium text-foreground">
               {t('analyze.depth.label')}
             </label>
@@ -393,21 +399,21 @@ export function AnalyzePage() {
             <button
               type="button"
               aria-label={t(`analyze.depth.${analysisDepth}Help`)}
-              className="flex h-5 w-5 cursor-help items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Info size={13} aria-hidden="true" />
+              <Info size={14} aria-hidden="true" />
             </button>
             <div
               id="analysis-depth-help"
               role="tooltip"
-              className="pointer-events-none invisible absolute right-0 top-full mt-1 w-64 rounded-lg border border-border bg-popover p-2.5 text-xs leading-5 text-muted-foreground opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+              className="pointer-events-none invisible absolute right-0 top-full z-60 mt-1 w-64 rounded-lg border border-border bg-card p-2.5 text-xs leading-5 text-muted-foreground opacity-0 shadow-xl transition-opacity group-hover/depth:visible group-hover/depth:opacity-100 group-focus-within/depth:visible group-focus-within/depth:opacity-100"
             >
               {t(`analyze.depth.${analysisDepth}Help`)}
             </div>
           </div>
         </div>
 
-        {!hasAiConfig && !aiTipDismissed && !result && !failure && (
+        {hasAiConfig === false && !aiTipDismissed && !result && !failure && (
           <Alert
             tone="warning"
             testId="no-ai-tip"

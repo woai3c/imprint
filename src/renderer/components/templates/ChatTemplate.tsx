@@ -40,12 +40,12 @@ export function ChatTemplate() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium truncate">{chat.name}</span>
-                  <span className="text-[11px] text-muted-foreground">{chat.time}</span>
+                  <span className="text-[10px] text-muted-foreground">{chat.time}</span>
                 </div>
                 <p className="text-xs text-muted-foreground truncate">{chat.message}</p>
               </div>
               {chat.unread > 0 && (
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
                   {chat.unread}
                 </span>
               )}
@@ -61,7 +61,7 @@ export function ChatTemplate() {
           </div>
           <div>
             <p className="text-sm font-medium">{groupName}</p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {t('templates.examples.chat.members', { memberCount: 5 })}
             </p>
           </div>
@@ -70,10 +70,10 @@ export function ChatTemplate() {
         <div className="flex-1 p-5 space-y-4 overflow-auto">
           <div className="flex gap-3">
             <div className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center">
-              <span className="text-[11px] text-muted-foreground">{firstSender[0]}</span>
+              <span className="text-[10px] text-muted-foreground">{firstSender[0]}</span>
             </div>
             <div>
-              <p className="mb-1 text-[11px] text-muted-foreground">{firstSender} · 10:28</p>
+              <p className="mb-1 text-[10px] text-muted-foreground">{firstSender} · 10:28</p>
               <div className="bg-secondary rounded-lg rounded-tl-none px-3 py-2 max-w-xs">
                 <p className="text-sm">{t('templates.examples.chat.messages.first.body')}</p>
               </div>
@@ -82,10 +82,10 @@ export function ChatTemplate() {
 
           <div className="flex gap-3">
             <div className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center">
-              <span className="text-[11px] text-muted-foreground">{secondSender[0]}</span>
+              <span className="text-[10px] text-muted-foreground">{secondSender[0]}</span>
             </div>
             <div>
-              <p className="mb-1 text-[11px] text-muted-foreground">{secondSender} · 10:29</p>
+              <p className="mb-1 text-[10px] text-muted-foreground">{secondSender} · 10:29</p>
               <div className="bg-secondary rounded-lg rounded-tl-none px-3 py-2 max-w-xs">
                 <p className="text-sm">{t('templates.examples.chat.messages.second.body')}</p>
               </div>
@@ -94,7 +94,7 @@ export function ChatTemplate() {
 
           <div className="flex gap-3 justify-end">
             <div>
-              <p className="mb-1 text-right text-[11px] text-muted-foreground">
+              <p className="mb-1 text-right text-[10px] text-muted-foreground">
                 {t('templates.examples.chat.you')} · 10:30
               </p>
               <div className="bg-primary text-primary-foreground rounded-lg rounded-tr-none px-3 py-2 max-w-xs">

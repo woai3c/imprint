@@ -14,11 +14,11 @@ import type { DesignProfile } from '../design-intelligence/types.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
 
-const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
-const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
-const SHADOW_NAMES = ['sm', 'md', 'lg', 'xl']
-const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
-const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
+export const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
+export const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
+export const SHADOW_NAMES = ['sm', 'md', 'lg', 'xl']
+export const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
+export const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
 
 export interface DarkModeExportData {
   hasDarkMode: boolean

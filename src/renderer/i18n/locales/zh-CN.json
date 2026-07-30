@@ -43,22 +43,16 @@
     "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
     "noAiHint": "基础提取无需 AI 配置。如需语义增强（命名优化、设计意图分析），请在设置中配置 AI 引擎。",
     "tabOverview": "概览",
-    "tabPreview": "Tokens",
+    "tabPreview": "可视预览",
     "tabMarkdown": "DESIGN.md",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS 变量",
-    "tabJson": "Tokens JSON",
-    "tabProfile": "解读 JSON",
-    "tabEvidence": "证据 JSON",
     "copyCurrent": "复制 {{format}}",
     "exportCurrent": "导出 {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
       "tailwind": "Tailwind v4",
-      "css": "CSS 变量",
-      "json": "Tokens JSON",
-      "profile": "Design Profile JSON",
-      "evidence": "Design Evidence JSON"
+      "css": "CSS 变量"
     },
     "aiExport": {
       "title": "配合 AI 编程助手使用",
@@ -302,7 +296,7 @@
         "unknown": "未知"
       },
       "limitations": {
-        "fewerPages": "目标网站可分析的同站页面少于你选择的数量，已按实际页面完成。",
+        "fewerPages": "目标网站可分析的页面少于所选数量（实际分析 {{pages}} 页）。",
         "singleViewport": "本次只截取了一种屏幕尺寸，无法比较不同尺寸下的布局变化。",
         "noSections": "没有识别出明确的页面区块。",
         "noActiveInteractions": "部分交互因安全限制未被触发观察。",
@@ -920,6 +914,11 @@
       "selectCli": "选择 {{name}}",
       "deselectCli": "取消选择 {{name}}",
       "noCli": "未检测到支持的 AI CLI"
+    },
+    "network": {
+      "title": "网络代理",
+      "proxyLabel": "代理服务器",
+      "proxyHint": "留空则自动检测系统代理。当 Clash/V2Ray 的 TUN 模式对浏览器分析不生效时，手动填入代理地址即可。"
     },
     "data": {
       "title": "数据管理",

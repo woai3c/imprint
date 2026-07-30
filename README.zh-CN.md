@@ -99,17 +99,45 @@ CLI 也只使用结构化证据。即使设计解读失败，token、证据、�
 
 ## CLI 与 MCP 智能模式
 
-CLI 只有在明确传入 `--intelligence` 时才会调用 AI 厂商。API Key 从 `IMPRINT_AI_API_KEY` 或对应厂商的标准环境变量读取。
+CLI 只有在明确传入 `--intelligence` 时才会调用 AI 厂商。API Key 从进程环境变量读取——优先使用
+`IMPRINT_AI_API_KEY`（通用覆盖），否则使用对应厂商的标准变量：
+
+| 厂商         | 环境变量                                                |
+| ------------ | ------------------------------------------------------- |
+| `openai`     | `OPENAI_API_KEY`                                        |
+| `anthropic`  | `ANTHROPIC_API_KEY`                                     |
+| `google`     | `GOOGLE_GENERATIVE_AI_API_KEY`                          |
+| `deepseek`   | `DEEPSEEK_API_KEY`                                      |
+| `moonshotai` | `MOONSHOT_API_KEY`                                      |
+| `alibaba`    | `ALIBABA_API_KEY`                                       |
+| `zhipu`      | `ZHIPU_API_KEY`                                         |
+| `xai`        | `XAI_API_KEY`                                           |
+| `custom`     | `IMPRINT_AI_API_KEY`（需配合 `--base-url` / `baseUrl`） |
 
 ```bash
 pnpm build:cli
+export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
-imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
+imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
 imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
 ```
 
 MCP 的 `imprint_extract` 始终是确定性提取。显式调用 `imprint_interpret` 才会访问 AI 厂商；也可以给
-`imprint_compare` 传入 `depth: "language"`，比较两个经过校验的结构化 DesignProfile。
+`imprint_compare` 传入 `depth: "language"`，比较两个经过校验的结构化 DesignProfile。通过 MCP 客户端的
+服务器配置传入 API Key，例如：
+
+```json
+{
+  "mcpServers": {
+    "imprint": {
+      "command": "imprint-mcp",
+      "env": { "DEEPSEEK_API_KEY": "sk-..." }
+    }
+  }
+}
+```
+
+此处配置的 API Key 与桌面应用的设置互相独立——各入口只读取自己的来源。
 
 ## 下载安装
 

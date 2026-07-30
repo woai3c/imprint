@@ -13,7 +13,7 @@ import { Tabs } from '../ui/Tabs'
 import { DesignDnaPanel } from './DesignDnaPanel'
 import { ExampleComponents } from './ExampleComponents'
 
-export type ExportTab = 'overview' | 'preview' | 'markdown' | 'tailwind' | 'css' | 'json' | 'profile' | 'evidence'
+export type ExportTab = 'overview' | 'preview' | 'markdown' | 'tailwind' | 'css'
 
 interface ArtifactPanelProps {
   result: AnalysisResultData
@@ -44,8 +44,8 @@ export function ArtifactPanel({
   const notify = useFeedbackStore((state) => state.show)
   const [activeTab, setActiveTab] = useState<ExportTab>('overview')
 
-  const activeArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
-  const activeArtifactLabel = t(`analyze.artifacts.${activeArtifact}`)
+  const exportArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
+  const activeArtifactLabel = t(`analyze.artifacts.${exportArtifact}`)
 
   const tabs: { id: ExportTab; label: string }[] = [
     { id: 'overview', label: t('analyze.tabOverview') },
@@ -53,24 +53,15 @@ export function ArtifactPanel({
     { id: 'markdown', label: t('analyze.tabMarkdown') },
     { id: 'tailwind', label: t('analyze.tabTailwind') },
     { id: 'css', label: t('analyze.tabCss') },
-    { id: 'json', label: t('analyze.tabJson') },
   ]
-  if (result.designProfile) tabs.push({ id: 'profile', label: t('analyze.tabProfile') })
-  if (result.designEvidence) tabs.push({ id: 'evidence', label: t('analyze.tabEvidence') })
 
   const tokens = result.tokens as Record<string, unknown> | undefined
 
   const handleCopy = async () => {
     let content = ''
-    if (activeTab === 'markdown') content = result.designDoc || ''
-    else if (activeTab === 'tailwind') content = result.tailwindTheme || ''
+    if (activeTab === 'tailwind') content = result.tailwindTheme || ''
     else if (activeTab === 'css') content = result.cssVariables || ''
-    else if (activeTab === 'json') content = JSON.stringify(result.tokens, null, 2)
-    else if (activeTab === 'profile')
-      content = result.designProfile ? JSON.stringify(result.designProfile, null, 2) : ''
-    else if (activeTab === 'evidence')
-      content = result.designEvidence ? JSON.stringify(result.designEvidence, null, 2) : ''
-    else if (activeTab === 'preview' || activeTab === 'overview') content = result.designDoc || ''
+    else content = result.designDoc || ''
     try {
       await navigator.clipboard.writeText(content)
       notify(t('feedback.copied'))
@@ -101,12 +92,9 @@ export function ArtifactPanel({
 
   const handleExportFile = async () => {
     let content = ''
-    let ext: 'md' | 'css' | 'json' = 'md'
+    let ext: 'md' | 'css' = 'md'
     let filename = 'DESIGN.md'
-    if (activeTab === 'markdown' || activeTab === 'preview' || activeTab === 'overview') {
-      content = result.designDoc
-      ext = 'md'
-    } else if (activeTab === 'tailwind') {
+    if (activeTab === 'tailwind') {
       content = result.tailwindTheme
       ext = 'css'
       filename = 'tailwind-theme.css'
@@ -114,18 +102,8 @@ export function ArtifactPanel({
       content = result.cssVariables
       ext = 'css'
       filename = 'theme-variables.css'
-    } else if (activeTab === 'json') {
-      content = JSON.stringify(result.tokens, null, 2)
-      ext = 'json'
-      filename = 'design-tokens.json'
-    } else if (activeTab === 'evidence') {
-      content = result.designEvidence ? JSON.stringify(result.designEvidence, null, 2) : ''
-      ext = 'json'
-      filename = 'design-evidence.json'
-    } else if (activeTab === 'profile') {
-      content = result.designProfile ? JSON.stringify(result.designProfile, null, 2) : ''
-      ext = 'json'
-      filename = 'design-profile.json'
+    } else {
+      content = result.designDoc
     }
     try {
       const exportResult = await window.electronAPI.exportFile(content, filename, ext)
@@ -175,7 +153,7 @@ export function ArtifactPanel({
               <div
                 id="ai-export-tooltip"
                 role="tooltip"
-                className="pointer-events-none invisible absolute top-full right-0 mt-2 w-72 rounded-lg border border-border bg-popover p-3 text-left opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                className="pointer-events-none invisible absolute top-full right-0 z-60 mt-2 w-72 rounded-lg border border-border bg-card p-3 text-left opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
               >
                 <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
@@ -214,16 +192,13 @@ export function ArtifactPanel({
             <Markdown remarkPlugins={[remarkGfm]}>{result.designDoc}</Markdown>
           </div>
         )}
-        {activeTab !== 'overview' && activeTab !== 'preview' && activeTab !== 'markdown' && (
+        {(activeTab === 'tailwind' || activeTab === 'css') && (
           <pre
             data-testid={`artifact-content-${activeTab}`}
             className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4"
           >
             {activeTab === 'tailwind' && result.tailwindTheme}
             {activeTab === 'css' && result.cssVariables}
-            {activeTab === 'json' && JSON.stringify(result.tokens, null, 2)}
-            {activeTab === 'profile' && JSON.stringify(result.designProfile, null, 2)}
-            {activeTab === 'evidence' && JSON.stringify(result.designEvidence, null, 2)}
           </pre>
         )}
       </div>

@@ -49,7 +49,7 @@ export function AnalyticsTemplate() {
                     className="w-full rounded-t bg-primary/70 hover:bg-primary transition-colors"
                     style={{ height: `${h}%` }}
                   />
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     {t('templates.examples.analytics.month', { month: i + 1 })}
                   </span>
                 </div>

@@ -170,7 +170,7 @@ function StatusCard({
               : t(`analyze.designDna.statusDescription.${status}`)}
           </p>
           {meta?.provider && (
-            <p className="mt-1 truncate text-[11px] text-muted-foreground">
+            <p className="mt-1 truncate text-[10px] text-muted-foreground">
               {meta.provider}
               {meta.model ? ` · ${meta.model}` : ''}
               {meta.inputMode ? ` · ${t(`analyze.designDna.inputMode.${meta.inputMode}`)}` : ''}

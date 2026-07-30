@@ -136,7 +136,7 @@ export function BrowserSessionsDialog({ onClose }: BrowserSessionsDialogProps) {
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{session.hostname}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground/80">
+                        <p className="mt-1 text-[10px] text-muted-foreground/80">
                           {t('analyze.sessions.lastUsed', { date: formatDate(session.updatedAt) })}
                         </p>
                       </div>

@@ -35,7 +35,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
 
   return (
     <div className="flex min-h-0 w-80 shrink-0 flex-col">
-      <div className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
+      <div className="scrollbar-hidden flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
         {result.authWallDetected && result.accessMode === 'anonymous' && (
           <div data-testid="anonymous-auth-warning" className="rounded-xl border border-warning/30 bg-warning/10 p-4">
             <div className="flex items-start gap-2">
@@ -144,7 +144,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
                     <span className="min-w-0 flex-1 truncate text-muted-foreground" title={screenshot.url}>
                       {screenshot.url}
                     </span>
-                    <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                    <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
                       {t(`analyze.viewports.${screenshot.viewport}`, {
                         defaultValue: screenshot.viewport,
                       })}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { applyColorRenames, validateColorRenames } from '../../src/core/analyzer/token-renamer.js'
+import { validateColorRenames } from '../../src/core/analyzer/token-renamer.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 
 function createTokens(colors: Record<string, string>): DesignToken {
@@ -57,31 +57,5 @@ describe('AI color rename validation', () => {
     expect(validateColorRenames(tokens, [{ tokenId: 'primary', name: 'background' }]).rejected).toMatchObject([
       { reason: 'existing-name' },
     ])
-  })
-
-  test('applies the same validated token IDs to light and dark values without mutation', () => {
-    const lightTokens = createTokens({
-      background: '#ffffff',
-      primary: '#2563eb',
-    })
-    const darkTokens = createTokens({
-      background: '#0f172a',
-      primary: '#60a5fa',
-    })
-    const renames = [{ tokenId: 'primary', name: 'action-brand' }]
-
-    const renamedLight = applyColorRenames(lightTokens, renames)
-    const renamedDark = applyColorRenames(darkTokens, renames)
-
-    expect(renamedLight.colors).toEqual({
-      background: '#ffffff',
-      'action-brand': '#2563eb',
-    })
-    expect(renamedDark.colors).toEqual({
-      background: '#0f172a',
-      'action-brand': '#60a5fa',
-    })
-    expect(lightTokens.colors).toHaveProperty('primary', '#2563eb')
-    expect(darkTokens.colors).toHaveProperty('primary', '#60a5fa')
   })
 })

@@ -221,12 +221,12 @@ export function ValidationReportPanel({ report, tokens }: ValidationReportPanelP
                     })}
                   </p>
                   {check.previewRef && (
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                       {t('analyze.designDna.previewRegion', { region: check.previewRef })}
                     </p>
                   )}
                   {check.failureLayer && (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-[10px] text-muted-foreground">
                       {t('analyze.designDna.failureLayer', {
                         layer: t(`analyze.designDna.layers.${check.failureLayer}`),
                       })}

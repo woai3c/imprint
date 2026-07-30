@@ -21,7 +21,7 @@ function addCount(frequency: Map<string, number>, value: string, count: number):
   frequency.set(value, (frequency.get(value) || 0) + count)
 }
 
-export function countFrequency(items: readonly string[]): Map<string, number> {
+function countFrequency(items: readonly string[]): Map<string, number> {
   const frequency = new Map<string, number>()
   for (const item of items) addCount(frequency, item, 1)
   return frequency

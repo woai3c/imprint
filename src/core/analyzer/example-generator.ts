@@ -1,9 +1,9 @@
 import { isRecord } from '../../shared/type-guards.js'
 import { findJsonPayload } from '../ai/json-payload.js'
 import { type AiProviderConfig, callAiProvider } from '../ai/provider.js'
+import { FONT_SIZE_NAMES, RADIUS_NAMES, SHADOW_NAMES } from '../export/index.js'
 import { generateDesignPrinciples } from './agent-guide.js'
 import type { ComponentPattern } from './component-detect.js'
-import type { ColorRenameProposal } from './token-renamer.js'
 import type { DesignToken, GeneratedExampleComponent } from './types.js'
 
 export interface ExampleGenerationContext {
@@ -30,16 +30,13 @@ export async function generateExamplesWithLlm(
 }
 
 export function buildExamplePrompt(tokens: DesignToken, url: string, context: ExampleGenerationContext = {}): string {
-  const fontSizeNames = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
-  const radiusNames = ['sm', 'md', 'lg', 'xl', '2xl']
-  const shadowNames = ['sm', 'md', 'lg', 'xl']
   const cssVariables = [
     ...Object.keys(tokens.colors).map((name) => `--color-${name}`),
     ...(tokens.typography.fontFamilies.length > 0 ? ['--font-sans'] : []),
-    ...tokens.typography.fontSizes.map((_, index) => `--font-size-${fontSizeNames[index] || index + 1}`),
+    ...tokens.typography.fontSizes.map((_, index) => `--font-size-${FONT_SIZE_NAMES[index] || index + 1}`),
     ...tokens.spacing.map((_, index) => `--spacing-${index + 1}`),
-    ...tokens.radii.map((_, index) => `--radius-${radiusNames[index] || index + 1}`),
-    ...tokens.shadows.map((_, index) => `--shadow-${shadowNames[index] || index + 1}`),
+    ...tokens.radii.map((_, index) => `--radius-${RADIUS_NAMES[index] || index + 1}`),
+    ...tokens.shadows.map((_, index) => `--shadow-${SHADOW_NAMES[index] || index + 1}`),
   ]
   const componentSummary =
     context.components?.map(({ type, count, confidence, styles, evidence }) => ({
@@ -128,19 +125,4 @@ export function parseExampleResponse(response: string): GeneratedExampleComponen
   }
 
   return examples
-}
-
-export function applyColorRenamesToExamples(
-  examples: readonly GeneratedExampleComponent[],
-  renames: readonly ColorRenameProposal[],
-): GeneratedExampleComponent[] {
-  if (renames.length === 0) return [...examples]
-
-  return examples.map((example) => ({
-    ...example,
-    html: renames.reduce(
-      (html, rename) => html.replaceAll(`var(--color-${rename.tokenId})`, `var(--color-${rename.name})`),
-      example.html,
-    ),
-  }))
 }

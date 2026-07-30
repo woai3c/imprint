@@ -19,6 +19,7 @@ export interface AnalysisOptions {
   extractDarkMode?: boolean
   depth?: 'standard' | 'deep'
   dataDir: string
+  proxyServer?: string
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
 }
 

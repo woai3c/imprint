@@ -354,26 +354,8 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('analysis-page-count').selectOption('1')
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
 
-    await page.getByTestId('artifact-tab-evidence').click()
-    const evidenceText = await page.getByTestId('artifact-content-evidence').textContent()
-    const evidence = JSON.parse(evidenceText || '{}')
-    assert.equal(evidence.schemaVersion, '1')
-    assert.ok(evidence.topology.pages.length >= 1)
-    assert.ok(evidence.sections.length >= 1)
-    assert.ok(evidence.interactionObservations.length >= 1)
-    assert.ok(evidence.coverage.interactionCoverage.safelyObserved >= 1)
-    assert.ok(evidence.pages[0].images.some((image) => image.kind === 'viewport-crop'))
-    assert.ok(evidence.pages[0].images.some((image) => image.kind === 'region-crop'))
-    assert.match(evidence.pages[0].images[0].contentHash, /^[a-f0-9]{64}$/)
-
-    await page.getByTestId('artifact-tab-json').click()
-    const tokenText = await page.getByTestId('artifact-content-json').textContent()
-    assert.ok(tokenText, 'Expected the Tokens JSON tab to contain generated output')
-
-    const tokens = JSON.parse(tokenText)
-    assert.equal(tokens.colors.primary, '#2563eb', 'Expected real usage frequency to select the fixture brand color')
-    assert.ok(tokens.spacing.includes('24px'), 'Expected the fixture spacing token')
-    assert.ok(tokens.radii.includes('14px'), 'Expected the fixture radius token')
+    await page.getByTestId('artifact-tab-overview').click()
+    await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
 
     await page.getByTestId('artifact-tab-css').click()
     const css = await page.getByTestId('artifact-content-css').textContent()
@@ -403,20 +385,12 @@ test('extracts a local design system without LLM credentials and persists it', {
       previousAgentScreenshotSrc,
       { timeout: 90_000 },
     )
-    await page.getByTestId('artifact-tab-profile').waitFor({ state: 'visible', timeout: 60_000 })
     await page.getByTestId('artifact-tab-overview').click()
     await page
       .locator(
         '[data-testid="design-intelligence-status-complete"], [data-testid="design-intelligence-status-partial"]',
       )
       .waitFor({ state: 'visible' })
-    await page.getByTestId('artifact-tab-json').click()
-    const agentTokens = JSON.parse((await page.getByTestId('artifact-content-json').textContent()) || '{}')
-    assert.equal(agentTokens.colors.primary, '#2563eb')
-    assert.equal(agentTokens.colors['e2e-agent-brand'], undefined)
-    assert.equal(agentTokens.colors['Invalid Name'], undefined)
-    assert.equal(agentTokens.colors['should-be-rejected'], undefined)
-    assert.equal(agentTokens.colors.background, tokens.colors.background)
     await page.getByTestId('artifact-tab-preview').click()
     await page.getByTestId('example-components').waitFor({ state: 'visible' })
     assert.equal(await page.getByTestId('example-component-frame').count(), 1)
@@ -426,10 +400,6 @@ test('extracts a local design system without LLM credentials and persists it', {
       /AI example card/,
     )
     assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-primary/)
-    await page.getByTestId('artifact-tab-profile').click()
-    const designProfile = JSON.parse((await page.getByTestId('artifact-content-profile').textContent()) || '{}')
-    assert.equal(designProfile.thesis.confidence, 'high')
-    assert.equal(designProfile.tokenAliases[0].name, 'e2e-agent-brand')
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-evidence-link').first().click()
     await page.getByTestId('analysis-evidence-highlight').waitFor({ state: 'visible' })

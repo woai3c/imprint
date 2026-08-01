@@ -38,6 +38,7 @@ export interface DesignIntelligenceMeta {
   }>
   failureCode?: string
   failureReason?: string
+  rejected?: string[]
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
 }

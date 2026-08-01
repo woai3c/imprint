@@ -413,6 +413,7 @@ export async function runDesignIntelligence(
         inputImageCount: isAgentCli ? cliImages.length : images.length,
         tokenUsage: result.usage,
         callDetails: result.callDetails,
+        rejected: result.rejected,
       },
     }
   } catch (error: unknown) {

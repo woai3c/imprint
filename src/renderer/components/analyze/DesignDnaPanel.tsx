@@ -230,6 +230,11 @@ function StatusCard({
           {failed && meta?.failureReason && (
             <p className="mt-1 break-all text-[10px] leading-4 text-destructive/80">{meta.failureReason}</p>
           )}
+          {status === 'partial' && meta?.rejected && meta.rejected.length > 0 && (
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground/70">
+              {t('analyze.designDna.incompleteFields')}: {meta.rejected.slice(0, 5).join(', ')}
+            </p>
+          )}
           {meta?.provider && (
             <p className="mt-1 truncate text-[10px] text-muted-foreground">
               {meta.provider}

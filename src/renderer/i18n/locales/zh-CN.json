@@ -154,7 +154,7 @@
         "pending": "正在解读设计语言",
         "cancelled": "AI 解读已取消",
         "complete": "AI 解读完成",
-        "partial": "AI 解读完成（部分内容已降级）",
+        "partial": "AI 解读完成（部分字段缺失）",
         "failed": "AI 解读失败",
         "skipped": "已跳过 AI 解读",
         "unsupported": "当前引擎不支持 AI 解读"
@@ -165,11 +165,12 @@
         "pending": "提取结果已经可以查看，AI 解读正在后台进行。",
         "cancelled": "已取消；已提取的设计信息不受影响。",
         "complete": "解读结论均已通过证据校验。",
-        "partial": "已保留有证据支持的结论，缺乏证据的内容已删除或降级。",
+        "partial": "AI 返回的结论已通过校验。部分字段为空或信息不足，不影响核心设计信息的完整性。",
         "failed": "AI 返回的结果不可用；已提取的设计信息未被改动。",
         "skipped": "你已跳过本次 AI 解读；已提取的设计信息和导出不受影响。",
         "unsupported": "当前配置的引擎无法执行设计解读。"
       },
+      "incompleteFields": "缺失字段",
       "inputMode": {
         "multimodal": "包含截图",
         "structural-only": "仅基于结构"

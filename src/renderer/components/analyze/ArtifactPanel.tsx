@@ -46,6 +46,7 @@ export function ArtifactPanel({
 
   const exportArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
   const activeArtifactLabel = t(`analyze.artifacts.${exportArtifact}`)
+  const showCopyDownload = activeTab !== 'preview'
 
   const tabs: { id: ExportTab; label: string }[] = [
     { id: 'overview', label: t('analyze.tabOverview') },
@@ -130,16 +131,20 @@ export function ArtifactPanel({
               onClick={handleSaveToLibrary}
               disabled={saved}
             />
-            <IconButton
-              icon={Download}
-              label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
-              onClick={handleExportFile}
-            />
-            <IconButton
-              icon={Copy}
-              label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
-              onClick={handleCopy}
-            />
+            {showCopyDownload && (
+              <IconButton
+                icon={Download}
+                label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
+                onClick={handleExportFile}
+              />
+            )}
+            {showCopyDownload && (
+              <IconButton
+                icon={Copy}
+                label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                onClick={handleCopy}
+              />
+            )}
             <div className="group relative z-50">
               <button
                 type="button"

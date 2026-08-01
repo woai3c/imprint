@@ -154,7 +154,7 @@
         "pending": "Interpreting design language",
         "cancelled": "AI interpretation cancelled",
         "complete": "AI interpretation complete",
-        "partial": "AI interpretation complete (some parts downgraded)",
+        "partial": "AI interpretation complete (some fields incomplete)",
         "failed": "AI interpretation failed",
         "skipped": "AI interpretation skipped",
         "unsupported": "AI interpretation unsupported"
@@ -165,11 +165,12 @@
         "pending": "The extracted result is ready to view while AI interpretation runs in the background.",
         "cancelled": "Cancelled. The extracted design data is unaffected.",
         "complete": "Every conclusion was verified against real page evidence.",
-        "partial": "Conclusions backed by evidence were kept; unsupported parts were removed or downgraded.",
+        "partial": "AI conclusions passed validation. Some fields were empty or lacked detail, but core design information is intact.",
         "failed": "The AI returned an unusable result. The extracted design data was not modified.",
         "skipped": "You skipped AI interpretation for this analysis. The extracted design data and exports are unaffected.",
         "unsupported": "The configured engine cannot run design interpretation."
       },
+      "incompleteFields": "Incomplete fields",
       "inputMode": {
         "multimodal": "includes screenshots",
         "structural-only": "structure only"

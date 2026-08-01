@@ -73,6 +73,7 @@ export interface InterpretationPipelineResult {
   status: 'complete' | 'partial'
   pipeline: 'single-pass' | 'two-pass'
   imageObservationsValid?: boolean
+  rejected?: string[]
   model?: string
   usage?: {
     input?: number
@@ -154,6 +155,7 @@ export async function runInterpretationPipeline(
     status: validation.status === 'complete' ? 'complete' : 'partial',
     pipeline: observations ? 'two-pass' : 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
+    rejected: validation.rejected.length > 0 ? validation.rejected : undefined,
     model: response.model,
     usage: totalUsage.input || totalUsage.output ? totalUsage : response.usage,
     callDetails,

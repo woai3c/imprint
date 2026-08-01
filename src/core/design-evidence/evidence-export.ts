@@ -63,30 +63,9 @@ export function generateDesignEvidenceBrief(
     if (!page) continue
     const roles = topologyPage.sectionIds
       .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
-      .filter(Boolean)
-    lines.push(
-      `- \`${page.viewport}\` ${page.url}: ${roles.join(' → ') || (zh ? '未识别区块' : 'no sections detected')}`,
-    )
-  }
-
-  lines.push('')
-  lines.push(zh ? '### 确定性实现值' : '### Deterministic Implementation Values')
-  lines.push('')
-  Object.entries(evidence.tokens.colors).forEach(([name, value]) => {
-    lines.push(`- \`--color-${name}: ${value}\``)
-  })
-  if (evidence.tokens.typography.fontStacks.length > 0) {
-    lines.push(
-      `- ${zh ? '字体栈' : 'Font stacks'}: ${evidence.tokens.typography.fontStacks
-        .map((value) => `\`${value}\``)
-        .join(', ')}`,
-    )
-  }
-  if (evidence.tokens.spacing.length > 0) {
-    lines.push(`- ${zh ? '间距' : 'Spacing'}: ${evidence.tokens.spacing.map((value) => `\`${value}\``).join(', ')}`)
-  }
-  if (evidence.tokens.radii.length > 0) {
-    lines.push(`- ${zh ? '圆角' : 'Radii'}: ${evidence.tokens.radii.map((value) => `\`${value}\``).join(', ')}`)
+      .filter((r) => Boolean(r) && r !== 'unknown')
+    if (roles.length === 0) continue
+    lines.push(`- \`${page.viewport}\` ${page.url}: ${roles.join(' → ')}`)
   }
 
   if (evidence.techStack) {
@@ -109,13 +88,30 @@ export function generateDesignEvidenceBrief(
     lines.push('')
     lines.push(zh ? '### 状态观察' : '### State Observations')
     lines.push('')
-    for (const observation of evidence.interactionObservations.slice(0, 24)) {
-      lines.push(
-        `- \`${observation.id}\` ${observation.safety}/${observation.driver}: ${observation.changedProperties.join(
-          ', ',
-        )}`,
-      )
+    const driverCounts = new Map<string, number>()
+    const propertyCounts = new Map<string, number>()
+    for (const obs of evidence.interactionObservations) {
+      driverCounts.set(obs.driver, (driverCounts.get(obs.driver) || 0) + 1)
+      for (const prop of obs.changedProperties) {
+        propertyCounts.set(prop, (propertyCounts.get(prop) || 0) + 1)
+      }
     }
+    lines.push(
+      zh
+        ? `- 共 ${evidence.interactionObservations.length} 条观察`
+        : `- ${evidence.interactionObservations.length} observations total`,
+    )
+    const driverSummary = [...driverCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([driver, count]) => `${driver} ×${count}`)
+      .join(', ')
+    lines.push(`- ${zh ? '驱动类型' : 'Drivers'}: ${driverSummary}`)
+    const propSummary = [...propertyCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([prop, count]) => `${prop} ×${count}`)
+      .join(', ')
+    lines.push(`- ${zh ? '变化属性' : 'Changed properties'}: ${propSummary}`)
   }
 
   if (evidence.responsiveObservations.length > 0) {

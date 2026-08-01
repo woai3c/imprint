@@ -1,3 +1,4 @@
+import i18n from 'i18next'
 import { Loader2, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
@@ -88,7 +89,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     if (!result?.analysisId) return
     setIntelligenceRunning(true)
     try {
-      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, undefined, true)
+      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, i18n.language, true)
       setResult((current) => (current ? { ...current, ...response } : current))
     } finally {
       setIntelligenceRunning(false)

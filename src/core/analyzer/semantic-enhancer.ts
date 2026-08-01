@@ -20,8 +20,8 @@ export async function enhanceSemanticNaming(
   try {
     const response = await callAiProvider(config, buildSemanticNamingPrompt(tokens, url, context))
     return parseSemanticNamingResponse(response.text)
-  } catch {
-    if (config.signal?.aborted) throw new DOMException('AI semantic naming cancelled', 'AbortError')
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
     return null
   }
 }

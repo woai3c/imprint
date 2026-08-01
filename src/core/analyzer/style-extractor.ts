@@ -266,3 +266,112 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
     return interactions
   })
 }
+
+export interface DetectedTechStack {
+  frameworks: string[]
+  uiLibraries: string[]
+  cssApproach: string[]
+  bundler?: string
+  icons?: string
+}
+
+export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
+  return await page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>
+    const frameworks: string[] = []
+    const uiLibraries: string[] = []
+    const cssApproach: string[] = []
+    let bundler: string | undefined
+    let icons: string | undefined
+
+    if (w.__NEXT_DATA__ || document.getElementById('__next')) frameworks.push('Next.js')
+    else if (w.__NUXT__ || w.__nuxt__) frameworks.push('Nuxt')
+    if (w.__SVELTE__ || document.querySelector('[data-svelte-h]')) frameworks.push('Svelte')
+    if (w.__REMIX_CONTEXT) frameworks.push('Remix')
+    if (document.querySelector('[ng-version]') || document.querySelector('[_ngcontent]')) frameworks.push('Angular')
+
+    const rootEl = document.getElementById('root') || document.getElementById('app') || document.body
+    const reactRoot =
+      rootEl && ('_reactRootContainer' in rootEl || (rootEl as HTMLElement).querySelector('[data-reactroot]'))
+    if (reactRoot && !frameworks.some((f) => f.includes('Next'))) frameworks.push('React')
+    if (w.__VUE__ || document.querySelector('[data-v-]') || document.querySelector('[data-vue]')) {
+      if (!frameworks.some((f) => f.includes('Nuxt'))) frameworks.push('Vue')
+    }
+
+    const allClasses = new Set<string>()
+    const sampleEls = document.querySelectorAll('body *')
+    const sampleCount = Math.min(sampleEls.length, 500)
+    for (let i = 0; i < sampleCount; i++) {
+      const el = sampleEls[Math.floor((i * sampleEls.length) / sampleCount)]
+      el.classList.forEach((c) => allClasses.add(c))
+    }
+    const classArr = [...allClasses]
+
+    const classPatterns: Array<{ pattern: RegExp | ((classes: string[]) => boolean); name: string }> = [
+      { pattern: (cs) => cs.some((c) => /^chakra-/.test(c)), name: 'Chakra UI' },
+      { pattern: (cs) => cs.some((c) => /^ant-/.test(c)), name: 'Ant Design' },
+      { pattern: (cs) => cs.some((c) => /^el-/.test(c)), name: 'Element Plus' },
+      { pattern: (cs) => cs.some((c) => /^Mui/.test(c) || /^css-/.test(c)), name: 'MUI' },
+      { pattern: (cs) => cs.some((c) => /^v-/.test(c) && /^v-(btn|card|chip|dialog)/.test(c)), name: 'Vuetify' },
+      { pattern: (cs) => cs.some((c) => /^bp[345]-/.test(c)), name: 'Blueprint' },
+      { pattern: (cs) => cs.some((c) => /^rs-/.test(c)), name: 'rsuite' },
+      { pattern: (cs) => cs.some((c) => /^semi-/.test(c)), name: 'Semi Design' },
+      { pattern: (cs) => cs.some((c) => /^arco-/.test(c)), name: 'Arco Design' },
+      { pattern: (cs) => cs.some((c) => /^next-ui-/.test(c) || /^nextui-/.test(c)), name: 'NextUI' },
+    ]
+    for (const { pattern, name } of classPatterns) {
+      const matched = typeof pattern === 'function' ? pattern(classArr) : classArr.some((c) => pattern.test(c))
+      if (matched) uiLibraries.push(name)
+    }
+    if (document.querySelector('[data-radix-collection-item], [data-radix-popper-content-wrapper]'))
+      uiLibraries.push('Radix UI')
+    if (document.querySelector('[data-headlessui-state]')) uiLibraries.push('Headless UI')
+
+    const metaGenerator = document.querySelector('meta[name="generator"]')?.getAttribute('content') || ''
+    if (/gatsby/i.test(metaGenerator)) frameworks.push('Gatsby')
+    if (/hugo/i.test(metaGenerator)) frameworks.push('Hugo')
+    if (/wordpress/i.test(metaGenerator)) frameworks.push('WordPress')
+    if (/astro/i.test(metaGenerator)) frameworks.push('Astro')
+
+    const utilityCount = classArr.filter((c) =>
+      /^(flex|grid|hidden|block|inline|relative|absolute|fixed|sticky|overflow-|items-|justify-|gap-|p[xytblr]?-|m[xytblr]?-|w-|h-|min-|max-|text-|font-|bg-|border-|rounded-|shadow-|opacity-|transition-|transform-|z-|space-|divide-|ring-)/.test(
+        c,
+      ),
+    ).length
+    if (utilityCount > 20) cssApproach.push('Tailwind CSS')
+
+    const hasBootstrapClasses = classArr.some((c) =>
+      /^(btn-|col-|row|container-fluid|navbar-|modal-|card-body)$/.test(c),
+    )
+    if (hasBootstrapClasses) cssApproach.push('Bootstrap')
+
+    const cssModuleCount = classArr.filter((c) =>
+      /^[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z][a-zA-Z0-9]*__[a-zA-Z0-9]{5,}$/.test(c),
+    ).length
+    if (cssModuleCount > 5) cssApproach.push('CSS Modules')
+
+    const styledCount = classArr.filter((c) => /^(sc-|css-|emotion-|__emotion_)/.test(c)).length
+    if (styledCount > 5) cssApproach.push('CSS-in-JS')
+
+    if (cssApproach.length === 0) cssApproach.push('Vanilla CSS')
+
+    const scripts = document.querySelectorAll('script[src]')
+    scripts.forEach((s) => {
+      const src = s.getAttribute('src') || ''
+      if (src.includes('webpack')) bundler = 'webpack'
+      else if (src.includes('_next/static')) bundler = 'webpack'
+      else if (src.includes('.vite/') || src.includes('/@vite/')) bundler = 'Vite'
+    })
+    if (!bundler && w.__vite_plugin_react_preamble_installed__) bundler = 'Vite'
+    if (!bundler && document.querySelector('script[type="module"][src*="assets/"]')) bundler = 'Vite'
+
+    const iconLinks = document.querySelectorAll('link[href*="font-awesome"], link[href*="fontawesome"]')
+    if (iconLinks.length > 0) icons = 'Font Awesome'
+    const materialIcons = document.querySelectorAll('link[href*="material-icons"], .material-icons, .material-symbols')
+    if (materialIcons.length > 0) icons = icons ? `${icons}, Material Icons` : 'Material Icons'
+    const lucideUse = classArr.some((c) => /^lucide-/.test(c))
+    if (lucideUse) icons = icons ? `${icons}, Lucide` : 'Lucide'
+
+    return { frameworks, uiLibraries, cssApproach, bundler, icons }
+  })
+}

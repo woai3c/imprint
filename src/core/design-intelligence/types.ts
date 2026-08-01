@@ -31,6 +31,11 @@ export interface DesignIntelligenceMeta {
     input?: number
     output?: number
   }
+  callDetails?: Array<{
+    pass: string
+    input?: number
+    output?: number
+  }>
   failureCode?: string
   failureReason?: string
   pendingChoice?: 'model-no-vision'
@@ -136,13 +141,60 @@ export interface DesignProfile {
   tokenAliases?: ColorRenameProposal[]
 }
 
-export type AiSafeDesignEvidence = Omit<DesignEvidence, 'pages'> & {
+export type AiSafeDesignEvidence = Omit<
+  DesignEvidence,
+  | 'pages'
+  | 'components'
+  | 'layoutNodes'
+  | 'sections'
+  | 'interactionObservations'
+  | 'interactionStyles'
+  | 'responsiveObservations'
+  | 'mediaLayers'
+> & {
   pages: Array<{
     id: string
     url: string
     viewport: string
     role?: string
     imageIds: string[]
+  }>
+  sections: Array<Omit<DesignEvidence['sections'][number], 'evidenceRefs'> & { evidenceRefs?: string[] }>
+  components: Array<{
+    id: string
+    sectionId: string
+    type: string
+    role?: string
+    tokenRefs: string[]
+  }>
+  layoutNodes: Array<{
+    id: string
+    sectionId: string
+    role: string
+    textRole?: string
+    tokenRefs: string[]
+    traits: string[]
+  }>
+  interactionStyles: {
+    hover: unknown[]
+    focus: unknown[]
+    active: unknown[]
+  }
+  interactionObservations: Array<{
+    id: string
+    sectionId: string
+    driver: string
+    safety: string
+    trigger: { kind: string; threshold?: string }
+    changedProperties: string[]
+    transition?: { duration?: string; easing?: string; properties?: string[] }
+  }>
+  responsiveObservations: Array<Omit<DesignEvidence['responsiveObservations'][number], 'evidenceRefs'>>
+  mediaLayers: Array<{
+    id: string
+    sectionId: string
+    role: string
+    layoutMode?: string
   }>
 }
 

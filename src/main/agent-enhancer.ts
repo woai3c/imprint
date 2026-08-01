@@ -15,7 +15,7 @@ import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import { normalizeAgentCliCommand } from '../shared/agent-clis.js'
 import { log } from './logger.js'
 
-const AGENT_TIMEOUT_MS = 120_000
+const AGENT_TIMEOUT_MS = 180_000
 const AGENT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 
 type PromptMode = 'argument' | 'stdin'

@@ -208,16 +208,25 @@ export function HistoryPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
                     <span className="text-sm truncate">{record.url}</span>
-                    {record.duration_ms && (
+                    {record.duration_ms != null && record.duration_ms > 0 && (
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
+                        {record.duration_ms >= 60000
+                          ? t('history.durationMin', { minutes: (record.duration_ms / 60000).toFixed(1) })
+                          : t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('history.pageCount', { count: record.pages_analyzed })}
-                    {record.theme_name && ` · ${record.theme_name}`}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                    <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
+                    {record.theme_name && <span>· {record.theme_name}</span>}
+                    <AiStatusBadge status={record.design_intelligence_status} />
+                    {record.ai_token_usage && (record.ai_token_usage.input || record.ai_token_usage.output) && (
+                      <span className="text-[10px]">
+                        {formatTokenCount(record.ai_token_usage.input)} /{' '}
+                        {formatTokenCount(record.ai_token_usage.output)}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -267,6 +276,33 @@ export function HistoryPage() {
       )}
       {detailId && <AnalysisDetailDialog analysisId={detailId} onClose={() => setDetailId(null)} />}
     </div>
+  )
+}
+
+function formatTokenCount(n?: number): string {
+  if (!n) return '0'
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(n)
+}
+
+function AiStatusBadge({ status }: { status: string | null }) {
+  const { t } = useTranslation()
+  if (!status || status === 'not-configured' || status === 'not-requested') return null
+  const isSuccess = status === 'complete' || status === 'partial'
+  const isFailed = status === 'failed'
+  const label = isSuccess ? t('history.aiSuccess') : isFailed ? t('history.aiFailed') : t('history.aiPending')
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-px text-[10px] font-medium ${
+        isSuccess
+          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          : isFailed
+            ? 'bg-destructive/10 text-destructive'
+            : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {label}
+    </span>
   )
 }
 

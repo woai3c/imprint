@@ -1,6 +1,7 @@
 export { generateAgentContextBundle } from './agent-context.js'
 export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
 export type {
+  CallDetail,
   InterpretEvidenceOptions,
   InterpretEvidenceResult,
   InterpretationInvoke,

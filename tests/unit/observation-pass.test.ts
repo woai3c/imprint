@@ -94,8 +94,8 @@ const evidence: DesignEvidence = {
     {
       id: 'section-b',
       pageId: 'page-b',
-      order: 0,
-      role: 'hero',
+      order: 1,
+      role: 'content',
       rect: { x: 0.05, y: 0.1, width: 0.9, height: 0.5 },
       layoutMode: 'flow',
       tokenRefs: ['color.background'],
@@ -294,14 +294,13 @@ describe('Section observation pass', () => {
     expect(calls[1]).toContain('section-a')
   })
 
-  it('repairs invalid observation output once before falling back', async () => {
+  it('degrades to single-pass when observation output is invalid', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const observationPrompts: string[] = []
     const invoke: InterpretationInvoke = async (prompt) => {
       if (prompt.includes('section observer')) {
         observationPrompts.push(prompt)
-        if (observationPrompts.length === 1) return { text: 'not json at all' }
-        return { text: JSON.stringify({ observations: [observationEntry('section-a')] }) }
+        return { text: 'not json at all' }
       }
       return { text: JSON.stringify(rawProfile()) }
     }
@@ -310,9 +309,8 @@ describe('Section observation pass', () => {
       language: 'en',
       invoke,
     })
-    expect(result.pipeline).toBe('two-pass')
-    expect(observationPrompts).toHaveLength(2)
-    expect(observationPrompts[1]).toContain('failed validation')
+    expect(result.pipeline).toBe('single-pass')
+    expect(observationPrompts).toHaveLength(1)
   })
 
   it('degrades to single-pass synthesis when the observation pass fails', async () => {

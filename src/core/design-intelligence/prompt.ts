@@ -33,10 +33,17 @@ ${evidencePackage.selectedSectionIds.join(', ')}
 
 Evidence package:
 <UNTRUSTED_DESIGN_EVIDENCE>
-${JSON.stringify(evidencePackage)}
+${truncateEvidence(JSON.stringify(evidencePackage))}
 </UNTRUSTED_DESIGN_EVIDENCE>
 
 Return JSON only.`
+}
+
+const EVIDENCE_CHAR_LIMIT = 200_000
+
+function truncateEvidence(json: string): string {
+  if (json.length <= EVIDENCE_CHAR_LIMIT) return json
+  return json.slice(0, EVIDENCE_CHAR_LIMIT) + '\n... [evidence truncated — extremely large site]'
 }
 
 export function buildObservationRepairPrompt(
@@ -55,7 +62,7 @@ ${rejected
 Repair only the JSON structure and observations. Do not add evidence, IDs, facts, or sections that are absent from the original evidence package.
 
 <INVALID_MODEL_OUTPUT>
-${invalidOutput.slice(0, 120_000)}
+${invalidOutput.slice(0, 60_000)}
 </INVALID_MODEL_OUTPUT>
 
 Return one corrected JSON object only.`
@@ -156,7 +163,7 @@ CLAIM is:
 
 Evidence package:
 <UNTRUSTED_DESIGN_EVIDENCE>
-${JSON.stringify(evidencePackage)}
+${truncateEvidence(JSON.stringify(evidencePackage))}
 </UNTRUSTED_DESIGN_EVIDENCE>
 ${
   observations && observations.length > 0
@@ -190,7 +197,7 @@ ${rejected
 Repair only the JSON structure and claims. Do not add evidence, IDs, facts, or capabilities that are absent from the original evidence package.
 
 <INVALID_MODEL_OUTPUT>
-${invalidOutput.slice(0, 120_000)}
+${invalidOutput.slice(0, 60_000)}
 </INVALID_MODEL_OUTPUT>
 
 Return one corrected JSON object only.`

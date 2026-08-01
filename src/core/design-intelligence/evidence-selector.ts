@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 
-import type { DesignEvidence } from '../design-evidence/types.js'
+import type {
+  ComponentEvidence,
+  DesignEvidence,
+  InteractionObservation,
+  LayoutEvidenceNode,
+} from '../design-evidence/types.js'
 import type { EvidencePackage, IntelligenceInputMode } from './types.js'
 
 export interface EvidenceSelectionBudget {
@@ -13,10 +18,10 @@ export interface EvidenceSelectionBudget {
 
 const DEFAULT_BUDGET: EvidenceSelectionBudget = {
   maxPages: 3,
-  maxSections: 24,
-  maxComponents: 80,
-  maxLayoutNodes: 120,
-  maxImages: 6,
+  maxSections: 16,
+  maxComponents: 40,
+  maxLayoutNodes: 60,
+  maxImages: 4,
 }
 
 export function createEvidenceFingerprint(
@@ -108,44 +113,143 @@ export function restrictEvidencePackageImages(
   }
 }
 
+function componentSignature(c: ComponentEvidence): string {
+  const styleKeys = Object.keys(c.styles).sort()
+  const styleVals = styleKeys.map((k) => `${k}:${c.styles[k]}`).join('|')
+  return `${c.type}||${styleVals}`
+}
+
+function deduplicateComponents(components: ComponentEvidence[], limit: number): ComponentEvidence[] {
+  const seen = new Map<string, ComponentEvidence>()
+  for (const c of components) {
+    const sig = componentSignature(c)
+    if (!seen.has(sig)) seen.set(sig, c)
+  }
+  return [...seen.values()].slice(0, limit)
+}
+
+function layoutNodeSignature(n: LayoutEvidenceNode): string {
+  return `${n.role}|${n.textRole || ''}|${n.traits.sort().join(',')}`
+}
+
+function deduplicateLayoutNodes(nodes: LayoutEvidenceNode[], limit: number): LayoutEvidenceNode[] {
+  const seen = new Map<string, LayoutEvidenceNode>()
+  for (const n of nodes) {
+    const sig = layoutNodeSignature(n)
+    if (!seen.has(sig)) seen.set(sig, n)
+  }
+  return [...seen.values()].slice(0, limit)
+}
+
+function interactionSignature(obs: InteractionObservation): string {
+  return `${obs.driver}|${obs.trigger.kind}|${obs.changedProperties.sort().join(',')}`
+}
+
+function deduplicateInteractions(observations: InteractionObservation[], limit: number): InteractionObservation[] {
+  const seen = new Map<string, InteractionObservation>()
+  for (const obs of observations) {
+    const sig = interactionSignature(obs)
+    if (!seen.has(sig)) seen.set(sig, obs)
+  }
+  return [...seen.values()].slice(0, limit)
+}
+
+function selectRepresentativePages<T extends { url: string; viewport: string }>(pages: T[], maxPages: number): T[] {
+  const byUrl = new Map<string, T[]>()
+  for (const page of pages) {
+    const existing = byUrl.get(page.url) || []
+    existing.push(page)
+    byUrl.set(page.url, existing)
+  }
+  const result: T[] = []
+  for (const group of byUrl.values()) {
+    const desktop = group.find((p) => p.viewport === 'desktop')
+    const mobile = group.find((p) => p.viewport === 'mobile')
+    if (desktop) result.push(desktop)
+    if (mobile) result.push(mobile)
+    if (!desktop && !mobile && group.length > 0) result.push(group[0])
+    if (result.length >= maxPages) break
+  }
+  return result.slice(0, maxPages)
+}
+
+function selectRepresentativeImages(
+  pages: { viewport: string; url: string; images: { id: string; kind: string; width: number }[] }[],
+  maxImages: number,
+): string[] {
+  const ids: string[] = []
+  const seenUrlViewport = new Set<string>()
+  for (const page of pages) {
+    const key = `${page.url}|${page.viewport}`
+    if (seenUrlViewport.has(key)) continue
+    seenUrlViewport.add(key)
+    const overview = page.images.find((img) => img.kind === 'overview')
+    if (overview) ids.push(overview.id)
+    if (ids.length >= maxImages) break
+  }
+  return ids
+}
+
+function deduplicateInteractionStyles(
+  styles: { hover: unknown[]; focus: unknown[]; active: unknown[] },
+  limit: number,
+): typeof styles {
+  const dedup = (arr: unknown[]) => {
+    const seen = new Set<string>()
+    return arr
+      .filter((item) => {
+        const key = JSON.stringify(item)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .slice(0, limit)
+  }
+  return { hover: dedup(styles.hover), focus: dedup(styles.focus), active: dedup(styles.active) }
+}
+
 export function selectEvidencePackage(
   evidence: DesignEvidence,
   inputMode: IntelligenceInputMode,
   budget: Partial<EvidenceSelectionBudget> = {},
 ): EvidencePackage {
   const limits = { ...DEFAULT_BUDGET, ...budget }
-  const pages = evidence.pages.slice(0, limits.maxPages)
+  const pages = selectRepresentativePages(evidence.pages, limits.maxPages)
   const selectedPageIds = pages.map((page) => page.id)
+  const pageUrlMap = new Map(pages.map((page) => [page.id, page.url]))
+  const sectionDedup = new Set<string>()
   const sections = evidence.sections
     .filter((section) => selectedPageIds.includes(section.pageId))
+    .filter((section) => {
+      const url = pageUrlMap.get(section.pageId) || ''
+      const key = `${url}|${section.role}|${section.order}`
+      if (sectionDedup.has(key)) return false
+      sectionDedup.add(key)
+      return true
+    })
     .slice(0, limits.maxSections)
   const selectedSectionIds = sections.map((section) => section.id)
-  const components = evidence.components
-    .filter((component) => selectedSectionIds.includes(component.sectionId))
-    .slice(0, limits.maxComponents)
-  const layoutNodes = evidence.layoutNodes
-    .filter((node) => selectedSectionIds.includes(node.sectionId))
-    .slice(0, limits.maxLayoutNodes)
-  const interactionObservations = evidence.interactionObservations
-    .filter((observation) => selectedSectionIds.includes(observation.sectionId))
-    .slice(0, 120)
+  const components = deduplicateComponents(
+    evidence.components.filter((component) => selectedSectionIds.includes(component.sectionId)),
+    limits.maxComponents,
+  )
+  const layoutNodes = deduplicateLayoutNodes(
+    evidence.layoutNodes.filter((node) => selectedSectionIds.includes(node.sectionId)),
+    limits.maxLayoutNodes,
+  )
+  const interactionObservations = deduplicateInteractions(
+    evidence.interactionObservations.filter((observation) => selectedSectionIds.includes(observation.sectionId)),
+    60,
+  )
   const responsiveObservations = evidence.responsiveObservations
     .filter(
       (observation) =>
         selectedSectionIds.includes(observation.sectionId) ||
         observation.evidenceRefs.some((reference) => selectedSectionIds.includes(reference)),
     )
-    .slice(0, 120)
-  const mediaLayers = evidence.mediaLayers.filter((media) => selectedSectionIds.includes(media.sectionId)).slice(0, 120)
-  const imageIds =
-    inputMode === 'multimodal'
-      ? pages
-          .flatMap((page) => page.images.filter((image) => image.kind === 'overview'))
-          .concat(pages.flatMap((page) => page.images.filter((image) => image.kind === 'viewport-crop')))
-          .concat(pages.flatMap((page) => page.images.filter((image) => image.kind === 'region-crop')))
-          .slice(0, limits.maxImages)
-          .map((image) => image.id)
-      : []
+    .slice(0, 60)
+  const mediaLayers = evidence.mediaLayers.filter((media) => selectedSectionIds.includes(media.sectionId)).slice(0, 60)
+  const imageIds = inputMode === 'multimodal' ? selectRepresentativeImages(pages, limits.maxImages) : []
 
   const omittedEvidence: EvidencePackage['omittedEvidence'] = []
   if (evidence.pages.length > pages.length) omittedEvidence.push({ kind: 'pages', reason: 'budget' })
@@ -177,7 +281,7 @@ export function selectEvidencePackage(
   const usageCount = Object.fromEntries(
     Object.entries(evidence.tokens.usageCount || {})
       .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
-      .slice(0, 500),
+      .slice(0, 50),
   )
 
   return {
@@ -201,20 +305,20 @@ export function selectEvidencePackage(
         imageIds: page.images.map((image) => image.id).filter((imageId) => imageIds.includes(imageId)),
       })),
       topology,
-      sections,
-      components,
-      layoutNodes,
-      interactionStyles: {
-        hover: evidence.interactionStyles.hover.slice(0, 40),
-        focus: evidence.interactionStyles.focus.slice(0, 40),
-        active: evidence.interactionStyles.active.slice(0, 40),
-      },
-      interactionObservations,
-      responsiveObservations,
-      mediaLayers,
-      breakpoints: evidence.breakpoints.slice(0, 24),
-      motion: evidence.motion.slice(0, 60),
-      limitations: evidence.limitations.slice(0, 60),
+      sections: sections.map(({ evidenceRefs: _e, ...s }) => s),
+      components: components.map(
+        ({ styles: _s, evidenceRefs: _e, rect: _r, pageId: _p, stateRefs: _st, confidence: _cf, ...c }) => c,
+      ),
+      layoutNodes: layoutNodes.map(({ rect: _r, pageId: _p, ...n }) => n),
+      interactionStyles: deduplicateInteractionStyles(evidence.interactionStyles, 20),
+      interactionObservations: interactionObservations.map(
+        ({ before: _b, after: _a, evidenceRefs: _e, pageId: _p, targetId: _t, ...obs }) => obs,
+      ),
+      responsiveObservations: responsiveObservations.map(({ evidenceRefs: _e, ...obs }) => obs),
+      mediaLayers: mediaLayers.map(({ rect: _r, pageId: _p, ...m }) => m),
+      breakpoints: evidence.breakpoints.slice(0, 8),
+      motion: evidence.motion.slice(0, 16),
+      limitations: evidence.limitations.slice(0, 30),
     },
     omittedEvidence,
   }

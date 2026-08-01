@@ -38,6 +38,7 @@ export interface BuildDesignEvidenceInput {
   breakpoints: ResponsiveBreakpoint[]
   motion: MotionToken[]
   captures: CapturedPageEvidence[]
+  techStack?: import('./types.js').TechStackInfo
 }
 
 function imageContentHash(filePath: string): string | undefined {
@@ -595,5 +596,6 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     mediaLayers,
     coverage,
     limitations,
+    techStack: input.techStack,
   }
 }

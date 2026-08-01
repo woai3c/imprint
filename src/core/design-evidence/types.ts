@@ -196,4 +196,13 @@ export interface DesignEvidence {
   mediaLayers: MediaLayerEvidence[]
   coverage: EvidenceCoverage
   limitations: string[]
+  techStack?: TechStackInfo
+}
+
+export interface TechStackInfo {
+  frameworks: string[]
+  uiLibraries: string[]
+  cssApproach: string[]
+  bundler?: string
+  icons?: string
 }

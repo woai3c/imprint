@@ -23,8 +23,8 @@ export async function generateExamplesWithLlm(
   try {
     const response = await callAiProvider(config, buildExamplePrompt(tokens, url, context))
     return parseExampleResponse(response.text)
-  } catch {
-    if (config.signal?.aborted) throw new DOMException('AI example generation cancelled', 'AbortError')
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
     return null
   }
 }

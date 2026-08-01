@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 import dunhuangMuralBgUrl from '../assets/dunhuang-mural-bg.jpg'
 import inkLandscapeBgUrl from '../assets/ink-landscape-bg.jpg'
+import { getColorModePreference, setColorModePreference } from '../lib/preferences'
 
 export type { ThemeExportFormat } from '../../shared/ipc-contract'
 
@@ -699,7 +700,7 @@ interface SkinStore {
 export const useSkinStore = create<SkinStore>((set, get) => ({
   currentThemeId: 'default',
   extractedThemeId: null,
-  colorMode: (localStorage.getItem('colorMode') as ColorMode) || 'light',
+  colorMode: (getColorModePreference() as ColorMode) || 'light',
 
   setTheme: (id) => {
     const theme = builtinThemes.find((t) => t.id === id)
@@ -711,7 +712,7 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
 
   setColorMode: (mode) => {
     set({ colorMode: mode })
-    localStorage.setItem('colorMode', mode)
+    setColorModePreference(mode)
     const { currentThemeId } = get()
 
     applyThemeInstantly(() => {
@@ -1392,7 +1393,7 @@ export function preloadThemeBackdrops() {
 }
 
 export function initColorMode() {
-  const mode = (localStorage.getItem('colorMode') as ColorMode) || 'light'
+  const mode = (getColorModePreference() as ColorMode) || 'light'
   document.documentElement.dataset.appTheme = 'default'
   applyThemeTokensToDOM(DEFAULT_THEME_TOKENS)
   document.documentElement.classList.toggle('dark', mode === 'dark')

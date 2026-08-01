@@ -156,7 +156,7 @@ export function generateDesignDoc(
   exampleComponents: readonly GeneratedExampleComponent[] = [],
   designEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
-  reconstructionBrief?: string,
+  _reconstructionBrief?: string,
 ): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
@@ -192,18 +192,6 @@ export function generateDesignDoc(
   if (designProfile) {
     lines.push(generateDesignProfileMarkdown(designProfile))
     lines.push('')
-    if (reconstructionBrief) {
-      lines.push(zh ? '## AI 重构上下文' : '## AI Reconstruction Context')
-      lines.push('')
-      lines.push(
-        zh
-          ? '> 层级：Generated / 已生成。以下简报由代码从已校验 DesignProfile 构造，不能作为来源网站证据。'
-          : '> Layer: Generated. This brief is constructed in code from the validated DesignProfile and is not source-site evidence.',
-      )
-      lines.push('')
-      lines.push(reconstructionBrief)
-      lines.push('')
-    }
   }
 
   // Colors
@@ -334,21 +322,17 @@ export function generateDesignDoc(
 
   if (designEvidence) {
     lines.push('')
-    lines.push(zh ? '## 使用这些观察证据' : '## Using These Observations')
+    lines.push(zh ? '## 如何使用' : '## How to Use')
     lines.push('')
     lines.push(
-      designProfile
-        ? zh
-          ? '- 使用导出的 token 和 CSS 变量实现页面；只把 AI 解读中经过校验并带证据引用的规则作为可迁移推断。'
-          : '- Implement with the exported tokens and CSS variables; treat only validated, evidence-cited AI interpretation rules as transferable inference.'
-        : zh
-          ? '- 使用导出的 token 和 CSS 变量实现页面，不要把区块顺序或单个组件实例误称为可迁移的设计意图。'
-          : '- Implement with the exported tokens and CSS variables; do not present section order or individual component instances as inferred, transferable design intent.',
+      zh
+        ? '- 本文件包含完整的设计系统信息（颜色、字体、间距、组件模式等），可直接提供给 AI 编码助手（如 Cursor、Claude Code）以辅助 UI 开发。'
+        : '- This file contains a complete design system reference (colors, typography, spacing, component patterns, etc.) for use with AI coding assistants (e.g. Cursor, Claude Code).',
     )
     lines.push(
       zh
-        ? '- 进行 AI UI 修改时，请同时提供本文件以及当前 UI 的截图或源代码。'
-        : '- For AI-assisted UI revisions, provide this file together with the current UI screenshot or source code.',
+        ? '- 如需精确的 CSS 变量或 Tailwind 主题配置，请使用 Imprint 的对应导出格式。'
+        : '- For exact CSS variables or Tailwind theme config, use the corresponding Imprint export format.',
     )
   } else {
     lines.push(generateAgentGuide(tokens, url, language))

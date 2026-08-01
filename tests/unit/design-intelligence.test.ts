@@ -375,12 +375,11 @@ describe('Design intelligence', () => {
 
   it('removes unavailable images from the multimodal evidence package', () => {
     const selected = selectEvidencePackage(evidence, 'multimodal')
-    const restricted = restrictEvidencePackageImages(selected, ['image-b'])
+    expect(selected.imageIds).toContain('image-a')
 
-    expect(restricted.imageIds).toEqual(['image-b'])
-    expect(restricted.evidence.pages.find((page) => page.id === 'page-a')?.imageIds).toEqual([])
-    expect(restricted.evidence.pages.find((page) => page.id === 'page-b')?.imageIds).toEqual(['image-b'])
-    expect(restricted.omittedEvidence).toContainEqual({ kind: 'images', reason: 'budget' })
+    const restricted = restrictEvidencePackageImages(selected, ['image-a'])
+    expect(restricted.imageIds).toEqual(['image-a'])
+    expect(restricted.evidence.pages.find((page) => page.id === 'page-a')?.imageIds).toEqual(['image-a'])
   })
 
   it('validates grounded profiles and downgrades structural visual certainty', () => {

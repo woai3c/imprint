@@ -60,6 +60,71 @@ export const MODEL_CATALOG: Record<string, CatalogModel[]> = {
   xai: [{ id: 'grok-4.5', label: 'Grok 4.5', vision: true, recommended: true, price: '$2 / $6' }],
 }
 
+export interface ReasoningTier {
+  label: string
+  value: string
+  description: string
+}
+
+export const REASONING_TIERS: Record<string, { modelPattern?: RegExp; options: readonly ReasoningTier[] }> = {
+  openai: {
+    options: [
+      { label: 'None', value: 'none', description: 'No reasoning, fastest' },
+      { label: 'Low', value: 'low', description: 'Fast, concise reasoning' },
+      { label: 'Medium', value: 'medium', description: 'Balanced (default)' },
+      { label: 'High', value: 'high', description: 'Thorough reasoning' },
+    ],
+  },
+  anthropic: {
+    options: [
+      { label: 'Low', value: 'low', description: 'Minimal reasoning, fastest' },
+      { label: 'Medium', value: 'medium', description: 'Balanced reasoning' },
+      { label: 'High', value: 'high', description: 'Thorough reasoning' },
+    ],
+  },
+  google: {
+    modelPattern: /gemini-3/,
+    options: [
+      { label: 'Low', value: 'low', description: 'Lower latency, lower cost' },
+      { label: 'High', value: 'high', description: 'Deeper reasoning' },
+    ],
+  },
+  xai: {
+    options: [
+      { label: 'Low', value: 'low', description: 'Faster, cheaper responses' },
+      { label: 'High', value: 'high', description: 'Deeper reasoning' },
+    ],
+  },
+  moonshotai: {
+    modelPattern: /kimi-k3/,
+    options: [
+      { label: 'Low', value: 'low', description: 'Faster, concise reasoning' },
+      { label: 'High', value: 'high', description: 'Deeper reasoning' },
+      { label: 'Max', value: 'max', description: 'Maximum reasoning (API default)' },
+    ],
+  },
+  deepseek: {
+    modelPattern: /deepseek-v4/,
+    options: [
+      { label: 'High', value: 'high', description: 'Standard reasoning (API default)' },
+      { label: 'Max', value: 'max', description: 'Maximum reasoning depth' },
+    ],
+  },
+}
+
+export function supportsThinkingToggle(provider: string, modelId: string): boolean {
+  if (provider === 'deepseek' && /deepseek-v4/.test(modelId)) return true
+  if (provider === 'moonshotai' && /kimi-k2/.test(modelId)) return true
+  return false
+}
+
+export function getReasoningTiers(provider: string, modelId: string): ReasoningTier[] | null {
+  const config = REASONING_TIERS[provider]
+  if (!config) return null
+  if (config.modelPattern && !config.modelPattern.test(modelId)) return null
+  return [...config.options]
+}
+
 export function getCatalogModels(provider: string): CatalogModel[] {
   return MODEL_CATALOG[provider] ?? []
 }

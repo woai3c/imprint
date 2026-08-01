@@ -89,17 +89,19 @@ export function generateDesignEvidenceBrief(
     lines.push(`- ${zh ? '圆角' : 'Radii'}: ${evidence.tokens.radii.map((value) => `\`${value}\``).join(', ')}`)
   }
 
-  if (evidence.components.length > 0) {
-    lines.push('')
-    lines.push(zh ? '### 代表组件实例' : '### Representative Component Instances')
-    lines.push('')
-    for (const component of evidence.components.slice(0, 20)) {
-      lines.push(
-        `- \`${component.id}\` ${component.type}: ${Object.entries(component.styles)
-          .slice(0, 8)
-          .map(([name, value]) => `${name}=${value}`)
-          .join(', ')}${component.tokenRefs.length > 0 ? ` [${component.tokenRefs.join(', ')}]` : ''}`,
-      )
+  if (evidence.techStack) {
+    const ts = evidence.techStack
+    const parts: string[] = []
+    if (ts.frameworks.length > 0) parts.push(`${zh ? '框架' : 'Framework'}: ${ts.frameworks.join(', ')}`)
+    if (ts.uiLibraries.length > 0) parts.push(`${zh ? 'UI 库' : 'UI Library'}: ${ts.uiLibraries.join(', ')}`)
+    if (ts.cssApproach.length > 0) parts.push(`${zh ? 'CSS 方案' : 'CSS'}: ${ts.cssApproach.join(', ')}`)
+    if (ts.bundler) parts.push(`${zh ? '构建工具' : 'Bundler'}: ${ts.bundler}`)
+    if (ts.icons) parts.push(`${zh ? '图标' : 'Icons'}: ${ts.icons}`)
+    if (parts.length > 0) {
+      lines.push('')
+      lines.push(zh ? '### 技术栈' : '### Tech Stack')
+      lines.push('')
+      for (const part of parts) lines.push(`- ${part}`)
     }
   }
 
@@ -129,14 +131,51 @@ export function generateDesignEvidenceBrief(
     }
   }
 
-  lines.push('')
-  lines.push(zh ? '### 证据限制' : '### Evidence Limitations')
-  lines.push('')
-  if (evidence.limitations.length === 0) {
-    lines.push(zh ? '- 未记录限制。' : '- No limitations were recorded.')
-  } else {
-    for (const limitation of evidence.limitations) lines.push(`- \`${limitation}\``)
+  const humanLimitations = evidence.limitations.map((l) => humanizeLimitation(l, zh)).filter(Boolean) as string[]
+  if (humanLimitations.length > 0) {
+    lines.push('')
+    lines.push(zh ? '### 分析局限' : '### Analysis Limitations')
+    lines.push('')
+    for (const text of humanLimitations) lines.push(`- ${text}`)
   }
 
   return lines.join('\n')
+}
+
+const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
+  'fewer-pages-than-requested': {
+    en: 'Fewer pages were analyzed than requested',
+    zh: '实际分析页面数少于请求数',
+  },
+  'single-viewport': {
+    en: 'Only a single viewport size was captured',
+    zh: '仅捕获了单一视口尺寸',
+  },
+  'no-sections-detected': {
+    en: 'No page sections were detected',
+    zh: '未检测到页面区块',
+  },
+  'some-safe-interactions-skipped': {
+    en: 'Some interactive states could not be safely observed',
+    zh: '部分交互状态未能安全观察',
+  },
+  'no-interaction-states-observed': {
+    en: 'No interactive state changes were observed',
+    zh: '未观察到交互状态变化',
+  },
+  'no-major-media-detected': {
+    en: 'No major media regions were detected',
+    zh: '未检测到主要媒体区域',
+  },
+  'no-classified-media-regions': {
+    en: 'Media regions were found but could not be classified',
+    zh: '发现了媒体区域但未能分类',
+  },
+}
+
+function humanizeLimitation(key: string, zh: boolean): string | null {
+  const label = LIMITATION_LABELS[key]
+  if (label) return zh ? label.zh : label.en
+  if (key.startsWith('skipped:') || key.startsWith('skipped-interaction:')) return null
+  return key
 }

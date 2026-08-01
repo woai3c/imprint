@@ -9,6 +9,8 @@ import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
 import { initLogger, log } from './logger.js'
 
+app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,AutofillEnableAccountWalletStorage')
+
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
 

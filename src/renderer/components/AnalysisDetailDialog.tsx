@@ -8,6 +8,7 @@ import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import type { AnalysisResultData } from '../stores/analysis-store'
 import { ArtifactPanel } from './analyze/ArtifactPanel'
 import { EvidenceDetailCard, type EvidenceDetailData } from './analyze/EvidenceDetailCard'
+import { ResultOverview } from './analyze/ResultOverview'
 import { ScreenshotLightbox } from './analyze/ScreenshotLightbox'
 
 interface AnalysisDetailDialogProps {
@@ -164,24 +165,34 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
             {t('feedback.actionFailed')}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 p-4">
-            <ArtifactPanel
-              result={result}
-              saved={saved}
-              intelligenceRunning={intelligenceRunning}
-              intelligenceProgress={intelligenceProgress}
-              onSaved={() => setSaved(true)}
-              onRetryIntelligence={retryIntelligence}
-              onCancelIntelligence={async () => {
-                if (!result.analysisId) return
-                await window.electronAPI.cancelDesignIntelligence(result.analysisId)
-                setIntelligenceRunning(false)
-                setIntelligenceProgress(null)
-              }}
-              onSkipIntelligence={skipIntelligence}
-              onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
-              onOpenEvidence={openEvidence}
-            />
+          <div className="flex min-h-0 flex-1 gap-4 p-4">
+            <div className="w-[340px] shrink-0 overflow-auto scrollbar-hidden">
+              <ResultOverview
+                result={result}
+                analyzing={false}
+                onRetryWithLogin={() => {}}
+                onOpenLightbox={(index) => setLightboxIndex(index)}
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <ArtifactPanel
+                result={result}
+                saved={saved}
+                intelligenceRunning={intelligenceRunning}
+                intelligenceProgress={intelligenceProgress}
+                onSaved={() => setSaved(true)}
+                onRetryIntelligence={retryIntelligence}
+                onCancelIntelligence={async () => {
+                  if (!result.analysisId) return
+                  await window.electronAPI.cancelDesignIntelligence(result.analysisId)
+                  setIntelligenceRunning(false)
+                  setIntelligenceProgress(null)
+                }}
+                onSkipIntelligence={skipIntelligence}
+                onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
+                onOpenEvidence={openEvidence}
+              />
+            </div>
           </div>
         )}
       </div>

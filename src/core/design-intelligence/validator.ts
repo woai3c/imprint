@@ -17,8 +17,6 @@ const GENERIC_ONLY =
 const UNPROVABLE_INTENT =
   /(?:the designer (?:wants|wanted|intends|intended)|the brand (?:wants|must|intends)|设计师(?:希望|想要|意图)|品牌(?:一定|希望|想要))/i
 const HTML_OR_URL = /<[^>]+>|https?:\/\/|javascript:|```/i
-const ACTIONABLE =
-  /(?:use|keep|align|place|limit|stack|reserve|maintain|avoid|group|set|apply|preserve|adapt|使用|保持|对齐|放置|限制|排列|保留|维持|避免|分组|设置|采用|适配)/
 const COLOR_LITERAL = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi
 
 function collectTokenColorValues(evidence: DesignEvidence): Set<string> {
@@ -88,7 +86,7 @@ export function extractProfileCandidate(response: string): unknown {
   for (let index = objects.length - 1; index >= 0; index -= 1) {
     const object = objects[index]
     if (isRecord(object) && isRecord(object.profile)) return object.profile
-    if (isRecord(object) && object.schemaVersion === '1' && object.thesis) return object
+    if (isRecord(object) && String(object.schemaVersion) === '1' && object.thesis) return object
   }
   return null
 }
@@ -136,7 +134,6 @@ function validateClaim(
     typeof value.implementation !== 'string' ||
     !value.implementation.trim() ||
     value.implementation.length > 360 ||
-    !ACTIONABLE.test(value.implementation) ||
     UNPROVABLE_INTENT.test(value.implementation) ||
     HTML_OR_URL.test(value.implementation)
   ) {
@@ -281,14 +278,41 @@ export function validateDesignProfile(
   options?: { requireImageObservations?: string[] },
 ): ProfileValidationResult {
   const rejected: string[] = []
-  if (
-    !isRecord(value) ||
-    value.schemaVersion !== '1' ||
-    value.inputMode !== expectedMode ||
-    value.language !== language
-  ) {
-    return { profile: null, status: 'failed', rejected: ['root:invalid-schema-or-mode'] }
+  if (!isRecord(value)) {
+    return { profile: null, status: 'failed', rejected: ['root:not-an-object'] }
   }
+  if (String(value.schemaVersion) !== '1') {
+    return {
+      profile: null,
+      status: 'failed',
+      rejected: [`root:bad-schemaVersion(${JSON.stringify(value.schemaVersion)})`],
+    }
+  }
+  if (value.inputMode !== expectedMode) {
+    const actual = value.inputMode
+    if (typeof actual === 'string' && (actual === 'multimodal' || actual === 'structural-only')) {
+      value.inputMode = expectedMode
+    } else {
+      return {
+        profile: null,
+        status: 'failed',
+        rejected: [`root:bad-inputMode(${JSON.stringify(actual)},expected=${expectedMode})`],
+      }
+    }
+  }
+  if (value.language !== language) {
+    const actual = value.language
+    if (typeof actual === 'string') {
+      value.language = language
+    } else {
+      return {
+        profile: null,
+        status: 'failed',
+        rejected: [`root:bad-language(${JSON.stringify(actual)},expected=${language})`],
+      }
+    }
+  }
+  value.schemaVersion = '1'
   if (value.tokens || value.tokenValues) rejected.push('root:unexpected-token-values')
   const requiredImageIds = options?.requireImageObservations || []
   let imageObservationsValid: boolean | undefined

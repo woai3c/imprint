@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, net, shell } from 'electron'
 
 import { getDefaultBaseUrl } from '../core/ai/capabilities.js'
 import {
@@ -62,6 +62,7 @@ interface SaveTextFileOptions {
 }
 
 const designIntelligenceControllers = new Map<string, AbortController>()
+const analysisStartTimes = new Map<string, number>()
 
 function readFirstScreenshotPath(serialized: unknown): string | null {
   if (typeof serialized !== 'string') return null
@@ -129,6 +130,7 @@ export function registerIpcHandlers() {
       .prepare(
         `SELECT a.id, a.theme_id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
                 a.token_usage, a.created_at, a.page_screenshots_json,
+                a.design_intelligence_status, a.design_intelligence_meta_json,
                 t.name as theme_name, t.source_url
          FROM analyses a
          LEFT JOIN themes t ON a.theme_id = t.id
@@ -136,10 +138,24 @@ export function registerIpcHandlers() {
       )
       .all() as Array<Record<string, unknown>>
 
-    return records.map(({ page_screenshots_json: screenshots, ...record }) => ({
-      ...record,
-      screenshot_path: readFirstScreenshotPath(screenshots),
-    }))
+    return records.map(({ page_screenshots_json: screenshots, design_intelligence_meta_json: metaJson, ...record }) => {
+      let aiTokenUsage: { input?: number; output?: number } | undefined
+      if (typeof metaJson === 'string') {
+        try {
+          const meta = JSON.parse(metaJson) as Record<string, unknown>
+          if (meta.tokenUsage && typeof meta.tokenUsage === 'object') {
+            aiTokenUsage = meta.tokenUsage as { input?: number; output?: number }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return {
+        ...record,
+        screenshot_path: readFirstScreenshotPath(screenshots),
+        ai_token_usage: aiTokenUsage,
+      }
+    })
   })
 
   ipcMain.handle('analyses:delete', (_event, id: string) => {
@@ -297,6 +313,7 @@ export function registerIpcHandlers() {
         `start: url=${url} viewports=${options?.viewports?.join(',') ?? 'default'} maxPages=${options?.maxPages ?? 'default'} authMode=${options?.authMode ?? 'auto'}`,
       )
 
+      const analysisStartTime = Date.now()
       try {
         const currentSettings = getSettings()
         const effectiveOptions = {
@@ -362,7 +379,7 @@ export function registerIpcHandlers() {
           url,
           pagesAnalyzed,
           JSON.stringify(viewports),
-          result.duration,
+          Date.now() - analysisStartTime,
           new Date().toISOString(),
           JSON.stringify(result.tokens),
           cssVars,
@@ -380,6 +397,8 @@ export function registerIpcHandlers() {
           designIntelligenceStatus,
           JSON.stringify(designIntelligenceMeta),
         )
+
+        analysisStartTimes.set(analysisId, analysisStartTime)
 
         log.info(
           'analysis',
@@ -495,7 +514,7 @@ export function registerIpcHandlers() {
     ).run(pendingMeta.status, JSON.stringify(pendingMeta), analysisId)
     win?.webContents.send('design-intelligence:progress', {
       step: 'progress.interpretingDesignLanguage',
-      percent: 20,
+      percent: 5,
     })
 
     const intelligence = await runDesignIntelligence(
@@ -504,6 +523,9 @@ export function registerIpcHandlers() {
       settings,
       outputLanguage,
       intelligenceController.signal,
+      (step, percent) => {
+        win?.webContents.send('design-intelligence:progress', { step, percent })
+      },
     )
     if (designIntelligenceControllers.get(analysisId) === intelligenceController) {
       designIntelligenceControllers.delete(analysisId)
@@ -565,18 +587,25 @@ export function registerIpcHandlers() {
       )
     }
 
+    const startTime = analysisStartTimes.get(analysisId)
+    const totalDuration = startTime ? Date.now() - startTime : null
+    analysisStartTimes.delete(analysisId)
+
     db.prepare(
       `UPDATE analyses
        SET design_doc = ?, design_profile_json = ?, design_intelligence_status = ?,
-           design_intelligence_meta_json = ?, validation_report_json = ?
+           design_intelligence_meta_json = ?, validation_report_json = ?${totalDuration != null ? ', duration_ms = ?' : ''}
        WHERE id = ?`,
     ).run(
-      designDoc,
-      designProfile ? JSON.stringify(designProfile) : null,
-      intelligence.meta.status,
-      JSON.stringify(intelligence.meta),
-      validationReport ? JSON.stringify(validationReport) : null,
-      analysisId,
+      ...[
+        designDoc,
+        designProfile ? JSON.stringify(designProfile) : null,
+        intelligence.meta.status,
+        JSON.stringify(intelligence.meta),
+        validationReport ? JSON.stringify(validationReport) : null,
+        ...(totalDuration != null ? [totalDuration] : []),
+        analysisId,
+      ],
     )
     if (record.theme_id) {
       db.prepare(
@@ -937,13 +966,13 @@ export function registerIpcHandlers() {
 
       const modelsEndpoint =
         provider === 'google' ? `${baseUrl}/models?key=${encodeURIComponent(apiKey)}` : `${baseUrl}/models`
-      const modelsRes = await fetch(modelsEndpoint, { headers: authHeaders, signal: timeout })
+      const modelsRes = await net.fetch(modelsEndpoint, { headers: authHeaders, signal: timeout })
       if (modelsRes.ok) {
         return { success: true, message: 'Connection successful' }
       }
 
       if (modelsRes.status === 404) {
-        const chatRes = await fetch(`${baseUrl}/chat/completions`, {
+        const chatRes = await net.fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: { ...authHeaders, 'content-type': 'application/json' },
           body: JSON.stringify({

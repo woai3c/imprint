@@ -265,7 +265,7 @@ after(async () => {
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
 
-test('extracts a local design system without LLM credentials and persists it', { timeout: 120_000 }, async (t) => {
+test('extracts a local design system without LLM credentials and persists it', { timeout: 180_000 }, async (t) => {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)

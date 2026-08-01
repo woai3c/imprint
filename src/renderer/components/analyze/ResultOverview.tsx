@@ -77,6 +77,25 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
             </div>
           )}
 
+          {result.designEvidence?.techStack &&
+            (() => {
+              const ts = result.designEvidence.techStack
+              const tags = [...ts.frameworks, ...ts.uiLibraries, ...ts.cssApproach]
+              if (ts.bundler) tags.push(ts.bundler)
+              return tags.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : null
+            })()}
+
           <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
               <strong className="text-foreground">{colorCount}</strong> {t('preview.statColors')}

@@ -4,7 +4,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getDefaultBaseUrl } from '../../core/ai/capabilities'
-import { getCatalogModel, getCatalogModels, getRecommendedModel } from '../../core/ai/model-catalog'
+import {
+  getCatalogModel,
+  getCatalogModels,
+  getReasoningTiers,
+  getRecommendedModel,
+  supportsThinkingToggle,
+} from '../../core/ai/model-catalog'
 import { getAgentCliDisplayName } from '../../shared/agent-clis'
 import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
@@ -66,6 +72,8 @@ export function SettingsPage() {
   const [detecting, setDetecting] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [reasoningEffort, setReasoningEffort] = useState('medium')
+  const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [proxyServer, setProxyServer] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
@@ -81,6 +89,8 @@ export function SettingsPage() {
       setModelSupportsVision(s.modelSupportsVision === true)
       setManagedVisionConsent(s.managedVisionConsent !== false)
       setSelectedCli(s.agentCli || '')
+      setReasoningEffort(s.reasoningEffort || 'medium')
+      setThinkingEnabled(s.thinkingEnabled === true)
       setProxyServer(s.proxyServer || '')
       setLoaded(true)
 
@@ -503,6 +513,55 @@ export function SettingsPage() {
                                    placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
+                  )}
+                  {(() => {
+                    const tiers = getReasoningTiers(provider, effectiveModel)
+                    if (!tiers) return null
+                    return (
+                      <div>
+                        <label htmlFor="ai-reasoning-effort" className="text-sm font-medium block mb-1.5">
+                          {t('settings.ai.reasoningEffort')}
+                        </label>
+                        <select
+                          id="ai-reasoning-effort"
+                          value={reasoningEffort}
+                          onChange={(e) => {
+                            setReasoningEffort(e.target.value)
+                            save({ reasoningEffort: e.target.value })
+                          }}
+                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          {tiers.map((tier) => (
+                            <option key={tier.value} value={tier.value}>
+                              {tier.label} — {tier.description}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {t('settings.ai.reasoningEffortHint')}
+                        </p>
+                      </div>
+                    )
+                  })()}
+                  {supportsThinkingToggle(provider, effectiveModel) && (
+                    <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                      <input
+                        type="checkbox"
+                        checked={thinkingEnabled}
+                        onChange={(event) => {
+                          setThinkingEnabled(event.target.checked)
+                          save({ thinkingEnabled: event.target.checked })
+                        }}
+                        className="mt-0.5 size-4 accent-primary"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium">{t('settings.ai.thinkingEnabled')}</span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          {t('settings.ai.thinkingEnabledHint')}
+                        </span>
+                      </span>
+                    </label>
                   )}
                   {provider === 'custom' && (
                     <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">

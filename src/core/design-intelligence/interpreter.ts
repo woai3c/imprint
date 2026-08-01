@@ -11,8 +11,6 @@ import { extractObservationCandidate, validateSectionObservations } from './obse
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
-  buildDesignProfileRepairPrompt,
-  buildObservationRepairPrompt,
   buildSectionObservationPrompt,
 } from './prompt.js'
 import type {
@@ -64,6 +62,12 @@ export interface InterpretationPipelineOptions {
   requireImageObservations?: string[]
 }
 
+export interface CallDetail {
+  pass: string
+  input?: number
+  output?: number
+}
+
 export interface InterpretationPipelineResult {
   profile: DesignProfile
   status: 'complete' | 'partial'
@@ -74,6 +78,7 @@ export interface InterpretationPipelineResult {
     input?: number
     output?: number
   }
+  callDetails: CallDetail[]
 }
 
 export function splitImagesByPass(
@@ -93,18 +98,15 @@ async function runObservationPass(
   language: 'en' | 'zh-CN',
   invoke: InterpretationInvoke,
   images: AiImageInput[],
+  callDetails: CallDetail[],
 ): Promise<SectionObservation[] | null> {
   try {
     const prompt = buildSectionObservationPrompt(evidencePackage, language)
-    let response = await invoke(prompt, images)
-    let validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
-    if (validation.observations.length === 0 && response.text) {
-      response = await invoke(buildObservationRepairPrompt(prompt, response.text, validation.rejected), images)
-      validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
-    }
+    const response = await invoke(prompt, images)
+    callDetails.push({ pass: 'observation', input: response.usage?.input, output: response.usage?.output })
+    const validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
     return validation.observations.length > 0 ? validation.observations : null
   } catch {
-    // Observation failures degrade to a single-pass synthesis; the profile run must not fail because notes failed.
     return null
   }
 }
@@ -114,11 +116,13 @@ export async function runInterpretationPipeline(
   evidencePackage: EvidencePackage,
   options: InterpretationPipelineOptions,
 ): Promise<InterpretationPipelineResult> {
+  const callDetails: CallDetail[] = []
   const observations = await runObservationPass(
     evidencePackage,
     options.language,
     options.invoke,
     options.observationImages || [],
+    callDetails,
   )
   const prompt = buildDesignInterpretationPrompt(evidencePackage, options.language, observations || undefined)
   const synthesisImages = options.synthesisImages || []
@@ -131,26 +135,28 @@ export async function runInterpretationPipeline(
       listEvidencePackageIds(evidencePackage),
       options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
     )
-  let response = await options.invoke(prompt, synthesisImages)
+  const response = await options.invoke(prompt, synthesisImages)
+  callDetails.push({ pass: 'synthesis', input: response.usage?.input, output: response.usage?.output })
   if (!response.text) throw new Error('DesignProfile output is empty')
-  let validation = validateCandidate(response.text)
-  if (!validation.profile || validation.imageObservationsValid === false) {
-    response = await options.invoke(
-      buildDesignProfileRepairPrompt(prompt, response.text, validation.rejected),
-      synthesisImages,
-    )
-    validation = validateCandidate(response.text)
-  }
+  const validation = validateCandidate(response.text)
   if (!validation.profile) {
     throw new Error(`DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}`)
   }
+  const totalUsage = callDetails.reduce(
+    (acc, d) => ({
+      input: (acc.input || 0) + (d.input || 0),
+      output: (acc.output || 0) + (d.output || 0),
+    }),
+    {} as { input?: number; output?: number },
+  )
   return {
     profile: validation.profile,
     status: validation.status === 'complete' ? 'complete' : 'partial',
     pipeline: observations ? 'two-pass' : 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
     model: response.model,
-    usage: response.usage,
+    usage: totalUsage.input || totalUsage.output ? totalUsage : response.usage,
+    callDetails,
   }
 }
 
@@ -223,6 +229,7 @@ export async function interpretDesignEvidence(
       ),
       inputImageCount: images.length,
       tokenUsage: result.usage,
+      callDetails: result.callDetails,
     },
   }
 }

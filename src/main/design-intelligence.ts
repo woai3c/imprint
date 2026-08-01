@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 
+import { nativeImage, net } from 'electron'
+
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
 import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import { generateExamplesWithLlm } from '../core/analyzer/example-generator.js'
@@ -159,12 +161,54 @@ function selectAvailableImages(evidence: DesignEvidence, imageIds: string[]) {
   return selected
 }
 
+const IMAGE_MAX_DIMENSION = 2048
+const IMAGE_TARGET_BYTES = 3.75 * 1024 * 1024
+
+function compressImage(filePath: string): { base64: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' } {
+  const raw = fs.readFileSync(filePath)
+  const img = nativeImage.createFromBuffer(raw)
+  if (img.isEmpty()) {
+    return { base64: raw.toString('base64'), mimeType: mimeTypeForPath(filePath) }
+  }
+  const { width, height } = img.getSize()
+  let resized = img
+  if (width > IMAGE_MAX_DIMENSION || height > IMAGE_MAX_DIMENSION) {
+    const scale = Math.min(IMAGE_MAX_DIMENSION / width, IMAGE_MAX_DIMENSION / height)
+    resized = img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'better' })
+  }
+  for (const quality of [80, 60, 40, 20]) {
+    const jpeg = resized.toJPEG(quality)
+    if (jpeg.length <= IMAGE_TARGET_BYTES || quality === 20) {
+      log.info(
+        'design-intelligence',
+        `image compressed: ${filePath} ${width}x${height} ${raw.length}→${jpeg.length} q=${quality}`,
+      )
+      return { base64: jpeg.toString('base64'), mimeType: 'image/jpeg' }
+    }
+  }
+  const smallScale = Math.min(1000 / width, 1000 / height, 1)
+  const small = img.resize({
+    width: Math.round(width * smallScale),
+    height: Math.round(height * smallScale),
+    quality: 'better',
+  })
+  const jpeg = small.toJPEG(20)
+  log.info(
+    'design-intelligence',
+    `image ultra-compressed: ${filePath} ${width}x${height} ${raw.length}→${jpeg.length} q=20@1000`,
+  )
+  return { base64: jpeg.toString('base64'), mimeType: 'image/jpeg' }
+}
+
 function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiImageInput[] {
-  return selectAvailableImages(evidence, imageIds).map((image) => ({
-    name: image.name,
-    mimeType: mimeTypeForPath(image.path),
-    base64: fs.readFileSync(image.path).toString('base64'),
-  }))
+  return selectAvailableImages(evidence, imageIds).map((image) => {
+    const compressed = compressImage(image.path)
+    return {
+      name: image.name.replace(/\.[^.]+$/, '.jpeg'),
+      mimeType: compressed.mimeType,
+      base64: compressed.base64,
+    }
+  })
 }
 
 function collectSelectedImageFiles(evidence: DesignEvidence, imageIds: string[]): AgentCliImageInput[] {
@@ -181,12 +225,15 @@ function failureCode(error: unknown, timedOut = false): string {
   return 'provider-error'
 }
 
+export type ProgressCallback = (step: string, percent: number) => void
+
 export async function runDesignIntelligence(
   evidence: DesignEvidence,
   tokens: DesignToken,
   settings: AppSettings,
   language: 'en' | 'zh-CN',
   signal?: AbortSignal,
+  onProgress?: ProgressCallback,
 ): Promise<IntelligenceRunResult> {
   if (!hasDesignIntelligenceConfiguration(settings)) {
     return {
@@ -217,6 +264,17 @@ export async function runDesignIntelligence(
       cliImages = []
     }
   }
+  {
+    const ep = evidencePackage.evidence
+    const epJson = JSON.stringify(evidencePackage)
+    log.info(
+      'design-intelligence',
+      `evidence package: ${epJson.length} chars, pages=${ep.pages.length} sections=${ep.sections.length} ` +
+        `components=${ep.components.length} layoutNodes=${ep.layoutNodes.length} ` +
+        `interactions=${ep.interactionObservations.length} responsive=${ep.responsiveObservations.length} ` +
+        `images=${evidencePackage.imageIds.length} mode=${evidencePackage.inputMode}`,
+    )
+  }
   const fingerprint = createEvidenceFingerprint(
     evidence,
     route.mode,
@@ -237,8 +295,9 @@ export async function runDesignIntelligence(
     inputFingerprint: fingerprint,
     inputImageCount: evidencePackage.imageIds.length,
   }
-  const timeoutSignal = AbortSignal.timeout(60_000)
+  const timeoutSignal = AbortSignal.timeout(900_000)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+  const accumulatedUsage = { input: 0, output: 0, calls: 0 }
 
   try {
     const enhancementContext = {
@@ -252,7 +311,11 @@ export async function runDesignIntelligence(
       baseUrl: settings.baseUrl || undefined,
       model: resolveEffectiveModel(settings.provider, settings.model),
       signal: runSignal,
+      fetchFn: net.fetch as unknown as typeof fetch,
+      reasoningEffort: settings.reasoningEffort || 'medium',
+      thinkingEnabled: settings.thinkingEnabled === true,
     }
+    onProgress?.('progress.semanticNaming', 10)
     const [renameProposals, generatedExamples] =
       settings.aiMode === 'apiKey'
         ? await Promise.all([
@@ -266,31 +329,55 @@ export async function runDesignIntelligence(
             enhancementContext,
             runSignal,
           ).then((enhancement) => [enhancement.renames, enhancement.examples] as const)
+    onProgress?.('progress.semanticNamingDone', 25)
     const renameValidation = validateColorRenames(tokens, renameProposals || [])
     const examples = generatedExamples || []
     const cliImageByName = new Map(cliImages.map((image) => [image.name, image]))
+    let invokeCount = 0
     const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
+      invokeCount++
+      const passLabel = invokeCount <= 2 ? 'progress.observationPass' : 'progress.synthesisPass'
+      onProgress?.(passLabel, Math.min(25 + invokeCount * 15, 85))
+      log.info(
+        'design-intelligence',
+        `invoke #${invokeCount}: images=${passImages.length} promptLen=${taskPrompt.length}`,
+      )
+      let result: Awaited<ReturnType<InterpretationInvoke>>
+      const invokeStart = Date.now()
       if (settings.aiMode === 'apiKey') {
-        return callAiProvider(
+        result = await callAiProvider(
           {
             provider: settings.provider,
             apiKey: settings.apiKey,
             baseUrl: settings.baseUrl || undefined,
             model: resolveEffectiveModel(settings.provider, settings.model),
             signal: runSignal,
+            fetchFn: net.fetch as unknown as typeof fetch,
+            reasoningEffort: settings.reasoningEffort || 'medium',
+            thinkingEnabled: settings.thinkingEnabled === true,
           },
           taskPrompt,
           passImages,
         )
+      } else {
+        const passCliImages = passImages.flatMap((image) => {
+          const cliImage = cliImageByName.get(image.name)
+          return cliImage ? [cliImage] : []
+        })
+        result = {
+          text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)) || '',
+          model: settings.agentCli,
+        }
       }
-      const passCliImages = passImages.flatMap((image) => {
-        const cliImage = cliImageByName.get(image.name)
-        return cliImage ? [cliImage] : []
-      })
-      return {
-        text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)) || '',
-        model: settings.agentCli,
-      }
+      const invokeMs = Date.now() - invokeStart
+      log.info(
+        'design-intelligence',
+        `invoke #${invokeCount} done: ${invokeMs}ms tokens=${result.usage?.input || 0}+${result.usage?.output || 0} textLen=${result.text.length}`,
+      )
+      accumulatedUsage.calls++
+      accumulatedUsage.input += result.usage?.input || 0
+      accumulatedUsage.output += result.usage?.output || 0
+      return result
     }
     const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
     const { observationImages, synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
@@ -303,6 +390,7 @@ export async function runDesignIntelligence(
       synthesisImages,
       requireImageObservations: isAgentCli && route.mode === 'multimodal' ? synthesisImageIds : undefined,
     })
+    onProgress?.('progress.validatingProfile', 90)
     result.profile.tokenAliases = renameValidation.accepted
     const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
     const effectiveMode = result.profile.inputMode
@@ -324,10 +412,19 @@ export async function runDesignIntelligence(
         generatedAt: new Date().toISOString(),
         inputImageCount: isAgentCli ? cliImages.length : images.length,
         tokenUsage: result.usage,
+        callDetails: result.callDetails,
       },
     }
   } catch (error: unknown) {
     const code = failureCode(error, timeoutSignal.aborted && !signal?.aborted)
+    let reason: string | undefined
+    if (code === 'timeout') {
+      reason = 'AI interpretation timed out (15 min). The model may be slow — try again or switch to a faster model.'
+    } else if (code === 'cancelled') {
+      reason = undefined
+    } else {
+      reason = error instanceof Error ? error.message.slice(0, 500) : undefined
+    }
     log.error(
       'design-intelligence',
       `run failed: provider=${baseMeta.provider} code=${code} reason=${error instanceof Error ? error.message.slice(0, 300) : 'unknown'}`,
@@ -344,7 +441,9 @@ export async function runDesignIntelligence(
         capabilityLevel: 'evidence-fallback',
         generatedAt: new Date().toISOString(),
         failureCode: code,
-        failureReason: error instanceof Error ? error.message.slice(0, 500) : undefined,
+        failureReason: reason,
+        tokenUsage:
+          accumulatedUsage.calls > 0 ? { input: accumulatedUsage.input, output: accumulatedUsage.output } : undefined,
       },
     }
   }

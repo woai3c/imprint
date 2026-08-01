@@ -25,7 +25,7 @@ import {
 import { generateFeatureTags } from './feature-tags.js'
 import { discoverSubPages } from './page-discovery.js'
 import { type MotionToken, type ResponsiveBreakpoint, detectBreakpoints, detectMotion } from './responsive-motion.js'
-import { extractInteractionStyles, extractStyles } from './style-extractor.js'
+import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { mergeStyles } from './style-merge.js'
 import { buildDesignTokens } from './token-builder.js'
 import type {
@@ -330,6 +330,7 @@ export async function analyze(
     let components: ComponentPattern[] = []
     let breakpoints: ResponsiveBreakpoint[] = []
     let motion: MotionToken[] = []
+    let techStack: import('../design-evidence/types.js').TechStackInfo | undefined
 
     for (let i = 0; i < viewportNames.length; i++) {
       const vpName = viewportNames[i]
@@ -356,11 +357,11 @@ export async function analyze(
         darkModeResult = await extractDarkMode(page)
       }
 
-      // Detect components, breakpoints, motion (first viewport only)
       if (i === 0) {
         components = await detectComponents(page)
         breakpoints = await detectBreakpoints(page)
         motion = await detectMotion(page)
+        techStack = await detectTechStack(page)
       }
 
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
@@ -527,6 +528,7 @@ export async function analyze(
       breakpoints,
       motion,
       captures: capturedPageEvidence,
+      techStack,
     })
 
     onProgress?.('progress.done', 100)

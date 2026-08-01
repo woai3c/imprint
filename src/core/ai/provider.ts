@@ -6,6 +6,9 @@ export interface AiProviderConfig {
   baseUrl?: string
   model?: string
   signal?: AbortSignal
+  fetchFn?: typeof fetch
+  reasoningEffort?: string
+  thinkingEnabled?: boolean
 }
 
 export interface AiImageInput {
@@ -55,7 +58,7 @@ function imageLabel(image: AiImageInput): string {
 }
 
 function requestSignal(config: AiProviderConfig): AbortSignal {
-  const timeout = AbortSignal.timeout(60_000)
+  const timeout = AbortSignal.timeout(300_000)
   return config.signal ? AbortSignal.any([config.signal, timeout]) : timeout
 }
 
@@ -92,14 +95,15 @@ async function callAnthropic(
     ]),
     { type: 'text', text: prompt },
   ]
-  const response = await fetch(`${baseUrl}/messages`, {
+  const doFetch = config.fetchFn || fetch
+  const response = await doFetch(`${baseUrl}/messages`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'anthropic-version': '2023-06-01',
       'x-api-key': config.apiKey,
     },
-    body: JSON.stringify({ model, max_tokens: 6000, temperature: 0.2, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({ model, max_tokens: 16384, temperature: 0.2, messages: [{ role: 'user', content }] }),
     signal: requestSignal(config),
   })
   const data = (await readJsonResponse(response)) as {
@@ -127,15 +131,19 @@ async function callGoogle(
     ]),
     { text: prompt },
   ]
-  const response = await fetch(`${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${config.apiKey}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 6000, responseMimeType: 'application/json' },
-    }),
-    signal: requestSignal(config),
-  })
+  const doFetch = config.fetchFn || fetch
+  const response = await doFetch(
+    `${baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${config.apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 6000, responseMimeType: 'application/json' },
+      }),
+      signal: requestSignal(config),
+    },
+  )
   const data = (await readJsonResponse(response)) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
@@ -173,12 +181,23 @@ async function callOpenAiCompatible(
   const body: Record<string, unknown> = {
     model,
     messages: [{ role: 'user', content }],
-    max_tokens: 6000,
+    max_tokens: 16384,
   }
   if (config.provider !== 'moonshotai') {
     body.temperature = 0.2
   }
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  if (config.provider === 'deepseek' && /deepseek-v4/.test(model)) {
+    body.thinking = { type: config.thinkingEnabled ? 'enabled' : 'disabled' }
+    if (config.thinkingEnabled && config.reasoningEffort) {
+      body.reasoning_effort = config.reasoningEffort
+    }
+  } else if (config.provider === 'moonshotai' && /kimi-k2/.test(model)) {
+    body.thinking = config.thinkingEnabled ? { type: 'enabled', keep: 'all' } : { type: 'disabled' }
+  } else if (config.reasoningEffort) {
+    body.reasoning_effort = config.reasoningEffort
+  }
+  const doFetch = config.fetchFn || fetch
+  const response = await doFetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

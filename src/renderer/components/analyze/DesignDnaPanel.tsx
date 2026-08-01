@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -120,6 +120,64 @@ function VisionChoiceCard({ onStructural, onSkip }: { onStructural?: () => void;
   )
 }
 
+function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
+  return String(count)
+}
+
+const PASS_LABELS: Record<string, string> = {
+  observation: 'Observation',
+  'observation-repair': 'Observation (repair)',
+  synthesis: 'Synthesis',
+  'synthesis-repair': 'Synthesis (repair)',
+}
+
+function TokenUsageSummary({ meta }: { meta: DesignIntelligenceMeta }) {
+  const [expanded, setExpanded] = useState(false)
+  const { t } = useTranslation()
+  const usage = meta.tokenUsage
+  const details = meta.callDetails
+  if (!usage || (!usage.input && !usage.output)) return null
+  const callCount = details?.length || 1
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => details && details.length > 0 && setExpanded(!expanded)}
+        className={`inline-flex items-center gap-1 text-[10px] text-muted-foreground ${
+          details && details.length > 0 ? 'cursor-pointer hover:text-foreground' : 'cursor-default'
+        }`}
+      >
+        <span>
+          {t('analyze.designDna.tokenUsage.summary', {
+            calls: callCount,
+            input: formatTokenCount(usage.input || 0),
+            output: formatTokenCount(usage.output || 0),
+          })}
+        </span>
+        {details && details.length > 0 && (
+          <ChevronDown size={10} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        )}
+      </button>
+      {expanded && details && (
+        <div className="mt-1 space-y-0.5 border-l-2 border-border/50 pl-2">
+          {details.map((detail, index) => (
+            <p key={index} className="text-[10px] text-muted-foreground">
+              <span className="font-medium">{PASS_LABELS[detail.pass] || detail.pass}</span>
+              {' — '}
+              {t('analyze.designDna.tokenUsage.detail', {
+                input: formatTokenCount(detail.input || 0),
+                output: formatTokenCount(detail.output || 0),
+              })}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StatusCard({
   meta,
   running,
@@ -179,8 +237,12 @@ function StatusCard({
               {meta.inputMode ? ` · ${t(`analyze.designDna.inputMode.${meta.inputMode}`)}` : ''}
             </p>
           )}
+          {(successful || failed) && meta?.tokenUsage && (meta.tokenUsage.input || meta.tokenUsage.output) && (
+            <TokenUsageSummary meta={meta} />
+          )}
           {running && progress && (
             <div className="mt-3">
+              <p className="mb-1 text-[10px] text-muted-foreground">{t(progress.step)}</p>
               <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
                 <div
                   className="h-full bg-primary transition-all motion-reduce:transition-none"
@@ -309,7 +371,7 @@ export function DesignDnaPanel({
       ]
     : []
 
-  const copyText = async (text: string) => {
+  const _copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
       notify(t('feedback.copied'))
@@ -477,17 +539,6 @@ export function DesignDnaPanel({
             </section>
           )}
         </>
-      )}
-
-      {result.reconstructionBrief && (
-        <button
-          type="button"
-          onClick={() => copyText(result.reconstructionBrief || '')}
-          className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Copy size={12} />
-          {t('analyze.designDna.copyBrief')}
-        </button>
       )}
 
       {profile && result.analysisId && (

@@ -35,6 +35,13 @@ export interface AppSettings {
   agentCli: string
   exportFormat: ThemeExportFormat
   proxyServer: string
+  reasoningEffort: string
+  thinkingEnabled: boolean
+  language: string
+  colorMode: string
+  themePreference: string
+  analysisPageCount: number
+  noAiTipDismissed: boolean
 }
 
 export interface AgentCliInfo {
@@ -83,6 +90,8 @@ export interface AnalysisRecord {
   theme_name: string | null
   source_url: string | null
   screenshot_path: string | null
+  design_intelligence_status: string | null
+  ai_token_usage?: { input?: number; output?: number }
 }
 
 export interface PageScreenshotData {

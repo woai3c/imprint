@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --color-background: oklch(100% 0 0);
@@ -89,6 +90,21 @@
 
   .scrollbar-hidden::-webkit-scrollbar {
     display: none;
+  }
+
+  .prose {
+    --tw-prose-body: var(--color-foreground);
+    --tw-prose-headings: var(--color-foreground);
+    --tw-prose-links: var(--color-primary);
+    --tw-prose-bold: var(--color-foreground);
+    --tw-prose-code: var(--color-foreground);
+    --tw-prose-quotes: var(--color-muted-foreground);
+    --tw-prose-quote-borders: var(--color-border);
+    --tw-prose-counters: var(--color-muted-foreground);
+    --tw-prose-bullets: var(--color-muted-foreground);
+    --tw-prose-hr: var(--color-border);
+    --tw-prose-th-borders: var(--color-border);
+    --tw-prose-td-borders: var(--color-border);
   }
 }
 

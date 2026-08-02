@@ -15,7 +15,7 @@ import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import { normalizeAgentCliCommand } from '../shared/agent-clis.js'
 import { log } from './logger.js'
 
-const AGENT_TIMEOUT_MS = 180_000
+const AGENT_TIMEOUT_MS = 600_000
 const AGENT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 
 type PromptMode = 'argument' | 'stdin'
@@ -24,7 +24,12 @@ interface AgentInvocation {
   args: string[]
   promptMode: PromptMode
   vision?: {
+    /** Override CLI args when images are present (e.g. claude needs --allowedTools Read). */
     args?: string[]
+    /** Native image flag (e.g. codex --image): paths are passed directly instead of copied to the runtime dir. */
+    imageFlag?: string
+    /** Inline images in the prompt via `@absolute-path` syntax (xc file-ingest auto-resolves them). */
+    promptInline?: boolean
   }
 }
 
@@ -35,9 +40,12 @@ export interface AgentCliImageInput {
 
 const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
   xc: {
-    args: ['--print', '--plan', '--max-turns', '1', '--no-plugins', '--no-hooks'],
+    args: ['--print', '--max-turns', '1', '--no-plugins', '--no-hooks'],
     promptMode: 'stdin',
-    vision: {},
+    vision: {
+      args: ['--print', '--max-turns', '5', '--no-plugins', '--no-hooks'],
+      promptInline: true,
+    },
   },
   claude: {
     args: [
@@ -57,7 +65,6 @@ const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
     ],
     promptMode: 'stdin',
     vision: {
-      // Image attachments are read from the whitelisted runtime directory, so vision runs must keep the Read tool.
       args: [
         '--print',
         '--output-format',
@@ -65,7 +72,7 @@ const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
         '--allowedTools',
         'Read',
         '--max-turns',
-        '1',
+        '5',
         '--permission-mode',
         'plan',
         '--no-session-persistence',
@@ -78,22 +85,21 @@ const AGENT_INVOCATIONS: Record<string, AgentInvocation> = {
   codex: {
     args: ['exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check', '--color', 'never', '-'],
     promptMode: 'stdin',
-    vision: {},
+    vision: {
+      imageFlag: '--image',
+    },
   },
   opencode: {
     args: ['run', '--format', 'json'],
     promptMode: 'argument',
-    vision: {},
   },
   gemini: {
     args: ['--output-format', 'json'],
     promptMode: 'stdin',
-    vision: {},
   },
   kimi: {
     args: ['--prompt'],
     promptMode: 'argument',
-    vision: {},
   },
 }
 
@@ -116,6 +122,28 @@ export function buildVisionPromptSuffix(images: Array<{ name: string }>, languag
   return [
     '',
     'Evidence screenshots are attached as files in the current working directory:',
+    list,
+    'Look at every attached image before interpreting, and add a top-level "imageObservations" array to the JSON output with one entry per image:',
+    '{"imageId": "image file name without extension", "description": "one sentence describing what you actually see"}.',
+    'If you cannot actually see an image, omit its entry.',
+  ].join('\n')
+}
+
+function buildInlineVisionSuffix(images: AgentCliImageInput[], language: 'en' | 'zh-CN'): string {
+  const list = images.map((image) => `@${image.sourcePath}`).join('\n')
+  if (language === 'zh-CN') {
+    return [
+      '',
+      '以下是证据截图（已通过 @path 附加）：',
+      list,
+      '解读之前查看这些图片，并在 JSON 输出顶层增加 "imageObservations" 数组，每张图片一项：',
+      '{"imageId": "图片文件名（不含扩展名）", "description": "一句话描述你实际看到的内容"}。',
+      '如果某张图片你实际无法看到，就不要为它生成条目。',
+    ].join('\n')
+  }
+  return [
+    '',
+    'Evidence screenshots are attached below (via @path references):',
     list,
     'Look at every attached image before interpreting, and add a top-level "imageObservations" array to the JSON output with one entry per image:',
     '{"imageId": "image file name without extension", "description": "one sentence describing what you actually see"}.',
@@ -155,8 +183,9 @@ function executeFile(
         windowsHide: true,
         signal,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error) {
+          if (stderr) log.error('agent-cli', `stderr: ${stderr.slice(0, 1000)}`)
           reject(error)
           return
         }
@@ -241,38 +270,58 @@ async function executeAgent(
   try {
     let effectivePrompt = prompt
     let effectiveInvocation = invocation
+    const extraArgs: string[] = []
     if (images.length > 0 && invocation.vision) {
-      const attached: Array<{ name: string }> = []
-      for (const image of images) {
-        const safeName = image.name.replace(/[^a-zA-Z0-9._-]/g, '-')
-        await fs.copyFile(image.sourcePath, path.join(runtimeDir, safeName))
-        attached.push({ name: safeName })
+      if (invocation.vision.promptInline) {
+        const copied: AgentCliImageInput[] = []
+        for (const image of images) {
+          const safeName = image.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+          const dest = path.join(runtimeDir, safeName)
+          await fs.copyFile(image.sourcePath, dest)
+          copied.push({ name: safeName, sourcePath: dest })
+        }
+        effectivePrompt = prompt + buildInlineVisionSuffix(copied, language)
+      } else if (invocation.vision.imageFlag) {
+        for (const image of images) {
+          extraArgs.push(invocation.vision.imageFlag, image.sourcePath)
+        }
+      } else {
+        const attached: Array<{ name: string }> = []
+        for (const image of images) {
+          const safeName = image.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+          await fs.copyFile(image.sourcePath, path.join(runtimeDir, safeName))
+          attached.push({ name: safeName })
+        }
+        await fs.writeFile(
+          path.join(runtimeDir, 'manifest.json'),
+          JSON.stringify(
+            {
+              task: 'design-interpretation',
+              images: attached.map((image) => image.name),
+              createdAt: new Date().toISOString(),
+            },
+            null,
+            2,
+          ),
+          'utf-8',
+        )
+        effectivePrompt = prompt + buildVisionPromptSuffix(attached, language)
       }
-      await fs.writeFile(
-        path.join(runtimeDir, 'manifest.json'),
-        JSON.stringify(
-          {
-            task: 'design-interpretation',
-            images: attached.map((image) => image.name),
-            createdAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-        'utf-8',
-      )
-      effectivePrompt = prompt + buildVisionPromptSuffix(attached, language)
       effectiveInvocation = invocation.vision.args ? { ...invocation, args: invocation.vision.args } : invocation
     }
+    const resolvedArgs = [...effectiveInvocation.args, ...extraArgs]
     if (process.platform === 'win32') {
       const executable = await resolveWindowsExecutable(command)
-      return await executeWindowsCommand(executable, effectiveInvocation, effectivePrompt, runtimeDir, signal)
+      return await executeWindowsCommand(
+        executable,
+        { ...effectiveInvocation, args: resolvedArgs },
+        effectivePrompt,
+        runtimeDir,
+        signal,
+      )
     }
 
-    const args =
-      effectiveInvocation.promptMode === 'argument'
-        ? [...effectiveInvocation.args, effectivePrompt]
-        : effectiveInvocation.args
+    const args = effectiveInvocation.promptMode === 'argument' ? [...resolvedArgs, effectivePrompt] : resolvedArgs
     return await executeFile(
       command,
       args,
@@ -282,7 +331,22 @@ async function executeAgent(
       signal,
     )
   } finally {
-    await fs.rm(runtimeDir, { force: true, recursive: true })
+    // On Windows the child process may not have fully released the cwd handle
+    // yet, causing EBUSY on immediate rmdir. Retry after a short delay, and
+    // never let cleanup failure mask the actual execution result.
+    const cleanup = async () => {
+      for (const delayMs of [0, 500, 2000]) {
+        if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
+        try {
+          await fs.rm(runtimeDir, { force: true, recursive: true })
+          return
+        } catch {
+          // retry
+        }
+      }
+      log.info('agent-cli', `temp dir cleanup failed (will be cleaned on reboot): ${runtimeDir}`)
+    }
+    cleanup().catch(() => {})
   }
 }
 
@@ -308,7 +372,8 @@ export async function executeAgentPrompt(
         : error instanceof Error && 'code' in error
           ? `exit-${String(error.code)}`
           : 'execution-error'
-    log.error('agent-cli', `task failed: command=${command} reason=${reason}`)
+    const detail = error instanceof Error ? error.message.slice(0, 500) : ''
+    log.error('agent-cli', `task failed: command=${command} reason=${reason} images=${images.length} detail=${detail}`)
     return null
   }
 }

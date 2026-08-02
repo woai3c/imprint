@@ -365,8 +365,9 @@ export async function runDesignIntelligence(
           const cliImage = cliImageByName.get(image.name)
           return cliImage ? [cliImage] : []
         })
+        const cliText = await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)
         result = {
-          text: (await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)) || '',
+          text: cliText || '',
           model: settings.agentCli,
         }
       }

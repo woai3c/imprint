@@ -107,25 +107,6 @@ export function getInitialDesignIntelligenceMeta(
       promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
     }
   }
-  const modelLacksVision =
-    settings.aiMode === 'apiKey' &&
-    !resolveAiModelCapabilities(
-      settings.provider,
-      resolveEffectiveModel(settings.provider, settings.model),
-      settings.provider === 'custom' && settings.modelSupportsVision,
-    ).vision
-  if (modelLacksVision) {
-    return {
-      status: 'not-requested',
-      capabilityLevel: 'evidence-only',
-      inputMode: 'structural-only',
-      provider: route.provider,
-      model: route.model,
-      schemaVersion: '1',
-      promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
-      pendingChoice: 'model-no-vision',
-    }
-  }
   return {
     status: 'pending',
     capabilityLevel: route.mode === 'multimodal' ? 'multimodal-ai' : 'structural-ai',

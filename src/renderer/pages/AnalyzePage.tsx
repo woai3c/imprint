@@ -212,9 +212,9 @@ export function AnalyzePage() {
   }
 
   const startAnalysis = async (targetUrl: string, authMode: AuthMode) => {
+    store.clearResult()
     store.setAnalyzing(true)
     store.setUrl(targetUrl)
-    store.setFailure(null)
     setSaved(false)
     setAuthPrompt(null)
     store.setProgress({ step: t('analyze.preparing'), percent: 0 })

@@ -178,22 +178,30 @@ async function callOpenAiCompatible(
           ]),
         ]
       : prompt
+  const isDeepseekV4 = config.provider === 'deepseek' && /deepseek-v4/.test(model)
   const body: Record<string, unknown> = {
     model,
     messages: [{ role: 'user', content }],
-    max_tokens: 16384,
   }
-  if (config.provider !== 'moonshotai') {
+  if (config.thinkingEnabled) {
+    body.max_completion_tokens = 16384
+  } else {
+    body.max_tokens = 16384
+  }
+  const noTemperature = isDeepseekV4 || config.provider === 'moonshotai'
+  if (!noTemperature) {
     body.temperature = 0.2
   }
-  if (config.provider === 'deepseek' && /deepseek-v4/.test(model)) {
-    body.thinking = { type: config.thinkingEnabled ? 'enabled' : 'disabled' }
-    if (config.thinkingEnabled && config.reasoningEffort) {
-      body.reasoning_effort = config.reasoningEffort
+  if (config.thinkingEnabled) {
+    if (config.provider === 'moonshotai') {
+      body.thinking = { type: 'enabled', keep: 'all' }
+    } else if (isDeepseekV4) {
+      body.thinking = { type: 'enabled' }
     }
-  } else if (config.provider === 'moonshotai' && /kimi-k2/.test(model)) {
-    body.thinking = config.thinkingEnabled ? { type: 'enabled', keep: 'all' } : { type: 'disabled' }
-  } else if (config.reasoningEffort) {
+  } else if (isDeepseekV4) {
+    body.thinking = { type: 'disabled' }
+  }
+  if (config.reasoningEffort) {
     body.reasoning_effort = config.reasoningEffort
   }
   const doFetch = config.fetchFn || fetch

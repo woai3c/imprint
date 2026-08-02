@@ -30,6 +30,7 @@ interface AnalysisStore {
   setIntelligenceProgress: (p: { step: string; percent: number } | null) => void
   setUrl: (url: string) => void
   setPageCount: (pageCount: number) => void
+  clearResult: () => void
 }
 
 export const useAnalysisStore = create<AnalysisStore>((set) => ({
@@ -66,4 +67,5 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   setIntelligenceProgress: (p) => set({ intelligenceProgress: p }),
   setUrl: (url) => set({ lastUrl: url }),
   setPageCount: (pageCount) => set({ pageCount: setAnalysisPageCountPreference(pageCount) }),
+  clearResult: () => set({ lastResult: null, failure: null, intelligenceRunning: false, intelligenceProgress: null }),
 }))

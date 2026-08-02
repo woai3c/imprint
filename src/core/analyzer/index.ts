@@ -83,20 +83,14 @@ function detectSystemProxy(): string | undefined {
 
   if (process.platform === 'win32') {
     try {
-      const raw = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyEnable',
+      const serverRaw = execSync(
+        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer',
         { encoding: 'utf8', timeout: 3000 },
       )
-      if (/ProxyEnable\s+REG_DWORD\s+0x1/i.test(raw)) {
-        const serverRaw = execSync(
-          'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ProxyServer',
-          { encoding: 'utf8', timeout: 3000 },
-        )
-        const match = serverRaw.match(/ProxyServer\s+REG_SZ\s+(.+)/i)
-        if (match?.[1]) {
-          const server = match[1].trim()
-          return server.includes('://') ? server : `http://${server}`
-        }
+      const match = serverRaw.match(/ProxyServer\s+REG_SZ\s+(.+)/i)
+      if (match?.[1]) {
+        const server = match[1].trim()
+        if (server) return server.includes('://') ? server : `http://${server}`
       }
     } catch {
       /* registry read failed — no proxy */
@@ -135,6 +129,7 @@ async function launchRuntime(
     executablePath,
     headless,
     args: ['--disable-blink-features=AutomationControlled'],
+    ...proxyConfig,
   })
   const context = await browser.newContext(proxyConfig)
   return { browser, context }
@@ -157,7 +152,7 @@ async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
   if (runtime.browser) await closeWithin(runtime.browser.close(), 5000)
 }
 
-async function navigatePage(page: Page, url: string, timeout = 30000): Promise<number | undefined> {
+async function navigatePage(page: Page, url: string, timeout = 60000): Promise<number | undefined> {
   const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
   await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
   return response?.status()

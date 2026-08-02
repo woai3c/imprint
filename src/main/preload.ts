@@ -1,9 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { ElectronAPI, LoginRequiredEvent, SaveThemeData } from '../shared/ipc-contract.js'
+import type { AppSettings, ElectronAPI, LoginRequiredEvent, SaveThemeData } from '../shared/ipc-contract.js'
 
 const api = {
   platform: process.platform,
+  initialSettings: ipcRenderer.sendSync('settings:getSync') as AppSettings,
 
   // Theme operations
   getThemes: () => ipcRenderer.invoke('themes:list'),

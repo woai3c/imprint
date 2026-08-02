@@ -8,29 +8,17 @@ export interface ThemePreference {
   css?: string
 }
 
-let settingsCache: Record<string, unknown> | null = null
-
-async function ensureCache(): Promise<Record<string, unknown>> {
-  if (settingsCache) return settingsCache
-  try {
-    settingsCache = (await window.electronAPI.getSettings()) as unknown as Record<string, unknown>
-  } catch {
-    settingsCache = {}
-  }
-  return settingsCache
+const settingsCache: Record<string, unknown> = {
+  ...(window.electronAPI?.initialSettings as unknown as Record<string, unknown>),
 }
 
 function readCached(key: string): unknown {
-  return settingsCache?.[key] ?? null
+  return settingsCache[key] ?? null
 }
 
 function writeSetting(update: Record<string, unknown>): void {
-  if (settingsCache) Object.assign(settingsCache, update)
+  Object.assign(settingsCache, update)
   window.electronAPI?.saveSettings(update).catch(() => {})
-}
-
-export async function initPreferences(): Promise<void> {
-  await ensureCache()
 }
 
 export function normalizeLanguage(value: string | null | undefined): AppLanguage {

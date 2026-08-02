@@ -706,7 +706,16 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
     const theme = builtinThemes.find((t) => t.id === id)
     if (theme) {
       set({ currentThemeId: id, extractedThemeId: null })
-      applyThemeInstantly(() => applyThemeToDOM(theme))
+      applyThemeInstantly(() => {
+        applyThemeToDOM(theme)
+        if (id === 'default') {
+          const { colorMode } = get()
+          if (colorMode === 'dark') {
+            applyColorsToDOM(DARK_DEFAULTS)
+          }
+          document.documentElement.classList.toggle('dark', colorMode === 'dark')
+        }
+      })
     }
   },
 
@@ -1394,6 +1403,7 @@ export function preloadThemeBackdrops() {
 
 export function initColorMode() {
   const mode = (getColorModePreference() as ColorMode) || 'light'
+  useSkinStore.setState({ colorMode: mode })
   document.documentElement.dataset.appTheme = 'default'
   applyThemeTokensToDOM(DEFAULT_THEME_TOKENS)
   document.documentElement.classList.toggle('dark', mode === 'dark')

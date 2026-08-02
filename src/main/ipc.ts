@@ -923,6 +923,10 @@ export function registerIpcHandlers() {
   })
 
   // --- Settings ---
+  ipcMain.on('settings:getSync', (event) => {
+    event.returnValue = getSettings()
+  })
+
   ipcMain.handle('settings:get', () => {
     return getSettings()
   })

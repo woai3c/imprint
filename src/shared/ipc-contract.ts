@@ -204,6 +204,7 @@ export interface SaveThemeData {
 
 export interface ElectronAPI {
   platform: string
+  initialSettings: AppSettings
   getThemes: () => Promise<ThemeRecord[]>
   deleteTheme: (id: string) => Promise<{ success: boolean }>
   toggleFavorite: (id: string) => Promise<ThemeRecord>

@@ -202,11 +202,10 @@ function validateInteractionClaim(
   const claim = validateClaim(value, validIds, path, rejected, inputMode, false, knownColors)
   if (!claim) return null
   const hasInteractionEvidence = claim.evidence.some((reference) => interactionIds.has(reference.evidenceId))
-  if (interactionIds.size > 0 && !hasInteractionEvidence) {
-    rejected.push(`${path}:missing-interaction-diff`)
-    return null
+  if (!hasInteractionEvidence) {
+    return { ...claim, confidence: 'low' }
   }
-  return interactionIds.size === 0 ? { ...claim, confidence: 'low' } : claim
+  return claim
 }
 
 function validateInteractionClaims(

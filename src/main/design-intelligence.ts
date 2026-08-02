@@ -302,8 +302,9 @@ export async function runDesignIntelligence(
   try {
     const enhancementContext = {
       featureTags: evidence.featureTags,
-      components: [],
+      components: [] as never[],
       language,
+      techStack: evidence.techStack,
     }
     const providerConfig = {
       provider: settings.provider,

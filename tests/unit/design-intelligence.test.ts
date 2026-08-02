@@ -486,8 +486,10 @@ describe('Design intelligence', () => {
         },
       ],
     }
-    const unsupported = validateDesignProfile(rawProfile(), interactionEvidence, 'structural-only', 'en')
-    expect(unsupported.profile).toBeNull()
+    const downgraded = validateDesignProfile(rawProfile(), interactionEvidence, 'structural-only', 'en')
+    expect(downgraded.profile).not.toBeNull()
+    expect(downgraded.profile!.interactionLanguage.feedbackStyle!.confidence).toBe('low')
+    expect(downgraded.profile!.interactionLanguage.primaryDrivers[0]?.confidence).toBe('low')
 
     const supported = rawProfile()
     const interactionClaim = {
@@ -499,7 +501,9 @@ describe('Design intelligence', () => {
     supported.interactionLanguage.feedbackStyle = interactionClaim
     supported.interactionLanguage.stateChangeAmplitude = interactionClaim
     supported.patterns[0].interactionRules = [interactionClaim]
-    expect(validateDesignProfile(supported, interactionEvidence, 'structural-only', 'en').profile).not.toBeNull()
+    const withInteraction = validateDesignProfile(supported, interactionEvidence, 'structural-only', 'en')
+    expect(withInteraction.profile).not.toBeNull()
+    expect(withInteraction.profile!.interactionLanguage.feedbackStyle!.confidence).toBe('medium')
   })
 
   it('generates scoped context, reconstruction guidance, and layered validation checks', () => {

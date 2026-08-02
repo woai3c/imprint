@@ -198,9 +198,11 @@ function StatusCard({
     ? 'pending'
     : meta?.failureCode === 'cancelled'
       ? 'cancelled'
-      : meta?.status || 'not-configured'
+      : meta?.failureCode === 'timeout'
+        ? 'timeout'
+        : meta?.status || 'not-configured'
   const successful = status === 'complete' || status === 'partial'
-  const failed = status === 'failed' || status === 'cancelled'
+  const failed = status === 'failed' || status === 'cancelled' || status === 'timeout'
   return (
     <section
       data-testid={`design-intelligence-status-${status}`}

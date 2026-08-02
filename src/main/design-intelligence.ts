@@ -4,7 +4,11 @@ import { nativeImage, net } from 'electron'
 
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
 import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
-import { generateExamplesWithLlm } from '../core/analyzer/example-generator.js'
+import {
+  buildExamplePrompt,
+  generateExamplesWithLlm,
+  parseExampleResponse,
+} from '../core/analyzer/example-generator.js'
 import { enhanceSemanticNaming } from '../core/analyzer/semantic-enhancer.js'
 import { validateColorRenames } from '../core/analyzer/token-renamer.js'
 import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
@@ -198,10 +202,10 @@ function collectSelectedImageFiles(evidence: DesignEvidence, imageIds: string[])
 
 function failureCode(error: unknown, timedOut = false): string {
   if (timedOut) return 'timeout'
-  if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled'
-  if (error instanceof Error && /abort/i.test(error.message)) return 'cancelled'
   if (error instanceof DOMException && error.name === 'TimeoutError') return 'timeout'
   if (error instanceof Error && /timeout/i.test(error.message)) return 'timeout'
+  if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled'
+  if (error instanceof Error && /abort/i.test(error.message)) return 'cancelled'
   if (error instanceof Error && /invalid|schema|profile/i.test(error.message)) return 'invalid-output'
   return 'provider-error'
 }
@@ -297,29 +301,14 @@ export async function runDesignIntelligence(
       reasoningEffort: settings.reasoningEffort || 'medium',
       thinkingEnabled: settings.thinkingEnabled === true,
     }
+    // Phase 1: semantic naming + design interpretation (parallel)
     onProgress?.('progress.semanticNaming', 10)
-    const [renameProposals, generatedExamples] =
-      settings.aiMode === 'apiKey'
-        ? await Promise.all([
-            enhanceSemanticNaming(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext),
-            generateExamplesWithLlm(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext),
-          ])
-        : await enhanceWithAgentCli(
-            tokens,
-            evidence.source.requestedUrl,
-            settings.agentCli,
-            enhancementContext,
-            runSignal,
-          ).then((enhancement) => [enhancement.renames, enhancement.examples] as const)
-    onProgress?.('progress.semanticNamingDone', 25)
-    const renameValidation = validateColorRenames(tokens, renameProposals || [])
-    const examples = generatedExamples || []
     const cliImageByName = new Map(cliImages.map((image) => [image.name, image]))
     let invokeCount = 0
     const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
       invokeCount++
       const passLabel = invokeCount <= 2 ? 'progress.observationPass' : 'progress.synthesisPass'
-      onProgress?.(passLabel, Math.min(25 + invokeCount * 15, 85))
+      onProgress?.(passLabel, Math.min(25 + invokeCount * 15, 80))
       log.info(
         'design-intelligence',
         `invoke #${invokeCount}: images=${passImages.length} promptLen=${taskPrompt.length}`,
@@ -365,7 +354,19 @@ export async function runDesignIntelligence(
     const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
     const { observationImages, synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
     const synthesisImageIds = synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, ''))
-    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+
+    const renamePromise =
+      settings.aiMode === 'apiKey'
+        ? enhanceSemanticNaming(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext)
+        : enhanceWithAgentCli(
+            tokens,
+            evidence.source.requestedUrl,
+            settings.agentCli,
+            enhancementContext,
+            runSignal,
+          ).then((enhancement) => enhancement.renames)
+
+    const interpretationPromise = runInterpretationPipeline(evidence, evidencePackage, {
       mode: route.mode,
       language,
       invoke,
@@ -373,11 +374,56 @@ export async function runDesignIntelligence(
       synthesisImages,
       requireImageObservations: isAgentCli && route.mode === 'multimodal' ? synthesisImageIds : undefined,
     })
-    onProgress?.('progress.validatingProfile', 90)
+
+    const [renameProposals, result] = await Promise.all([renamePromise, interpretationPromise])
+
+    onProgress?.('progress.validatingProfile', 85)
+    const renameValidation = validateColorRenames(tokens, renameProposals || [])
     result.profile.tokenAliases = renameValidation.accepted
-    const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
     const effectiveMode = result.profile.inputMode
     const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
+
+    // Phase 2: generate examples using the completed DesignProfile + screenshots
+    onProgress?.('progress.generatingExamples', 88)
+    const exampleContext = {
+      ...enhancementContext,
+      designProfile: result.profile,
+    }
+    const exampleImages = isAgentCli ? [] : synthesisImages
+    log.info(
+      'design-intelligence',
+      `generating examples with profile: mode=${effectiveMode} images=${exampleImages.length}`,
+    )
+    let examples: GeneratedExampleComponent[] = []
+    if (settings.aiMode === 'apiKey') {
+      examples =
+        (await generateExamplesWithLlm(
+          tokens,
+          evidence.source.requestedUrl,
+          providerConfig,
+          exampleContext,
+          exampleImages,
+        )) || []
+    } else {
+      const examplePrompt = buildExamplePrompt(tokens, evidence.source.requestedUrl, exampleContext)
+      const cliExampleImages = synthesisImages.flatMap((image) => {
+        const cliImage = cliImageByName.get(image.name)
+        return cliImage ? [cliImage] : []
+      })
+      const exampleText = await executeAgentPrompt(
+        settings.agentCli,
+        examplePrompt,
+        runSignal,
+        cliExampleImages,
+        language,
+      )
+      if (exampleText) {
+        examples = parseExampleResponse(exampleText)
+      }
+    }
+
+    onProgress?.('progress.validatingProfile', 92)
+    const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
     const recipe = createValidationRecipe('workflow', result.profile, tokens)
     const validationReport = validateRecipe(recipe, result.profile, tokens, capabilityLevel)
     return {

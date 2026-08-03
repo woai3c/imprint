@@ -146,6 +146,7 @@ if (!hasSingleInstanceLock) {
       'app',
       `ready: version=${app.getVersion()} platform=${process.platform} arch=${process.arch} packaged=${app.isPackaged}`,
     )
+    if (isMacOS(process.platform)) app.dock.setIcon(getIconPath('png', 'icon-1024.png'))
     if (isWindows(process.platform)) app.setAppUserModelId('com.imprint.app')
 
     protocol.handle('imprint-file', (request) => {

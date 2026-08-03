@@ -265,6 +265,17 @@ after(async () => {
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
 
+test('switches themes in the current validation scenario', async () => {
+  await page.locator('a[href="#/templates"]').click()
+  await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })
+
+  await page.getByTestId('validation-theme-cyberpunk').click()
+  assert.equal(await page.getByTestId('validation-theme-cyberpunk').getAttribute('aria-pressed'), 'true')
+  await page.getByTestId('validation-theme-default').click()
+  assert.equal(await page.getByTestId('validation-theme-default').getAttribute('aria-pressed'), 'true')
+  await page.locator('a[href="#/"]').click()
+})
+
 test('extracts a local design system without LLM credentials and persists it', { timeout: 180_000 }, async (t) => {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')

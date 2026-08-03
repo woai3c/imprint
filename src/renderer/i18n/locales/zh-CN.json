@@ -490,8 +490,7 @@
     "docs": "文档知识库",
     "kanban": "看板任务",
     "analytics": "数据分析",
-    "applyTheme": "应用“{{theme}}”主题",
-    "currentTheme": "当前：{{theme}}",
+    "switchThemeLabel": "切换主题",
     "examples": {
       "dashboard": {
         "title": "管理仪表盘",

@@ -345,6 +345,10 @@ Visual novelty must remain accountable to the product's extraction and validatio
 - Treat the examples in the desktop app as validation scenarios, not bundled website templates. Organize them by product
   workflow, content and presentation, and interaction states. Keep every scenario directly visible in a compact grouped
   tile layout; do not hide scenario switching inside a select menu.
+- Keep every built-in and extracted theme visible by name and separate palette swatches beside the validation controls.
+  Theme choices wrap onto additional rows instead of moving into an overflow menu, preserving one-click comparison at
+  every library size. Applying a theme updates the current validation surface in place without resetting or replaying
+  the scenario; theme management and export remain exclusive to Theme Library.
 - Avoid generic superlatives, filler metrics, and decorative labels in product copy. Say what the interface verifies or
   what the user can do.
 

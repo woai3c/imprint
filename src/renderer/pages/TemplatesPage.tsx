@@ -80,82 +80,54 @@ export function TemplatesPage() {
     return theme.name
   }
 
-  const getPrimaryColor = (theme: ThemeRecord): string => {
+  const getExtractedThemeColors = (theme: ThemeRecord): string[] => {
     try {
       const tokens = JSON.parse(theme.tokens_json)
-      return tokens.colors?.primary || tokens.colors?.['color-1'] || '#888'
+      const colors = Object.values(tokens.colors || {}).filter((color): color is string => typeof color === 'string')
+      return colors.length > 0 ? colors.slice(0, 5) : ['#888']
     } catch {
-      return '#888'
+      return ['#888']
     }
   }
 
-  const selectedExtractedTheme = extractedThemes.find((theme) => theme.id === extractedThemeId)
-  const selectedBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId)
-  const currentThemeName = selectedExtractedTheme
-    ? getThemeLabel(selectedExtractedTheme)
-    : t(`themes.presets.${selectedBuiltinTheme?.id || 'default'}.name`, {
-        defaultValue: selectedBuiltinTheme?.name || builtinThemes[0].name,
-      })
+  const handleApplyBuiltin = (themeId: string) => {
+    setTheme(themeId)
+  }
 
   return (
     <div className="h-full flex flex-col">
       <PageHeader title={t('templates.title')} description={t('templates.description')} />
 
       <div className="px-8 pb-4 space-y-3">
-        {/* Row 1: Themes */}
-        <div className="flex items-center gap-3">
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">{t('nav.themes')}</span>
-          <div className="flex flex-wrap gap-2 items-center">
-            {builtinThemes.map((theme) => (
-              <div key={theme.id} className="relative group">
-                <button
-                  type="button"
-                  onClick={() => setTheme(theme.id)}
-                  className={`h-7 w-7 rounded-full border-2 transition-all ${
-                    currentThemeId === theme.id && !extractedThemeId
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-transparent hover:border-muted-foreground/30'
-                  }`}
-                  style={{ backgroundColor: theme.colors.primary }}
-                  aria-label={t('templates.applyTheme', {
-                    theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
-                  })}
-                  aria-pressed={currentThemeId === theme.id && !extractedThemeId}
-                  title={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
-                />
-                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[10px] text-background opacity-0 transition-opacity group-hover:opacity-100">
-                  {t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
-                </span>
-              </div>
-            ))}
-
-            {extractedThemes.length > 0 && <div className="w-px h-5 bg-border mx-1" />}
-
-            {extractedThemes.map((theme) => (
-              <div key={theme.id} className="relative group">
-                <button
-                  type="button"
-                  onClick={() => handleApplyExtracted(theme)}
-                  className={`h-7 w-7 rounded-full border-2 transition-all ${
-                    extractedThemeId === theme.id
-                      ? 'border-primary ring-2 ring-primary/20'
-                      : 'border-transparent hover:border-muted-foreground/30'
-                  }`}
-                  style={{ backgroundColor: getPrimaryColor(theme) }}
-                  aria-label={t('templates.applyTheme', { theme: getThemeLabel(theme) })}
-                  aria-pressed={extractedThemeId === theme.id}
-                  title={getThemeLabel(theme)}
-                />
-                <span className="pointer-events-none absolute -bottom-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-[10px] text-background opacity-0 transition-opacity group-hover:opacity-100">
-                  {getThemeLabel(theme)}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <span className="max-w-44 truncate text-xs font-medium" title={currentThemeName}>
-            {t('templates.currentTheme', { theme: currentThemeName })}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
+            {t('templates.switchThemeLabel')}
           </span>
+
+          {builtinThemes.map((theme) => {
+            const name = t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })
+            return (
+              <ThemeOption
+                key={theme.id}
+                name={name}
+                colors={getBuiltinThemeColors(theme)}
+                selected={currentThemeId === theme.id && !extractedThemeId}
+                testId={`validation-theme-${theme.id}`}
+                onSelect={() => handleApplyBuiltin(theme.id)}
+              />
+            )
+          })}
+
+          {extractedThemes.map((theme) => (
+            <ThemeOption
+              key={theme.id}
+              name={getThemeLabel(theme)}
+              colors={getExtractedThemeColors(theme)}
+              selected={extractedThemeId === theme.id}
+              testId={`validation-theme-extracted-${theme.id}`}
+              onSelect={() => handleApplyExtracted(theme)}
+            />
+          ))}
         </div>
 
         {/* Row 2: Directly visible validation scenarios */}
@@ -211,11 +183,67 @@ export function TemplatesPage() {
       </div>
 
       <div
-        key={`${activeTemplate}-${currentThemeId}-${extractedThemeId || ''}`}
+        key={activeTemplate}
         className="ui-enter mx-8 mb-8 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
       >
         <ActiveComponent />
       </div>
     </div>
+  )
+}
+
+function getBuiltinThemeColors(theme: (typeof builtinThemes)[number]): string[] {
+  return [
+    theme.colors.primary,
+    theme.colors.background,
+    theme.colors.foreground,
+    theme.colors.accent,
+    theme.colors.secondary,
+  ]
+}
+
+function ThemePaletteMark({ colors }: { colors: string[] }) {
+  return (
+    <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
+      {colors.slice(0, 3).map((color, index) => (
+        <span
+          key={`${color}-${index}`}
+          className="size-2.5 rounded-full border border-black/10"
+          style={{ backgroundColor: color }}
+        />
+      ))}
+    </span>
+  )
+}
+
+function ThemeOption({
+  name,
+  colors,
+  selected,
+  testId,
+  onSelect,
+}: {
+  name: string
+  colors: string[]
+  selected: boolean
+  testId?: string
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onSelect}
+      aria-pressed={selected}
+      title={name}
+      className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        selected
+          ? 'border-primary bg-primary/10 text-foreground'
+          : 'border-border/70 bg-background/70 text-muted-foreground hover:border-primary/50 hover:bg-secondary hover:text-foreground'
+      }`}
+    >
+      <ThemePaletteMark colors={colors} />
+      <span>{name}</span>
+    </button>
   )
 }

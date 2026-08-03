@@ -519,8 +519,7 @@
     "docs": "Docs",
     "kanban": "Kanban",
     "analytics": "Analytics",
-    "applyTheme": "Apply the “{{theme}}” theme",
-    "currentTheme": "Current: {{theme}}",
+    "switchThemeLabel": "Switch theme",
     "examples": {
       "dashboard": {
         "title": "Admin Dashboard",

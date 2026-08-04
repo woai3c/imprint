@@ -58,7 +58,7 @@ async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]>
 }
 
 export function SettingsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
@@ -206,11 +206,10 @@ export function SettingsPage() {
 
   const handleExportAll = async () => {
     try {
-      const themes = await window.electronAPI.getThemes()
       const analyses = await window.electronAPI.getAnalyses()
       const settings = await window.electronAPI.getSettings()
       const { apiKey: _apiKey, ...exportableSettings } = settings
-      const blob = JSON.stringify({ themes, analyses, settings: exportableSettings }, null, 2)
+      const blob = JSON.stringify({ analyses, settings: exportableSettings }, null, 2)
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
       const a = document.createElement('a')
       a.href = blobUrl
@@ -223,23 +222,9 @@ export function SettingsPage() {
     }
   }
 
-  const handleImportData = async () => {
-    try {
-      const importResult = await window.electronAPI.importTheme(i18n.language)
-      if (importResult.success) notify(t('feedback.importFinished'))
-      else if (!importResult.canceled) notify(t('feedback.importFailed'), 'error')
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
   const handleClearAll = async () => {
     setClearing(true)
     try {
-      const themes = await window.electronAPI.getThemes()
-      for (const theme of themes) {
-        await window.electronAPI.deleteTheme(theme.id)
-      }
       const analyses = await window.electronAPI.getAnalysisSummaries()
       if (analyses.length > 0) await window.electronAPI.deleteAnalyses(analyses.map((analysis) => analysis.id))
       notify(t('feedback.dataCleared'))
@@ -771,13 +756,6 @@ export function SettingsPage() {
                                  hover:bg-accent transition-colors"
               >
                 {t('settings.data.exportAll')}
-              </button>
-              <button
-                onClick={handleImportData}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
-                                 hover:bg-accent transition-colors"
-              >
-                {t('settings.data.import')}
               </button>
               <button
                 onClick={() => setConfirmClearAll(true)}

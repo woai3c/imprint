@@ -102,4 +102,13 @@ function runMigrations() {
   for (const [name, definition] of themeIntelligenceColumns) {
     if (!themeColumns.includes(name)) db.exec(`ALTER TABLE themes ADD COLUMN ${name} ${definition}`)
   }
+
+  // Theme library is deprecated and must not retain user data.
+  // Keep the cleanup here so older installations also clear stale records.
+  try {
+    db.prepare('DELETE FROM themes').run()
+    db.prepare('DELETE FROM exports').run()
+  } catch {
+    /* empty */
+  }
 }

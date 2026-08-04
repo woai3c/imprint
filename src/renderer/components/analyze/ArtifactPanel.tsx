@@ -1,4 +1,4 @@
-import { Copy, Download, Info, Save } from 'lucide-react'
+import { Copy, Download, Info } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
 import { useState } from 'react'
@@ -17,10 +17,8 @@ export type ExportTab = 'overview' | 'preview' | 'markdown' | 'tailwind' | 'css'
 
 interface ArtifactPanelProps {
   result: AnalysisResultData
-  saved: boolean
   intelligenceRunning?: boolean
   intelligenceProgress?: { step: string; percent: number } | null
-  onSaved: () => void
   onRetryIntelligence?: () => void
   onCancelIntelligence?: () => void
   onSkipIntelligence?: () => void
@@ -30,10 +28,8 @@ interface ArtifactPanelProps {
 
 export function ArtifactPanel({
   result,
-  saved,
   intelligenceRunning,
   intelligenceProgress,
-  onSaved,
   onRetryIntelligence,
   onCancelIntelligence,
   onSkipIntelligence,
@@ -66,26 +62,6 @@ export function ArtifactPanel({
     try {
       await navigator.clipboard.writeText(content)
       notify(t('feedback.copied'))
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
-  const handleSaveToLibrary = async () => {
-    try {
-      await window.electronAPI.saveTheme({
-        url: result.url,
-        tokens: result.tokens,
-        cssVariables: result.cssVariables,
-        tailwindTheme: result.tailwindTheme,
-        designDoc: result.designDoc,
-        screenshots: result.screenshots,
-        designEvidence: result.designEvidence,
-        designProfile: result.designProfile,
-        designIntelligence: result.designIntelligence,
-      })
-      onSaved()
-      notify(t('feedback.savedToLibrary'))
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     }
@@ -124,13 +100,6 @@ export function ArtifactPanel({
         testIdPrefix="artifact-tab"
         trailing={
           <>
-            <IconButton
-              data-testid="save-theme"
-              icon={Save}
-              label={saved ? t('analyze.saved') : t('analyze.saveToLibrary')}
-              onClick={handleSaveToLibrary}
-              disabled={saved}
-            />
             {showCopyDownload && (
               <IconButton
                 icon={Download}

@@ -1246,22 +1246,20 @@ export const builtinThemes: AppTheme[] = [
 
 interface SkinStore {
   currentThemeId: string
-  extractedThemeId: string | null
   colorMode: ColorMode
   setTheme: (id: string) => void
   setColorMode: (mode: ColorMode) => void
-  applyCustomCss: (cssVars: string, extractedId?: string) => void
+  applyCustomCss: (cssVars: string) => void
 }
 
 export const useSkinStore = create<SkinStore>((set, get) => ({
   currentThemeId: 'default',
-  extractedThemeId: null,
   colorMode: (getColorModePreference() as ColorMode) || 'light',
 
   setTheme: (id) => {
     const theme = builtinThemes.find((t) => t.id === id)
     if (theme) {
-      set({ currentThemeId: id, extractedThemeId: null })
+      set({ currentThemeId: id })
       applyThemeInstantly(() => {
         applyThemeToDOM(theme)
         if (id === 'default') {
@@ -1289,8 +1287,8 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
     })
   },
 
-  applyCustomCss: (cssVars, extractedId) => {
-    set({ currentThemeId: 'custom', extractedThemeId: extractedId ?? null })
+  applyCustomCss: (cssVars) => {
+    set({ currentThemeId: 'custom' })
     applyThemeInstantly(() => {
       resetThemeAppearance('custom')
       applyCssVarsToDOM(cssVars)

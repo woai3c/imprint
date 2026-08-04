@@ -20,14 +20,13 @@
   "feedback": {
     "dismiss": "关闭提示",
     "copied": "已复制到剪贴板",
-    "savedToLibrary": "已保存到主题库",
     "exported": "文件已导出",
     "themeApplied": "已应用“{{theme}}”",
     "themeExported": "已导出“{{theme}}”",
     "dataExported": "本地数据 JSON 已导出",
     "importFinished": "数据导入完成",
     "importFailed": "无法导入：请选择 Imprint 导出的主题 Tokens JSON 文件",
-    "dataCleared": "主题与分析记录已清除",
+    "dataCleared": "分析记录已清除",
     "historyDeleted": "历史记录已删除",
     "actionFailed": "操作失败，请重试"
   },
@@ -61,7 +60,7 @@
     "completeTip": "分析完成！复制 DESIGN.md 交给你的 AI 编程助手。",
     "invalidUrl": "请输入有效的 URL（例如 https://example.com）",
     "noAiTip": "未配置 AI API Key 或 Agent CLI — 分析仍可正常运行，但 token 命名可能不够语义化。可在设置中配置。",
-    "saveToLibrary": "保存到主题库",
+    "saveToLibrary": "已保存",
     "saved": "已保存",
     "pageCount": {
       "label": "分析页面",
@@ -365,25 +364,18 @@
   },
   "themes": {
     "title": "主题库",
-    "description": "浏览、应用或导出内置主题与网站提取主题",
-    "builtin": "内置主题",
-    "extracted": "提取的主题",
     "apply": "应用",
     "current": "当前",
     "export": "导出",
     "exportTheme": "以当前格式导出“{{theme}}”",
     "exportFormatLabel": "导出格式",
-    "exportHelp": "给 AI 修改已有 UI 时优先导出 DESIGN.md，并同时提供截图或源代码；CSS 变量与 Tailwind 用于直接实现；Tokens JSON 用于工具和自动化。内置主题导出包含可复用的设计规则与令牌，不包含 Imprint 应用专用的背景图片、纹理和外壳样式。",
+    "exportHelp": "给 AI 修改已有 UI 时优先导出 DESIGN.md，并同时提供截图或源代码；CSS 变量与 Tailwind 用于直接实现；Tokens JSON 用于工具和自动化。主题导出包含可复用的设计规则与令牌，不包含 Imprint 应用专用的背景图片、纹理和外壳样式。",
     "exportFormats": {
       "markdown": "DESIGN.md（推荐给 AI）",
       "css": "CSS 变量（推荐通用 Web）",
       "tailwind": "Tailwind @theme（推荐 Tailwind v4）",
       "json": "Tokens JSON（推荐工具与 Agent）"
     },
-    "addFavorite": "收藏“{{theme}}”",
-    "removeFavorite": "取消收藏“{{theme}}”",
-    "noExtracted": "还没有提取的主题",
-    "noExtractedTip": "前往「分析」页面提取网站设计风格",
     "categories": {
       "foundation": {
         "title": "基础主题",
@@ -844,7 +836,7 @@
   },
   "history": {
     "title": "分析历史",
-    "description": "点击任意记录可查看完整分析结果，并再次导出或保存到主题库",
+    "description": "点击任意记录可查看完整分析结果，并再次导出。",
     "search": "搜索 URL...",
     "duration": "{{seconds}}s",
     "durationMin": "{{minutes}} 分钟",
@@ -938,11 +930,11 @@
       "title": "数据管理",
       "exportAll": "导出本地数据 JSON",
       "import": "导入主题 Tokens JSON",
-      "clearAll": "清除主题与分析记录",
-      "confirmClear": "确认要清除全部主题与分析记录？设置不会被清除，此操作不可撤销。",
+      "clearAll": "清除分析记录",
+      "confirmClear": "确认要清除全部分析记录？设置不会被清除，此操作不可撤销。",
       "confirmClearTitle": "清除全部本地数据",
       "openLogs": "打开日志目录",
-      "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复；导入只支持单个主题的 Tokens JSON。运行日志保存在日志目录中，排查问题时可提供。"
+      "tip": "本地数据 JSON 用于手动存档，不包含 API Key，目前不能整包恢复。运行日志保存在日志目录中，排查问题时可提供。"
     }
   },
   "progress": {

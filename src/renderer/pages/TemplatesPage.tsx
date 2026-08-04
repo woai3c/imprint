@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { ThemeRecord } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -43,14 +42,7 @@ const templateDefinitions: Record<
 export function TemplatesPage() {
   const { t } = useTranslation()
   const [activeTemplate, setActiveTemplate] = useState(getValidationScenarioPreference)
-  const { currentThemeId, extractedThemeId, setTheme, applyCustomCss } = useSkinStore()
-  const [extractedThemes, setExtractedThemes] = useState<ThemeRecord[]>([])
-
-  useEffect(() => {
-    window.electronAPI.getThemes().then((themes) => {
-      setExtractedThemes(themes)
-    })
-  }, [])
+  const { currentThemeId, setTheme } = useSkinStore()
 
   const templates = VALIDATION_SCENARIO_IDS.map((id) => ({
     id,
@@ -63,31 +55,6 @@ export function TemplatesPage() {
   const selectTemplate = (templateId: string) => {
     setActiveTemplate(templateId)
     setValidationScenarioPreference(templateId)
-  }
-
-  const handleApplyExtracted = (theme: ThemeRecord) => {
-    applyCustomCss(theme.css_variables, theme.id)
-  }
-
-  const getThemeLabel = (theme: ThemeRecord): string => {
-    if (theme.source_url) {
-      try {
-        return new URL(theme.source_url).hostname
-      } catch {
-        return theme.name
-      }
-    }
-    return theme.name
-  }
-
-  const getExtractedThemeColors = (theme: ThemeRecord): string[] => {
-    try {
-      const tokens = JSON.parse(theme.tokens_json)
-      const colors = Object.values(tokens.colors || {}).filter((color): color is string => typeof color === 'string')
-      return colors.length > 0 ? colors.slice(0, 5) : ['#888']
-    } catch {
-      return ['#888']
-    }
   }
 
   const handleApplyBuiltin = (themeId: string) => {
@@ -111,23 +78,12 @@ export function TemplatesPage() {
                 key={theme.id}
                 name={name}
                 colors={getBuiltinThemeColors(theme)}
-                selected={currentThemeId === theme.id && !extractedThemeId}
+                selected={currentThemeId === theme.id}
                 testId={`validation-theme-${theme.id}`}
                 onSelect={() => handleApplyBuiltin(theme.id)}
               />
             )
           })}
-
-          {extractedThemes.map((theme) => (
-            <ThemeOption
-              key={theme.id}
-              name={getThemeLabel(theme)}
-              colors={getExtractedThemeColors(theme)}
-              selected={extractedThemeId === theme.id}
-              testId={`validation-theme-extracted-${theme.id}`}
-              onSelect={() => handleApplyExtracted(theme)}
-            />
-          ))}
         </div>
 
         {/* Row 2: Directly visible validation scenarios */}

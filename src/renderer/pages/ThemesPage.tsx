@@ -1,4 +1,4 @@
-import { Download, Star } from 'lucide-react'
+import { Download } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next'
 import { THEME_EXPORT_FORMATS, type ThemeExportFormat } from '../../shared/ipc-contract'
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
-import { EmptyState } from '../components/ui/EmptyState'
 import { useFeedbackStore } from '../stores/feedback-store'
 import {
   builtinThemes,
@@ -17,21 +16,14 @@ import {
   useSkinStore,
 } from '../stores/skin-store'
 import type { AppTheme, ThemeCategory, ThemeColors } from '../stores/skin-store'
-import { useThemeStore } from '../stores/theme-store'
 
 const themeCategoryOrder: ThemeCategory[] = ['foundation', 'narrative', 'experimental']
 export function ThemesPage() {
   const { t, i18n } = useTranslation()
-  const { themes, fetchThemes, toggleFavorite } = useThemeStore()
-  const { currentThemeId, extractedThemeId, setTheme, applyCustomCss } = useSkinStore()
+  const { currentThemeId, setTheme } = useSkinStore()
   const notify = useFeedbackStore((state) => state.show)
-  const [tab, setTab] = useState<'extracted' | 'builtin'>('builtin')
   const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
-
-  useEffect(() => {
-    fetchThemes()
-  }, [fetchThemes])
 
   useEffect(() => {
     window.electronAPI.getSettings().then((settings: { exportFormat?: string }) => {
@@ -49,21 +41,6 @@ export function ThemesPage() {
         theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
       }),
     )
-  }
-
-  const handleApplyExtracted = (theme: (typeof themes)[number]) => {
-    applyCustomCss(theme.css_variables, theme.id)
-    notify(t('feedback.themeApplied', { theme: theme.name }))
-  }
-
-  const handleExportExtracted = async (themeId: string, themeName: string) => {
-    try {
-      const exportResult = await window.electronAPI.exportTheme(themeId, exportFormat)
-      if (exportResult.success) notify(t('feedback.themeExported', { theme: themeName }))
-      else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
   }
 
   const localizeBuiltinTheme = (theme: AppTheme): AppTheme => {
@@ -144,32 +121,9 @@ export function ThemesPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title={t('themes.title')} description={t('themes.description')} />
+      <PageHeader title={t('themes.title')} />
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-8">
-        <div className="flex gap-1 p-1 bg-secondary rounded-lg w-fit">
-          <button
-            type="button"
-            onClick={() => setTab('builtin')}
-            aria-pressed={tab === 'builtin'}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              tab === 'builtin' ? 'bg-background shadow-sm' : 'text-muted-foreground'
-            }`}
-          >
-            {t('themes.builtin')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('extracted')}
-            aria-pressed={tab === 'extracted'}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              tab === 'extracted' ? 'bg-background shadow-sm' : 'text-muted-foreground'
-            }`}
-          >
-            {t('themes.extracted')} ({themes.length})
-          </button>
-        </div>
-
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 px-8">
         <div className="flex items-center gap-1.5">
           <label htmlFor="theme-export-format" className="text-xs font-medium text-muted-foreground">
             {t('themes.exportFormatLabel')}
@@ -191,115 +145,44 @@ export function ThemesPage() {
       </div>
 
       <div className="flex-1 overflow-auto px-8 pt-1 pb-8">
-        {tab === 'builtin' ? (
-          <>
-            <div className="space-y-7">
-              {themeCategoryOrder.map((category) => (
-                <section key={category} aria-labelledby={`theme-category-${category}`}>
-                  <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <h3 id={`theme-category-${category}`} className="text-sm font-semibold">
-                      {t(`themes.categories.${category}.title`)}
-                    </h3>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {t(`themes.categories.${category}.description`)}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-                    {builtinThemes
-                      .filter((theme) => theme.category === category)
-                      .map((theme) => (
-                        <ThemeCard
-                          key={theme.id}
-                          id={theme.id}
-                          name={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
-                          description={t(`themes.presets.${theme.id}.description`, {
-                            defaultValue: theme.description,
-                          })}
-                          colors={theme.colors}
-                          isActive={currentThemeId === theme.id}
-                          onApply={() => handleApplyBuiltin(theme)}
-                          onExport={() => handleExportBuiltin(theme)}
-                          currentLabel={t('themes.current')}
-                          exportLabel={t('themes.export')}
-                          exportAriaLabel={t('themes.exportTheme', {
-                            theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
-                          })}
-                        />
-                      ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-            <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
-          </>
-        ) : themes.length === 0 ? (
-          <EmptyState title={t('themes.noExtracted')} description={t('themes.noExtractedTip')} className="h-64" />
-        ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            {themes.map((theme) => (
-              <div
-                key={theme.id}
-                data-selected={extractedThemeId === theme.id}
-                className={`theme-card rounded-xl border p-4 transition-colors ${
-                  extractedThemeId === theme.id ? 'border-primary' : 'border-border hover:border-primary/70'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="font-medium text-sm">{theme.name}</h4>
-                    {theme.source_url && (
-                      <p className="text-xs text-muted-foreground truncate max-w-50">{theme.source_url}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleFavorite(theme.id)}
-                    className={`flex size-8 items-center justify-center rounded-md ${theme.is_favorite ? 'text-warning' : 'text-muted-foreground hover:bg-secondary hover:text-warning'} transition-colors`}
-                    aria-label={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
-                      theme: theme.name,
-                    })}
-                    title={t(theme.is_favorite ? 'themes.removeFavorite' : 'themes.addFavorite', {
-                      theme: theme.name,
-                    })}
-                    aria-pressed={!!theme.is_favorite}
-                  >
-                    <Star size={16} fill={theme.is_favorite ? 'currentColor' : 'none'} aria-hidden="true" />
-                  </button>
-                </div>
-
-                <div className="flex gap-1.5 mb-3">
-                  {Object.values(JSON.parse(theme.tokens_json)?.colors || {})
-                    .slice(0, 6)
-                    .map((color, i) => (
-                      <div
-                        key={i}
-                        className="w-6 h-6 rounded-full border border-border"
-                        style={{ backgroundColor: color as string }}
-                      />
-                    ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleApplyExtracted(theme)}
-                    aria-pressed={extractedThemeId === theme.id}
-                    className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                  >
-                    {extractedThemeId === theme.id ? t('themes.current') : t('themes.apply')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportExtracted(theme.id, theme.name)}
-                    className="text-xs px-3 py-1.5 rounded bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
-                  >
-                    {t('themes.export')}
-                  </button>
-                </div>
+        <div className="space-y-7">
+          {themeCategoryOrder.map((category) => (
+            <section key={category} aria-labelledby={`theme-category-${category}`}>
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h3 id={`theme-category-${category}`} className="text-sm font-semibold">
+                  {t(`themes.categories.${category}.title`)}
+                </h3>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t(`themes.categories.${category}.description`)}
+                </p>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+                {builtinThemes
+                  .filter((theme) => theme.category === category)
+                  .map((theme) => (
+                    <ThemeCard
+                      key={theme.id}
+                      id={theme.id}
+                      name={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
+                      description={t(`themes.presets.${theme.id}.description`, {
+                        defaultValue: theme.description,
+                      })}
+                      colors={theme.colors}
+                      isActive={currentThemeId === theme.id}
+                      onApply={() => handleApplyBuiltin(theme)}
+                      onExport={() => handleExportBuiltin(theme)}
+                      currentLabel={t('themes.current')}
+                      exportLabel={t('themes.export')}
+                      exportAriaLabel={t('themes.exportTheme', {
+                        theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
+                      })}
+                    />
+                  ))}
+              </div>
+            </section>
+          ))}
+        </div>
+        <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
       </div>
     </div>
   )

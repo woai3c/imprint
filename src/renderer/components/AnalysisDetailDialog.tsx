@@ -22,7 +22,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [result, setResult] = useState<AnalysisResultData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [intelligenceRunning, setIntelligenceRunning] = useState(false)
   const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
@@ -75,7 +74,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           agentContext: data.agentContext,
           validationReport: data.validationReport,
         })
-        setSaved(!!data.themeId)
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false))
@@ -178,10 +176,8 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
             <div className="flex min-w-0 flex-1 flex-col">
               <ArtifactPanel
                 result={result}
-                saved={saved}
                 intelligenceRunning={intelligenceRunning}
                 intelligenceProgress={intelligenceProgress}
-                onSaved={() => setSaved(true)}
                 onRetryIntelligence={retryIntelligence}
                 onCancelIntelligence={async () => {
                   if (!result.analysisId) return

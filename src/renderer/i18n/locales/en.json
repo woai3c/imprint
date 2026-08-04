@@ -20,14 +20,13 @@
   "feedback": {
     "dismiss": "Dismiss notification",
     "copied": "Copied to clipboard",
-    "savedToLibrary": "Saved to the theme library",
     "exported": "File exported",
     "themeApplied": "Applied “{{theme}}”",
     "themeExported": "Exported “{{theme}}”",
     "dataExported": "Local data JSON exported",
     "importFinished": "Import complete",
     "importFailed": "Import failed: choose a theme Tokens JSON file exported by Imprint",
-    "dataCleared": "Themes and analysis history cleared",
+    "dataCleared": "Analysis history cleared",
     "historyDeleted": "History record deleted",
     "actionFailed": "Action failed. Please try again."
   },
@@ -61,7 +60,7 @@
     "completeTip": "Analysis complete! Copy DESIGN.md and give it to your AI coding agent.",
     "invalidUrl": "Please enter a valid URL (e.g. https://example.com)",
     "noAiTip": "No AI API Key or Agent CLI configured — analysis will still work, but token naming may be less descriptive. Configure in Settings.",
-    "saveToLibrary": "Save to Library",
+    "saveToLibrary": "Saved",
     "saved": "Saved",
     "pageCount": {
       "label": "Pages to analyze",
@@ -366,25 +365,18 @@
   },
   "themes": {
     "title": "Theme Library",
-    "description": "Browse, apply, or export built-in themes and themes extracted from websites.",
-    "builtin": "Built-in Themes",
-    "extracted": "Extracted Themes",
     "apply": "Apply",
     "current": "Current",
     "export": "Export",
     "exportTheme": "Export “{{theme}}” in the selected format",
     "exportFormatLabel": "Export format",
-    "exportHelp": "For AI revisions to an existing UI, export DESIGN.md first and include screenshots or source code. CSS variables and Tailwind are for direct implementation; Tokens JSON is for tools and automation. Built-in theme exports include reusable rules and tokens, but not Imprint-specific background images, textures, or shell styles.",
+    "exportHelp": "For AI revisions to an existing UI, export DESIGN.md first and include screenshots or source code. CSS variables and Tailwind are for direct implementation; Tokens JSON is for tools and automation. Theme exports include reusable rules and tokens, but not Imprint-specific background images, textures, or shell styles.",
     "exportFormats": {
       "markdown": "DESIGN.md (recommended for AI)",
       "css": "CSS variables (general web)",
       "tailwind": "Tailwind @theme (Tailwind v4)",
       "json": "Tokens JSON (tools and agents)"
     },
-    "addFavorite": "Add “{{theme}}” to favorites",
-    "removeFavorite": "Remove “{{theme}}” from favorites",
-    "noExtracted": "No extracted themes yet",
-    "noExtractedTip": "Go to the Analyze page to extract website design styles",
     "categories": {
       "foundation": {
         "title": "Foundation",
@@ -887,7 +879,7 @@
   },
   "history": {
     "title": "Analysis History",
-    "description": "Select any record to reopen its full result, export it again, or save it to the Theme Library",
+    "description": "Select any record to reopen its full result and export it again",
     "search": "Search URL...",
     "duration": "{{seconds}}s",
     "durationMin": "{{minutes}} min",
@@ -983,11 +975,11 @@
       "title": "Data Management",
       "exportAll": "Export Local Data JSON",
       "import": "Import Theme Tokens JSON",
-      "clearAll": "Clear Themes and Analysis History",
-      "confirmClear": "Clear all themes and analysis records? Settings will be kept. This cannot be undone.",
+      "clearAll": "Clear Analysis History",
+      "confirmClear": "Clear all analysis records? Settings will be kept. This cannot be undone.",
       "confirmClearTitle": "Clear all local data",
       "openLogs": "Open Logs Folder",
-      "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Import accepts one theme Tokens JSON file. Runtime logs live in the logs folder — include them when reporting issues."
+      "tip": "The local data JSON is for manual archiving, excludes API keys, and cannot currently be restored as a package. Runtime logs live in the logs folder — include them when reporting issues."
     }
   },
   "progress": {

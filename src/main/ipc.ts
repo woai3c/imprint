@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid'
-
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -36,8 +34,6 @@ import {
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
-  generateDtcgJson,
-  generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'
 import { isRecord } from '../shared/type-guards.js'
@@ -53,7 +49,6 @@ import {
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
 import { getSettings, saveSettings } from './settings.js'
-import { normalizeImportedTokens, readImportedThemeMeta } from './theme-import.js'
 
 interface SaveTextFileOptions {
   defaultName: string
@@ -91,35 +86,14 @@ async function saveTextFile(content: string, options: SaveTextFileOptions) {
 export function registerIpcHandlers() {
   migrateLegacyManagedSessions(app.getPath('userData'))
 
-  // --- Themes ---
-  ipcMain.handle('themes:list', () => {
-    const db = getDb()
-    return db.prepare('SELECT * FROM themes ORDER BY updated_at DESC').all()
-  })
-
-  ipcMain.handle('themes:delete', (_event, id: string) => {
-    const db = getDb()
-    db.prepare('DELETE FROM themes WHERE id = ?').run(id)
-    return { success: true }
-  })
-
-  ipcMain.handle('themes:toggleFavorite', (_event, id: string) => {
-    const db = getDb()
-    db.prepare(
-      'UPDATE themes SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END, updated_at = ? WHERE id = ?',
-    ).run(new Date().toISOString(), id)
-    return db.prepare('SELECT * FROM themes WHERE id = ?').get(id)
-  })
-
   // --- Analyses ---
   ipcMain.handle('analyses:list', () => {
     const db = getDb()
     return db
       .prepare(
-        `SELECT a.*, t.name as theme_name, t.source_url
-         FROM analyses a
-         LEFT JOIN themes t ON a.theme_id = t.id
-         ORDER BY a.created_at DESC`,
+        `SELECT *
+         FROM analyses
+         ORDER BY created_at DESC`,
       )
       .all()
   })
@@ -128,12 +102,10 @@ export function registerIpcHandlers() {
     const db = getDb()
     const records = db
       .prepare(
-        `SELECT a.id, a.theme_id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
+        `SELECT a.id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
                 a.token_usage, a.created_at, a.page_screenshots_json,
-                a.design_intelligence_status, a.design_intelligence_meta_json,
-                t.name as theme_name, t.source_url
+                a.design_intelligence_status, a.design_intelligence_meta_json
          FROM analyses a
-         LEFT JOIN themes t ON a.theme_id = t.id
          ORDER BY a.created_at DESC`,
       )
       .all() as Array<Record<string, unknown>>
@@ -177,10 +149,9 @@ export function registerIpcHandlers() {
     const db = getDb()
     const record = db
       .prepare(
-        `SELECT a.*, t.name as theme_name, t.source_url
-         FROM analyses a
-         LEFT JOIN themes t ON a.theme_id = t.id
-         WHERE a.id = ?`,
+        `SELECT *
+         FROM analyses
+         WHERE id = ?`,
       )
       .get(id) as Record<string, unknown> | undefined
     if (!record) return null
@@ -214,8 +185,6 @@ export function registerIpcHandlers() {
       pagesAnalyzed: record.pages_analyzed,
       durationMs: record.duration_ms,
       createdAt: record.created_at,
-      themeId: record.theme_id,
-      themeName: record.theme_name,
       tokens,
       cssVariables: record.css_variables || '',
       tailwindTheme: record.tailwind_theme || '',
@@ -367,15 +336,14 @@ export function registerIpcHandlers() {
         const pagesAnalyzed = Math.max(1, new Set(result.pageScreenshots.map((screenshot) => screenshot.url)).size)
         db.prepare(
           `INSERT INTO analyses
-           (id, theme_id, url, pages_analyzed, viewports, duration_ms, created_at,
+           (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
             feature_tags_json, dark_tokens_json, has_dark_mode, access_mode, auth_wall_detected, final_url,
             design_evidence_json, evidence_coverage_json, design_intelligence_status,
             design_intelligence_meta_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
-          null,
           url,
           pagesAnalyzed,
           JSON.stringify(viewports),
@@ -607,21 +575,6 @@ export function registerIpcHandlers() {
         analysisId,
       ],
     )
-    if (record.theme_id) {
-      db.prepare(
-        `UPDATE themes
-         SET design_doc = ?, design_evidence_json = ?, design_profile_json = ?,
-             design_intelligence_meta_json = ?, updated_at = ?
-         WHERE id = ?`,
-      ).run(
-        designDoc,
-        JSON.stringify(designEvidence),
-        designProfile ? JSON.stringify(designProfile) : null,
-        JSON.stringify(intelligence.meta),
-        new Date().toISOString(),
-        record.theme_id,
-      )
-    }
     win?.webContents.send('design-intelligence:progress', {
       step:
         intelligence.meta.status === 'failed' ? 'progress.designLanguageFallback' : 'progress.designLanguageComplete',
@@ -701,63 +654,7 @@ export function registerIpcHandlers() {
     },
   )
 
-  // --- Save theme to library (user-initiated) ---
-  ipcMain.handle(
-    'themes:save',
-    async (
-      _event,
-      data: {
-        url: string
-        tokens: Record<string, unknown>
-        cssVariables: string
-        tailwindTheme: string
-        designDoc: string
-        screenshots: string[]
-        designEvidence?: DesignEvidence
-        designProfile?: DesignProfile | null
-        designIntelligence?: DesignIntelligenceMeta
-      },
-    ) => {
-      const db = getDb()
-      const themeId = uuidv4()
-      const now = new Date().toISOString()
-
-      let hostname: string
-      try {
-        hostname = new URL(data.url).hostname
-      } catch {
-        hostname = data.url
-      }
-
-      db.prepare(
-        `INSERT INTO themes (
-           id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc,
-           design_evidence_json, design_profile_json, design_intelligence_meta_json, created_at, updated_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        themeId,
-        `Theme from ${hostname}`,
-        data.url,
-        data.screenshots[0] || null,
-        JSON.stringify(data.tokens),
-        data.cssVariables,
-        data.tailwindTheme,
-        data.designDoc,
-        data.designEvidence ? JSON.stringify(data.designEvidence) : null,
-        data.designProfile ? JSON.stringify(data.designProfile) : null,
-        data.designIntelligence ? JSON.stringify(data.designIntelligence) : null,
-        now,
-        now,
-      )
-
-      db.prepare(`UPDATE analyses SET theme_id = ? WHERE url = ? AND theme_id IS NULL`).run(themeId, data.url)
-
-      return { success: true, themeId }
-    },
-  )
-
-  // --- Export file directly (from analysis result, not saved theme) ---
+  // --- Export file directly from an analysis result ---
   ipcMain.handle('export:file', async (_event, content: string, defaultName: string, ext: string) => {
     const result = await saveTextFile(content, {
       defaultName,
@@ -802,125 +699,6 @@ export function registerIpcHandlers() {
       return { success: true, filePath: targetDir }
     },
   )
-
-  // --- Export ---
-  ipcMain.handle('export:theme', async (_event, id: string, format: string) => {
-    const db = getDb()
-    const theme = db.prepare('SELECT * FROM themes WHERE id = ?').get(id) as Record<string, unknown> | undefined
-    if (!theme) return { error: true, message: 'Theme not found' }
-
-    let content: string
-    let ext: string
-    let filterName: string
-    let defaultName: string
-
-    switch (format) {
-      case 'css':
-        content = theme.css_variables as string
-        ext = 'css'
-        filterName = 'CSS Files'
-        defaultName = 'theme-variables.css'
-        break
-      case 'tailwind':
-        content = theme.tailwind_theme as string
-        ext = 'css'
-        filterName = 'CSS Files'
-        defaultName = 'tailwind-theme.css'
-        break
-      case 'json':
-        content = generateDtcgJson(JSON.parse(theme.tokens_json as string))
-        ext = 'json'
-        filterName = 'JSON Files'
-        defaultName = 'design-tokens.json'
-        break
-      case 'scss':
-        content = generateScssVariables(JSON.parse(theme.tokens_json as string))
-        ext = 'scss'
-        filterName = 'SCSS Files'
-        defaultName = 'theme-variables.scss'
-        break
-      case 'markdown':
-        content = theme.design_doc as string
-        ext = 'md'
-        filterName = 'Markdown Files'
-        defaultName = 'DESIGN.md'
-        break
-      default:
-        return { error: true, message: `Unknown format: ${format}` }
-    }
-
-    const result = await saveTextFile(content, {
-      defaultName,
-      extension: ext,
-      filterName,
-    })
-
-    if (!result.success) return result
-    log.info('export', `theme exported: id=${id} format=${format} path=${result.filePath}`)
-
-    const exportId = uuidv4()
-    db.prepare('INSERT INTO exports (id, theme_id, format, file_path, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      exportId,
-      id,
-      format,
-      result.filePath,
-      new Date().toISOString(),
-    )
-
-    return { success: true, filePath: result.filePath }
-  })
-
-  ipcMain.handle('import:theme', async (_event, language?: string) => {
-    const result = await dialog.showOpenDialog({
-      filters: [{ name: 'Theme Tokens JSON', extensions: ['json'] }],
-      properties: ['openFile'],
-    })
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false, canceled: true }
-    }
-
-    const filePath = result.filePaths[0]
-    if (filePath.endsWith('.json')) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8')
-        const importedData = JSON.parse(content) as unknown
-        const tokens = normalizeImportedTokens(importedData)
-        const db = getDb()
-        const themeId = uuidv4()
-        const now = new Date().toISOString()
-        const cssVars = generateCssVariables(tokens)
-        const tailwind = generateTailwindTheme(tokens)
-        const designDoc = generateDesignDoc(
-          tokens,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          language?.startsWith('zh') ? 'zh-CN' : 'en',
-        )
-        const meta = readImportedThemeMeta(importedData)
-        const themeName = typeof meta?.name === 'string' && meta.name.trim() ? meta.name : 'Imported theme'
-
-        db.prepare(
-          `INSERT INTO themes (id, name, tokens_json, css_variables, tailwind_theme, design_doc, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(themeId, themeName, JSON.stringify(tokens), cssVars, tailwind, designDoc, now, now)
-
-        log.info('import', `theme imported: file=${filePath} name=${themeName} id=${themeId}`)
-        return { success: true, themeId }
-      } catch (err: unknown) {
-        log.error(
-          'import',
-          `theme import failed: file=${filePath} error=${err instanceof Error ? err.message : String(err)}`,
-        )
-        return { error: true, message: err instanceof Error ? err.message : String(err) }
-      }
-    }
-
-    return { success: false, message: 'Only theme token JSON is supported' }
-  })
 
   // --- Settings ---
   ipcMain.on('settings:getSync', (event) => {

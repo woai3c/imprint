@@ -1,15 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { AppSettings, ElectronAPI, LoginRequiredEvent, SaveThemeData } from '../shared/ipc-contract.js'
+import type { AppSettings, ElectronAPI, LoginRequiredEvent } from '../shared/ipc-contract.js'
 
 const api = {
   platform: process.platform,
   initialSettings: ipcRenderer.sendSync('settings:getSync') as AppSettings,
-
-  // Theme operations
-  getThemes: () => ipcRenderer.invoke('themes:list'),
-  deleteTheme: (id: string) => ipcRenderer.invoke('themes:delete', id),
-  toggleFavorite: (id: string) => ipcRenderer.invoke('themes:toggleFavorite', id),
 
   // Analysis
   analyzeUrl: (
@@ -36,17 +31,12 @@ const api = {
   clearBrowserSessions: () => ipcRenderer.invoke('browserSessions:clearAll'),
 
   // Export
-  exportTheme: (id: string, format: string) => ipcRenderer.invoke('export:theme', id, format),
   exportFile: (content: string, defaultName: string, ext: string) =>
     ipcRenderer.invoke('export:file', content, defaultName, ext),
   exportToDirectory: (files: Array<{ name: string; content: string }>, assets: string[], defaultDir: string) =>
     ipcRenderer.invoke('export:toDirectory', files, assets, defaultDir),
-  importTheme: (language?: string) => ipcRenderer.invoke('import:theme', language),
   openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
   logEvent: (level: 'info' | 'warn' | 'error', message: string) => ipcRenderer.send('log:event', level, message),
-
-  // Save theme to library
-  saveTheme: (data: SaveThemeData) => ipcRenderer.invoke('themes:save', data),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

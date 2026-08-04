@@ -45,7 +45,6 @@ export function AnalyzePage() {
   const { t, i18n } = useTranslation()
   const store = useAnalysisStore()
   const notify = useFeedbackStore((state) => state.show)
-  const [saved, setSaved] = useState(false)
   const [hasAiConfig, setHasAiConfig] = useState<boolean | null>(null)
   const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
@@ -215,7 +214,6 @@ export function AnalyzePage() {
     store.clearResult()
     store.setAnalyzing(true)
     store.setUrl(targetUrl)
-    setSaved(false)
     setAuthPrompt(null)
     store.setProgress({ step: t('analyze.preparing'), percent: 0 })
 
@@ -515,10 +513,8 @@ export function AnalyzePage() {
           />
           <ArtifactPanel
             result={result}
-            saved={saved}
             intelligenceRunning={store.intelligenceRunning}
             intelligenceProgress={store.intelligenceProgress}
-            onSaved={() => setSaved(true)}
             onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
             onCancelIntelligence={handleCancelIntelligence}
             onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}

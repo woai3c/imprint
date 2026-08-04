@@ -4,6 +4,7 @@ import { VitePlugin } from '@electron-forge/plugin-vite'
 import type { ForgeConfig } from '@electron-forge/shared-types'
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 function requireEnv(name: string): string {
@@ -20,6 +21,29 @@ const appleApiKeyId = macOSSigningEnabled ? requireEnv('APPLE_API_KEY_ID') : ''
 const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : ''
 
 const externalPackages = ['better-sqlite3', 'playwright-core']
+
+function getHeadlessBrowserResources(): string[] {
+  if (process.platform !== 'darwin') return []
+
+  const playwrightRoot = path.dirname(require.resolve('playwright-core/package.json'))
+  const browsers = JSON.parse(fs.readFileSync(path.join(playwrightRoot, 'browsers.json'), 'utf8')) as {
+    browsers: Array<{ name: string; revision: string }>
+  }
+  const revision = browsers.browsers.find((browser) => browser.name === 'chromium-headless-shell')?.revision
+  if (!revision) throw new Error('Playwright does not declare a Chromium Headless Shell revision')
+
+  const configuredRoot = process.env.PLAYWRIGHT_BROWSERS_PATH?.trim()
+  const cacheRoot =
+    configuredRoot && configuredRoot !== '0'
+      ? path.resolve(configuredRoot)
+      : path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright')
+  const resourcePath = path.join(cacheRoot, `chromium_headless_shell-${revision}`)
+  if (!fs.existsSync(resourcePath)) {
+    throw new Error(`Chromium Headless Shell is missing at ${resourcePath}. Run pnpm browser:install first.`)
+  }
+
+  return [resourcePath]
+}
 
 function copyNativeModules(
   buildPath: string,
@@ -48,7 +72,7 @@ const config: ForgeConfig = {
     asar: {
       unpack: '**/*.node',
     },
-    extraResource: ['assets/icons', 'assets/theme-backgrounds'],
+    extraResource: ['assets/icons', 'assets/theme-backgrounds', ...getHeadlessBrowserResources()],
     icon: 'assets/icons/icon',
     name: 'Imprint',
     executableName: 'imprint',

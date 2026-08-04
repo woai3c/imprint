@@ -79,6 +79,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install silent analysis browser
+        if: matrix.platform == 'macos'
+        run: pnpm browser:install
+
       - name: Detect macOS signing configuration
         if: matrix.platform == 'macos'
         id: macos-signing

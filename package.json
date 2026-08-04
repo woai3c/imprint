@@ -17,9 +17,13 @@
   },
   "scripts": {
     "dev": "electron-forge start",
+    "predev": "pnpm browser:install",
     "build": "electron-forge package",
+    "prebuild": "pnpm browser:install",
     "build:cli": "tsc -p tsconfig.cli.json",
     "make": "electron-forge make",
+    "premake": "pnpm browser:install",
+    "browser:install": "node scripts/install-headless-browser.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

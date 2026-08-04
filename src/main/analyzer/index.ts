@@ -27,6 +27,7 @@ export async function analyzeUrl(
     {
       ...options,
       dataDir: app.getPath('userData'),
+      browserResourcesDir: app.isPackaged ? process.resourcesPath : undefined,
       onLoginRequired,
     },
     onProgress,

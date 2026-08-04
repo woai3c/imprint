@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const SESSION_METADATA_FILE = 'imprint-session.json'
+const SESSION_STORAGE_STATE_FILE = 'imprint-storage-state.json'
 const SESSION_MIGRATION_MARKER = '.sessions-v1-migrated'
 
 interface SessionMetadata {
@@ -37,6 +38,14 @@ export function getManagedProfileDir(dataDir: string, url: string): string {
 
 export function hasManagedProfile(dataDir: string, url: string): boolean {
   return fs.existsSync(path.join(getManagedProfileDir(dataDir, url), SESSION_METADATA_FILE))
+}
+
+export function getManagedStorageStatePath(dataDir: string, url: string): string {
+  return path.join(getManagedProfileDir(dataDir, url), SESSION_STORAGE_STATE_FILE)
+}
+
+export function hasManagedStorageState(dataDir: string, url: string): boolean {
+  return fs.existsSync(getManagedStorageStatePath(dataDir, url))
 }
 
 export function markManagedSession(dataDir: string, url: string): void {

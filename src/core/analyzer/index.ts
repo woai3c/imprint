@@ -12,8 +12,14 @@ import {
   observeSafeInteractions,
 } from '../design-evidence/index.js'
 import { detectAuthWall } from './auth-wall.js'
-import { findBrowser } from './browser-finder.js'
-import { getManagedProfileDir, hasManagedProfile, markManagedSession } from './browser-session.js'
+import { findBrowser, findHeadlessBrowser } from './browser-finder.js'
+import {
+  getManagedProfileDir,
+  getManagedStorageStatePath,
+  hasManagedProfile,
+  hasManagedStorageState,
+  markManagedSession,
+} from './browser-session.js'
 import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents } from './component-detect.js'
 import { extractDarkMode } from './dark-mode-detect.js'
@@ -41,7 +47,7 @@ export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 export type { AuthWallDetection, AuthWallReason } from './auth-wall.js'
 export type { DesignEvidence } from '../design-evidence/types.js'
-export { findBrowser } from './browser-finder.js'
+export { findBrowser, findHeadlessBrowser } from './browser-finder.js'
 export {
   AuthenticationBrowserClosedError,
   AuthenticationCancelledError,
@@ -69,6 +75,7 @@ const VIEWPORTS: Record<string, { width: number; height: number }> = {
 interface BrowserRuntime {
   browser: Browser | null
   context: BrowserContext
+  kind: 'ephemeral' | 'managed-profile' | 'managed-state'
 }
 
 function detectSystemProxy(): string | undefined {
@@ -113,6 +120,21 @@ async function launchRuntime(
   if (proxyServer) console.log('[imprint] using proxy:', proxyServer)
 
   if (mode === 'managed') {
+    const storageStatePath = getManagedStorageStatePath(dataDir, url)
+    if (headless && hasManagedStorageState(dataDir, url)) {
+      const browser = await chromium.launch({
+        executablePath,
+        headless: true,
+        args: ['--disable-blink-features=AutomationControlled'],
+        ...proxyConfig,
+      })
+      const context = await browser.newContext({
+        storageState: storageStatePath,
+        ...proxyConfig,
+      })
+      return { browser, context, kind: 'managed-state' }
+    }
+
     const profileDir = getManagedProfileDir(dataDir, url)
     fs.mkdirSync(profileDir, { recursive: true })
     const context = await chromium.launchPersistentContext(profileDir, {
@@ -122,7 +144,7 @@ async function launchRuntime(
       viewport: VIEWPORTS.desktop,
       ...proxyConfig,
     })
-    return { browser: null, context }
+    return { browser: null, context, kind: 'managed-profile' }
   }
 
   const browser = await chromium.launch({
@@ -132,7 +154,7 @@ async function launchRuntime(
     ...proxyConfig,
   })
   const context = await browser.newContext(proxyConfig)
-  return { browser, context }
+  return { browser, context, kind: 'ephemeral' }
 }
 
 async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
@@ -156,6 +178,65 @@ async function navigatePage(page: Page, url: string, timeout = 60000): Promise<n
   const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
   await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
   return response?.status()
+}
+
+async function saveManagedStorageState(context: BrowserContext, dataDir: string, url: string): Promise<void> {
+  const storageStatePath = getManagedStorageStatePath(dataDir, url)
+  fs.mkdirSync(path.dirname(storageStatePath), { recursive: true })
+  const storageState = await context.storageState({ indexedDB: true })
+  fs.writeFileSync(storageStatePath, JSON.stringify(storageState), { encoding: 'utf8', mode: 0o600 })
+  fs.chmodSync(storageStatePath, 0o600)
+}
+
+async function switchManagedRuntimeToHeadless(
+  runtime: BrowserRuntime,
+  page: Page,
+  responseStatus: number | undefined,
+  detection: Awaited<ReturnType<typeof detectAuthWall>>,
+  executablePath: string,
+  dataDir: string,
+  url: string,
+  viewport: { width: number; height: number },
+  proxyServer?: string,
+): Promise<{
+  runtime: BrowserRuntime
+  page: Page
+  responseStatus: number | undefined
+  detection: Awaited<ReturnType<typeof detectAuthWall>>
+}> {
+  if (runtime.kind !== 'managed-profile' || detection.detected) {
+    return { runtime, page, responseStatus, detection }
+  }
+
+  try {
+    await saveManagedStorageState(runtime.context, dataDir, url)
+  } catch {
+    return { runtime, page, responseStatus, detection }
+  }
+
+  let headlessRuntime: BrowserRuntime | null = null
+  try {
+    headlessRuntime = await launchRuntime(executablePath, 'managed', dataDir, url, true, proxyServer)
+    const headlessPage = headlessRuntime.context.pages()[0] || (await headlessRuntime.context.newPage())
+    await headlessPage.setViewportSize(viewport)
+    const headlessResponseStatus = await navigatePage(headlessPage, url)
+    const headlessDetection = await detectAuthWall(headlessPage, headlessResponseStatus)
+    if (headlessDetection.detected) {
+      await closeRuntime(headlessRuntime)
+      return { runtime, page, responseStatus, detection }
+    }
+
+    await closeRuntime(runtime)
+    return {
+      runtime: headlessRuntime,
+      page: headlessPage,
+      responseStatus: headlessResponseStatus,
+      detection: headlessDetection,
+    }
+  } catch {
+    if (headlessRuntime) await closeRuntime(headlessRuntime)
+    return { runtime, page, responseStatus, detection }
+  }
 }
 
 function mergeInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
@@ -190,11 +271,13 @@ export async function analyze(
 
   onProgress?.('progress.launchingBrowser', 5)
 
-  const executablePath = findBrowser()
-  if (!executablePath) {
+  const interactiveExecutablePath = findBrowser()
+  if (!interactiveExecutablePath) {
     throw new Error('Chrome/Edge not found. Please install Google Chrome or Microsoft Edge.')
   }
-  console.log('[imprint] findBrowser resolved:', executablePath)
+  const headlessExecutablePath = findHeadlessBrowser(options.browserResourcesDir) || interactiveExecutablePath
+  console.log('[imprint] interactive browser resolved:', interactiveExecutablePath)
+  console.log('[imprint] headless browser resolved:', headlessExecutablePath)
 
   const authMode = options.authMode ?? (options.useSession === false ? 'anonymous' : 'managed')
   let accessMode: 'anonymous' | 'managed' = authMode === 'managed' ? 'managed' : 'anonymous'
@@ -206,7 +289,11 @@ export async function analyze(
   let finalUrl = url
 
   try {
-    runtime = await launchRuntime(executablePath, accessMode, options.dataDir, url, true, options.proxyServer)
+    const initialExecutablePath =
+      accessMode === 'managed' && !hasManagedStorageState(options.dataDir, url)
+        ? interactiveExecutablePath
+        : headlessExecutablePath
+    runtime = await launchRuntime(initialExecutablePath, accessMode, options.dataDir, url, true, options.proxyServer)
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
     await initialPage.setViewportSize(initialViewport)
 
@@ -224,7 +311,17 @@ export async function analyze(
 
       onProgress?.('progress.preparingAuthenticatedAnalysis', 8)
       try {
-        managedRuntime = await launchRuntime(executablePath, 'managed', options.dataDir, url, true, options.proxyServer)
+        const managedExecutablePath = hasManagedStorageState(options.dataDir, url)
+          ? headlessExecutablePath
+          : interactiveExecutablePath
+        managedRuntime = await launchRuntime(
+          managedExecutablePath,
+          'managed',
+          options.dataDir,
+          url,
+          true,
+          options.proxyServer,
+        )
         const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
         await managedPage.setViewportSize(initialViewport)
         const managedResponseStatus = await navigatePage(managedPage, url)
@@ -264,7 +361,14 @@ export async function analyze(
       initialPage = null
 
       onProgress?.('progress.openingLoginBrowser', 7)
-      runtime = await launchRuntime(executablePath, 'managed', options.dataDir, url, false, options.proxyServer)
+      runtime = await launchRuntime(
+        interactiveExecutablePath,
+        'managed',
+        options.dataDir,
+        url,
+        false,
+        options.proxyServer,
+      )
       let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
       await loginPage.setViewportSize(initialViewport)
       responseStatus = await navigatePage(loginPage, url)
@@ -301,7 +405,14 @@ export async function analyze(
 
       if (continueAnonymously) {
         await closeRuntime(runtime)
-        runtime = await launchRuntime(executablePath, 'anonymous', options.dataDir, url, true, options.proxyServer)
+        runtime = await launchRuntime(
+          headlessExecutablePath,
+          'anonymous',
+          options.dataDir,
+          url,
+          true,
+          options.proxyServer,
+        )
         accessMode = 'anonymous'
         initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
         await initialPage.setViewportSize(initialViewport)
@@ -314,6 +425,24 @@ export async function analyze(
     }
 
     if (!runtime) throw new Error('Browser session is not available')
+    if (accessMode === 'managed' && initialPage && !authDetection.detected) {
+      const switchedRuntime = await switchManagedRuntimeToHeadless(
+        runtime,
+        initialPage,
+        responseStatus,
+        authDetection,
+        headlessExecutablePath,
+        options.dataDir,
+        url,
+        initialViewport,
+        options.proxyServer,
+      )
+      runtime = switchedRuntime.runtime
+      initialPage = switchedRuntime.page
+      responseStatus = switchedRuntime.responseStatus
+      authDetection = switchedRuntime.detection
+      finalUrl = authDetection.finalUrl
+    }
     if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
 
     const allStyles: ExtractedStyles[] = []
@@ -527,6 +656,10 @@ export async function analyze(
     })
 
     onProgress?.('progress.done', 100)
+
+    if (accessMode === 'managed') {
+      await saveManagedStorageState(runtime.context, options.dataDir, url).catch(() => {})
+    }
 
     return {
       analysisId,

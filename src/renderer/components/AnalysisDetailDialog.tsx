@@ -4,13 +4,10 @@ import { Loader2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { resolveEvidenceOpen } from '../lib/evidence-resolution'
-import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import type { AnalysisResultData } from '../stores/analysis-store'
 import { ArtifactPanel } from './analyze/ArtifactPanel'
-import { EvidenceDetailCard, type EvidenceDetailData } from './analyze/EvidenceDetailCard'
+import { EvidenceViewer, useEvidenceViewer } from './analyze/EvidenceViewer'
 import { ResultOverview } from './analyze/ResultOverview'
-import { ScreenshotLightbox } from './analyze/ScreenshotLightbox'
 
 interface AnalysisDetailDialogProps {
   analysisId: string
@@ -24,22 +21,15 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [error, setError] = useState(false)
   const [intelligenceRunning, setIntelligenceRunning] = useState(false)
   const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const [lightboxCrop, setLightboxCrop] = useState<string | null>(null)
-  const [lightboxHighlight, setLightboxHighlight] = useState<{
-    imageIndex: number
-    rect: { x: number; y: number; width: number; height: number }
-    label: string
-  } | null>(null)
-  const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
+  const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && lightboxIndex === null) onClose()
+      if (event.key === 'Escape' && evidenceViewer.lightboxIndex === null) onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [lightboxIndex, onClose])
+  }, [evidenceViewer.lightboxIndex, onClose])
 
   useEffect(() => {
     const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(setIntelligenceProgress)
@@ -106,25 +96,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     }
   }
 
-  const openEvidence = (evidenceId: string) => {
-    if (!result?.designEvidence) return
-    const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
-    if (resolution.type === 'lightbox') {
-      setEvidenceDetail(null)
-      setLightboxCrop(resolution.target.cropPath ? getScreenshotUrl(resolution.target.cropPath) : null)
-      setLightboxHighlight(resolution.target)
-      setLightboxIndex(resolution.target.imageIndex)
-      return
-    }
-    setEvidenceDetail({
-      ...resolution.detail,
-      fields: resolution.detail.fields.map((field) => ({
-        label: t(`analyze.evidenceDetail.fields.${field.key}`),
-        value: field.value,
-      })),
-    })
-  }
-
   return (
     <div
       data-testid="analysis-detail-backdrop"
@@ -170,7 +141,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                 result={result}
                 analyzing={false}
                 onRetryWithLogin={() => {}}
-                onOpenLightbox={(index) => setLightboxIndex(index)}
+                onOpenLightbox={evidenceViewer.openLightbox}
               />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
@@ -187,38 +158,13 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                 }}
                 onSkipIntelligence={skipIntelligence}
                 onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
-                onOpenEvidence={openEvidence}
+                onOpenEvidence={evidenceViewer.openEvidence}
               />
             </div>
           </div>
         )}
       </div>
-      {lightboxIndex !== null && result && (
-        <ScreenshotLightbox
-          images={[
-            ...(lightboxCrop ? [lightboxCrop] : []),
-            ...getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path)),
-          ]}
-          index={lightboxIndex}
-          highlight={
-            lightboxHighlight?.imageIndex === lightboxIndex
-              ? { rect: lightboxHighlight.rect, label: lightboxHighlight.label }
-              : undefined
-          }
-          onIndexChange={(index) => {
-            setLightboxIndex(index)
-            setLightboxHighlight(null)
-          }}
-          onClose={() => {
-            setLightboxIndex(null)
-            setLightboxHighlight(null)
-            setLightboxCrop(null)
-          }}
-        />
-      )}
-      {evidenceDetail && lightboxIndex === null && (
-        <EvidenceDetailCard detail={evidenceDetail} onClose={() => setEvidenceDetail(null)} />
-      )}
+      <EvidenceViewer result={result} controller={evidenceViewer} />
     </div>
   )
 }

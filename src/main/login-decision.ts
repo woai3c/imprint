@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'node:crypto'
 
 import type { BrowserWindow } from 'electron'
 
@@ -22,7 +22,7 @@ export function waitForLoginDecision(
   pendingLoginDecision?.settle('cancel')
 
   return new Promise((resolve) => {
-    const requestId = uuidv4()
+    const requestId = randomUUID()
     let settled = false
 
     const settle = (decision: LoginDecision) => {

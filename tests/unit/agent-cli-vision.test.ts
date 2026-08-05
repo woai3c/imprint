@@ -4,10 +4,12 @@ import { buildVisionPromptSuffix, resolveAgentCliCapabilities } from '../../src/
 
 describe('Agent CLI vision attachments', () => {
   it('declares vision capability for whitelisted CLIs only', () => {
-    for (const command of ['xc', 'claude', 'codex', 'opencode', 'gemini', 'kimi']) {
+    for (const command of ['xc', 'claude', 'codex']) {
       expect(resolveAgentCliCapabilities(command).vision).toBe(true)
     }
-    expect(resolveAgentCliCapabilities('unknown-cli').vision).toBe(false)
+    for (const command of ['opencode', 'gemini', 'kimi', 'unknown-cli']) {
+      expect(resolveAgentCliCapabilities(command).vision).toBe(false)
+    }
   })
 
   it('builds a language-aware attachment suffix with a self-check requirement', () => {

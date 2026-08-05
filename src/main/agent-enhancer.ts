@@ -157,6 +157,13 @@ function executionEnvironment(): NodeJS.ProcessEnv {
   }
 }
 
+function executionFailureReason(error: unknown): string {
+  if (!(error instanceof Error)) return 'execution-error'
+  if ('killed' in error && error.killed) return 'timeout'
+  if ('code' in error) return `exit-${String(error.code)}`
+  return 'execution-error'
+}
+
 function executeFile(
   executable: string,
   args: string[],
@@ -361,12 +368,7 @@ export async function executeAgentPrompt(
     return await executeAgent(command, invocation, prompt, signal, images, language)
   } catch (error: unknown) {
     if (signal?.aborted) throw new DOMException('Agent task cancelled', 'AbortError')
-    const reason =
-      error instanceof Error && 'killed' in error && error.killed
-        ? 'timeout'
-        : error instanceof Error && 'code' in error
-          ? `exit-${String(error.code)}`
-          : 'execution-error'
+    const reason = executionFailureReason(error)
     const detail = error instanceof Error ? error.message.slice(0, 500) : ''
     log.error('agent-cli', `task failed: command=${command} reason=${reason} images=${images.length} detail=${detail}`)
     return null
@@ -399,12 +401,7 @@ export async function enhanceWithAgentCli(
     return { renames }
   } catch (error: unknown) {
     if (signal?.aborted) throw new DOMException('Agent enhancement cancelled', 'AbortError')
-    const reason =
-      error instanceof Error && 'killed' in error && error.killed
-        ? 'timeout'
-        : error instanceof Error && 'code' in error
-          ? `exit-${String(error.code)}`
-          : 'execution-error'
+    const reason = executionFailureReason(error)
     log.error('agent-cli', `naming failed: command=${command} durationMs=${Date.now() - startedAt} reason=${reason}`)
     return { renames: null }
   }

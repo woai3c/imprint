@@ -66,7 +66,7 @@ export interface ReasoningTier {
   description: string
 }
 
-export const REASONING_TIERS: Record<string, { modelPattern?: RegExp; options: readonly ReasoningTier[] }> = {
+const REASONING_TIERS: Record<string, { modelPattern?: RegExp; options: readonly ReasoningTier[] }> = {
   openai: {
     options: [
       { label: 'None', value: 'none', description: 'No reasoning, fastest' },

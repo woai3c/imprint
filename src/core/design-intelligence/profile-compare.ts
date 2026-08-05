@@ -1,3 +1,4 @@
+import { extractComparableTerms } from './text-terms.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
 export interface DesignLanguageComparison {
@@ -17,18 +18,9 @@ export interface DesignLanguageComparison {
   }
 }
 
-function words(value: string): Set<string> {
-  const normalized = value.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-  const terms = normalized.split(/\s+/).filter((word) => word.length >= 3 && !/^[\u3400-\u9fff]+$/u.test(word))
-  for (const run of normalized.match(/[\u3400-\u9fff]+/gu) || []) {
-    for (let index = 0; index < run.length - 1; index += 1) terms.push(run.slice(index, index + 2))
-  }
-  return new Set(terms)
-}
-
 function similarity(first: string, second: string): number {
-  const a = words(first)
-  const b = words(second)
+  const a = extractComparableTerms(first)
+  const b = extractComparableTerms(second)
   const union = new Set([...a, ...b])
   if (union.size === 0) return 1
   return [...a].filter((word) => b.has(word)).length / union.size
@@ -39,7 +31,7 @@ function claimText(claims: DesignClaim[]): string {
 }
 
 function signatureTerms(profile: DesignProfile): Set<string> {
-  return words(profile.signatureMoves.map((move) => `${move.name} ${move.statement}`).join(' '))
+  return extractComparableTerms(profile.signatureMoves.map((move) => `${move.name} ${move.statement}`).join(' '))
 }
 
 function evidenceCount(profile: DesignProfile): number {

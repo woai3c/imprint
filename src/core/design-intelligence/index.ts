@@ -22,8 +22,6 @@ export {
 export {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
-  buildDesignProfileRepairPrompt,
-  buildObservationRepairPrompt,
   buildSectionObservationPrompt,
 } from './prompt.js'
 export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'

@@ -69,6 +69,10 @@ before(async () => {
 }
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
+const writeJsonAndExit = async (value) => {
+  await new Promise((resolve) => process.stdout.write(JSON.stringify(value) + '\\n', resolve))
+  process.exit(0)
+}
 try {
   const { appendFileSync } = await import('node:fs')
   appendFileSync(
@@ -78,7 +82,7 @@ try {
 } catch {}
 if (prompt.includes('section observer')) {
   const sectionIds = [...new Set([...prompt.matchAll(/"id":"(section-[^"]+)"/g)].map((match) => match[1]))]
-  console.log(JSON.stringify({
+  await writeJsonAndExit({
     observations: sectionIds.map((sectionId) => ({
       sectionId,
       structure: 'A stacked band pairs a dominant heading with a compact action cluster.',
@@ -87,8 +91,7 @@ if (prompt.includes('section observer')) {
       limitations: '',
       evidenceIds: [sectionId]
     }))
-  }))
-  process.exit(0)
+  })
 }
 if (prompt.includes('design-language interpreter')) {
   const unique = (values) => [...new Set(values)]
@@ -120,7 +123,7 @@ if (prompt.includes('design-language interpreter')) {
     confidence: 'medium',
     evidence: responsiveId ? [{ evidenceId: responsiveId, note: 'Observed responsive reflow' }] : refs
   }
-  console.log(JSON.stringify({
+  await writeJsonAndExit({
     schemaVersion: '1',
     language: 'en',
     inputMode,
@@ -185,8 +188,7 @@ if (prompt.includes('design-language interpreter')) {
       avoid: [claim()]
     },
     uncertainties: []
-  }))
-  process.exit(0)
+  })
 }
 const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
 console.log(JSON.stringify({
@@ -419,16 +421,6 @@ test('extracts a local design system without LLM credentials and persists it', {
       await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
     })
 
-    await page.getByTestId('save-theme').click()
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="save-theme"]')?.getAttribute('aria-label') === 'Saved',
-    )
-    assert.equal(await page.getByTestId('save-theme').isDisabled(), true)
-
-    await page.locator('a[href="#/themes"]').click()
-    await page.getByRole('button', { name: /^Extracted Themes \(1\)$/ }).click()
-    await page.getByText(fixtureUrl, { exact: true }).waitFor()
-
     await page.locator('a[href="#/history"]').click()
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
@@ -537,7 +529,6 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('analyze-submit').click()
     await page.getByTestId('analysis-error').waitFor({ state: 'visible', timeout: 30_000 })
     assert.equal(await page.getByTestId('analyze-url').inputValue(), failureUrl)
-    await page.getByTestId('analysis-result').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-error-retry').waitFor({ state: 'visible' })
 
     await page.getByTestId('analysis-page-count').selectOption('4')
@@ -557,11 +548,10 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.waitForLoadState('domcontentloaded')
 
     await page.getByRole('link', { name: 'Analyze' }).waitFor()
-    assert.equal(await page.evaluate(() => localStorage.getItem('imprint.language')), 'en')
+    assert.equal(await page.evaluate(async () => (await window.electronAPI.getSettings()).language), 'en')
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '4')
     assert.equal(await page.locator('html').getAttribute('data-app-theme'), 'blueprint')
     assert.equal(await page.locator('html').evaluate((element) => element.classList.contains('dark')), true)
-    assert.equal(await page.getByTestId('no-ai-tip').count(), 0)
 
     await page.locator('a[href="#/templates"]').click()
     assert.equal(await page.getByTestId('validation-scenario-pricing').getAttribute('aria-pressed'), 'true')

@@ -1,5 +1,6 @@
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { listEvidenceIds } from './evidence-selector.js'
+import { extractComparableTerms } from './text-terms.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
 export interface ProfileQualityMetrics {
@@ -44,15 +45,6 @@ function profileClaims(profile: DesignProfile): DesignClaim[] {
 function ratio(values: boolean[]): number {
   if (values.length === 0) return 0
   return values.filter(Boolean).length / values.length
-}
-
-function words(value: string): Set<string> {
-  const normalized = value.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-  const terms = normalized.split(/\s+/).filter((word) => word.length >= 3 && !/^[\u3400-\u9fff]+$/u.test(word))
-  for (const run of normalized.match(/[\u3400-\u9fff]+/gu) || []) {
-    for (let index = 0; index < run.length - 1; index += 1) terms.push(run.slice(index, index + 2))
-  }
-  return new Set(terms)
 }
 
 function hasSpecificDetail(value: string): boolean {
@@ -122,11 +114,11 @@ export function evaluateProfileQuality(profile: DesignProfile, evidence: DesignE
         : 0,
     distinctiveness: ratio(
       profile.signatureMoves.map((move, index) => {
-        const current = words(`${move.name} ${move.statement} ${move.distinctiveness}`)
+        const current = extractComparableTerms(`${move.name} ${move.statement} ${move.distinctiveness}`)
         const other = new Set(
           profile.signatureMoves
             .filter((_, otherIndex) => otherIndex !== index)
-            .flatMap((candidate) => [...words(`${candidate.name} ${candidate.statement}`)]),
+            .flatMap((candidate) => [...extractComparableTerms(`${candidate.name} ${candidate.statement}`)]),
         )
         return current.size >= 6 && [...current].some((word) => !other.has(word))
       }),

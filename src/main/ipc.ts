@@ -36,6 +36,7 @@ import {
   generateDesignEvidenceJson,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import type { PageScreenshotData } from '../shared/ipc-contract.js'
 import { isRecord } from '../shared/type-guards.js'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
@@ -69,6 +70,29 @@ function readFirstScreenshotPath(serialized: unknown): string | null {
     return isRecord(first) && typeof first.path === 'string' ? first.path : null
   } catch {
     return null
+  }
+}
+
+function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
+  return JSON.parse((serialized as string) || '[]') as PageScreenshotData[]
+}
+
+function buildStoredAnalysisResult(
+  record: Record<string, unknown>,
+  tokens: DesignToken,
+  designDoc = (record.design_doc as string) || '',
+) {
+  const pageScreenshots = readPageScreenshots(record.page_screenshots_json)
+  return {
+    analysisId: record.id,
+    tokens,
+    cssVariables: record.css_variables || '',
+    tailwindTheme: record.tailwind_theme || '',
+    designDoc,
+    screenshots: pageScreenshots.map((screenshot) => screenshot.path),
+    pageScreenshots,
+    duration: Number(record.duration_ms) || 0,
+    url: record.url,
   }
 }
 
@@ -189,7 +213,7 @@ export function registerIpcHandlers() {
       cssVariables: record.css_variables || '',
       tailwindTheme: record.tailwind_theme || '',
       designDoc: record.design_doc || '',
-      pageScreenshots: JSON.parse((record.page_screenshots_json as string) || '[]'),
+      pageScreenshots: readPageScreenshots(record.page_screenshots_json),
       featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
       darkTokens: record.dark_tokens_json ? JSON.parse(record.dark_tokens_json as string) : null,
       hasDarkMode: record.has_dark_mode === 1,
@@ -451,17 +475,7 @@ export function registerIpcHandlers() {
       const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile
       const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
       return {
-        analysisId,
-        tokens,
-        cssVariables: record.css_variables || '',
-        tailwindTheme: record.tailwind_theme || '',
-        designDoc: record.design_doc || '',
-        screenshots: (JSON.parse((record.page_screenshots_json as string) || '[]') as Array<{ path: string }>).map(
-          (screenshot) => screenshot.path,
-        ),
-        pageScreenshots: JSON.parse((record.page_screenshots_json as string) || '[]'),
-        duration: Number(record.duration_ms) || 0,
-        url: record.url,
+        ...buildStoredAnalysisResult(record, tokens),
         designEvidence,
         designProfile,
         designIntelligence: existingMeta,
@@ -582,17 +596,7 @@ export function registerIpcHandlers() {
     })
 
     return {
-      analysisId,
-      tokens,
-      cssVariables: record.css_variables || '',
-      tailwindTheme: record.tailwind_theme || '',
-      designDoc,
-      screenshots: (JSON.parse((record.page_screenshots_json as string) || '[]') as Array<{ path: string }>).map(
-        (screenshot) => screenshot.path,
-      ),
-      pageScreenshots: JSON.parse((record.page_screenshots_json as string) || '[]'),
-      duration: Number(record.duration_ms) || 0,
-      url: record.url,
+      ...buildStoredAnalysisResult(record, tokens, designDoc),
       featureTags: designEvidence.featureTags,
       darkTokens: record.dark_tokens_json ? JSON.parse(record.dark_tokens_json as string) : null,
       hasDarkMode: record.has_dark_mode === 1,
@@ -628,17 +632,7 @@ export function registerIpcHandlers() {
         analysisId,
       )
       return {
-        analysisId,
-        tokens,
-        cssVariables: record.css_variables || '',
-        tailwindTheme: record.tailwind_theme || '',
-        designDoc: record.design_doc || '',
-        screenshots: (JSON.parse((record.page_screenshots_json as string) || '[]') as Array<{ path: string }>).map(
-          (screenshot) => screenshot.path,
-        ),
-        pageScreenshots: JSON.parse((record.page_screenshots_json as string) || '[]'),
-        duration: Number(record.duration_ms) || 0,
-        url: record.url,
+        ...buildStoredAnalysisResult(record, tokens),
         designEvidence: evidence,
         designProfile: profile,
         designIntelligence: meta,

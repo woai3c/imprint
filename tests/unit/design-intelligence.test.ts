@@ -265,7 +265,7 @@ describe('Design intelligence', () => {
     ).toMatchObject({ status: 'not-requested', capabilityLevel: 'evidence-only' })
   })
 
-  it('defers to an explicit choice when the configured model lacks vision', () => {
+  it('falls back to structural interpretation when the configured model lacks vision', () => {
     const settings: AppSettings = {
       aiMode: 'apiKey',
       provider: 'deepseek',
@@ -281,10 +281,9 @@ describe('Design intelligence', () => {
     }
     const meta = getInitialDesignIntelligenceMeta(settings, evidence)
     expect(meta).toMatchObject({
-      status: 'not-requested',
-      capabilityLevel: 'evidence-only',
+      status: 'pending',
+      capabilityLevel: 'structural-ai',
       inputMode: 'structural-only',
-      pendingChoice: 'model-no-vision',
     })
 
     const visionSettings = { ...settings, provider: 'openai', model: 'gpt-4o' }

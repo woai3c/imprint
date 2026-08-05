@@ -54,8 +54,7 @@
     "playwright-core": "^1.50.0",
     "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "uuid": "^11.0.0"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",

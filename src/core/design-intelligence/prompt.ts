@@ -46,28 +46,6 @@ function truncateEvidence(json: string): string {
   return json.slice(0, EVIDENCE_CHAR_LIMIT) + '\n... [evidence truncated — extremely large site]'
 }
 
-export function buildObservationRepairPrompt(
-  originalPrompt: string,
-  invalidOutput: string,
-  rejected: string[],
-): string {
-  return `${originalPrompt}
-
-The previous response failed validation for these reasons:
-${rejected
-  .slice(0, 12)
-  .map((reason) => `- ${reason}`)
-  .join('\n')}
-
-Repair only the JSON structure and observations. Do not add evidence, IDs, facts, or sections that are absent from the original evidence package.
-
-<INVALID_MODEL_OUTPUT>
-${invalidOutput.slice(0, 60_000)}
-</INVALID_MODEL_OUTPUT>
-
-Return one corrected JSON object only.`
-}
-
 function formatSectionObservations(observations: SectionObservation[]): string {
   return JSON.stringify({ observations })
 }
@@ -179,26 +157,4 @@ ${formatSectionObservations(observations)}
     : ''
 }
 Return JSON only.`
-}
-
-export function buildDesignProfileRepairPrompt(
-  originalPrompt: string,
-  invalidOutput: string,
-  rejected: string[],
-): string {
-  return `${originalPrompt}
-
-The previous response failed validation for these reasons:
-${rejected
-  .slice(0, 12)
-  .map((reason) => `- ${reason}`)
-  .join('\n')}
-
-Repair only the JSON structure and claims. Do not add evidence, IDs, facts, or capabilities that are absent from the original evidence package.
-
-<INVALID_MODEL_OUTPUT>
-${invalidOutput.slice(0, 60_000)}
-</INVALID_MODEL_OUTPUT>
-
-Return one corrected JSON object only.`
 }

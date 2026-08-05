@@ -1,4 +1,5 @@
 import { isRecord } from '../../shared/type-guards.js'
+import { parseJsonObjects } from '../ai/json-payload.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { listEvidenceIds } from './evidence-selector.js'
 import type {
@@ -43,42 +44,6 @@ export interface ProfileValidationResult {
 
 function isSafeText(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && Boolean(value.trim()) && value.length <= maxLength && !HTML_OR_URL.test(value)
-}
-
-function parseJsonObjects(value: string): unknown[] {
-  const objects: unknown[] = []
-  let start = -1
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === '"') inString = false
-      continue
-    }
-    if (character === '"') {
-      inString = true
-      continue
-    }
-    if (character === '{') {
-      if (depth === 0) start = index
-      depth += 1
-    } else if (character === '}' && depth > 0) {
-      depth -= 1
-      if (depth === 0 && start >= 0) {
-        try {
-          objects.push(JSON.parse(value.slice(start, index + 1)))
-        } catch {
-          // Keep scanning for a later complete object.
-        }
-        start = -1
-      }
-    }
-  }
-  return objects
 }
 
 export function extractProfileCandidate(response: string): unknown {

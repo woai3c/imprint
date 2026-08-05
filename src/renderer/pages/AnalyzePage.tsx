@@ -15,13 +15,10 @@ import { AuthRequiredDialog } from '../components/AuthRequiredDialog'
 import { BrowserSessionsDialog } from '../components/BrowserSessionsDialog'
 import { PageHeader } from '../components/PageHeader'
 import { ArtifactPanel } from '../components/analyze/ArtifactPanel'
-import { EvidenceDetailCard, type EvidenceDetailData } from '../components/analyze/EvidenceDetailCard'
+import { EvidenceViewer, useEvidenceViewer } from '../components/analyze/EvidenceViewer'
 import { ResultOverview } from '../components/analyze/ResultOverview'
-import { ScreenshotLightbox } from '../components/analyze/ScreenshotLightbox'
 import { Alert } from '../components/ui/Alert'
 import { EmptyState } from '../components/ui/EmptyState'
-import { resolveEvidenceOpen } from '../lib/evidence-resolution'
-import { getPageScreenshots, getScreenshotUrl } from '../lib/page-screenshots'
 import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
@@ -50,14 +47,6 @@ export function AnalyzePage() {
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const [lightboxCrop, setLightboxCrop] = useState<string | null>(null)
-  const [lightboxHighlight, setLightboxHighlight] = useState<{
-    imageIndex: number
-    rect: { x: number; y: number; width: number; height: number }
-    label: string
-  } | null>(null)
-  const [evidenceDetail, setEvidenceDetail] = useState<EvidenceDetailData | null>(null)
 
   useEffect(() => {
     const refresh = () => {
@@ -79,6 +68,7 @@ export function AnalyzePage() {
   const failure = store.failure
   const url = store.lastUrl
   const pageCount = store.pageCount
+  const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
 
   useEffect(() => {
     const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
@@ -271,25 +261,6 @@ export function AnalyzePage() {
   const handleRetryFailure = async () => {
     if (!failure) return
     await startAnalysis(failure.url, failure.authMode)
-  }
-
-  const handleOpenEvidence = (evidenceId: string) => {
-    if (!result?.designEvidence) return
-    const resolution = resolveEvidenceOpen(result.designEvidence, getPageScreenshots(result), evidenceId)
-    if (resolution.type === 'lightbox') {
-      setEvidenceDetail(null)
-      setLightboxCrop(resolution.target.cropPath ? getScreenshotUrl(resolution.target.cropPath) : null)
-      setLightboxHighlight(resolution.target)
-      setLightboxIndex(resolution.target.imageIndex)
-      return
-    }
-    setEvidenceDetail({
-      ...resolution.detail,
-      fields: resolution.detail.fields.map((field) => ({
-        label: t(`analyze.evidenceDetail.fields.${field.key}`),
-        value: field.value,
-      })),
-    })
   }
 
   const handleCancelIntelligence = async () => {
@@ -506,10 +477,7 @@ export function AnalyzePage() {
             result={result}
             analyzing={analyzing}
             onRetryWithLogin={handleRetryWithLogin}
-            onOpenLightbox={(index) => {
-              setLightboxCrop(null)
-              setLightboxIndex(index)
-            }}
+            onOpenLightbox={evidenceViewer.openLightbox}
           />
           <ArtifactPanel
             result={result}
@@ -519,7 +487,7 @@ export function AnalyzePage() {
             onCancelIntelligence={handleCancelIntelligence}
             onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}
             onResultUpdate={store.mergeResult}
-            onOpenEvidence={handleOpenEvidence}
+            onOpenEvidence={evidenceViewer.openEvidence}
           />
         </div>
       ) : (
@@ -552,32 +520,7 @@ export function AnalyzePage() {
         />
       )}
       {showBrowserSessions && <BrowserSessionsDialog onClose={() => setShowBrowserSessions(false)} />}
-      {evidenceDetail && lightboxIndex === null && (
-        <EvidenceDetailCard detail={evidenceDetail} onClose={() => setEvidenceDetail(null)} />
-      )}
-      {lightboxIndex !== null && result && (
-        <ScreenshotLightbox
-          images={[
-            ...(lightboxCrop ? [lightboxCrop] : []),
-            ...getPageScreenshots(result).map((screenshot) => getScreenshotUrl(screenshot.path)),
-          ]}
-          index={lightboxIndex}
-          highlight={
-            lightboxHighlight?.imageIndex === lightboxIndex
-              ? { rect: lightboxHighlight.rect, label: lightboxHighlight.label }
-              : undefined
-          }
-          onIndexChange={(index) => {
-            setLightboxIndex(index)
-            if (lightboxHighlight?.imageIndex !== index) setLightboxHighlight(null)
-          }}
-          onClose={() => {
-            setLightboxIndex(null)
-            setLightboxHighlight(null)
-            setLightboxCrop(null)
-          }}
-        />
-      )}
+      <EvidenceViewer result={result} controller={evidenceViewer} />
     </div>
   )
 }

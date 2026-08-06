@@ -43,6 +43,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
         }
         setResult({
           analysisId: data.id,
+          savedThemeId: data.savedThemeId,
           tokens: data.tokens,
           cssVariables: data.cssVariables,
           tailwindTheme: data.tailwindTheme,

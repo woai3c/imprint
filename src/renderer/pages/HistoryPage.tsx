@@ -76,7 +76,11 @@ export function HistoryPage() {
     }
   }
 
-  const filtered = records.filter((r) => r.url.toLowerCase().includes(search.toLowerCase()))
+  const filtered = records.filter(
+    (record) =>
+      record.url.toLowerCase().includes(search.toLowerCase()) ||
+      record.theme_name?.toLowerCase().includes(search.toLowerCase()),
+  )
 
   const filteredIds = filtered.map((record) => record.id)
   const selectedFilteredCount = filteredIds.filter((id) => selectedIds.has(id)).length
@@ -215,6 +219,7 @@ export function HistoryPage() {
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                     <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
+                    {record.theme_name && <span>· {record.theme_name}</span>}
                     <AiStatusBadge status={record.design_intelligence_status} />
                     {record.ai_token_usage && (record.ai_token_usage.input || record.ai_token_usage.output) && (
                       <span className="text-[10px]">
@@ -270,7 +275,15 @@ export function HistoryPage() {
           loading={deleting}
         />
       )}
-      {detailId && <AnalysisDetailDialog analysisId={detailId} onClose={() => setDetailId(null)} />}
+      {detailId && (
+        <AnalysisDetailDialog
+          analysisId={detailId}
+          onClose={() => {
+            setDetailId(null)
+            void window.electronAPI.getAnalysisSummaries().then(setRecords)
+          }}
+        />
+      )}
     </div>
   )
 }

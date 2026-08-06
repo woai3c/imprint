@@ -5,8 +5,10 @@ import {
   generateExampleComponents,
 } from '../analyzer/agent-guide.js'
 import type { DocLanguage } from '../analyzer/agent-guide.js'
+import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
 import type { ComponentPattern } from '../analyzer/component-detect.js'
-import type { DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
+import { buildDesignTokens } from '../analyzer/token-builder.js'
+import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
@@ -18,20 +20,90 @@ export const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4
 export const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
 export const SHADOW_NAMES = ['sm', 'md', 'lg', 'xl']
 const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
+const LINE_HEIGHT_NAMES = ['tight', 'snug', 'normal', 'relaxed', 'loose']
 const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
+
+function usageForColor(tokens: DesignToken, category: 'bgColor' | 'textColor' | 'borderColor', value: string): number {
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return 0
+  const prefix = `${category}:`
+  return Object.entries(tokens.usageCount || {}).reduce((total, [key, count]) => {
+    if (!key.startsWith(prefix)) return total
+    return normalizeColorValue(key.slice(prefix.length)) === normalized ? total + count : total
+  }, 0)
+}
 
 export interface DarkModeExportData {
   hasDarkMode: boolean
   darkTokens?: DesignToken
   method?: 'media-query' | 'class-toggle' | 'none'
+  selector?: string
+}
+
+export function buildDarkModeExportData(darkMode: DarkModeResult | null | undefined): DarkModeExportData | undefined {
+  if (!darkMode?.hasDarkMode || !darkMode.darkStyles) return undefined
+
+  const clusteredColors = clusterColors(darkMode.darkStyles.colors, darkMode.darkStyles.usageCount)
+  return {
+    hasDarkMode: true,
+    darkTokens: buildDesignTokens(darkMode.darkStyles, clusteredColors),
+    method: darkMode.method,
+    selector: darkMode.selector,
+  }
+}
+
+function normalizeDarkSelector(value: unknown): string {
+  if (value === '.dark') return value
+  if (typeof value === 'string' && /^\[data-[\w-]+="dark"\]$/.test(value)) return value
+  return '.dark'
+}
+
+function isDesignToken(value: unknown): value is DesignToken {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Partial<DesignToken>
+  return (
+    !!candidate.colors &&
+    typeof candidate.colors === 'object' &&
+    !!candidate.typography &&
+    typeof candidate.typography === 'object' &&
+    Array.isArray(candidate.spacing) &&
+    Array.isArray(candidate.radii) &&
+    Array.isArray(candidate.shadows)
+  )
+}
+
+export function restoreDarkModeExportData(
+  storedDarkTokens: unknown,
+  baseTokens: DesignToken,
+  method: unknown,
+  selector?: unknown,
+): DarkModeExportData | undefined {
+  if (!storedDarkTokens || typeof storedDarkTokens !== 'object' || Array.isArray(storedDarkTokens)) return undefined
+
+  const darkTokens = isDesignToken(storedDarkTokens)
+    ? storedDarkTokens
+    : { ...baseTokens, colors: storedDarkTokens as Record<string, string> }
+  if (Object.keys(darkTokens.colors).length === 0) return undefined
+  const normalizedMethod = method === 'media-query' || method === 'class-toggle' ? method : 'media-query'
+
+  return {
+    hasDarkMode: true,
+    darkTokens,
+    method: normalizedMethod,
+    selector: normalizedMethod === 'class-toggle' ? normalizeDarkSelector(selector) : undefined,
+  }
 }
 
 interface ThemeCustomPropertyOptions {
   fontFamily?: string
   includeFontSizes?: boolean
+  includeFontWeights?: boolean
+  includeLineHeights?: boolean
   includeShadows?: boolean
+  includeBorders?: boolean
   includeLetterSpacings?: boolean
   includeZIndices?: boolean
+  indent?: string
 }
 
 function appendColorCustomProperties(lines: string[], colors: Readonly<Record<string, string>>, indent = '  '): void {
@@ -54,32 +126,100 @@ function appendIndexedCustomProperties(
 }
 
 function appendThemeCustomProperties(lines: string[], tokens: DesignToken, options: ThemeCustomPropertyOptions): void {
-  appendColorCustomProperties(lines, tokens.colors)
+  const indent = options.indent || '  '
+  appendColorCustomProperties(lines, tokens.colors, indent)
 
   if (options.fontFamily !== undefined) {
-    lines.push(`  --font-sans: ${options.fontFamily};`)
+    lines.push(`${indent}--font-sans: ${options.fontFamily};`)
   }
 
   if (options.includeFontSizes) {
-    appendIndexedCustomProperties(lines, tokens.typography.fontSizes, 'font-size', FONT_SIZE_NAMES)
+    appendIndexedCustomProperties(lines, tokens.typography.fontSizes, 'font-size', FONT_SIZE_NAMES, indent)
   }
 
-  appendIndexedCustomProperties(lines, tokens.spacing, 'spacing')
-  appendIndexedCustomProperties(lines, tokens.radii, 'radius', RADIUS_NAMES)
+  if (options.includeFontWeights) {
+    appendIndexedCustomProperties(lines, tokens.typography.fontWeights, 'font-weight', [], indent)
+  }
+
+  if (options.includeLineHeights) {
+    appendIndexedCustomProperties(lines, tokens.typography.lineHeights, 'line-height', [], indent)
+  }
+
+  appendIndexedCustomProperties(lines, tokens.spacing, 'spacing', [], indent)
+  appendIndexedCustomProperties(lines, tokens.radii, 'radius', RADIUS_NAMES, indent)
 
   if (options.includeShadows) {
-    appendIndexedCustomProperties(lines, tokens.shadows, 'shadow', SHADOW_NAMES)
+    appendIndexedCustomProperties(lines, tokens.shadows, 'shadow', SHADOW_NAMES, indent)
+  }
+
+  if (options.includeBorders) {
+    appendIndexedCustomProperties(lines, tokens.borders, 'border', [], indent)
   }
 
   if (options.includeLetterSpacings) {
-    appendIndexedCustomProperties(lines, tokens.typography.letterSpacings, 'letter-spacing', LETTER_SPACING_NAMES)
+    appendIndexedCustomProperties(
+      lines,
+      tokens.typography.letterSpacings,
+      'letter-spacing',
+      LETTER_SPACING_NAMES,
+      indent,
+    )
   }
 
   if (options.includeZIndices) {
-    appendIndexedCustomProperties(lines, tokens.zIndices, 'z', (index) => `${(index + 1) * 10}`)
+    appendIndexedCustomProperties(lines, tokens.zIndices, 'z', (index) => `${(index + 1) * 10}`, indent)
   }
 
-  appendIndexedCustomProperties(lines, tokens.transitions, 'duration', DURATION_NAMES)
+  appendIndexedCustomProperties(lines, tokens.transitions, 'duration', DURATION_NAMES, indent)
+}
+
+function tailwindFontWeightName(value: string, index: number): string {
+  const standardNames: Record<string, string> = {
+    '100': 'thin',
+    '200': 'extralight',
+    '300': 'light',
+    '400': 'normal',
+    '500': 'medium',
+    '600': 'semibold',
+    '700': 'bold',
+    '800': 'extrabold',
+    '900': 'black',
+  }
+  return standardNames[value] || value.replace(/[^\w-]/g, '') || `${index + 1}`
+}
+
+function appendTailwindThemeProperties(lines: string[], tokens: DesignToken, indent = '  '): void {
+  appendColorCustomProperties(lines, tokens.colors, indent)
+
+  const fontFamily = tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
+  if (fontFamily) lines.push(`${indent}--font-sans: ${fontFamily};`)
+
+  const lineHeights = tokens.typography.lineHeights || []
+  const bodyLineHeight = lineHeights[Math.floor(lineHeights.length / 2)]
+  const headingLineHeight = lineHeights[0]
+  tokens.typography.fontSizes.forEach((value, index) => {
+    const name = FONT_SIZE_NAMES[index] || `${index + 1}`
+    lines.push(`${indent}--text-${name}: ${value};`)
+    const lineHeight = index >= 3 ? headingLineHeight : bodyLineHeight
+    if (lineHeight) lines.push(`${indent}--text-${name}--line-height: ${lineHeight};`)
+  })
+
+  tokens.typography.fontWeights.forEach((value, index) => {
+    lines.push(`${indent}--font-weight-${tailwindFontWeightName(value, index)}: ${value};`)
+  })
+  appendIndexedCustomProperties(lines, lineHeights, 'leading', LINE_HEIGHT_NAMES, indent)
+  appendIndexedCustomProperties(lines, tokens.typography.letterSpacings, 'tracking', LETTER_SPACING_NAMES, indent)
+  appendIndexedCustomProperties(lines, tokens.spacing, 'spacing', [], indent)
+  appendIndexedCustomProperties(lines, tokens.radii, 'radius', RADIUS_NAMES, indent)
+  appendIndexedCustomProperties(lines, tokens.shadows, 'shadow', SHADOW_NAMES, indent)
+}
+
+function appendTailwindSupplementalProperties(lines: string[], tokens: DesignToken, indent = '  '): void {
+  appendIndexedCustomProperties(lines, tokens.borders, 'border', [], indent)
+  appendIndexedCustomProperties(lines, tokens.zIndices, 'z', (index) => `${(index + 1) * 10}`, indent)
+  appendIndexedCustomProperties(lines, tokens.transitions, 'duration', DURATION_NAMES, indent)
+  const defaultDuration = tokens.transitions?.[Math.min(1, tokens.transitions.length - 1)]
+  if (defaultDuration) lines.push(`${indent}--default-transition-duration: ${defaultDuration};`)
 }
 
 export function generateCssVariables(
@@ -90,9 +230,15 @@ export function generateCssVariables(
   const lines: string[] = [':root {']
 
   appendThemeCustomProperties(lines, tokens, {
-    fontFamily: tokens.typography.fontFamilies.length > 0 ? tokens.typography.fontFamilies[0] : undefined,
+    fontFamily:
+      tokens.typography.fontFamilies.length > 0
+        ? tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
+        : undefined,
     includeFontSizes: true,
+    includeFontWeights: true,
+    includeLineHeights: true,
     includeShadows: true,
+    includeBorders: true,
     includeLetterSpacings: true,
     includeZIndices: true,
   })
@@ -106,14 +252,29 @@ export function generateCssVariables(
   lines.push('}')
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
-    const selector = darkMode.method === 'media-query' ? '@media (prefers-color-scheme: dark)' : '.dark'
+    const selector =
+      darkMode.method === 'media-query'
+        ? '@media (prefers-color-scheme: dark)'
+        : normalizeDarkSelector(darkMode.selector)
     lines.push('')
     lines.push(`${selector} {`)
     if (darkMode.method === 'media-query') lines.push('  :root {')
     const indent = darkMode.method === 'media-query' ? '    ' : '  '
 
-    appendColorCustomProperties(lines, darkMode.darkTokens.colors, indent)
-    appendIndexedCustomProperties(lines, darkMode.darkTokens.shadows, 'shadow', SHADOW_NAMES, indent)
+    appendThemeCustomProperties(lines, darkMode.darkTokens, {
+      fontFamily:
+        darkMode.darkTokens.typography.fontFamilies.length > 0
+          ? darkMode.darkTokens.typography.fontStacks?.[0] || darkMode.darkTokens.typography.fontFamilies[0]
+          : undefined,
+      includeFontSizes: true,
+      includeFontWeights: true,
+      includeLineHeights: true,
+      includeShadows: true,
+      includeBorders: true,
+      includeLetterSpacings: true,
+      includeZIndices: true,
+      indent,
+    })
 
     if (darkMode.method === 'media-query') lines.push('  }')
     lines.push('}')
@@ -122,23 +283,38 @@ export function generateCssVariables(
   return lines.join('\n')
 }
 
-export function generateTailwindTheme(tokens: DesignToken, darkMode?: DarkModeExportData): string {
+export function generateTailwindTheme(
+  tokens: DesignToken,
+  darkMode?: DarkModeExportData,
+  breakpoints?: Array<{ width: number; label: string }>,
+): string {
   const lines: string[] = ['@theme {']
 
-  appendThemeCustomProperties(lines, tokens, {
-    fontFamily:
-      tokens.typography.fontFamilies.length > 0
-        ? tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
-        : undefined,
+  appendTailwindThemeProperties(lines, tokens)
+  breakpoints?.forEach((breakpoint) => {
+    lines.push(`  --breakpoint-${breakpoint.label}: ${breakpoint.width / 16}rem;`)
   })
 
   lines.push('}')
+  if (tokens.borders.length > 0 || tokens.zIndices?.length > 0 || tokens.transitions?.length > 0) {
+    lines.push('', ':root {')
+    appendTailwindSupplementalProperties(lines, tokens)
+    lines.push('}')
+  }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
     lines.push('')
     lines.push('/* Dark mode overrides */')
-    lines.push('.dark {')
-    appendColorCustomProperties(lines, darkMode.darkTokens.colors)
+    const selector =
+      darkMode.method === 'media-query'
+        ? '@media (prefers-color-scheme: dark)'
+        : normalizeDarkSelector(darkMode.selector)
+    lines.push(`${selector} {`)
+    if (darkMode.method === 'media-query') lines.push('  :root {')
+    const indent = darkMode.method === 'media-query' ? '    ' : '  '
+    appendTailwindThemeProperties(lines, darkMode.darkTokens, indent)
+    appendTailwindSupplementalProperties(lines, darkMode.darkTokens, indent)
+    if (darkMode.method === 'media-query') lines.push('  }')
     lines.push('}')
   }
 
@@ -173,10 +349,12 @@ export function generateDesignDoc(
   }
 
   if (darkMode?.hasDarkMode) {
+    const detection =
+      darkMode.method === 'class-toggle'
+        ? `${darkMode.method}: ${normalizeDarkSelector(darkMode.selector)}`
+        : darkMode.method
     lines.push(
-      zh
-        ? `\n**深色模式：** 支持（检测方式：${darkMode.method}）`
-        : `\n**Dark Mode:** Supported (detected via ${darkMode.method})`,
+      zh ? `\n**深色模式：** 支持（检测方式：${detection}）` : `\n**Dark Mode:** Supported (detected via ${detection})`,
     )
   } else {
     lines.push(zh ? `\n**深色模式：** 未检测到` : `\n**Dark Mode:** Not detected`)
@@ -199,20 +377,16 @@ export function generateDesignDoc(
   lines.push(zh ? '| 令牌 | 值 | 用途 |' : '| Token | Value | Usage |')
   lines.push('|-------|-------|-------|')
   for (const [name, value] of Object.entries(tokens.colors)) {
-    const bgCount = tokens.usageCount?.[`bgColor:${value}`] || 0
-    const textCount = tokens.usageCount?.[`textColor:${value}`] || 0
-    const total = bgCount + textCount
-    const context = zh
-      ? bgCount > 0 && textCount > 0
-        ? '背景+文字'
-        : bgCount > 0
-          ? '背景'
-          : '文字'
-      : bgCount > 0 && textCount > 0
-        ? 'bg+text'
-        : bgCount > 0
-          ? 'background'
-          : 'text'
+    const bgCount = usageForColor(tokens, 'bgColor', value)
+    const textCount = usageForColor(tokens, 'textColor', value)
+    const borderCount = usageForColor(tokens, 'borderColor', value)
+    const total = bgCount + textCount + borderCount
+    const contexts = [
+      bgCount > 0 ? (zh ? '背景' : 'background') : null,
+      textCount > 0 ? (zh ? '文字' : 'text') : null,
+      borderCount > 0 ? (zh ? '边框' : 'border') : null,
+    ].filter((context): context is string => context !== null)
+    const context = contexts.join('+')
     lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} |`)
   }
 
@@ -342,9 +516,8 @@ export function generateDesignDoc(
   return lines.join('\n')
 }
 
-export function generateDtcgJson(tokens: DesignToken): string {
-  const dtcg: Record<string, unknown> = {
-    $schema: 'https://design-tokens.github.io/community-group/format/',
+function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
+  const groups: Record<string, unknown> = {
     color: {},
     typography: {},
     spacing: {},
@@ -352,14 +525,15 @@ export function generateDtcgJson(tokens: DesignToken): string {
     shadow: {},
     zIndex: {},
     transition: {},
+    $extensions: { 'com.imprint.borders': tokens.borders },
   }
 
-  const colors = dtcg.color as Record<string, unknown>
+  const colors = groups.color as Record<string, unknown>
   for (const [name, value] of Object.entries(tokens.colors)) {
     colors[name] = { $type: 'color', $value: value }
   }
 
-  const typo = dtcg.typography as Record<string, unknown>
+  const typo = groups.typography as Record<string, unknown>
   typo['fontFamilies'] = {
     $type: 'fontFamily',
     $value: tokens.typography.fontFamilies,
@@ -372,6 +546,14 @@ export function generateDtcgJson(tokens: DesignToken): string {
     $type: 'dimension',
     $value: tokens.typography.fontSizes,
   }
+  typo['fontWeights'] = {
+    $type: 'fontWeight',
+    $value: tokens.typography.fontWeights,
+  }
+  typo['lineHeights'] = {
+    $type: 'number',
+    $value: tokens.typography.lineHeights.map((value) => Number(value)).filter(Number.isFinite),
+  }
   if (tokens.typography.letterSpacings?.length > 0) {
     typo['letterSpacing'] = {
       $type: 'dimension',
@@ -379,35 +561,55 @@ export function generateDtcgJson(tokens: DesignToken): string {
     }
   }
 
-  const spacing = dtcg.spacing as Record<string, unknown>
+  const spacing = groups.spacing as Record<string, unknown>
   tokens.spacing.forEach((val, i) => {
     spacing[`${i + 1}`] = { $type: 'dimension', $value: val }
   })
 
-  const radius = dtcg.borderRadius as Record<string, unknown>
+  const radius = groups.borderRadius as Record<string, unknown>
   tokens.radii.forEach((val, i) => {
     radius[RADIUS_NAMES[i] || `${i}`] = { $type: 'dimension', $value: val }
   })
 
-  const shadow = dtcg.shadow as Record<string, unknown>
+  const shadow = groups.shadow as Record<string, unknown>
   tokens.shadows.forEach((val, i) => {
     shadow[SHADOW_NAMES[i] || `${i}`] = { $type: 'shadow', $value: val }
   })
 
-  const zIndex = dtcg.zIndex as Record<string, unknown>
+  const zIndex = groups.zIndex as Record<string, unknown>
   tokens.zIndices?.forEach((val, i) => {
     zIndex[`${(i + 1) * 10}`] = { $type: 'number', $value: parseInt(val) }
   })
 
-  const transition = dtcg.transition as Record<string, unknown>
+  const transition = groups.transition as Record<string, unknown>
   tokens.transitions?.forEach((val, i) => {
     transition[DURATION_NAMES[i] || `${i}`] = { $type: 'duration', $value: val }
   })
 
+  return groups
+}
+
+export function generateDtcgJson(tokens: DesignToken, darkMode?: DarkModeExportData): string {
+  const dtcg: Record<string, unknown> = {
+    $schema: 'https://design-tokens.github.io/community-group/format/',
+    ...createDtcgGroups(tokens),
+  }
+
+  if (darkMode?.hasDarkMode && darkMode.darkTokens) {
+    dtcg.dark = createDtcgGroups(darkMode.darkTokens)
+    dtcg.$extensions = {
+      ...(dtcg.$extensions as Record<string, unknown>),
+      'com.imprint.darkMode': {
+        method: darkMode.method || 'none',
+        ...(darkMode.method === 'class-toggle' ? { selector: normalizeDarkSelector(darkMode.selector) } : {}),
+      },
+    }
+  }
+
   return JSON.stringify(dtcg, null, 2)
 }
 
-export function generateScssVariables(tokens: DesignToken): string {
+export function generateScssVariables(tokens: DesignToken, darkMode?: DarkModeExportData): string {
   const lines: string[] = ['// Design System SCSS Variables', '// Generated by Imprint', '']
 
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -422,6 +624,11 @@ export function generateScssVariables(tokens: DesignToken): string {
 
   tokens.typography.fontSizes.forEach((val, i) => {
     lines.push(`$font-size-${FONT_SIZE_NAMES[i] || i + 1}: ${val};`)
+  })
+  tokens.typography.fontWeights.forEach((val, i) => lines.push(`$font-weight-${i + 1}: ${val};`))
+  tokens.typography.lineHeights.forEach((val, i) => lines.push(`$line-height-${i + 1}: ${val};`))
+  tokens.typography.letterSpacings?.forEach((val, i) => {
+    lines.push(`$letter-spacing-${LETTER_SPACING_NAMES[i] || i + 1}: ${val};`)
   })
   lines.push('')
 
@@ -439,6 +646,8 @@ export function generateScssVariables(tokens: DesignToken): string {
     lines.push(`$shadow-${SHADOW_NAMES[i] || i + 1}: ${val};`)
   })
 
+  tokens.borders.forEach((val, i) => lines.push(`$border-${i + 1}: ${val};`))
+
   if (tokens.zIndices?.length > 0) {
     lines.push('')
     tokens.zIndices.forEach((val, i) => {
@@ -453,10 +662,69 @@ export function generateScssVariables(tokens: DesignToken): string {
     })
   }
 
+  if (darkMode?.hasDarkMode && darkMode.darkTokens) {
+    const darkTokens = darkMode.darkTokens
+    lines.push('', '// Captured dark mode values')
+    for (const [name, value] of Object.entries(darkTokens.colors)) {
+      lines.push(`$dark-color-${name}: ${value};`)
+    }
+    darkTokens.typography.fontSizes.forEach((value, index) => {
+      lines.push(`$dark-font-size-${FONT_SIZE_NAMES[index] || index + 1}: ${value};`)
+    })
+    darkTokens.typography.fontWeights.forEach((value, index) => {
+      lines.push(`$dark-font-weight-${index + 1}: ${value};`)
+    })
+    darkTokens.typography.lineHeights.forEach((value, index) => {
+      lines.push(`$dark-line-height-${index + 1}: ${value};`)
+    })
+    darkTokens.typography.letterSpacings?.forEach((value, index) => {
+      lines.push(`$dark-letter-spacing-${LETTER_SPACING_NAMES[index] || index + 1}: ${value};`)
+    })
+    darkTokens.spacing.forEach((value, index) => lines.push(`$dark-spacing-${index + 1}: ${value};`))
+    darkTokens.radii.forEach((value, index) => {
+      lines.push(`$dark-radius-${RADIUS_NAMES[index] || index + 1}: ${value};`)
+    })
+    darkTokens.shadows.forEach((value, index) => {
+      lines.push(`$dark-shadow-${SHADOW_NAMES[index] || index + 1}: ${value};`)
+    })
+    darkTokens.borders.forEach((value, index) => lines.push(`$dark-border-${index + 1}: ${value};`))
+    darkTokens.zIndices?.forEach((value, index) => lines.push(`$dark-z-${(index + 1) * 10}: ${value};`))
+    darkTokens.transitions?.forEach((value, index) => {
+      lines.push(`$dark-duration-${DURATION_NAMES[index] || index + 1}: ${value};`)
+    })
+
+    lines.push('', '@mixin imprint-dark-theme {')
+    appendThemeCustomProperties(lines, darkTokens, {
+      fontFamily:
+        darkTokens.typography.fontFamilies.length > 0
+          ? darkTokens.typography.fontStacks?.[0] || darkTokens.typography.fontFamilies[0]
+          : undefined,
+      includeFontSizes: true,
+      includeFontWeights: true,
+      includeLineHeights: true,
+      includeShadows: true,
+      includeBorders: true,
+      includeLetterSpacings: true,
+      includeZIndices: true,
+      indent: '  ',
+    })
+    lines.push('}', '')
+    if (darkMode.method === 'media-query') {
+      lines.push('@media (prefers-color-scheme: dark) {', '  :root {', '    @include imprint-dark-theme;', '  }', '}')
+    } else {
+      lines.push(`${normalizeDarkSelector(darkMode.selector)} {`, '  @include imprint-dark-theme;', '}')
+    }
+  }
+
   return lines.join('\n')
 }
 
-export function generatePdfHtml(tokens: DesignToken, url?: string, featureTags?: string[]): string {
+export function generatePdfHtml(
+  tokens: DesignToken,
+  url?: string,
+  featureTags?: string[],
+  darkMode?: DarkModeExportData,
+): string {
   const colorSwatches = Object.entries(tokens.colors)
     .map(
       ([name, value]) =>
@@ -466,6 +734,17 @@ export function generatePdfHtml(tokens: DesignToken, url?: string, featureTags?:
     </div>`,
     )
     .join('<br>')
+  const darkColorSwatches = darkMode?.darkTokens
+    ? Object.entries(darkMode.darkTokens.colors)
+        .map(
+          ([name, value]) =>
+            `<div style="display:inline-flex;align-items:center;gap:8px;margin:4px 0;">
+      <div style="width:24px;height:24px;border-radius:4px;background:${value};border:1px solid #555;"></div>
+      <code>--color-${name}</code>: <code>${value}</code>
+    </div>`,
+        )
+        .join('<br>')
+    : ''
 
   return `<!DOCTYPE html>
 <html>
@@ -491,6 +770,7 @@ ${featureTags?.length ? `<p>${featureTags.map((t) => `<span class="tag">${t}</sp
 
 <h2>Colors</h2>
 <div class="section">${colorSwatches}</div>
+${darkColorSwatches ? `<h2>Dark Mode Colors</h2><div class="section">${darkColorSwatches}</div>` : ''}
 
 <h2>Typography</h2>
 <div class="section">

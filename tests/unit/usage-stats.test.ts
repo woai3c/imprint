@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { mergeStyles } from '../../src/core/analyzer/style-merge.js'
+import { mergeStyles, mergeStylesWithNormalizedUsage } from '../../src/core/analyzer/style-merge.js'
 import { colorFrequency, frequencyForCategory, sortByFrequency } from '../../src/core/analyzer/usage-stats.js'
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
@@ -49,5 +49,15 @@ describe('usage statistics', () => {
       'fontSize:24px': 2,
       'fontSize:32px': 1,
     })
+  })
+
+  test('normalizes each capture before combining token-selection frequencies', () => {
+    const merged = mergeStylesWithNormalizedUsage([
+      createExtractedStyles({ usageCount: { 'fontSize:16px': 10 } }),
+      createExtractedStyles({ usageCount: { 'fontSize:12px': 900, 'fontSize:16px': 100 } }),
+    ])
+
+    expect(merged.usageCount['fontSize:16px']).toBeCloseTo(1.1)
+    expect(merged.usageCount['fontSize:12px']).toBeCloseTo(0.9)
   })
 })

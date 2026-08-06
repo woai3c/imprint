@@ -3,9 +3,8 @@ import { VALIDATION_SCENARIO_IDS } from './validation-scenarios'
 export type AppLanguage = 'en' | 'zh-CN'
 
 export interface ThemePreference {
-  kind: 'builtin' | 'custom'
-  id?: string
-  css?: string
+  kind: 'builtin'
+  id: string
 }
 
 const settingsCache: Record<string, unknown> = {
@@ -58,9 +57,6 @@ export function getThemePreference(): ThemePreference | null {
     const preference = JSON.parse(stored) as Partial<ThemePreference>
     if (preference.kind === 'builtin' && typeof preference.id === 'string') {
       return { kind: 'builtin', id: preference.id }
-    }
-    if (preference.kind === 'custom' && typeof preference.css === 'string' && preference.css.length <= 1_000_000) {
-      return { kind: 'custom', css: preference.css }
     }
   } catch {
     // Invalid preferences fall back to the default theme.

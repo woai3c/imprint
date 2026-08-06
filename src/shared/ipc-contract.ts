@@ -21,6 +21,7 @@ export type {
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
 export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
+export const CURRENT_EXTRACTION_VERSION = 2
 
 export interface AppSettings {
   aiMode: 'apiKey' | 'agentCli'
@@ -59,8 +60,60 @@ export interface BrowserSession {
   updatedAt: string
 }
 
+export interface ThemeRecord {
+  id: string
+  name: string
+  source_url: string | null
+  screenshot_path: string | null
+  tokens_json: string
+  css_variables: string
+  tailwind_theme: string
+  design_doc: string
+  dark_tokens_json: string | null
+  dark_mode_method: string | null
+  dark_mode_selector: string | null
+  extraction_version: number
+  design_evidence_json: string | null
+  design_profile_json: string | null
+  design_intelligence_meta_json: string | null
+  tags: string
+  is_builtin: number
+  is_favorite: number
+  created_at: string
+  updated_at: string
+}
+
+export type ThemeSummaryRecord = Pick<
+  ThemeRecord,
+  | 'id'
+  | 'name'
+  | 'source_url'
+  | 'screenshot_path'
+  | 'tokens_json'
+  | 'dark_tokens_json'
+  | 'dark_mode_method'
+  | 'dark_mode_selector'
+  | 'extraction_version'
+  | 'tags'
+  | 'is_favorite'
+  | 'created_at'
+  | 'updated_at'
+>
+
+export interface ThemeSaveConflict {
+  themeId: string
+  name: string
+  sourceUrl: string | null
+  duplicateCount: number
+}
+
+export type ThemeSaveResponse =
+  { success: true; theme: ThemeRecord; replaced: boolean } | { success: false; conflict: ThemeSaveConflict }
+
 export interface AnalysisRecord {
   id: string
+  theme_id: string | null
+  theme_name: string | null
   url: string
   pages_analyzed: number
   viewports: string
@@ -80,6 +133,7 @@ export interface PageScreenshotData {
 
 export interface AnalysisResultData {
   analysisId?: string
+  savedThemeId?: string | null
   tokens: Record<string, unknown>
   cssVariables: string
   tailwindTheme: string
@@ -90,6 +144,7 @@ export interface AnalysisResultData {
   url: string
   hasDarkMode?: boolean
   darkModeMethod?: string
+  darkModeSelector?: string
   featureTags?: string[]
   darkTokens?: Record<string, string> | null
   breakpoints?: Array<{ width: number; label: string }>
@@ -106,6 +161,7 @@ export interface AnalysisResultData {
 
 export interface AnalysisDetailData {
   id: string
+  savedThemeId: string | null
   url: string
   finalUrl: string | null
   pagesAnalyzed: number
@@ -169,6 +225,12 @@ export interface FileOperationResult {
 export interface ElectronAPI {
   platform: string
   initialSettings: AppSettings
+  getThemes: () => Promise<ThemeSummaryRecord[]>
+  getThemeArchive: () => Promise<ThemeRecord[]>
+  saveTheme: (analysisId: string, overwriteThemeId?: string) => Promise<ThemeSaveResponse>
+  renameTheme: (id: string, name: string) => Promise<ThemeSummaryRecord>
+  deleteTheme: (id: string) => Promise<{ success: boolean }>
+  exportTheme: (id: string, format: ThemeExportFormat) => Promise<FileOperationResult>
   analyzeUrl: (url: string, options?: AnalyzeOptions) => Promise<AnalyzeResponse>
   startDesignIntelligence: (
     analysisId: string,

@@ -59,7 +59,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                            |
 | Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli                        |
 | Local-first storage      | Store project data locally with SQLite                                                          |
-| Live theme preview       | Apply extracted styles to Imprint and inspect the result                                        |
+| Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios      |
 | Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                     |
 | Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states           |
 

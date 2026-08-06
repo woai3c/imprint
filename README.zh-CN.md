@@ -59,7 +59,7 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 | 代码导出      | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens     |
 | 本地 AI Agent | 支持 Claude Code、Codex、Kimi、Gemini CLI、OpenCode 和 x-code-cli |
 | 本地优先存储  | 所有数据保存在本地 SQLite，无需注册账号                           |
-| 实时主题预览  | 将提取的设计系统应用到 Imprint 界面，实时查看效果                 |
+| 网站主题库    | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌              |
 | 内置主题      | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                |
 | 验证场景      | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性        |
 

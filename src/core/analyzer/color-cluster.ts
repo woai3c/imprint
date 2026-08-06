@@ -15,6 +15,8 @@ interface ColorRGB {
   count: number
 }
 
+type ColorFrequency = ReadonlyMap<string, number>
+
 export interface ClusteredColors {
   palette: Array<{ hex: string; count: number; role?: string }>
   backgrounds: string[]
@@ -61,6 +63,16 @@ function rgbToHex(r: number, g: number, b: number): string {
   return '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
 }
 
+export function normalizeColorValue(value: string): string | null {
+  const color = parseColor(value)
+  if (!color) return null
+  if (color.a < 0.999) {
+    const alpha = Number(color.a.toFixed(3))
+    return `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${alpha})`
+  }
+  return rgbToHex(color.r, color.g, color.b)
+}
+
 function luminance(r: number, g: number, b: number): number {
   const [rs, gs, bs] = [r, g, b].map((c) => {
     c = c / 255
@@ -69,71 +81,156 @@ function luminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs
 }
 
-export function clusterColors(rawColors: string[], usageCount: Readonly<Record<string, number>> = {}): ClusteredColors {
+function chroma(color: ColorRGB): number {
+  return Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b)
+}
+
+function relativeChroma(color: ColorRGB): number {
+  return chroma(color) / Math.max(1, color.r, color.g, color.b)
+}
+
+function categoryFrequency(usageCount: Readonly<Record<string, number>>, category: string): Map<string, number> {
+  const frequency = new Map<string, number>()
+  const prefix = `${category}:`
+  for (const [key, count] of Object.entries(usageCount)) {
+    if (!key.startsWith(prefix) || !Number.isFinite(count) || count <= 0) continue
+    frequency.set(key.slice(prefix.length), (frequency.get(key.slice(prefix.length)) || 0) + count)
+  }
+  return frequency
+}
+
+function addFrequency(target: Map<string, number>, source: ColorFrequency, weight = 1): void {
+  for (const [color, count] of source) {
+    target.set(color, (target.get(color) || 0) + count * weight)
+  }
+}
+
+function clusterFrequency(
+  frequency: ColorFrequency,
+  limit = 20,
+  threshold = 30,
+): Array<{ hex: string; count: number }> {
+  const parsed: ColorRGB[] = []
+  for (const [colorStr, count] of frequency) {
+    const color = parseColor(colorStr)
+    if (!color) continue
+    color.count = count
+    parsed.push(color)
+  }
+
+  const clusters: ColorRGB[][] = []
+  for (const color of parsed) {
+    const cluster = clusters.find((candidate) => colorDistance(candidate[0], color) < threshold)
+    if (cluster) cluster.push(color)
+    else clusters.push([color])
+  }
+
+  return clusters
+    .sort((a, b) => b.reduce((sum, color) => sum + color.count, 0) - a.reduce((sum, color) => sum + color.count, 0))
+    .slice(0, limit)
+    .map((cluster) => {
+      const representative = [...cluster].sort((a, b) => b.count - a.count)[0]
+      return {
+        hex: normalizeColorValue(representative.original) || representative.original,
+        count: cluster.reduce((sum, color) => sum + color.count, 0),
+      }
+    })
+}
+
+function roleColors(
+  usageCount: Readonly<Record<string, number>>,
+  primaryCategory: string,
+  fallbackCategory?: string,
+  threshold?: number,
+): string[] {
+  let frequency = categoryFrequency(usageCount, primaryCategory)
+  if (frequency.size === 0 && fallbackCategory) frequency = categoryFrequency(usageCount, fallbackCategory)
+  return clusterFrequency(frequency, 20, threshold).map((item) => item.hex)
+}
+
+function prioritizeRelatedRoleColors(colors: string[]): string[] {
+  const [base, ...rest] = colors
+  if (!base) return colors
+  const parsedBase = parseColor(base)
+  if (!parsedBase) return colors
+  return [
+    base,
+    ...rest.sort((first, second) => {
+      const firstColor = parseColor(first)
+      const secondColor = parseColor(second)
+      if (!firstColor || !secondColor) return 0
+      return colorDistance(parsedBase, firstColor) - colorDistance(parsedBase, secondColor)
+    }),
+  ]
+}
+
+function prioritizeMutedTextColors(colors: string[]): string[] {
+  const [foreground, ...rest] = colors
+  if (!foreground) return colors
+  const parsedForeground = parseColor(foreground)
+  if (!parsedForeground) return colors
+  return [
+    foreground,
+    ...rest.sort((first, second) => {
+      const firstColor = parseColor(first)
+      const secondColor = parseColor(second)
+      if (!firstColor || !secondColor) return 0
+      return (
+        colorDistance(parsedForeground, firstColor) +
+        relativeChroma(firstColor) * 250 -
+        (colorDistance(parsedForeground, secondColor) + relativeChroma(secondColor) * 250)
+      )
+    }),
+  ]
+}
+
+export function clusterColors(
+  rawColors: string[],
+  usageCount: Readonly<Record<string, number>> = {},
+  roleUsageCount: Readonly<Record<string, number>> = usageCount,
+): ClusteredColors {
   const freq = colorFrequency(rawColors, usageCount)
 
-  // Parse and deduplicate
-  const parsed: ColorRGB[] = []
-  for (const [colorStr, count] of freq) {
-    const color = parseColor(colorStr)
-    if (color) {
-      color.count = count
-      parsed.push(color)
-    }
-  }
+  const palette = clusterFrequency(freq)
+  if (palette.length === 0) return { palette: [], backgrounds: [], texts: [], accents: [] }
 
-  if (parsed.length === 0) {
-    return { palette: [], backgrounds: [], texts: [], accents: [] }
-  }
+  // Preserve the browser-observed role instead of guessing it from luminance. A dark background is still a background,
+  // and light text is still text. Area-weighted background observations win when the extractor provides them.
+  // Keep subtle but intentional surface layers separate. The general palette threshold would merge common pairs such as
+  // a #f4f6f9 page canvas and #ffffff cards, erasing the site's actual surface hierarchy.
+  const backgrounds = prioritizeRelatedRoleColors(roleColors(roleUsageCount, 'bgArea', 'bgColor', 12))
+  const texts = prioritizeMutedTextColors(roleColors(roleUsageCount, 'textColor'))
 
-  // Simple clustering: merge colors within distance threshold
-  const threshold = 30
-  const clusters: ColorRGB[][] = []
+  // Prefer colors used by interactive controls, then rank the remaining chromatic colors by observed frequency.
+  // Neutral-heavy sites still receive a deterministic fallback, but common grays no longer outrank a brand hue.
+  const accentFrequency = new Map<string, number>()
+  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'actionColor'), 16)
+  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'selectedColor'), 12)
+  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'accentColor'), 8)
+  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'linkColor'), 6)
+  addFrequency(accentFrequency, colorFrequency(rawColors, roleUsageCount))
+  const accents = clusterFrequency(accentFrequency)
+    .filter((item) => {
+      const color = parseColor(item.hex)
+      if (!color) return false
+      const lum = luminance(color.r, color.g, color.b)
+      return color.a > 0.1 && chroma(color) >= 32 && relativeChroma(color) >= 0.3 && lum > 0.015 && lum < 0.97
+    })
+    .map((item) => item.hex)
 
-  for (const color of parsed) {
-    let merged = false
-    for (const cluster of clusters) {
-      if (colorDistance(cluster[0], color) < threshold) {
-        cluster.push(color)
-        merged = true
-        break
-      }
-    }
-    if (!merged) {
-      clusters.push([color])
-    }
-  }
-
-  // Sort clusters by total frequency
-  clusters.sort((a, b) => b.reduce((sum, c) => sum + c.count, 0) - a.reduce((sum, c) => sum + c.count, 0))
-
-  // Take top colors (most frequent member of each cluster)
-  const palette = clusters.slice(0, 20).map((cluster) => {
-    const rep = cluster.sort((a, b) => b.count - a.count)[0]
-    const totalCount = cluster.reduce((s, c) => s + c.count, 0)
-    return {
-      hex: rgbToHex(rep.r, rep.g, rep.b),
-      count: totalCount,
-    }
-  })
-
-  // Classify by luminance
-  const backgrounds: string[] = []
-  const texts: string[] = []
-  const accents: string[] = []
-
-  for (const item of palette) {
-    const parsed2 = parseColor(item.hex)
-    if (!parsed2) continue
-    const lum = luminance(parsed2.r, parsed2.g, parsed2.b)
-
-    if (lum > 0.85) {
-      backgrounds.push(item.hex)
-    } else if (lum < 0.15) {
-      texts.push(item.hex)
-    } else {
-      accents.push(item.hex)
-    }
+  if (accents.length === 0) {
+    const excluded = new Set([backgrounds[0], texts[0]])
+    accents.push(
+      ...palette
+        .filter((item) => {
+          if (excluded.has(item.hex)) return false
+          const color = parseColor(item.hex)
+          if (!color) return false
+          const lum = luminance(color.r, color.g, color.b)
+          return lum > 0.05 && lum < 0.9
+        })
+        .map((item) => item.hex),
+    )
   }
 
   return { palette, backgrounds, texts, accents }

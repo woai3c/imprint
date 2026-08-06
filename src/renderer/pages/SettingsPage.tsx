@@ -206,10 +206,11 @@ export function SettingsPage() {
 
   const handleExportAll = async () => {
     try {
+      const themes = await window.electronAPI.getThemeArchive()
       const analyses = await window.electronAPI.getAnalyses()
       const settings = await window.electronAPI.getSettings()
       const { apiKey: _apiKey, ...exportableSettings } = settings
-      const blob = JSON.stringify({ analyses, settings: exportableSettings }, null, 2)
+      const blob = JSON.stringify({ themes, analyses, settings: exportableSettings }, null, 2)
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
       const a = document.createElement('a')
       a.href = blobUrl
@@ -225,6 +226,8 @@ export function SettingsPage() {
   const handleClearAll = async () => {
     setClearing(true)
     try {
+      const themes = await window.electronAPI.getThemes()
+      for (const theme of themes) await window.electronAPI.deleteTheme(theme.id)
       const analyses = await window.electronAPI.getAnalysisSummaries()
       if (analyses.length > 0) await window.electronAPI.deleteAnalyses(analyses.map((analysis) => analysis.id))
       notify(t('feedback.dataCleared'))

@@ -4,6 +4,7 @@ import { app } from 'electron'
 
 import Database from 'better-sqlite3'
 
+import { CURRENT_EXTRACTION_VERSION } from '../shared/ipc-contract.js'
 import { log } from './logger.js'
 
 let db: Database.Database
@@ -34,6 +35,10 @@ function runMigrations() {
       css_variables TEXT NOT NULL DEFAULT '',
       tailwind_theme TEXT DEFAULT '',
       design_doc TEXT DEFAULT '',
+      dark_tokens_json TEXT,
+      dark_mode_method TEXT,
+      dark_mode_selector TEXT,
+      extraction_version INTEGER NOT NULL DEFAULT ${CURRENT_EXTRACTION_VERSION},
       tags TEXT DEFAULT '[]',
       is_builtin INTEGER DEFAULT 0,
       is_favorite INTEGER DEFAULT 0,
@@ -74,6 +79,9 @@ function runMigrations() {
     ['page_screenshots_json', `TEXT NOT NULL DEFAULT '[]'`],
     ['feature_tags_json', `TEXT NOT NULL DEFAULT '[]'`],
     ['dark_tokens_json', `TEXT`],
+    ['dark_mode_method', `TEXT`],
+    ['dark_mode_selector', `TEXT`],
+    ['extraction_version', `INTEGER NOT NULL DEFAULT 1`],
     ['has_dark_mode', `INTEGER DEFAULT 0`],
     ['access_mode', `TEXT`],
     ['auth_wall_detected', `INTEGER DEFAULT 0`],
@@ -94,21 +102,18 @@ function runMigrations() {
   const themeColumns = (db.prepare(`PRAGMA table_info(themes)`).all() as Array<{ name: string }>).map(
     (column) => column.name,
   )
-  const themeIntelligenceColumns: Array<[string, string]> = [
+  const themeSnapshotColumns: Array<[string, string]> = [
     ['design_evidence_json', `TEXT`],
     ['design_profile_json', `TEXT`],
     ['design_intelligence_meta_json', `TEXT`],
+    ['dark_tokens_json', `TEXT`],
+    ['dark_mode_method', `TEXT`],
+    ['dark_mode_selector', `TEXT`],
+    ['extraction_version', `INTEGER NOT NULL DEFAULT 1`],
   ]
-  for (const [name, definition] of themeIntelligenceColumns) {
+  for (const [name, definition] of themeSnapshotColumns) {
     if (!themeColumns.includes(name)) db.exec(`ALTER TABLE themes ADD COLUMN ${name} ${definition}`)
   }
 
-  // Theme library is deprecated and must not retain user data.
-  // Keep the cleanup here so older installations also clear stale records.
-  try {
-    db.prepare('DELETE FROM themes').run()
-    db.prepare('DELETE FROM exports').run()
-  } catch {
-    /* empty */
-  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_analyses_theme_id ON analyses(theme_id)')
 }

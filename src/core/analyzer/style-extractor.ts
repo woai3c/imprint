@@ -27,9 +27,9 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       usageCount: {},
     }
 
-    const countUsage = (category: string, value: string) => {
+    const countUsage = (category: string, value: string, amount = 1) => {
       const key = `${category}:${value}`
-      styles.usageCount[key] = (styles.usageCount[key] || 0) + 1
+      styles.usageCount[key] = (styles.usageCount[key] || 0) + amount
     }
 
     // 1. Extract CSS custom properties from :root and stylesheets
@@ -51,7 +51,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     }
 
     // 2. Walk the DOM and extract computed styles from visible elements
-    const elements = document.querySelectorAll('body *')
+    const elements = [document.documentElement, document.body, ...document.querySelectorAll('body *')]
     const seen = new Set<string>()
 
     for (const el of elements) {
@@ -63,23 +63,77 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       // Colors
       const color = computed.color
       const bgColor = computed.backgroundColor
+      const interactive = Boolean(
+        el.closest(
+          'a, button, input, select, textarea, [role="button"], [role="link"], [aria-current], [aria-selected="true"]',
+        ),
+      )
+      const action = Boolean(el.closest('button, [role="button"], input[type="button"], input[type="submit"]'))
+      const link = Boolean(el.closest('a, [role="link"]'))
+      const selected = Boolean(el.closest('[aria-current], [aria-selected="true"], [data-state="active"]'))
 
       if (color && color !== 'rgba(0, 0, 0, 0)') {
         styles.textColors.push(color)
         styles.colors.push(color)
         countUsage('textColor', color)
+        if (interactive) countUsage('accentColor', color)
+        if (action) countUsage('actionColor', color)
+        if (link) countUsage('linkColor', color)
+        if (selected) countUsage('selectedColor', color)
       }
       if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
         styles.backgroundColors.push(bgColor)
         styles.colors.push(bgColor)
         countUsage('bgColor', bgColor)
+        if (interactive) countUsage('accentColor', bgColor)
+        if (action) countUsage('actionColor', bgColor)
+        if (selected) countUsage('selectedColor', bgColor)
+
+        const rect = el.getBoundingClientRect()
+        const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0))
+        const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
+        const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
+        const visibleAreaShare = (visibleWidth * visibleHeight) / viewportArea
+        if (visibleAreaShare > 0) countUsage('bgArea', bgColor, visibleAreaShare)
       }
 
-      // Border colors
-      const borderColor = computed.borderTopColor
-      if (borderColor && borderColor !== 'rgba(0, 0, 0, 0)' && borderColor !== color) {
-        styles.colors.push(borderColor)
-        countUsage('borderColor', borderColor)
+      // Only count borders that are actually painted. Sampling borderTopColor alone also records zero-width defaults
+      // and misses bottom/side dividers, which can make a control or focus color look like the site's structural border.
+      const rect = el.getBoundingClientRect()
+      const borderSides = [
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor, rect.width],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor, rect.height],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor, rect.width],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor, rect.height],
+      ] as const
+      const observedBorderColors = new Set<string>()
+      const observedBorders = new Set<string>()
+      for (const [width, style, borderColor, edgeLength] of borderSides) {
+        if (
+          !Number.isFinite(Number.parseFloat(width)) ||
+          Number.parseFloat(width) <= 0 ||
+          edgeLength <= 0 ||
+          style === 'none' ||
+          style === 'hidden' ||
+          !borderColor ||
+          borderColor === 'rgba(0, 0, 0, 0)'
+        ) {
+          continue
+        }
+
+        if (!observedBorderColors.has(borderColor)) {
+          observedBorderColors.add(borderColor)
+          styles.colors.push(borderColor)
+          countUsage('borderColor', borderColor)
+          if (!interactive) countUsage('structuralBorderColor', borderColor)
+        }
+
+        const borderValue = `${width} ${style} ${borderColor}`
+        if (!observedBorders.has(borderValue)) {
+          observedBorders.add(borderValue)
+          styles.borders.push(borderValue)
+          countUsage('border', borderValue)
+        }
       }
 
       // Font families
@@ -109,6 +163,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (lineHeight && lineHeight !== 'normal') {
         styles.lineHeights.push(lineHeight)
         countUsage('lineHeight', lineHeight)
+        if (fontSize) countUsage('typeMetric', `${fontSize}|${lineHeight}`)
       }
 
       // Letter spacing
@@ -170,14 +225,6 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (shadow && shadow !== 'none') {
         styles.shadows.push(shadow)
         countUsage('shadow', shadow)
-      }
-
-      // Border
-      const border = computed.borderTopWidth
-      if (border && border !== '0px') {
-        const borderVal = `${border} ${computed.borderTopStyle} ${computed.borderTopColor}`
-        styles.borders.push(borderVal)
-        countUsage('border', borderVal)
       }
     }
 

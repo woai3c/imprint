@@ -1,11 +1,21 @@
-import { Download } from 'lucide-react'
+import { Check, Download, FlaskConical, Pencil, Trash2, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 
-import { THEME_EXPORT_FORMATS, type ThemeExportFormat } from '../../shared/ipc-contract'
+import {
+  CURRENT_EXTRACTION_VERSION,
+  THEME_EXPORT_FORMATS,
+  type ThemeExportFormat,
+  type ThemeSummaryRecord,
+} from '../../shared/ipc-contract'
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { createExtractedThemePreview } from '../lib/extracted-theme-preview'
+import { useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 import {
   builtinThemes,
@@ -16,13 +26,19 @@ import {
   useSkinStore,
 } from '../stores/skin-store'
 import type { AppTheme, ThemeCategory, ThemeColors } from '../stores/skin-store'
+import { useThemeStore } from '../stores/theme-store'
 
 const themeCategoryOrder: ThemeCategory[] = ['foundation', 'narrative', 'experimental']
 export function ThemesPage() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const { currentThemeId, setTheme } = useSkinStore()
+  const { themes, loading, error, fetchThemes, renameTheme, deleteTheme } = useThemeStore()
   const notify = useFeedbackStore((state) => state.show)
+  const [tab, setTab] = useState<'builtin' | 'extracted'>('builtin')
   const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
+  const [pendingDeleteTheme, setPendingDeleteTheme] = useState<ThemeSummaryRecord | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
 
   useEffect(() => {
@@ -33,6 +49,10 @@ export function ThemesPage() {
       }
     })
   }, [])
+
+  useEffect(() => {
+    void fetchThemes()
+  }, [fetchThemes])
 
   const handleApplyBuiltin = (theme: AppTheme) => {
     setTheme(theme.id)
@@ -119,11 +139,68 @@ export function ThemesPage() {
     window.electronAPI.saveSettings({ exportFormat: format })
   }
 
+  const handleExportExtracted = async (theme: ThemeSummaryRecord) => {
+    try {
+      const result = await window.electronAPI.exportTheme(theme.id, exportFormat)
+      if (result.success) notify(t('feedback.themeExported', { theme: theme.name }))
+      else if (result.error) notify(t('feedback.actionFailed'), 'error')
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
+  }
+
+  const handleRenameExtracted = async (theme: ThemeSummaryRecord, name: string) => {
+    try {
+      await renameTheme(theme.id, name)
+      notify(t('feedback.themeRenamed', { theme: name }))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+      throw new Error('Rename failed')
+    }
+  }
+
+  const handleDeleteExtracted = async () => {
+    if (!pendingDeleteTheme) return
+    setDeleting(true)
+    try {
+      await deleteTheme(pendingDeleteTheme.id)
+      notify(t('feedback.themeDeleted', { theme: pendingDeleteTheme.name }))
+      setPendingDeleteTheme(null)
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title={t('themes.title')} />
+      <PageHeader title={t('themes.title')} description={t('themes.description')} />
 
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3 px-8">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-8">
+        <div className="flex w-fit gap-1 rounded-lg bg-secondary p-1">
+          <button
+            type="button"
+            onClick={() => setTab('builtin')}
+            aria-pressed={tab === 'builtin'}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === 'builtin' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            }`}
+          >
+            {t('themes.builtin')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('extracted')}
+            aria-pressed={tab === 'extracted'}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === 'extracted' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            }`}
+          >
+            {t('themes.extracted')} ({themes.length})
+          </button>
+        </div>
+
         <div className="flex items-center gap-1.5">
           <label htmlFor="theme-export-format" className="text-xs font-medium text-muted-foreground">
             {t('themes.exportFormatLabel')}
@@ -145,46 +222,253 @@ export function ThemesPage() {
       </div>
 
       <div className="flex-1 overflow-auto px-8 pt-1 pb-8">
-        <div className="space-y-7">
-          {themeCategoryOrder.map((category) => (
-            <section key={category} aria-labelledby={`theme-category-${category}`}>
-              <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <h3 id={`theme-category-${category}`} className="text-sm font-semibold">
-                  {t(`themes.categories.${category}.title`)}
-                </h3>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t(`themes.categories.${category}.description`)}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-                {builtinThemes
-                  .filter((theme) => theme.category === category)
-                  .map((theme) => (
-                    <ThemeCard
-                      key={theme.id}
-                      id={theme.id}
-                      name={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
-                      description={t(`themes.presets.${theme.id}.description`, {
-                        defaultValue: theme.description,
-                      })}
-                      colors={theme.colors}
-                      isActive={currentThemeId === theme.id}
-                      onApply={() => handleApplyBuiltin(theme)}
-                      onExport={() => handleExportBuiltin(theme)}
-                      currentLabel={t('themes.current')}
-                      exportLabel={t('themes.export')}
-                      exportAriaLabel={t('themes.exportTheme', {
-                        theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
-                      })}
-                    />
-                  ))}
-              </div>
-            </section>
-          ))}
-        </div>
-        <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
+        {tab === 'builtin' ? (
+          <>
+            <div className="space-y-7">
+              {themeCategoryOrder.map((category) => (
+                <section key={category} aria-labelledby={`theme-category-${category}`}>
+                  <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h3 id={`theme-category-${category}`} className="text-sm font-semibold">
+                      {t(`themes.categories.${category}.title`)}
+                    </h3>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t(`themes.categories.${category}.description`)}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+                    {builtinThemes
+                      .filter((theme) => theme.category === category)
+                      .map((theme) => (
+                        <ThemeCard
+                          key={theme.id}
+                          id={theme.id}
+                          name={t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })}
+                          description={t(`themes.presets.${theme.id}.description`, {
+                            defaultValue: theme.description,
+                          })}
+                          colors={theme.colors}
+                          isActive={currentThemeId === theme.id}
+                          onApply={() => handleApplyBuiltin(theme)}
+                          onExport={() => handleExportBuiltin(theme)}
+                          currentLabel={t('themes.current')}
+                          exportLabel={t('themes.export')}
+                          exportAriaLabel={t('themes.exportTheme', {
+                            theme: t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name }),
+                          })}
+                        />
+                      ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <ThemeLanguagePanel key={activeBuiltinTheme.id} theme={activeBuiltinTheme} />
+          </>
+        ) : loading ? (
+          <p className="py-20 text-center text-sm text-muted-foreground" role="status">
+            {t('themes.loading')}
+          </p>
+        ) : error ? (
+          <EmptyState
+            title={t('themes.loadFailed')}
+            description={t('feedback.actionFailed')}
+            hint={error}
+            className="h-64"
+          />
+        ) : themes.length === 0 ? (
+          <EmptyState title={t('themes.noExtracted')} description={t('themes.noExtractedTip')} className="h-64" />
+        ) : (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            {themes.map((theme) => (
+              <ExtractedThemeCard
+                key={theme.id}
+                theme={theme}
+                onValidate={() => navigate('/templates', { state: { themeId: theme.id } })}
+                onExport={() => handleExportExtracted(theme)}
+                onRename={(name) => handleRenameExtracted(theme, name)}
+                onDelete={() => setPendingDeleteTheme(theme)}
+                onReanalyze={() => {
+                  if (theme.source_url) useAnalysisStore.getState().setUrl(theme.source_url)
+                  navigate('/')
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
+
+      {pendingDeleteTheme && (
+        <ConfirmDialog
+          title={t('themes.deleteTitle')}
+          description={t('themes.deleteDescription', { theme: pendingDeleteTheme.name })}
+          confirmLabel={t('common.delete')}
+          cancelLabel={t('common.cancel')}
+          onConfirm={handleDeleteExtracted}
+          onCancel={() => setPendingDeleteTheme(null)}
+          loading={deleting}
+        />
+      )}
     </div>
+  )
+}
+
+function ExtractedThemeCard({
+  theme,
+  onValidate,
+  onExport,
+  onRename,
+  onDelete,
+  onReanalyze,
+}: {
+  theme: ThemeSummaryRecord
+  onValidate: () => void
+  onExport: () => void
+  onRename: (name: string) => Promise<void>
+  onDelete: () => void
+  onReanalyze: () => void
+}) {
+  const { t } = useTranslation()
+  const preview = createExtractedThemePreview(theme)
+  const [editing, setEditing] = useState(false)
+  const [draftName, setDraftName] = useState(theme.name)
+  const [saving, setSaving] = useState(false)
+
+  const saveName = async () => {
+    const name = draftName.trim()
+    if (!name || name === theme.name) {
+      setDraftName(theme.name)
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    try {
+      await onRename(name)
+      setEditing(false)
+    } catch {
+      // Keep the input open so the user can retry or cancel.
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className="theme-card flex min-h-48 flex-col rounded-xl border border-border p-4 transition-colors hover:border-primary/70">
+      <div
+        className="theme-card-preview mb-3 flex shrink-0 items-center gap-1.5 overflow-hidden rounded-lg border border-border/60 p-2.5"
+        style={{ backgroundColor: preview.style['--color-background'] }}
+      >
+        {preview.palette.map((color, index) => (
+          <span
+            key={`${color}-${index}`}
+            className="theme-swatch h-6 w-6 rounded-full border border-black/10"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
+
+      {editing ? (
+        <form
+          className="flex items-center gap-1"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void saveName()
+          }}
+        >
+          <input
+            autoFocus
+            value={draftName}
+            maxLength={80}
+            onChange={(event) => setDraftName(event.target.value)}
+            aria-label={t('themes.renameInput', { theme: theme.name })}
+            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            type="submit"
+            disabled={saving || !draftName.trim()}
+            aria-label={t('themes.saveName')}
+            className="flex size-8 items-center justify-center rounded-md text-primary hover:bg-primary/10 disabled:opacity-50"
+          >
+            <Check size={14} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraftName(theme.name)
+              setEditing(false)
+            }}
+            aria-label={t('common.cancel')}
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary"
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </form>
+      ) : (
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-medium">{theme.name}</h3>
+            {theme.source_url && (
+              <p className="mt-1 truncate text-xs text-muted-foreground" title={theme.source_url}>
+                {theme.source_url}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label={t('themes.renameTheme', { theme: theme.name })}
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              <Pencil size={12} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={t('themes.deleteTheme', { theme: theme.name })}
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 size={12} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+        {t('themes.extractedRoleSummary', {
+          observed: preview.observedRoleCount,
+          adapted: preview.adaptedRoleCount,
+        })}
+      </p>
+      {(theme.extraction_version || 1) < CURRENT_EXTRACTION_VERSION && (
+        <div className="mt-1 flex items-start justify-between gap-2 text-xs font-medium leading-5 text-warning-strong">
+          <span>{t('themes.reanalysisRequired')}</span>
+          {theme.source_url && (
+            <button type="button" onClick={onReanalyze} className="shrink-0 underline underline-offset-2">
+              {t('themes.reanalyze')}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-auto flex items-center justify-end gap-1 pt-3">
+        <button
+          type="button"
+          onClick={onValidate}
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <FlaskConical size={12} aria-hidden="true" />
+          {t('themes.validate')}
+        </button>
+        <button
+          type="button"
+          onClick={onExport}
+          aria-label={t('themes.exportTheme', { theme: theme.name })}
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <Download size={12} aria-hidden="true" />
+          {t('themes.export')}
+        </button>
+      </div>
+    </article>
   )
 }
 

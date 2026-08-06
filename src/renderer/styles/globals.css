@@ -281,6 +281,41 @@ html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom
   border-color: var(--art-border-color, var(--color-border));
 }
 
+/* Extracted website themes are incomplete observations, so they are normalized
+   and scoped to the validation surface. Keep the app theme's art direction from
+   leaking into that surface while preserving the shell around it. */
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] .bg-background {
+  background-color: var(--color-background);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] .bg-card {
+  background-color: var(--color-card);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] .shadow-sm {
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] .shadow-md {
+  box-shadow: var(--shadow-md);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] .shadow-lg {
+  box-shadow: var(--shadow-lg);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] button.bg-primary.shadow-sm {
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] button.bg-primary.shadow-md {
+  box-shadow: var(--shadow-md);
+}
+
+html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extracted'] button.bg-primary.shadow-lg {
+  box-shadow: var(--shadow-lg);
+}
+
 /* Ink Wash —宣纸留白，五色墨韵，朱砂点睛。 */
 html[data-app-theme='chinese-landscape'] {
   --art-backdrop:

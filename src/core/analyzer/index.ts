@@ -32,7 +32,7 @@ import { generateFeatureTags } from './feature-tags.js'
 import { discoverSubPages } from './page-discovery.js'
 import { type MotionToken, type ResponsiveBreakpoint, detectBreakpoints, detectMotion } from './responsive-motion.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
-import { mergeStyles } from './style-merge.js'
+import { mergeStyles, mergeStylesWithNormalizedUsage } from './style-merge.js'
 import { buildDesignTokens } from './token-builder.js'
 import type {
   AnalysisOptions,
@@ -478,7 +478,7 @@ export async function analyze(
       mergeInteractionStyles(allInteractions, pageInteractionStyles)
 
       if (i === 0 && options.extractDarkMode !== false) {
-        darkModeResult = await extractDarkMode(page)
+        darkModeResult = await extractDarkMode(page, styles)
       }
 
       if (i === 0) {
@@ -632,12 +632,19 @@ export async function analyze(
 
     onProgress?.('progress.analyzingPatterns', 85)
     const mergedStyles = mergeStyles(allStyles)
+    const tokenSelectionStyles = mergeStylesWithNormalizedUsage(allStyles)
 
     onProgress?.('progress.clusteringColors', 90)
-    const clusteredColors = clusterColors(mergedStyles.colors, mergedStyles.usageCount)
+    const primaryPageStyles = allStyles[0] || mergedStyles
+    const clusteredColors = clusterColors(
+      tokenSelectionStyles.colors,
+      tokenSelectionStyles.usageCount,
+      primaryPageStyles.usageCount,
+    )
 
     onProgress?.('progress.generatingTokens', 95)
-    const tokens = buildDesignTokens(mergedStyles, clusteredColors)
+    const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
+    tokens.usageCount = mergedStyles.usageCount
     const featureTags = generateFeatureTags(tokens, mergedStyles)
     const designEvidence = buildDesignEvidence({
       analysisId,

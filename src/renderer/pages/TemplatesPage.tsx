@@ -1,7 +1,9 @@
-import { useState } from 'react'
-import type { ComponentType } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router-dom'
 
+import { CURRENT_EXTRACTION_VERSION, type ThemeSummaryRecord } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -15,9 +17,11 @@ import { LoginTemplate } from '../components/templates/LoginTemplate'
 import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
+import { type ExtractedThemeColorMode, createExtractedThemePreview } from '../lib/extracted-theme-preview'
 import { getValidationScenarioPreference, setValidationScenarioPreference } from '../lib/preferences'
 import { VALIDATION_SCENARIO_IDS, type ValidationScenarioId } from '../lib/validation-scenarios'
 import { builtinThemes, useSkinStore } from '../stores/skin-store'
+import { useThemeStore } from '../stores/theme-store'
 
 const scenarioGroups = ['workflow', 'content', 'interaction'] as const
 
@@ -41,8 +45,17 @@ const templateDefinitions: Record<
 
 export function TemplatesPage() {
   const { t } = useTranslation()
+  const location = useLocation()
   const [activeTemplate, setActiveTemplate] = useState(getValidationScenarioPreference)
+  const requestedThemeId = (location.state as { themeId?: string } | null)?.themeId || null
+  const [selectedExtractedThemeId, setSelectedExtractedThemeId] = useState<string | null>(requestedThemeId)
+  const [extractedColorMode, setExtractedColorMode] = useState<ExtractedThemeColorMode>('base')
   const { currentThemeId, setTheme } = useSkinStore()
+  const { themes: extractedThemes, error: themeError, fetchThemes } = useThemeStore()
+
+  useEffect(() => {
+    void fetchThemes()
+  }, [fetchThemes])
 
   const templates = VALIDATION_SCENARIO_IDS.map((id) => ({
     id,
@@ -51,6 +64,11 @@ export function TemplatesPage() {
   }))
 
   const ActiveComponent = templates.find((tpl) => tpl.id === activeTemplate)?.component || DashboardTemplate
+  const selectedExtractedTheme = extractedThemes.find((theme) => theme.id === selectedExtractedThemeId) || null
+  const extractedPreview = useMemo(
+    () => (selectedExtractedTheme ? createExtractedThemePreview(selectedExtractedTheme, extractedColorMode) : null),
+    [extractedColorMode, selectedExtractedTheme],
+  )
 
   const selectTemplate = (templateId: string) => {
     setActiveTemplate(templateId)
@@ -58,7 +76,14 @@ export function TemplatesPage() {
   }
 
   const handleApplyBuiltin = (themeId: string) => {
+    setSelectedExtractedThemeId(null)
+    setExtractedColorMode('base')
     setTheme(themeId)
+  }
+
+  const handleApplyExtracted = (themeId: string) => {
+    setSelectedExtractedThemeId(themeId)
+    setExtractedColorMode('base')
   }
 
   return (
@@ -66,24 +91,47 @@ export function TemplatesPage() {
       <PageHeader title={t('templates.title')} description={t('templates.description')} />
 
       <div className="px-8 pb-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
-            {t('templates.switchThemeLabel')}
-          </span>
+        <div data-testid="validation-theme-groups" className="space-y-2">
+          <ThemeOptionGroup
+            label={t('templates.builtinThemeLabel')}
+            description={t('templates.builtinThemeDescription')}
+          >
+            {builtinThemes.map((theme) => {
+              const name = t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })
+              return (
+                <ThemeOption
+                  key={theme.id}
+                  name={name}
+                  colors={getBuiltinThemeColors(theme)}
+                  selected={!selectedExtractedTheme && currentThemeId === theme.id}
+                  testId={`validation-theme-${theme.id}`}
+                  onSelect={() => handleApplyBuiltin(theme.id)}
+                />
+              )
+            })}
+          </ThemeOptionGroup>
 
-          {builtinThemes.map((theme) => {
-            const name = t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })
-            return (
-              <ThemeOption
-                key={theme.id}
-                name={name}
-                colors={getBuiltinThemeColors(theme)}
-                selected={currentThemeId === theme.id}
-                testId={`validation-theme-${theme.id}`}
-                onSelect={() => handleApplyBuiltin(theme.id)}
-              />
-            )
-          })}
+          <ThemeOptionGroup
+            label={t('templates.extractedThemeLabel')}
+            description={t('templates.extractedThemeDescription')}
+          >
+            {themeError ? (
+              <span className="py-1 text-xs text-destructive">{t('themes.loadFailed')}</span>
+            ) : extractedThemes.length > 0 ? (
+              extractedThemes.map((theme) => (
+                <ThemeOption
+                  key={theme.id}
+                  name={theme.name}
+                  colors={getExtractedThemeColors(theme)}
+                  selected={selectedExtractedThemeId === theme.id}
+                  testId={`validation-theme-extracted-${theme.id}`}
+                  onSelect={() => handleApplyExtracted(theme.id)}
+                />
+              ))
+            ) : (
+              <span className="py-1 text-xs text-muted-foreground">{t('templates.noExtractedThemes')}</span>
+            )}
+          </ThemeOptionGroup>
         </div>
 
         {/* Row 2: Directly visible validation scenarios */}
@@ -138,14 +186,69 @@ export function TemplatesPage() {
         </div>
       </div>
 
+      {selectedExtractedTheme && extractedPreview && (
+        <div
+          data-testid="extracted-theme-preview-info"
+          className="mx-8 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-secondary/45 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <span>
+            {t('templates.extractedPreviewSummary', {
+              theme: selectedExtractedTheme.name,
+              observed: extractedPreview.observedRoleCount,
+              adapted: extractedPreview.adaptedRoleCount,
+            })}
+          </span>
+          {(selectedExtractedTheme.extraction_version || 1) < CURRENT_EXTRACTION_VERSION && (
+            <span className="font-medium text-warning-strong">{t('themes.reanalysisRequired')}</span>
+          )}
+          <div className="flex items-center gap-2">
+            {extractedPreview.hasDarkMode && (
+              <div
+                role="group"
+                aria-label={t('templates.extractedColorModeLabel')}
+                className="flex rounded-md border border-border bg-background p-0.5"
+              >
+                {(['base', 'dark'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={extractedPreview.colorMode === mode}
+                    onClick={() => setExtractedColorMode(mode)}
+                    className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                      extractedPreview.colorMode === mode
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    }`}
+                  >
+                    {t(`templates.extractedColorModes.${mode}`)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {extractedPreview.contrastIssueCount > 0 && (
+              <span className="font-medium text-warning-strong">
+                {t('templates.extractedContrastWarning', { count: extractedPreview.contrastIssueCount })}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div
         key={activeTemplate}
+        data-theme-preview={selectedExtractedTheme ? 'extracted' : 'builtin'}
+        data-theme-color-mode={extractedPreview?.colorMode}
+        style={extractedPreview?.style}
         className="ui-enter mx-8 mb-8 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
       >
         <ActiveComponent />
       </div>
     </div>
   )
+}
+
+function getExtractedThemeColors(theme: ThemeSummaryRecord): string[] {
+  return createExtractedThemePreview(theme).palette
 }
 
 function getBuiltinThemeColors(theme: (typeof builtinThemes)[number]): string[] {
@@ -169,6 +272,28 @@ function ThemePaletteMark({ colors }: { colors: string[] }) {
         />
       ))}
     </span>
+  )
+}
+
+function ThemeOptionGroup({
+  label,
+  description,
+  children,
+}: {
+  label: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="flex min-h-12 items-start gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2.5">
+      <div className="w-40 shrink-0 pt-0.5">
+        <h2 className="text-xs font-semibold text-foreground">{label}</h2>
+        <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">{description}</p>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+        {children}
+      </div>
+    </section>
   )
 }
 

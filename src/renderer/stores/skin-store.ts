@@ -1249,7 +1249,6 @@ interface SkinStore {
   colorMode: ColorMode
   setTheme: (id: string) => void
   setColorMode: (mode: ColorMode) => void
-  applyCustomCss: (cssVars: string) => void
 }
 
 export const useSkinStore = create<SkinStore>((set, get) => ({
@@ -1286,14 +1285,6 @@ export const useSkinStore = create<SkinStore>((set, get) => ({
       document.documentElement.classList.toggle('dark', mode === 'dark')
     })
   },
-
-  applyCustomCss: (cssVars) => {
-    set({ currentThemeId: 'custom' })
-    applyThemeInstantly(() => {
-      resetThemeAppearance('custom')
-      applyCssVarsToDOM(cssVars)
-    })
-  },
 }))
 
 // Theme application swaps dozens of variables at once. Suppress transitions for
@@ -1323,13 +1314,6 @@ function applyThemeToDOM(theme: AppTheme) {
   root.dataset.appTheme = theme.id
   root.style.setProperty('--color-input', theme.colors.border)
   applyThemeTokensToDOM(theme.tokens)
-}
-
-function resetThemeAppearance(themeId: string) {
-  const root = document.documentElement
-  root.dataset.appTheme = themeId
-  root.style.removeProperty('--color-input')
-  applyThemeTokensToDOM(DEFAULT_THEME_TOKENS)
 }
 
 function applyThemeTokensToDOM(tokens: ThemeFoundationTokens) {
@@ -1380,15 +1364,6 @@ function applyThemeTokensToDOM(tokens: ThemeFoundationTokens) {
   root.style.setProperty('--motion-easing', motion.easing)
 
   document.body.style.fontFamily = typography.fontBody
-}
-
-function applyCssVarsToDOM(cssVars: string) {
-  const regex = /--([\w-]+)\s*:\s*([^;]+)/g
-  let match
-  const root = document.documentElement
-  while ((match = regex.exec(cssVars)) !== null) {
-    root.style.setProperty(`--${match[1]}`, match[2].trim())
-  }
 }
 
 export function generateThemeCss(theme: AppTheme): string {

@@ -6,6 +6,15 @@ const api = {
   platform: process.platform,
   initialSettings: ipcRenderer.sendSync('settings:getSync') as AppSettings,
 
+  // Saved website themes
+  getThemes: () => ipcRenderer.invoke('themes:list'),
+  getThemeArchive: () => ipcRenderer.invoke('themes:archive'),
+  saveTheme: (analysisId: string, overwriteThemeId?: string) =>
+    ipcRenderer.invoke('themes:save', analysisId, overwriteThemeId),
+  renameTheme: (id: string, name: string) => ipcRenderer.invoke('themes:rename', id, name),
+  deleteTheme: (id: string) => ipcRenderer.invoke('themes:delete', id),
+  exportTheme: (id: string, format: string) => ipcRenderer.invoke('themes:export', id, format),
+
   // Analysis
   analyzeUrl: (
     url: string,

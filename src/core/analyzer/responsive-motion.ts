@@ -12,17 +12,32 @@ export interface ResponsiveBreakpoint {
 export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoint[]> {
   const rawBreakpoints = await page.evaluate(() => {
     const breakpoints = new Set<number>()
+    const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
 
-    for (const sheet of document.styleSheets) {
-      try {
-        for (const rule of sheet.cssRules) {
-          if (rule instanceof CSSMediaRule) {
-            const match = rule.conditionText.match(/(?:min|max)-width:\s*(\d+)px/)
-            if (match) {
-              breakpoints.add(parseInt(match[1]))
+    const visitRules = (rules: CSSRuleList) => {
+      for (const rule of rules) {
+        if (rule instanceof CSSMediaRule) {
+          const patterns = [
+            /(?:min|max)-width\s*:\s*(\d*\.?\d+)(px|r?em)/gi,
+            /\bwidth\s*[<>]=?\s*(\d*\.?\d+)(px|r?em)/gi,
+            /(\d*\.?\d+)(px|r?em)\s*[<>]=?\s*width\b/gi,
+          ]
+          for (const pattern of patterns) {
+            for (const match of rule.conditionText.matchAll(pattern)) {
+              const value = Number.parseFloat(match[1])
+              const pixels = match[2].toLowerCase() === 'px' ? value : value * rootFontSize
+              if (Number.isFinite(pixels) && pixels > 0) breakpoints.add(Math.round(pixels))
             }
           }
         }
+        const nestedRules = 'cssRules' in rule ? (rule as CSSGroupingRule).cssRules : null
+        if (nestedRules) visitRules(nestedRules)
+      }
+    }
+
+    for (const sheet of document.styleSheets) {
+      try {
+        visitRules(sheet.cssRules)
       } catch {
         // Cross-origin
       }
@@ -31,9 +46,9 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
     return [...breakpoints].sort((a, b) => a - b)
   })
 
-  return rawBreakpoints.map((width) => ({
+  return labelBreakpointWidths(rawBreakpoints).map(({ width, label }) => ({
     width,
-    label: categorizeBreakpoint(width),
+    label,
     layoutChanges: [],
   }))
 }
@@ -44,6 +59,16 @@ function categorizeBreakpoint(width: number): string {
   if (width <= 1024) return 'tablet'
   if (width <= 1280) return 'desktop'
   return 'wide'
+}
+
+export function labelBreakpointWidths(widths: readonly number[]): Array<{ width: number; label: string }> {
+  const categorized = widths.map((width) => ({ width, baseLabel: categorizeBreakpoint(width) }))
+  const totals = new Map<string, number>()
+  categorized.forEach(({ baseLabel }) => totals.set(baseLabel, (totals.get(baseLabel) || 0) + 1))
+  return categorized.map(({ width, baseLabel }) => ({
+    width,
+    label: (totals.get(baseLabel) || 0) > 1 ? `${baseLabel}-${width}` : baseLabel,
+  }))
 }
 
 /**

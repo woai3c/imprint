@@ -59,6 +59,7 @@ export interface DarkModeResult {
   hasDarkMode: boolean
   darkStyles: ExtractedStyles | null
   method: 'media-query' | 'class-toggle' | 'none'
+  selector?: string
 }
 
 export interface DesignToken {

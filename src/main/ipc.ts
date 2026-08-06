@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -10,14 +11,12 @@ import {
   removeAllManagedSessions,
   removeManagedSession,
 } from '../core/analyzer/browser-session.js'
-import { clusterColors } from '../core/analyzer/color-cluster.js'
 import {
   type AuthMode,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
   type LoginDecision,
 } from '../core/analyzer/index.js'
-import { buildDesignTokens } from '../core/analyzer/token-builder.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
@@ -31,12 +30,22 @@ import {
 import type { DesignIntelligenceMeta, DesignProfile } from '../core/design-intelligence/types.js'
 import {
   type DarkModeExportData,
+  buildDarkModeExportData,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
+  generateDtcgJson,
   generateTailwindTheme,
+  restoreDarkModeExportData,
 } from '../core/export/index.js'
-import type { PageScreenshotData } from '../shared/ipc-contract.js'
+import {
+  CURRENT_EXTRACTION_VERSION,
+  type PageScreenshotData,
+  type ThemeExportFormat,
+  type ThemeRecord,
+  type ThemeSaveResponse,
+  type ThemeSummaryRecord,
+} from '../shared/ipc-contract.js'
 import { isRecord } from '../shared/type-guards.js'
 import { detectAgentClis } from './agent-detect.js'
 import { analyzeUrl } from './analyzer/index.js'
@@ -59,6 +68,28 @@ interface SaveTextFileOptions {
 
 const designIntelligenceControllers = new Map<string, AbortController>()
 const analysisStartTimes = new Map<string, number>()
+const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
+  dark_mode_method, dark_mode_selector, extraction_version, tags, is_favorite, created_at, updated_at`
+
+function compactTokenSnapshot(serialized: string | null): string | null {
+  if (!serialized) return serialized
+  try {
+    const parsed = JSON.parse(serialized) as unknown
+    if (!isRecord(parsed) || !('usageCount' in parsed)) return serialized
+    const { usageCount: _usageCount, ...tokens } = parsed
+    return JSON.stringify(tokens)
+  } catch {
+    return serialized
+  }
+}
+
+function toThemeSummary(record: ThemeSummaryRecord): ThemeSummaryRecord {
+  return {
+    ...record,
+    tokens_json: compactTokenSnapshot(record.tokens_json) || '{}',
+    dark_tokens_json: compactTokenSnapshot(record.dark_tokens_json),
+  }
+}
 
 function readFirstScreenshotPath(serialized: unknown): string | null {
   if (typeof serialized !== 'string') return null
@@ -77,6 +108,20 @@ function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
   return JSON.parse((serialized as string) || '[]') as PageScreenshotData[]
 }
 
+function readDarkModeExportData(
+  serialized: unknown,
+  baseTokens: DesignToken,
+  method: unknown,
+  selector?: unknown,
+): DarkModeExportData | undefined {
+  if (typeof serialized !== 'string') return undefined
+  try {
+    return restoreDarkModeExportData(JSON.parse(serialized) as unknown, baseTokens, method, selector)
+  } catch {
+    return undefined
+  }
+}
+
 function buildStoredAnalysisResult(
   record: Record<string, unknown>,
   tokens: DesignToken,
@@ -85,6 +130,7 @@ function buildStoredAnalysisResult(
   const pageScreenshots = readPageScreenshots(record.page_screenshots_json)
   return {
     analysisId: record.id,
+    savedThemeId: (record.theme_id as string | null) || null,
     tokens,
     cssVariables: record.css_variables || '',
     tailwindTheme: record.tailwind_theme || '',
@@ -110,14 +156,221 @@ async function saveTextFile(content: string, options: SaveTextFileOptions) {
 export function registerIpcHandlers() {
   migrateLegacyManagedSessions(app.getPath('userData'))
 
+  // --- Saved website themes ---
+  ipcMain.handle('themes:list', () => {
+    const records = getDb()
+      .prepare(`SELECT ${THEME_SUMMARY_COLUMNS} FROM themes WHERE is_builtin = 0 ORDER BY updated_at DESC`)
+      .all() as ThemeSummaryRecord[]
+    return records.map(toThemeSummary)
+  })
+
+  ipcMain.handle('themes:archive', () => {
+    return getDb().prepare('SELECT * FROM themes WHERE is_builtin = 0 ORDER BY updated_at DESC').all() as ThemeRecord[]
+  })
+
+  ipcMain.handle('themes:save', (_event, analysisId: string, overwriteThemeId?: string) => {
+    const db = getDb()
+    const saveSnapshot = db.transaction((id: string, confirmedThemeId?: string): ThemeSaveResponse => {
+      const analysis = db.prepare('SELECT * FROM analyses WHERE id = ?').get(id) as Record<string, unknown> | undefined
+      if (!analysis) throw new Error('Analysis not found')
+
+      const now = new Date().toISOString()
+      const updateThemeSnapshot = (themeId: string): ThemeRecord => {
+        db.prepare(
+          `UPDATE themes
+           SET source_url = ?, screenshot_path = ?, tokens_json = ?, css_variables = ?, tailwind_theme = ?,
+               design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, extraction_version = ?, design_evidence_json = ?, design_profile_json = ?,
+               design_intelligence_meta_json = ?, updated_at = ?
+           WHERE id = ?`,
+        ).run(
+          analysis.url,
+          readFirstScreenshotPath(analysis.page_screenshots_json),
+          analysis.tokens_json || '{}',
+          analysis.css_variables || '',
+          analysis.tailwind_theme || '',
+          analysis.design_doc || '',
+          analysis.dark_tokens_json || null,
+          analysis.dark_mode_method || null,
+          analysis.dark_mode_selector || null,
+          Number(analysis.extraction_version) || 1,
+          analysis.design_evidence_json || null,
+          analysis.design_profile_json || null,
+          analysis.design_intelligence_meta_json || null,
+          now,
+          themeId,
+        )
+        return db.prepare('SELECT * FROM themes WHERE id = ?').get(themeId) as ThemeRecord
+      }
+
+      const existingThemeId = typeof analysis.theme_id === 'string' ? analysis.theme_id : null
+      const existingTheme = existingThemeId
+        ? (db.prepare('SELECT * FROM themes WHERE id = ?').get(existingThemeId) as ThemeRecord | undefined)
+        : undefined
+      if (existingTheme) {
+        return { success: true, theme: updateThemeSnapshot(existingTheme.id), replaced: true }
+      }
+
+      let name = String(analysis.url)
+      try {
+        name = new URL(name).hostname
+      } catch {
+        name = name.slice(0, 80)
+      }
+
+      const matchingThemes = db
+        .prepare(
+          `SELECT * FROM themes
+           WHERE is_builtin = 0 AND name = ? COLLATE NOCASE
+           ORDER BY updated_at DESC, created_at DESC`,
+        )
+        .all(name) as ThemeRecord[]
+      if (matchingThemes.length > 0) {
+        const confirmedTheme = matchingThemes.find((theme) => theme.id === confirmedThemeId)
+        if (!confirmedTheme) {
+          const conflict = matchingThemes[0]
+          return {
+            success: false,
+            conflict: {
+              themeId: conflict.id,
+              name: conflict.name,
+              sourceUrl: conflict.source_url,
+              duplicateCount: matchingThemes.length,
+            },
+          }
+        }
+
+        const theme = updateThemeSnapshot(confirmedTheme.id)
+        db.prepare('UPDATE analyses SET theme_id = ? WHERE id = ?').run(confirmedTheme.id, id)
+        for (const duplicate of matchingThemes) {
+          if (duplicate.id === confirmedTheme.id) continue
+          db.prepare('UPDATE analyses SET theme_id = ? WHERE theme_id = ?').run(confirmedTheme.id, duplicate.id)
+          db.prepare('DELETE FROM themes WHERE id = ? AND is_builtin = 0').run(duplicate.id)
+        }
+        return { success: true, theme, replaced: true }
+      }
+
+      const themeId = randomUUID()
+      db.prepare(
+        `INSERT INTO themes (
+           id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc,
+           dark_tokens_json, dark_mode_method, dark_mode_selector, extraction_version, design_evidence_json, design_profile_json,
+           design_intelligence_meta_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        themeId,
+        name,
+        analysis.url,
+        readFirstScreenshotPath(analysis.page_screenshots_json),
+        analysis.tokens_json || '{}',
+        analysis.css_variables || '',
+        analysis.tailwind_theme || '',
+        analysis.design_doc || '',
+        analysis.dark_tokens_json || null,
+        analysis.dark_mode_method || null,
+        analysis.dark_mode_selector || null,
+        Number(analysis.extraction_version) || 1,
+        analysis.design_evidence_json || null,
+        analysis.design_profile_json || null,
+        analysis.design_intelligence_meta_json || null,
+        now,
+        now,
+      )
+      db.prepare('UPDATE analyses SET theme_id = ? WHERE id = ?').run(themeId, id)
+      return {
+        success: true,
+        theme: db.prepare('SELECT * FROM themes WHERE id = ?').get(themeId) as ThemeRecord,
+        replaced: false,
+      }
+    })
+
+    const result = saveSnapshot(analysisId, overwriteThemeId)
+    if (result.success) {
+      log.info(
+        'theme',
+        `${result.replaced ? 'replaced' : 'saved'} from analysis: analysisId=${analysisId} themeId=${result.theme.id}`,
+      )
+    } else {
+      log.info(
+        'theme',
+        `save confirmation required: analysisId=${analysisId} themeId=${result.conflict.themeId} duplicates=${result.conflict.duplicateCount}`,
+      )
+    }
+    return result
+  })
+
+  ipcMain.handle('themes:rename', (_event, id: string, requestedName: string) => {
+    const name = requestedName.trim().slice(0, 80)
+    if (!name) throw new Error('Theme name is required')
+    const db = getDb()
+    const duplicate = db
+      .prepare('SELECT id FROM themes WHERE id != ? AND is_builtin = 0 AND name = ? COLLATE NOCASE')
+      .get(id, name)
+    if (duplicate) throw new Error('Theme name already exists')
+    const result = db
+      .prepare('UPDATE themes SET name = ?, updated_at = ? WHERE id = ?')
+      .run(name, new Date().toISOString(), id)
+    if (result.changes === 0) throw new Error('Theme not found')
+    return toThemeSummary(
+      db.prepare(`SELECT ${THEME_SUMMARY_COLUMNS} FROM themes WHERE id = ?`).get(id) as ThemeSummaryRecord,
+    )
+  })
+
+  ipcMain.handle('themes:delete', (_event, id: string) => {
+    const result = getDb().prepare('DELETE FROM themes WHERE id = ? AND is_builtin = 0').run(id)
+    return { success: result.changes > 0 }
+  })
+
+  ipcMain.handle('themes:export', async (_event, id: string, format: ThemeExportFormat) => {
+    const db = getDb()
+    const theme = db.prepare('SELECT * FROM themes WHERE id = ?').get(id) as ThemeRecord | undefined
+    if (!theme) return { error: true, message: 'Theme not found' }
+
+    const tokens = JSON.parse(theme.tokens_json) as DesignToken
+    const darkMode = readDarkModeExportData(
+      theme.dark_tokens_json,
+      tokens,
+      theme.dark_mode_method,
+      theme.dark_mode_selector,
+    )
+    const artifacts: Record<ThemeExportFormat, { content: string; defaultName: string; extension: string }> = {
+      markdown: { content: theme.design_doc, defaultName: 'DESIGN.md', extension: 'md' },
+      css: { content: theme.css_variables, defaultName: 'theme-variables.css', extension: 'css' },
+      tailwind: { content: theme.tailwind_theme, defaultName: 'tailwind-theme.css', extension: 'css' },
+      json: {
+        content: generateDtcgJson(tokens, darkMode),
+        defaultName: 'design-tokens.json',
+        extension: 'json',
+      },
+    }
+    const artifact = artifacts[format]
+    if (!artifact) return { error: true, message: `Unknown format: ${format}` }
+    const result = await saveTextFile(artifact.content, {
+      defaultName: artifact.defaultName,
+      extension: artifact.extension,
+      filterName: `${artifact.extension.toUpperCase()} Files`,
+    })
+    if (!result.success) return result
+
+    db.prepare('INSERT INTO exports (id, theme_id, format, file_path, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      randomUUID(),
+      id,
+      format,
+      result.filePath,
+      new Date().toISOString(),
+    )
+    log.info('theme', `exported: themeId=${id} format=${format} path=${result.filePath}`)
+    return result
+  })
+
   // --- Analyses ---
   ipcMain.handle('analyses:list', () => {
     const db = getDb()
     return db
       .prepare(
-        `SELECT *
-         FROM analyses
-         ORDER BY created_at DESC`,
+        `SELECT a.*, t.name AS theme_name
+         FROM analyses a
+         LEFT JOIN themes t ON t.id = a.theme_id
+         ORDER BY a.created_at DESC`,
       )
       .all()
   })
@@ -126,10 +379,11 @@ export function registerIpcHandlers() {
     const db = getDb()
     const records = db
       .prepare(
-        `SELECT a.id, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
+        `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
                 a.token_usage, a.created_at, a.page_screenshots_json,
                 a.design_intelligence_status, a.design_intelligence_meta_json
          FROM analyses a
+         LEFT JOIN themes t ON t.id = a.theme_id
          ORDER BY a.created_at DESC`,
       )
       .all() as Array<Record<string, unknown>>
@@ -204,6 +458,7 @@ export function registerIpcHandlers() {
 
     return {
       id: record.id,
+      savedThemeId: (record.theme_id as string | null) || null,
       url: record.url,
       finalUrl: record.final_url,
       pagesAnalyzed: record.pages_analyzed,
@@ -215,7 +470,9 @@ export function registerIpcHandlers() {
       designDoc: record.design_doc || '',
       pageScreenshots: readPageScreenshots(record.page_screenshots_json),
       featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
-      darkTokens: record.dark_tokens_json ? JSON.parse(record.dark_tokens_json as string) : null,
+      darkTokens:
+        readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)
+          ?.darkTokens?.colors ?? null,
       hasDarkMode: record.has_dark_mode === 1,
       accessMode: record.access_mode,
       authWallDetected: record.auth_wall_detected === 1,
@@ -329,19 +586,10 @@ export function registerIpcHandlers() {
         const designIntelligenceMeta = getInitialDesignIntelligenceMeta(settings, result.designEvidence)
         const designIntelligenceStatus = designIntelligenceMeta.status
 
-        let darkModeExport: DarkModeExportData | undefined
-        if (result.darkMode?.hasDarkMode && result.darkMode.darkStyles) {
-          const darkClustered = clusterColors(result.darkMode.darkStyles.colors, result.darkMode.darkStyles.usageCount)
-          const darkTokens = buildDesignTokens(result.darkMode.darkStyles, darkClustered)
-          darkModeExport = {
-            hasDarkMode: true,
-            darkTokens,
-            method: result.darkMode.method,
-          }
-        }
+        const darkModeExport = buildDarkModeExportData(result.darkMode)
 
         const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
-        const tailwind = generateTailwindTheme(result.tokens, darkModeExport)
+        const tailwind = generateTailwindTheme(result.tokens, darkModeExport, result.breakpoints)
         const designDoc = generateDesignDoc(
           result.tokens,
           url,
@@ -362,10 +610,10 @@ export function registerIpcHandlers() {
           `INSERT INTO analyses
            (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
-            feature_tags_json, dark_tokens_json, has_dark_mode, access_mode, auth_wall_detected, final_url,
+            feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, extraction_version, has_dark_mode, access_mode, auth_wall_detected, final_url,
             design_evidence_json, evidence_coverage_json, design_intelligence_status,
             design_intelligence_meta_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           url,
@@ -379,7 +627,10 @@ export function registerIpcHandlers() {
           designDoc,
           JSON.stringify(result.pageScreenshots || []),
           JSON.stringify(result.featureTags || []),
-          darkModeExport?.darkTokens?.colors ? JSON.stringify(darkModeExport.darkTokens.colors) : null,
+          darkModeExport?.darkTokens ? JSON.stringify(darkModeExport.darkTokens) : null,
+          result.darkMode?.hasDarkMode ? result.darkMode.method : null,
+          result.darkMode?.hasDarkMode ? result.darkMode.selector || null : null,
+          CURRENT_EXTRACTION_VERSION,
           result.darkMode?.hasDarkMode ? 1 : 0,
           result.accessMode ?? null,
           result.authWallDetected ? 1 : 0,
@@ -399,6 +650,7 @@ export function registerIpcHandlers() {
 
         return {
           analysisId,
+          savedThemeId: null,
           tokens: result.tokens,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
@@ -409,6 +661,7 @@ export function registerIpcHandlers() {
           url,
           hasDarkMode: result.darkMode?.hasDarkMode ?? false,
           darkModeMethod: result.darkMode?.method ?? 'none',
+          darkModeSelector: result.darkMode?.selector,
           featureTags: result.featureTags,
           darkTokens: darkModeExport?.darkTokens?.colors ?? null,
           breakpoints: result.breakpoints,
@@ -544,16 +797,12 @@ export function registerIpcHandlers() {
         intelligence.profile,
         intelligence.meta,
       )
-      const darkColors = record.dark_tokens_json
-        ? (JSON.parse(record.dark_tokens_json as string) as Record<string, string>)
-        : null
-      const darkModeExport: DarkModeExportData | undefined = darkColors
-        ? {
-            hasDarkMode: true,
-            darkTokens: { ...tokens, colors: darkColors },
-            method: 'media-query',
-          }
-        : undefined
+      const darkModeExport = readDarkModeExportData(
+        record.dark_tokens_json,
+        tokens,
+        record.dark_mode_method,
+        record.dark_mode_selector,
+      )
       designDoc = generateDesignDoc(
         tokens,
         record.url as string,
@@ -589,6 +838,23 @@ export function registerIpcHandlers() {
         analysisId,
       ],
     )
+    const currentThemeLink = db.prepare('SELECT theme_id FROM analyses WHERE id = ?').get(analysisId) as
+      { theme_id: string | null } | undefined
+    if (typeof currentThemeLink?.theme_id === 'string') {
+      db.prepare(
+        `UPDATE themes
+         SET design_doc = ?, design_evidence_json = ?, design_profile_json = ?,
+             design_intelligence_meta_json = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        designDoc,
+        record.design_evidence_json,
+        designProfile ? JSON.stringify(designProfile) : null,
+        JSON.stringify(intelligence.meta),
+        new Date().toISOString(),
+        currentThemeLink.theme_id,
+      )
+    }
     win?.webContents.send('design-intelligence:progress', {
       step:
         intelligence.meta.status === 'failed' ? 'progress.designLanguageFallback' : 'progress.designLanguageComplete',
@@ -596,9 +862,11 @@ export function registerIpcHandlers() {
     })
 
     return {
-      ...buildStoredAnalysisResult(record, tokens, designDoc),
+      ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
       featureTags: designEvidence.featureTags,
-      darkTokens: record.dark_tokens_json ? JSON.parse(record.dark_tokens_json as string) : null,
+      darkTokens:
+        readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)
+          ?.darkTokens?.colors ?? null,
       hasDarkMode: record.has_dark_mode === 1,
       accessMode: record.access_mode,
       authWallDetected: record.auth_wall_detected === 1,

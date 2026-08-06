@@ -67,3 +67,32 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
 
   return merged
 }
+
+/**
+ * Merge style values while giving every capture one vote per usage category.
+ * This prevents a DOM-heavy documentation page from overwhelming a lighter
+ * marketing page merely because it contains more elements.
+ */
+export function mergeStylesWithNormalizedUsage(stylesList: ExtractedStyles[]): ExtractedStyles {
+  const merged = mergeStyles(stylesList)
+  const normalizedUsage: Record<string, number> = {}
+
+  for (const styles of stylesList) {
+    const categoryTotals = new Map<string, number>()
+    for (const [key, count] of Object.entries(styles.usageCount)) {
+      const separator = key.indexOf(':')
+      if (separator <= 0 || !Number.isFinite(count) || count <= 0) continue
+      const category = key.slice(0, separator)
+      categoryTotals.set(category, (categoryTotals.get(category) || 0) + count)
+    }
+
+    for (const [key, count] of Object.entries(styles.usageCount)) {
+      const separator = key.indexOf(':')
+      if (separator <= 0 || !Number.isFinite(count) || count <= 0) continue
+      const total = categoryTotals.get(key.slice(0, separator)) || 0
+      if (total > 0) normalizedUsage[key] = (normalizedUsage[key] || 0) + count / total
+    }
+  }
+
+  return { ...merged, usageCount: normalizedUsage }
+}

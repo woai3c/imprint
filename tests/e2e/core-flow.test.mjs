@@ -270,6 +270,10 @@ after(async () => {
 test('switches themes in the current validation scenario', async () => {
   await page.locator('a[href="#/templates"]').click()
   await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })
+  const themeGroups = page.getByTestId('validation-theme-groups').locator(':scope > section')
+  assert.equal(await themeGroups.count(), 2)
+  await page.getByRole('heading', { name: 'Imprint themes', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Website themes', exact: true }).waitFor()
 
   await page.getByTestId('validation-theme-cyberpunk').click()
   assert.equal(await page.getByTestId('validation-theme-cyberpunk').getAttribute('aria-pressed'), 'true')
@@ -421,6 +425,46 @@ test('extracts a local design system without LLM credentials and persists it', {
       await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
     })
 
+    const appThemeBeforeWebsitePreview = await page.locator('html').getAttribute('data-app-theme')
+    await page.getByTestId('save-theme').click()
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="save-theme"]')?.getAttribute('aria-label') === 'Saved',
+    )
+    assert.equal(await page.getByTestId('save-theme').isDisabled(), true)
+    const archivedTheme = await page.evaluate(async () => {
+      const [theme] = await window.electronAPI.getThemeArchive()
+      return theme
+        ? {
+            hasCss: theme.css_variables.includes('--color-'),
+            hasDesignDoc: theme.design_doc.includes('# Design System'),
+            hasEvidence: Boolean(theme.design_evidence_json),
+          }
+        : null
+    })
+    assert.deepEqual(archivedTheme, { hasCss: true, hasDesignDoc: true, hasEvidence: true })
+    const repeatedSave = await page.evaluate(async () => {
+      const [analysis] = await window.electronAPI.getAnalysisSummaries()
+      const firstThemeId = (await window.electronAPI.getThemeArchive())[0]?.id
+      const response = await window.electronAPI.saveTheme(analysis.id)
+      return {
+        sameTheme: response.theme.id === firstThemeId,
+        themeCount: (await window.electronAPI.getThemeArchive()).length,
+      }
+    })
+    assert.deepEqual(repeatedSave, { sameTheme: true, themeCount: 1 })
+    await page.getByTestId('validate-theme').click()
+    await page.getByTestId('extracted-theme-preview-info').waitFor({ state: 'visible' })
+    assert.equal(await page.locator('[data-theme-preview="extracted"]').count(), 1)
+    assert.equal(await page.locator('[data-theme-preview="extracted"]').getAttribute('data-theme-color-mode'), 'base')
+    await page.getByRole('button', { name: 'Dark', exact: true }).click()
+    assert.equal(await page.locator('[data-theme-preview="extracted"]').getAttribute('data-theme-color-mode'), 'dark')
+    await page.getByRole('button', { name: 'Captured', exact: true }).click()
+    assert.equal(await page.locator('html').getAttribute('data-app-theme'), appThemeBeforeWebsitePreview)
+
+    await page.locator('a[href="#/themes"]').click()
+    await page.getByRole('button', { name: /^Website Themes \(1\)$/ }).click()
+    await page.getByText(fixtureUrl, { exact: true }).waitFor()
+
     await page.locator('a[href="#/history"]').click()
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
@@ -475,6 +519,31 @@ test('extracts a local design system without LLM credentials and persists it', {
       .waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 2)
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'detached', timeout: 30_000 })
+
+    const originalSavedTheme = await page.evaluate(async () => {
+      const [theme] = await window.electronAPI.getThemeArchive()
+      return theme ? { id: theme.id, sourceUrl: theme.source_url } : null
+    })
+    assert.equal(originalSavedTheme?.sourceUrl, fixtureUrl)
+    await page.getByTestId('save-theme').click()
+    const replaceThemeDialog = page.getByRole('alertdialog')
+    await replaceThemeDialog.waitFor({ state: 'visible' })
+    assert.match((await replaceThemeDialog.textContent()) || '', /theme named.*already exists.*history is retained/is)
+    await replaceThemeDialog.getByRole('button', { name: 'Cancel' }).click()
+    await replaceThemeDialog.waitFor({ state: 'detached' })
+    assert.equal((await page.evaluate(async () => window.electronAPI.getThemeArchive())).length, 1)
+    assert.equal(await page.getByTestId('save-theme').getAttribute('aria-label'), 'Save to Theme Library')
+
+    await page.getByTestId('save-theme').click()
+    await replaceThemeDialog.waitFor({ state: 'visible' })
+    await page.getByTestId('confirm-dialog-confirm').click()
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="save-theme"]')?.getAttribute('aria-label') === 'Saved',
+    )
+    const replacedThemes = await page.evaluate(async () =>
+      (await window.electronAPI.getThemeArchive()).map((theme) => ({ id: theme.id, sourceUrl: theme.source_url })),
+    )
+    assert.deepEqual(replacedThemes, [{ id: originalSavedTheme.id, sourceUrl: privateUrl }])
 
     await page.getByTestId('browser-sessions-open').click()
     await page.getByTestId('browser-sessions-dialog').waitFor({ state: 'visible' })

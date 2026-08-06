@@ -25,6 +25,7 @@ import { compareDesignProfiles } from '../core/design-intelligence/profile-compa
 import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
 import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
 import {
+  buildDarkModeExportData,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
@@ -196,12 +197,13 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
 
     const tokens = result.tokens
     const featureTags = result.featureTags
+    const darkMode = buildDarkModeExportData(result.darkMode)
 
     switch (format) {
       case 'css':
-        return { content: [{ type: 'text', text: generateCssVariables(tokens) }] }
+        return { content: [{ type: 'text', text: generateCssVariables(tokens, darkMode, result.breakpoints) }] }
       case 'tailwind':
-        return { content: [{ type: 'text', text: generateTailwindTheme(tokens) }] }
+        return { content: [{ type: 'text', text: generateTailwindTheme(tokens, darkMode, result.breakpoints) }] }
       case 'markdown':
         return {
           content: [
@@ -211,8 +213,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                 tokens,
                 url,
                 featureTags,
-                undefined,
-                undefined,
+                darkMode,
+                result.breakpoints,
                 result.components,
                 'en',
                 [],
@@ -231,22 +233,23 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
               text: JSON.stringify(
                 {
                   tokens,
+                  darkMode,
                   featureTags,
-                  css: generateCssVariables(tokens),
-                  tailwind: generateTailwindTheme(tokens),
+                  css: generateCssVariables(tokens, darkMode, result.breakpoints),
+                  tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
                   evidence: result.designEvidence,
                   markdown: generateDesignDoc(
                     tokens,
                     url,
                     featureTags,
-                    undefined,
-                    undefined,
+                    darkMode,
+                    result.breakpoints,
                     result.components,
                     'en',
                     [],
                     result.designEvidence,
                   ),
-                  dtcg: generateDtcgJson(tokens),
+                  dtcg: generateDtcgJson(tokens, darkMode),
                 },
                 null,
                 2,
@@ -255,7 +258,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
           ],
         }
       default:
-        return { content: [{ type: 'text', text: JSON.stringify({ tokens, featureTags }, null, 2) }] }
+        return { content: [{ type: 'text', text: JSON.stringify({ tokens, darkMode, featureTags }, null, 2) }] }
     }
   }
 

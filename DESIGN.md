@@ -346,9 +346,26 @@ Visual novelty must remain accountable to the product's extraction and validatio
   workflow, content and presentation, and interaction states. Keep every scenario directly visible in a compact grouped
   tile layout; do not hide scenario switching inside a select menu.
 - Keep every built-in and extracted theme visible by name and separate palette swatches beside the validation controls.
-  Theme choices wrap onto additional rows instead of moving into an overflow menu, preserving one-click comparison at
-  every library size. Applying a theme updates the current validation surface in place without resetting or replaying
-  the scenario; theme management and export remain exclusive to Theme Library.
+  Present them in two labeled groups: Imprint appearance themes are complete systems that change the app shell, while
+  extracted website themes are evidence snapshots scoped to the current preview. Theme choices wrap within their group
+  instead of moving into an overflow menu, preserving one-click comparison at every library size. Applying either kind
+  of theme updates the current validation surface in place without resetting or replaying the scenario; theme management
+  and export remain exclusive to Theme Library.
+- Built-in themes are complete Imprint appearance systems and may style the desktop shell. Website themes saved from an
+  analysis are evidence snapshots, not complete app skins: normalize their observed tokens into a complete semantic
+  preview map, label observed and safely adapted roles, report known source contrast failures, and scope every generated
+  variable to the validation surface. State that validation scenarios keep a fixed neutral layout and compare foundation
+  tokens rather than reconstructing the source composition. When a meaningful dark variant was directly observed, keep it with the snapshot
+  and expose a compact captured/dark switch beside the validation summary. A website theme must never overwrite or
+  persist as the user's Imprint app theme.
+- Saving a website theme snapshots the exact analysis selected by the user. Re-saving that analysis refreshes the same
+  snapshot instead of creating duplicates. Saving a different analysis with the same derived theme name first asks for
+  confirmation, then updates the existing theme in place, preserves its ID, and consolidates any legacy duplicates with
+  that name into one entry; analysis history is retained. Renaming cannot create a duplicate name. Deleting a history
+  record does not delete the saved theme. Theme deletion remains explicit and confirms that the source analysis will be
+  retained.
+- Version deterministic extraction snapshots. When a saved website theme predates a material extraction change, label it
+  as requiring a fresh source analysis; never imply that missing raw browser evidence can be repaired from stored tokens.
 - Avoid generic superlatives, filler metrics, and decorative labels in product copy. Say what the interface verifies or
   what the user can do.
 

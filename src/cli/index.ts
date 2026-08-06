@@ -13,6 +13,7 @@ import { generateDesignProfileJson } from '../core/design-intelligence/profile-e
 import { generateReconstructionBrief } from '../core/design-intelligence/reconstruction-brief.js'
 import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
 import {
+  buildDarkModeExportData,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
@@ -151,6 +152,7 @@ async function main() {
       log(`  [${percent}%] ${step}`, options.quiet)
     },
   )
+  const darkModeExport = buildDarkModeExportData(result.darkMode)
 
   let profile: DesignProfile | null = null
   let reconstructionBrief: string | undefined
@@ -179,14 +181,14 @@ async function main() {
     reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens)
   }
 
-  const cssVars = generateCssVariables(result.tokens)
-  const tailwind = generateTailwindTheme(result.tokens)
+  const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
+  const tailwind = generateTailwindTheme(result.tokens, darkModeExport, result.breakpoints)
   const designDoc = generateDesignDoc(
     result.tokens,
     url,
     result.featureTags,
-    undefined,
-    undefined,
+    darkModeExport,
+    result.breakpoints,
     result.components,
     'en',
     [],
@@ -194,12 +196,26 @@ async function main() {
     profile || undefined,
     reconstructionBrief,
   )
-  const dtcgJson = generateDtcgJson(result.tokens)
+  const dtcgJson = generateDtcgJson(result.tokens, darkModeExport)
   const evidenceJson = generateDesignEvidenceJson(result.designEvidence)
 
   // JSON stdout mode — pipe-friendly
   if (options.jsonStdout) {
-    process.stdout.write(JSON.stringify(result.tokens, null, 2))
+    process.stdout.write(
+      JSON.stringify(
+        darkModeExport?.darkTokens
+          ? {
+              ...result.tokens,
+              darkMode: {
+                method: darkModeExport.method,
+                tokens: darkModeExport.darkTokens,
+              },
+            }
+          : result.tokens,
+        null,
+        2,
+      ),
+    )
     process.exit(0)
   }
 
@@ -234,7 +250,7 @@ async function main() {
         break
       case 'scss':
         filename = 'variables.scss'
-        content = generateScssVariables(result.tokens)
+        content = generateScssVariables(result.tokens, darkModeExport)
         break
       case 'json':
         filename = 'design-tokens.json'
@@ -251,7 +267,7 @@ async function main() {
         break
       case 'pdf':
         filename = 'style-guide.html'
-        content = generatePdfHtml(result.tokens, url, result.featureTags)
+        content = generatePdfHtml(result.tokens, url, result.featureTags, darkModeExport)
         break
       default:
         log(`  Unknown format: ${format}`, options.quiet)
@@ -274,7 +290,7 @@ function printUsage() {
     imprint extract <url> [options]
 
   Options:
-    --format <type>     Output: design.md | tailwind | css | json | evidence | profile | all (default: all)
+    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | pdf | all (default: all)
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme

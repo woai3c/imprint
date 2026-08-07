@@ -21,7 +21,7 @@ import {
   markManagedSession,
 } from './browser-session.js'
 import { clusterColors } from './color-cluster.js'
-import { type ComponentPattern, detectComponents } from './component-detect.js'
+import { type ComponentPattern, detectComponents, mergeComponentPatterns } from './component-detect.js'
 import { extractDarkMode } from './dark-mode-detect.js'
 import {
   AuthenticationBrowserClosedError,
@@ -29,16 +29,26 @@ import {
   AuthenticationRequiredError,
 } from './errors.js'
 import { generateFeatureTags } from './feature-tags.js'
-import { discoverSubPages } from './page-discovery.js'
-import { type MotionToken, type ResponsiveBreakpoint, detectBreakpoints, detectMotion } from './responsive-motion.js'
+import { type DiscoveredPage, discoverPages } from './page-discovery.js'
+import { freezePageAnimations, preparePageForExtraction } from './page-preparer.js'
+import {
+  type MotionToken,
+  type ResponsiveBreakpoint,
+  detectBreakpoints,
+  detectMotion,
+  mergeMotionTokens,
+  mergeResponsiveBreakpoints,
+} from './responsive-motion.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { mergeStyles, mergeStylesWithNormalizedUsage } from './style-merge.js'
 import { buildDesignTokens } from './token-builder.js'
+import { type TokenEvidenceCapture, buildTokenEvidence } from './token-evidence.js'
 import type {
   AnalysisOptions,
   AnalysisResult,
   DarkModeResult,
   ExtractedStyles,
+  ExtractionIssue,
   InteractionStyles,
   PageScreenshot,
 } from './types.js'
@@ -59,12 +69,17 @@ export type {
   AuthMode,
   DarkModeResult,
   DesignToken,
+  ExtractionIssue,
   ExtractedStyles,
   InteractionStyles,
   LoginDecision,
   LoginRequest,
+  PageCoverage,
   PageScreenshot,
+  TokenConfidence,
+  TokenEvidence,
 } from './types.js'
+export type { PageDiscoveryMode, PageKind } from './page-discovery.js'
 
 const VIEWPORTS: Record<string, { width: number; height: number }> = {
   desktop: { width: 1440, height: 900 },
@@ -240,14 +255,47 @@ async function switchManagedRuntimeToHeadless(
 }
 
 function mergeInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
-  for (const kind of ['hover', 'focus', 'active'] as const) {
-    const seen = new Set(target[kind].map((styles) => JSON.stringify(styles)))
-    for (const styles of source[kind]) {
+  for (const kind of ['hover', 'focus', 'active', 'disabled'] as const) {
+    const targetEntries = target[kind] || []
+    const seen = new Set(targetEntries.map((styles) => JSON.stringify(styles)))
+    for (const styles of source[kind] || []) {
       const fingerprint = JSON.stringify(styles)
       if (seen.has(fingerprint)) continue
-      target[kind].push(styles)
+      targetEntries.push(styles)
       seen.add(fingerprint)
     }
+    if (kind === 'disabled') target.disabled = targetEntries
+  }
+}
+
+function extractionReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function pageIdentityUrl(value: string): string {
+  try {
+    const pageUrl = new URL(value)
+    pageUrl.username = ''
+    pageUrl.password = ''
+    pageUrl.search = ''
+    pageUrl.hash = ''
+    return pageUrl.href
+  } catch {
+    return value.split(/[?#]/, 1)[0]
+  }
+}
+
+async function guardExtractionStage<T>(
+  issues: ExtractionIssue[],
+  stage: string,
+  fallback: T,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    issues.push({ stage, reason: extractionReason(error) })
+    return fallback
   }
 }
 
@@ -446,10 +494,18 @@ export async function analyze(
     if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
 
     const allStyles: ExtractedStyles[] = []
+    const styleCaptures: TokenEvidenceCapture[] = []
     const screenshots: string[] = []
     const pageScreenshots: PageScreenshot[] = []
     const capturedPageEvidence: CapturedPageEvidence[] = []
-    const allInteractions: InteractionStyles = { hover: [], focus: [], active: [] }
+    const allInteractions: InteractionStyles = { hover: [], focus: [], active: [], disabled: [] }
+    const extractionIssues: ExtractionIssue[] = []
+    const analyzedPages = new Map<
+      string,
+      { source: 'requested' | 'dom' | 'sitemap'; kind: 'entry' | DiscoveredPage['kind'] }
+    >()
+    let discoveredPages: DiscoveredPage[] = []
+    let discoveredPageCount = 0
     let darkModeResult: DarkModeResult | null = null
     let components: ComponentPattern[] = []
     let breakpoints: ResponsiveBreakpoint[] = []
@@ -469,30 +525,66 @@ export async function analyze(
       if (page !== initialPage) await navigatePage(page, url)
       if (i === 0) finalUrl = page.url()
 
-      await page.waitForFunction(() => document.fonts.ready, { timeout: 5000 }).catch(() => {})
+      const stagePrefix = `page-1:${vpName}`
+      const preparation = await preparePageForExtraction(page)
+      extractionIssues.push(
+        ...preparation.issues.map((issue) => ({
+          stage: `${stagePrefix}:prepare:${issue.stage}`,
+          reason: issue.reason,
+        })),
+      )
 
-      const styles = await extractStyles(page)
+      if (i === 0) {
+        motion = await guardExtractionStage(extractionIssues, `${stagePrefix}:motion`, [], () => detectMotion(page))
+      }
+      const animationIssue = await freezePageAnimations(page)
+      if (animationIssue) {
+        extractionIssues.push({
+          stage: `${stagePrefix}:prepare:${animationIssue.stage}`,
+          reason: animationIssue.reason,
+        })
+      }
+
+      const styles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
+        extractStyles(page),
+      )
       allStyles.push(styles)
+      styleCaptures.push({ url: page.url(), viewport: vpName, styles })
+      analyzedPages.set(pageIdentityUrl(page.url()), { source: 'requested', kind: 'entry' })
 
-      const pageInteractionStyles = await extractInteractionStyles(page)
+      const pageInteractionStyles = await guardExtractionStage(
+        extractionIssues,
+        `${stagePrefix}:interaction-styles`,
+        { hover: [], focus: [], active: [], disabled: [] },
+        () => extractInteractionStyles(page),
+      )
       mergeInteractionStyles(allInteractions, pageInteractionStyles)
 
       if (i === 0 && options.extractDarkMode !== false) {
-        darkModeResult = await extractDarkMode(page, styles)
+        darkModeResult = await guardExtractionStage(extractionIssues, `${stagePrefix}:dark-mode`, null, () =>
+          extractDarkMode(page, styles),
+        )
       }
 
       if (i === 0) {
-        components = await detectComponents(page)
-        breakpoints = await detectBreakpoints(page)
-        motion = await detectMotion(page)
-        techStack = await detectTechStack(page)
+        components = await guardExtractionStage(extractionIssues, `${stagePrefix}:components`, [], () =>
+          detectComponents(page),
+        )
+        breakpoints = await guardExtractionStage(extractionIssues, `${stagePrefix}:breakpoints`, [], () =>
+          detectBreakpoints(page),
+        )
+        techStack = await guardExtractionStage(extractionIssues, `${stagePrefix}:tech-stack`, undefined, () =>
+          detectTechStack(page),
+        )
       }
 
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
       const evidenceSnapshot = await extractPageEvidence(page, vpName)
       const interactionObservations =
         i === 0 && accessMode === 'anonymous' && !authDetection.detected
-          ? await observeSafeInteractions(page, evidenceSnapshot, options.depth === 'deep' ? 12 : 6)
+          ? await guardExtractionStage(extractionIssues, `${stagePrefix}:safe-interactions`, [], () =>
+              observeSafeInteractions(page, evidenceSnapshot, options.depth === 'deep' ? 12 : 6),
+            )
           : []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
@@ -577,14 +669,28 @@ export async function analyze(
       }
       onProgress?.('progress.discoveringPages', 75)
 
-      const subPages = await discoverSubPages(discoveryPage, url, subPageLimit)
+      const discovery = await discoverPages(
+        discoveryPage,
+        discoveryPage.url() || finalUrl,
+        subPageLimit,
+        options.pageDiscovery,
+      )
+      discoveredPages = discovery.pages
+      discoveredPageCount = discovery.candidateCount
+      extractionIssues.push(
+        ...discovery.issues.map((issue) => ({
+          stage: `page-discovery:${issue.stage}`,
+          reason: issue.reason,
+        })),
+      )
       if (!canReuseInitialPage) await discoveryPage.close()
 
-      for (let i = 0; i < subPages.length; i++) {
-        const subUrl = subPages[i]
+      for (let i = 0; i < discoveredPages.length; i++) {
+        const discoveredPage = discoveredPages[i]
+        const subUrl = discoveredPage.url
         onProgress?.(
-          `progress.analyzingPage::${i + 2}::${subPages.length + 1}`,
-          Math.round(76 + ((i + 1) / Math.max(subPages.length, 1)) * 8),
+          `progress.analyzingPage::${i + 2}::${discoveredPages.length + 1}`,
+          Math.round(76 + ((i + 1) / Math.max(discoveredPages.length, 1)) * 8),
         )
 
         const subPage = await runtime.context.newPage()
@@ -602,10 +708,53 @@ export async function analyze(
           const subPageAuthDetection = await detectAuthWall(subPage, subPageStatus)
           if (subPageAuthDetection.detected) continue
 
-          const subStyles = await extractStyles(subPage)
+          const stagePrefix = `page-${i + 2}:${mainViewportName}`
+          const preparation = await preparePageForExtraction(subPage)
+          extractionIssues.push(
+            ...preparation.issues.map((issue) => ({
+              stage: `${stagePrefix}:prepare:${issue.stage}`,
+              reason: issue.reason,
+            })),
+          )
+          const subPageMotion = await guardExtractionStage(extractionIssues, `${stagePrefix}:motion`, [], () =>
+            detectMotion(subPage),
+          )
+          motion = mergeMotionTokens([motion, subPageMotion])
+          const animationIssue = await freezePageAnimations(subPage)
+          if (animationIssue) {
+            extractionIssues.push({
+              stage: `${stagePrefix}:prepare:${animationIssue.stage}`,
+              reason: animationIssue.reason,
+            })
+          }
+
+          const subStyles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
+            extractStyles(subPage),
+          )
           allStyles.push(subStyles)
-          const pageInteractionStyles = await extractInteractionStyles(subPage)
+          styleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
+          analyzedPages.set(pageIdentityUrl(subPage.url()), {
+            source: discoveredPage.source,
+            kind: discoveredPage.kind,
+          })
+          const pageInteractionStyles = await guardExtractionStage(
+            extractionIssues,
+            `${stagePrefix}:interaction-styles`,
+            { hover: [], focus: [], active: [], disabled: [] },
+            () => extractInteractionStyles(subPage),
+          )
           mergeInteractionStyles(allInteractions, pageInteractionStyles)
+          const subPageComponents = await guardExtractionStage(extractionIssues, `${stagePrefix}:components`, [], () =>
+            detectComponents(subPage),
+          )
+          components = mergeComponentPatterns([components, subPageComponents])
+          const subPageBreakpoints = await guardExtractionStage(
+            extractionIssues,
+            `${stagePrefix}:breakpoints`,
+            [],
+            () => detectBreakpoints(subPage),
+          )
+          breakpoints = mergeResponsiveBreakpoints([breakpoints, subPageBreakpoints])
 
           const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}.png`)
           const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
@@ -622,8 +771,9 @@ export async function analyze(
             snapshot: evidenceSnapshot,
             interactionStyles: pageInteractionStyles,
           })
-        } catch {
+        } catch (error) {
           // Sub-page failed to load, skip it
+          extractionIssues.push({ stage: `page-${i + 2}:${mainViewportName}`, reason: extractionReason(error) })
         } finally {
           await subPage.close()
         }
@@ -640,11 +790,13 @@ export async function analyze(
       tokenSelectionStyles.colors,
       tokenSelectionStyles.usageCount,
       primaryPageStyles.usageCount,
+      tokenSelectionStyles.usageCount,
     )
 
     onProgress?.('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
     tokens.usageCount = mergedStyles.usageCount
+    tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
     const featureTags = generateFeatureTags(tokens, mergedStyles)
     const designEvidence = buildDesignEvidence({
       analysisId,
@@ -685,6 +837,14 @@ export async function analyze(
       accessMode,
       authWallDetected,
       finalUrl,
+      extractionIssues,
+      pageCoverage: {
+        requested: pageLimit,
+        discovered: discoveredPageCount,
+        selected: discoveredPages.length,
+        analyzed: analyzedPages.size,
+        pages: [...analyzedPages].map(([pageUrl, metadata]) => ({ url: pageUrl, ...metadata })),
+      },
     }
   } finally {
     await closeRuntime(runtime)

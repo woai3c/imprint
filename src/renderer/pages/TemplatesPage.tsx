@@ -3,7 +3,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router-dom'
 
-import { CURRENT_EXTRACTION_VERSION, type ThemeSummaryRecord } from '../../shared/ipc-contract'
+import type { ThemeSummaryRecord } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { AnalyticsTemplate } from '../components/templates/AnalyticsTemplate'
 import { BlogTemplate } from '../components/templates/BlogTemplate'
@@ -198,9 +198,6 @@ export function TemplatesPage() {
               adapted: extractedPreview.adaptedRoleCount,
             })}
           </span>
-          {(selectedExtractedTheme.extraction_version || 1) < CURRENT_EXTRACTION_VERSION && (
-            <span className="font-medium text-warning-strong">{t('themes.reanalysisRequired')}</span>
-          )}
           <div className="flex items-center gap-2">
             {extractedPreview.hasDarkMode && (
               <div

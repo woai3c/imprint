@@ -78,7 +78,7 @@ const evidence: DesignEvidence = {
       role: 'hero',
       rect: { x: 0.1, y: 0.1, width: 0.8, height: 0.4 },
       layoutMode: 'flow',
-      tokenRefs: ['color.background'],
+      tokenRefs: ['color.background', 'spacing.2', 'typography.font-size.1'],
       componentRefs: ['component-a'],
       interactionRefs: [],
       mediaLayerRefs: [],
@@ -91,7 +91,7 @@ const evidence: DesignEvidence = {
       role: 'hero',
       rect: { x: 0.05, y: 0.1, width: 0.9, height: 0.5 },
       layoutMode: 'flow',
-      tokenRefs: ['color.background'],
+      tokenRefs: ['color.background', 'spacing.2', 'typography.font-size.1'],
       componentRefs: [],
       interactionRefs: [],
       mediaLayerRefs: [],
@@ -229,6 +229,15 @@ function rawProfile(mode: 'structural-only' | 'multimodal' = 'structural-only') 
       avoid: [claim()],
     },
     uncertainties: [],
+  }
+}
+
+function multiUrlEvidence(): DesignEvidence {
+  return {
+    ...evidence,
+    pages: evidence.pages.map((page) =>
+      page.id === 'page-b' ? { ...page, url: 'https://example.com/pricing', viewport: 'desktop' } : page,
+    ),
   }
 }
 
@@ -372,6 +381,59 @@ describe('Design intelligence', () => {
     expect(JSON.stringify(selected)).not.toContain('C:\\private')
   })
 
+  it('budgets distinct URLs without losing the entry page responsive capture', () => {
+    const thirdPage: DesignEvidence = {
+      ...evidence,
+      pages: [
+        ...evidence.pages,
+        {
+          id: 'page-c',
+          url: 'https://example.com/pricing',
+          viewport: 'desktop',
+          role: 'pricing',
+          images: [],
+        },
+      ],
+      topology: {
+        ...evidence.topology,
+        pages: [...evidence.topology.pages, { pageId: 'page-c', role: 'pricing', sectionIds: [] }],
+      },
+    }
+
+    const selected = selectEvidencePackage(thirdPage, 'structural-only', { maxPages: 2 })
+    expect(selected.selectedPageIds).toEqual(['page-a', 'page-b', 'page-c'])
+    expect(new Set(selected.evidence.pages.map((page) => page.url)).size).toBe(2)
+  })
+
+  it('round-robins section evidence across selected URLs', () => {
+    const crossPageEvidence: DesignEvidence = {
+      ...evidence,
+      pages: [
+        ...evidence.pages,
+        { id: 'page-c', url: 'https://example.com/pricing', viewport: 'desktop', role: 'pricing', images: [] },
+      ],
+      sections: [
+        evidence.sections[0],
+        { ...evidence.sections[0], id: 'section-a-2', order: 1, role: 'content' },
+        { ...evidence.sections[0], id: 'section-a-3', order: 2, role: 'action' },
+        { ...evidence.sections[0], id: 'section-c', pageId: 'page-c', order: 0, role: 'content' },
+      ],
+      topology: {
+        ...evidence.topology,
+        pages: [
+          { pageId: 'page-a', role: 'landing', sectionIds: ['section-a', 'section-a-2', 'section-a-3'] },
+          { pageId: 'page-c', role: 'pricing', sectionIds: ['section-c'] },
+        ],
+      },
+    }
+
+    const selected = selectEvidencePackage(crossPageEvidence, 'structural-only', {
+      maxPages: 2,
+      maxSections: 2,
+    })
+    expect(selected.selectedSectionIds).toEqual(['section-a', 'section-c'])
+  })
+
   it('removes unavailable images from the multimodal evidence package', () => {
     const selected = selectEvidencePackage(evidence, 'multimodal')
     expect(selected.imageIds).toContain('image-a')
@@ -384,9 +446,73 @@ describe('Design intelligence', () => {
   it('validates grounded profiles and downgrades structural visual certainty', () => {
     const validation = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en')
     expect(validation.profile).not.toBeNull()
-    expect(validation.profile?.attention.entryPoint.confidence).toBe('medium')
-    expect(validation.profile?.visualLanguage.imagery?.confidence).toBe('medium')
+    expect(validation.profile?.attention.entryPoint.confidence).toBe('low')
+    expect(validation.profile?.visualLanguage.imagery?.confidence).toBe('low')
     expect(validation.profile?.patterns?.[0].tokenRefs).toEqual(['color.primary'])
+  })
+
+  it('resolves misplaced token citations back to selected DOM evidence', () => {
+    const raw = rawProfile()
+    raw.composition.densityAndWhitespace = {
+      ...claim('Repeated background spacing creates consistent breathing room'),
+      evidence: [{ evidenceId: 'spacing.2', note: 'Spacing token observed on both sections' }],
+    }
+    raw.visualLanguage.color = {
+      ...claim('A restrained primary accent separates actions from neutral surfaces'),
+      evidence: [{ evidenceId: 'color.primary', note: 'Primary token observed on the action component' }],
+    }
+
+    const validation = validateDesignProfile(raw, evidence, 'structural-only', 'en')
+    expect(validation.profile).not.toBeNull()
+    expect(validation.profile?.composition.densityAndWhitespace.tokenRefs).toEqual(['spacing.2'])
+    expect(validation.profile?.composition.densityAndWhitespace.evidence.map((item) => item.evidenceId)).toEqual([
+      'section-a',
+      'section-b',
+    ])
+    expect(validation.profile?.visualLanguage.color.tokenRefs).toEqual(['color.primary'])
+    expect(validation.profile?.visualLanguage.color.evidence[0].evidenceId).toBe('component-a')
+  })
+
+  it('does not allow token refs to replace an observed citation', () => {
+    const raw = rawProfile()
+    raw.visualLanguage.color = {
+      ...claim('A restrained primary accent separates actions from neutral surfaces'),
+      evidence: [],
+      tokenRefs: ['color.primary'],
+    }
+
+    const validation = validateDesignProfile(raw, evidence, 'structural-only', 'en')
+    expect(validation.profile).toBeNull()
+    expect(validation.rejected).toContain('visualLanguage.color:missing-evidence')
+  })
+
+  it('drops unobserved section roles and single-page preserve rules from multi-page profiles', () => {
+    const raw = rawProfile()
+    raw.sectionGrammar.push({
+      role: 'main-feed',
+      composition: [claim()],
+      contentRhythm: [claim()],
+      transitionToNext: [claim()],
+    })
+    raw.transferRules.preserve = [
+      {
+        ...claim('A local hero arrangement appears on the entry page'),
+        evidence: [
+          { evidenceId: 'section-a', note: 'Entry-page section' },
+          { evidenceId: 'image-a', note: 'Entry-page overview' },
+        ],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, multiUrlEvidence(), 'structural-only', 'en')
+    expect(validation.profile?.sectionGrammar.some((grammar) => grammar.role === 'main-feed')).toBe(false)
+    expect(validation.profile?.transferRules.preserve).toEqual([])
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'sectionGrammar.1:unobserved-role',
+        'transferRules.preserve.0:single-page-preserve-rule',
+      ]),
+    )
   })
 
   it('partially accepts optional claims but rejects malicious required claims', () => {
@@ -503,6 +629,39 @@ describe('Design intelligence', () => {
     const withInteraction = validateDesignProfile(supported, interactionEvidence, 'structural-only', 'en')
     expect(withInteraction.profile).not.toBeNull()
     expect(withInteraction.profile!.interactionLanguage.feedbackStyle!.confidence).toBe('medium')
+  })
+
+  it('does not treat passive state declarations as executed click behavior', () => {
+    const passiveEvidence: DesignEvidence = {
+      ...evidence,
+      interactionObservations: [
+        {
+          id: 'interaction-passive',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-a',
+          driver: 'click',
+          safety: 'passive',
+          trigger: { kind: 'aria-state:aria-expanded' },
+          before: { ariaExpanded: 'false' },
+          after: { ariaExpanded: 'false' },
+          changedProperties: ['aria-expanded'],
+          evidenceRefs: ['section-a'],
+        },
+      ],
+    }
+    const raw = rawProfile()
+    const passiveClaim = {
+      ...claim('Click expands the disclosure and changes its visible state'),
+      evidence: [{ evidenceId: 'interaction-passive', note: 'Declared aria-expanded state' }],
+    }
+    raw.interactionLanguage.primaryDrivers = [passiveClaim]
+    raw.interactionLanguage.feedbackStyle = passiveClaim
+    raw.interactionLanguage.stateChangeAmplitude = passiveClaim
+
+    const validation = validateDesignProfile(raw, passiveEvidence, 'structural-only', 'en')
+    expect(validation.profile?.interactionLanguage.primaryDrivers[0].confidence).toBe('low')
+    expect(validation.profile?.interactionLanguage.feedbackStyle.confidence).toBe('low')
   })
 
   it('generates scoped context, reconstruction guidance, and layered validation checks', () => {

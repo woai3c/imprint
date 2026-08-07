@@ -37,6 +37,8 @@ interface CliOptions {
   baseUrl: string
   allowScreenshots: boolean
   modelSupportsVision: boolean
+  maxPages: number
+  pageDiscovery: 'auto' | 'links' | 'sitemap'
 }
 
 function parseArgs(args: string[]): { url: string; options: CliOptions } {
@@ -55,6 +57,8 @@ function parseArgs(args: string[]): { url: string; options: CliOptions } {
     baseUrl: getFlag(args, '--base-url') || '',
     allowScreenshots: args.includes('--allow-screenshots'),
     modelSupportsVision: args.includes('--model-supports-vision'),
+    maxPages: Number.parseInt(getFlag(args, '--pages') || '3', 10),
+    pageDiscovery: (getFlag(args, '--discovery') || 'auto') as CliOptions['pageDiscovery'],
   }
   return { url, options }
 }
@@ -117,6 +121,12 @@ async function main() {
   if (!['none', 'structural', 'vision'].includes(options.intelligence)) {
     throw new Error('--intelligence must be none, structural, or vision')
   }
+  if (!Number.isFinite(options.maxPages) || options.maxPages < 1 || options.maxPages > 5) {
+    throw new Error('--pages must be an integer from 1 to 5')
+  }
+  if (!['auto', 'links', 'sitemap'].includes(options.pageDiscovery)) {
+    throw new Error('--discovery must be auto, links, or sitemap')
+  }
   if (options.intelligence !== 'none' && !options.provider) {
     throw new Error('--provider is required when design intelligence is enabled')
   }
@@ -146,6 +156,8 @@ async function main() {
       viewports,
       useSession: options.useSession,
       extractDarkMode: options.darkMode,
+      maxPages: options.maxPages,
+      pageDiscovery: options.pageDiscovery,
       dataDir,
     },
     (step, percent) => {
@@ -294,6 +306,8 @@ function printUsage() {
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
+    --pages <count>     Analyze 1–5 pages (default: 3)
+    --discovery <mode>  Page discovery: auto | links | sitemap (default: auto)
     --no-session        Don't reuse Imprint's saved browser session
     --json-stdout       Output token JSON to stdout (pipe-friendly)
     --quiet             Suppress progress output

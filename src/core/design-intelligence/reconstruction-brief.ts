@@ -3,13 +3,17 @@ import type { DesignEvidence } from '../design-evidence/types.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
 function claimLine(claim: DesignClaim): string {
-  return `- ${claim.implementation} [${claim.confidence}; ${claim.evidence.map((item) => item.evidenceId).join(', ')}]`
+  return `- ${claim.implementation} [${claim.confidence}; ${[
+    ...claim.evidence.map((item) => item.evidenceId),
+    ...(claim.tokenRefs || []),
+  ].join(', ')}]`
 }
 
 function labeledClaimLine(label: string, claim: DesignClaim): string {
-  return `- **${label}:** ${claim.implementation} [${claim.confidence}; ${claim.evidence
-    .map((item) => item.evidenceId)
-    .join(', ')}]`
+  return `- **${label}:** ${claim.implementation} [${claim.confidence}; ${[
+    ...claim.evidence.map((item) => item.evidenceId),
+    ...(claim.tokenRefs || []),
+  ].join(', ')}]`
 }
 
 export function generateReconstructionBrief(

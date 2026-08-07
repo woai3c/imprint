@@ -110,7 +110,7 @@ export interface InteractionObservation {
   pageId: string
   sectionId: string
   targetId: string
-  driver: 'hover' | 'focus' | 'click' | 'scroll' | 'time'
+  driver: 'hover' | 'focus' | 'click' | 'disabled' | 'scroll' | 'time'
   safety: 'passive' | 'safe-active'
   trigger: {
     kind: string

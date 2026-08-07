@@ -16,6 +16,7 @@ import {
   AuthenticationCancelledError,
   AuthenticationRequiredError,
   type LoginDecision,
+  type PageDiscoveryMode,
 } from '../core/analyzer/index.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
@@ -39,7 +40,6 @@ import {
   restoreDarkModeExportData,
 } from '../core/export/index.js'
 import {
-  CURRENT_EXTRACTION_VERSION,
   type PageScreenshotData,
   type ThemeExportFormat,
   type ThemeRecord,
@@ -69,7 +69,7 @@ interface SaveTextFileOptions {
 const designIntelligenceControllers = new Map<string, AbortController>()
 const analysisStartTimes = new Map<string, number>()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
-  dark_mode_method, dark_mode_selector, extraction_version, tags, is_favorite, created_at, updated_at`
+  dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
 
 function compactTokenSnapshot(serialized: string | null): string | null {
   if (!serialized) return serialized
@@ -179,7 +179,7 @@ export function registerIpcHandlers() {
         db.prepare(
           `UPDATE themes
            SET source_url = ?, screenshot_path = ?, tokens_json = ?, css_variables = ?, tailwind_theme = ?,
-               design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, extraction_version = ?, design_evidence_json = ?, design_profile_json = ?,
+               design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, design_evidence_json = ?, design_profile_json = ?,
                design_intelligence_meta_json = ?, updated_at = ?
            WHERE id = ?`,
         ).run(
@@ -192,7 +192,6 @@ export function registerIpcHandlers() {
           analysis.dark_tokens_json || null,
           analysis.dark_mode_method || null,
           analysis.dark_mode_selector || null,
-          Number(analysis.extraction_version) || 1,
           analysis.design_evidence_json || null,
           analysis.design_profile_json || null,
           analysis.design_intelligence_meta_json || null,
@@ -253,9 +252,9 @@ export function registerIpcHandlers() {
       db.prepare(
         `INSERT INTO themes (
            id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc,
-           dark_tokens_json, dark_mode_method, dark_mode_selector, extraction_version, design_evidence_json, design_profile_json,
+           dark_tokens_json, dark_mode_method, dark_mode_selector, design_evidence_json, design_profile_json,
            design_intelligence_meta_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         themeId,
         name,
@@ -268,7 +267,6 @@ export function registerIpcHandlers() {
         analysis.dark_tokens_json || null,
         analysis.dark_mode_method || null,
         analysis.dark_mode_selector || null,
-        Number(analysis.extraction_version) || 1,
         analysis.design_evidence_json || null,
         analysis.design_profile_json || null,
         analysis.design_intelligence_meta_json || null,
@@ -553,6 +551,7 @@ export function registerIpcHandlers() {
         authMode?: AuthMode
         language?: string
         depth?: 'standard' | 'deep'
+        pageDiscovery?: PageDiscoveryMode
       },
     ) => {
       const win = BrowserWindow.fromWebContents(event.sender)
@@ -610,10 +609,10 @@ export function registerIpcHandlers() {
           `INSERT INTO analyses
            (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
-            feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, extraction_version, has_dark_mode, access_mode, auth_wall_detected, final_url,
+            feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
             design_evidence_json, evidence_coverage_json, design_intelligence_status,
             design_intelligence_meta_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           url,
@@ -630,7 +629,6 @@ export function registerIpcHandlers() {
           darkModeExport?.darkTokens ? JSON.stringify(darkModeExport.darkTokens) : null,
           result.darkMode?.hasDarkMode ? result.darkMode.method : null,
           result.darkMode?.hasDarkMode ? result.darkMode.selector || null : null,
-          CURRENT_EXTRACTION_VERSION,
           result.darkMode?.hasDarkMode ? 1 : 0,
           result.accessMode ?? null,
           result.authWallDetected ? 1 : 0,
@@ -645,7 +643,7 @@ export function registerIpcHandlers() {
 
         log.info(
           'analysis',
-          `done: url=${url} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'}`,
+          `done: url=${url} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${result.extractionIssues.length}`,
         )
 
         return {
@@ -668,6 +666,8 @@ export function registerIpcHandlers() {
           accessMode: result.accessMode,
           authWallDetected: result.authWallDetected,
           finalUrl: result.finalUrl,
+          extractionIssues: result.extractionIssues,
+          pageCoverage: result.pageCoverage,
           designEvidence: result.designEvidence,
           designIntelligence: designIntelligenceMeta,
         }

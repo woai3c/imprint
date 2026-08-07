@@ -50,6 +50,21 @@ describe('design token builder', () => {
     expect(tokens.transitions).toEqual(['0.15s', '200ms', '0.3s'])
   })
 
+  test('uses directly rendered text coverage instead of nested element counts for the primary font', () => {
+    const styles = createExtractedStyles({
+      fontFamilies: ['Display Face, sans-serif', 'Reading Face, sans-serif'],
+      usageCount: {
+        'fontFamily:Display Face, sans-serif': 40,
+        'fontFamily:Reading Face, sans-serif': 4,
+        'fontTextFamily:Display Face, sans-serif': 20,
+        'fontTextFamily:Reading Face, sans-serif': 600,
+      },
+    })
+    const tokens = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(tokens.typography.fontFamilies[0]).toBe('Reading Face')
+  })
+
   test('does not promote a distant brand block to the neutral surface role', () => {
     const styles = createExtractedStyles()
     const tokens = buildDesignTokens(styles, {

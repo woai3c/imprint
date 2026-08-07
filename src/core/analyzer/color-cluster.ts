@@ -105,6 +105,14 @@ function addFrequency(target: Map<string, number>, source: ColorFrequency, weigh
   }
 }
 
+function subtractFrequency(target: Map<string, number>, source: ColorFrequency, weight = 1): void {
+  for (const [color, count] of source) {
+    const remaining = (target.get(color) || 0) - count * weight
+    if (remaining > 0) target.set(color, remaining)
+    else target.delete(color)
+  }
+}
+
 function clusterFrequency(
   frequency: ColorFrequency,
   limit = 20,
@@ -184,10 +192,28 @@ function prioritizeMutedTextColors(colors: string[]): string[] {
   ]
 }
 
+function usableAccentColors(frequency: ColorFrequency): string[] {
+  return clusterFrequency(frequency)
+    .filter((item) => {
+      const color = parseColor(item.hex)
+      if (!color) return false
+      const lum = luminance(color.r, color.g, color.b)
+      return color.a > 0.1 && chroma(color) >= 32 && relativeChroma(color) >= 0.3 && lum > 0.015 && lum < 0.97
+    })
+    .map((item) => item.hex)
+}
+
+function appendDistinctColors(target: string[], colors: string[]): void {
+  for (const color of colors) {
+    if (!target.includes(color)) target.push(color)
+  }
+}
+
 export function clusterColors(
   rawColors: string[],
   usageCount: Readonly<Record<string, number>> = {},
   roleUsageCount: Readonly<Record<string, number>> = usageCount,
+  accentUsageCount: Readonly<Record<string, number>> = roleUsageCount,
 ): ClusteredColors {
   const freq = colorFrequency(rawColors, usageCount)
 
@@ -201,25 +227,26 @@ export function clusterColors(
   const backgrounds = prioritizeRelatedRoleColors(roleColors(roleUsageCount, 'bgArea', 'bgColor', 12))
   const texts = prioritizeMutedTextColors(roleColors(roleUsageCount, 'textColor'))
 
-  // Prefer colors used by interactive controls, then rank the remaining chromatic colors by observed frequency.
-  // Neutral-heavy sites still receive a deterministic fallback, but common grays no longer outrank a brand hue.
+  // Explicit semantic evidence is ordered before raw DOM frequency. Otherwise a decorative color repeated across many
+  // nodes can outrank a site's declared brand token even though the repetition is an implementation detail.
   const accentFrequency = new Map<string, number>()
-  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'actionColor'), 16)
-  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'selectedColor'), 12)
-  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'accentColor'), 8)
-  addFrequency(accentFrequency, categoryFrequency(roleUsageCount, 'linkColor'), 6)
-  addFrequency(accentFrequency, colorFrequency(rawColors, roleUsageCount))
-  const accents = clusterFrequency(accentFrequency)
-    .filter((item) => {
-      const color = parseColor(item.hex)
-      if (!color) return false
-      const lum = luminance(color.r, color.g, color.b)
-      return color.a > 0.1 && chroma(color) >= 32 && relativeChroma(color) >= 0.3 && lum > 0.015 && lum < 0.97
-    })
-    .map((item) => item.hex)
+  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'primaryActionColor'), 20)
+  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'actionColor'), 16)
+  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'selectedColor'), 12)
+  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'accentColor'), 8)
+  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'linkColor'), 6)
+  addFrequency(accentFrequency, colorFrequency(rawColors, accentUsageCount))
+  subtractFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'statusColor'), 2)
+  const accents: string[] = []
+  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'primaryActionColor')))
+  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'actionColor')))
+  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'brandTokenColor')))
+  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'selectedColor')))
+  appendDistinctColors(accents, usableAccentColors(accentFrequency))
 
   if (accents.length === 0) {
-    const excluded = new Set([backgrounds[0], texts[0]])
+    const statusColors = clusterFrequency(categoryFrequency(accentUsageCount, 'statusColor')).map((item) => item.hex)
+    const excluded = new Set([backgrounds[0], texts[0], ...statusColors])
     accents.push(
       ...palette
         .filter((item) => {

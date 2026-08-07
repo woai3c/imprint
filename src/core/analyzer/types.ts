@@ -1,6 +1,7 @@
 import type { DesignEvidence } from '../design-evidence/types.js'
 import type { AuthWallDetection } from './auth-wall.js'
 import type { ComponentPattern } from './component-detect.js'
+import type { PageDiscoveryMode, PageKind } from './page-discovery.js'
 import type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 
 export type AuthMode = 'auto' | 'anonymous' | 'managed'
@@ -18,6 +19,7 @@ export interface AnalysisOptions {
   authMode?: AuthMode
   extractDarkMode?: boolean
   depth?: 'standard' | 'deep'
+  pageDiscovery?: PageDiscoveryMode
   dataDir: string
   browserResourcesDir?: string
   proxyServer?: string
@@ -47,12 +49,44 @@ export interface ExtractedStyles {
   zIndices: string[]
   transitions: string[]
   usageCount: Record<string, number>
+  valueSources?: Record<string, string[]>
 }
 
 export interface InteractionStyles {
   hover: Record<string, string>[]
   focus: Record<string, string>[]
   active: Record<string, string>[]
+  disabled?: Record<string, string>[]
+}
+
+export interface ExtractionIssue {
+  stage: string
+  reason: string
+}
+
+export type TokenConfidence = 'high' | 'medium' | 'low'
+
+export interface TokenEvidence {
+  value: string
+  confidence: TokenConfidence
+  observationCount: number
+  pageCount: number
+  captureCount: number
+  pages: string[]
+  sources: string[]
+  reasons: Array<'cross-page' | 'declared-token' | 'interactive-use' | 'rendered-use' | 'computed-style'>
+}
+
+export interface PageCoverage {
+  requested: number
+  discovered: number
+  selected: number
+  analyzed: number
+  pages: Array<{
+    url: string
+    source: 'requested' | 'dom' | 'sitemap'
+    kind: PageKind | 'entry'
+  }>
 }
 
 export interface DarkModeResult {
@@ -79,6 +113,7 @@ export interface DesignToken {
   zIndices: string[]
   transitions: string[]
   usageCount?: Record<string, number>
+  evidence?: Record<string, TokenEvidence>
 }
 
 export interface GeneratedExampleComponent {
@@ -103,4 +138,6 @@ export interface AnalysisResult {
   accessMode: 'anonymous' | 'managed'
   authWallDetected: boolean
   finalUrl: string
+  extractionIssues: ExtractionIssue[]
+  pageCoverage: PageCoverage
 }

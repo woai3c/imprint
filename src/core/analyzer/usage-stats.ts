@@ -6,11 +6,16 @@ export type UsageCategory =
   | 'bgArea'
   | 'accentColor'
   | 'actionColor'
+  | 'primaryActionColor'
+  | 'statusColor'
   | 'linkColor'
   | 'selectedColor'
+  | 'declaredColor'
+  | 'brandTokenColor'
   | 'borderColor'
   | 'structuralBorderColor'
   | 'fontFamily'
+  | 'fontTextFamily'
   | 'fontSize'
   | 'fontWeight'
   | 'lineHeight'
@@ -59,7 +64,7 @@ export function colorFrequency(
   usageCount: Readonly<Record<string, number>> = {},
 ): Map<string, number> {
   const frequency = new Map<string, number>()
-  const colorCategories: UsageCategory[] = ['textColor', 'bgColor', 'borderColor']
+  const colorCategories: UsageCategory[] = ['textColor', 'bgColor', 'borderColor', 'declaredColor']
 
   for (const category of colorCategories) {
     const prefix = `${category}:`

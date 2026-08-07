@@ -4,7 +4,6 @@ import { app } from 'electron'
 
 import Database from 'better-sqlite3'
 
-import { CURRENT_EXTRACTION_VERSION } from '../shared/ipc-contract.js'
 import { log } from './logger.js'
 
 let db: Database.Database
@@ -38,7 +37,6 @@ function runMigrations() {
       dark_tokens_json TEXT,
       dark_mode_method TEXT,
       dark_mode_selector TEXT,
-      extraction_version INTEGER NOT NULL DEFAULT ${CURRENT_EXTRACTION_VERSION},
       tags TEXT DEFAULT '[]',
       is_builtin INTEGER DEFAULT 0,
       is_favorite INTEGER DEFAULT 0,
@@ -81,7 +79,6 @@ function runMigrations() {
     ['dark_tokens_json', `TEXT`],
     ['dark_mode_method', `TEXT`],
     ['dark_mode_selector', `TEXT`],
-    ['extraction_version', `INTEGER NOT NULL DEFAULT 1`],
     ['has_dark_mode', `INTEGER DEFAULT 0`],
     ['access_mode', `TEXT`],
     ['auth_wall_detected', `INTEGER DEFAULT 0`],
@@ -109,7 +106,6 @@ function runMigrations() {
     ['dark_tokens_json', `TEXT`],
     ['dark_mode_method', `TEXT`],
     ['dark_mode_selector', `TEXT`],
-    ['extraction_version', `INTEGER NOT NULL DEFAULT 1`],
   ]
   for (const [name, definition] of themeSnapshotColumns) {
     if (!themeColumns.includes(name)) db.exec(`ALTER TABLE themes ADD COLUMN ${name} ${definition}`)

@@ -1,5 +1,6 @@
 import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
-import type { AuthMode, LoginDecision } from '../core/analyzer/types.js'
+import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
+import type { AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import type {
   AgentContextBundle,
@@ -9,7 +10,8 @@ import type {
 } from '../core/design-intelligence/types.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
-export type { AuthMode, LoginDecision } from '../core/analyzer/types.js'
+export type { AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
+export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 export type {
   AgentContextBundle,
   AnalysisCapabilityLevel,
@@ -21,8 +23,6 @@ export type {
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
 export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
-export const CURRENT_EXTRACTION_VERSION = 2
-
 export interface AppSettings {
   aiMode: 'apiKey' | 'agentCli'
   provider: string
@@ -72,7 +72,6 @@ export interface ThemeRecord {
   dark_tokens_json: string | null
   dark_mode_method: string | null
   dark_mode_selector: string | null
-  extraction_version: number
   design_evidence_json: string | null
   design_profile_json: string | null
   design_intelligence_meta_json: string | null
@@ -93,7 +92,6 @@ export type ThemeSummaryRecord = Pick<
   | 'dark_tokens_json'
   | 'dark_mode_method'
   | 'dark_mode_selector'
-  | 'extraction_version'
   | 'tags'
   | 'is_favorite'
   | 'created_at'
@@ -151,6 +149,8 @@ export interface AnalysisResultData {
   accessMode?: 'anonymous' | 'managed'
   authWallDetected?: boolean
   finalUrl?: string
+  extractionIssues?: ExtractionIssue[]
+  pageCoverage?: PageCoverage
   designEvidence?: DesignEvidence
   designIntelligence?: DesignIntelligenceMeta
   designProfile?: DesignProfile | null
@@ -192,6 +192,7 @@ export interface AnalyzeOptions {
   authMode?: AuthMode
   language?: string
   depth?: 'standard' | 'deep'
+  pageDiscovery?: PageDiscoveryMode
 }
 
 export interface AnalyzeResponse extends Partial<AnalysisResultData> {

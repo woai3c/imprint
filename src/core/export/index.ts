@@ -374,8 +374,8 @@ export function generateDesignDoc(
 
   // Colors
   lines.push(zh ? '## 颜色\n' : '## Colors\n')
-  lines.push(zh ? '| 令牌 | 值 | 用途 |' : '| Token | Value | Usage |')
-  lines.push('|-------|-------|-------|')
+  lines.push(zh ? '| 令牌 | 值 | 用途 | 置信度 |' : '| Token | Value | Usage | Confidence |')
+  lines.push('|-------|-------|-------|------------|')
   for (const [name, value] of Object.entries(tokens.colors)) {
     const bgCount = usageForColor(tokens, 'bgColor', value)
     const textCount = usageForColor(tokens, 'textColor', value)
@@ -387,7 +387,11 @@ export function generateDesignDoc(
       borderCount > 0 ? (zh ? '边框' : 'border') : null,
     ].filter((context): context is string => context !== null)
     const context = contexts.join('+')
-    lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} |`)
+    const tokenEvidence = tokens.evidence?.[`colors.${name}`]
+    const confidence = tokenEvidence
+      ? `${tokenEvidence.confidence} · ${zh ? `${tokenEvidence.pageCount}页` : `${tokenEvidence.pageCount} ${tokenEvidence.pageCount === 1 ? 'page' : 'pages'}`}`
+      : '-'
+    lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} | ${confidence} |`)
   }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
@@ -474,6 +478,29 @@ export function generateDesignDoc(
     lines.push(tokens.transitions.map((t, i) => `- ${DURATION_NAMES[i] || i}: \`${t}\``).join('\n'))
   }
 
+  if (tokens.evidence && Object.keys(tokens.evidence).length > 0) {
+    const evidenceValues = Object.values(tokens.evidence)
+    const confidenceCounts = evidenceValues.reduce(
+      (counts, item) => ({ ...counts, [item.confidence]: counts[item.confidence] + 1 }),
+      { high: 0, medium: 0, low: 0 },
+    )
+    const lowConfidence = Object.entries(tokens.evidence)
+      .filter(([, item]) => item.confidence === 'low')
+      .map(([tokenPath]) => `\`${tokenPath}\``)
+      .slice(0, 12)
+    lines.push(zh ? '\n## 提取置信度\n' : '\n## Extraction Confidence\n')
+    lines.push(
+      zh
+        ? `- 高：${confidenceCounts.high}；中：${confidenceCounts.medium}；低：${confidenceCounts.low}`
+        : `- High: ${confidenceCounts.high}; medium: ${confidenceCounts.medium}; low: ${confidenceCounts.low}`,
+    )
+    if (lowConfidence.length > 0) {
+      lines.push(
+        zh ? `- 建议人工确认：${lowConfidence.join('、')}` : `- Review recommended: ${lowConfidence.join(', ')}`,
+      )
+    }
+  }
+
   // Breakpoints
   if (breakpoints && breakpoints.length > 0) {
     lines.push(zh ? '\n## 响应式断点\n' : '\n## Responsive Breakpoints\n')
@@ -525,7 +552,10 @@ function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
     shadow: {},
     zIndex: {},
     transition: {},
-    $extensions: { 'com.imprint.borders': tokens.borders },
+    $extensions: {
+      'com.imprint.borders': tokens.borders,
+      ...(tokens.evidence ? { 'com.imprint.tokenEvidence': tokens.evidence } : {}),
+    },
   }
 
   const colors = groups.color as Record<string, unknown>

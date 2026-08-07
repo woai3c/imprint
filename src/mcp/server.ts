@@ -74,6 +74,12 @@ const TOOLS = [
           description: 'Viewport size (default: desktop)',
         },
         useSession: { type: 'boolean', description: "Reuse Imprint's saved browser session (default: true)" },
+        maxPages: { type: 'integer', minimum: 1, maximum: 5, description: 'Pages to analyze (default: 3)' },
+        discovery: {
+          type: 'string',
+          enum: ['auto', 'links', 'sitemap'],
+          description: 'Sub-page discovery strategy (default: auto)',
+        },
       },
       required: ['url'],
     },
@@ -187,12 +193,18 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     const format = (params.format as string) || 'tokens'
     const viewport = (params.viewport as string) || 'desktop'
     const useSession = params.useSession !== false
+    const maxPages = Math.min(5, Math.max(1, Number(params.maxPages) || 3))
+    const pageDiscovery = ['links', 'sitemap'].includes(String(params.discovery))
+      ? (String(params.discovery) as 'links' | 'sitemap')
+      : 'auto'
 
     const result = await analyze(url, {
       viewports: [viewport],
       useSession,
       extractDarkMode: true,
       dataDir,
+      maxPages,
+      pageDiscovery,
     })
 
     const tokens = result.tokens
@@ -235,6 +247,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                   tokens,
                   darkMode,
                   featureTags,
+                  pageCoverage: result.pageCoverage,
+                  extractionIssues: result.extractionIssues,
                   css: generateCssVariables(tokens, darkMode, result.breakpoints),
                   tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
                   evidence: result.designEvidence,
@@ -258,7 +272,24 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
           ],
         }
       default:
-        return { content: [{ type: 'text', text: JSON.stringify({ tokens, darkMode, featureTags }, null, 2) }] }
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  tokens,
+                  darkMode,
+                  featureTags,
+                  pageCoverage: result.pageCoverage,
+                  extractionIssues: result.extractionIssues,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        }
     }
   }
 

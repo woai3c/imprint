@@ -16,12 +16,15 @@ export {
   createEvidenceFingerprint,
   listEvidenceIds,
   listEvidencePackageIds,
+  listEvidencePackageTokenRefs,
+  listEvidenceTokenRefs,
   restrictEvidencePackageImages,
   selectEvidencePackage,
 } from './evidence-selector.js'
 export {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
+  buildDesignProfileRepairPrompt,
   buildSectionObservationPrompt,
 } from './prompt.js'
 export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'

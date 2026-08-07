@@ -394,8 +394,6 @@
     "deleteTitle": "Delete website theme",
     "deleteDescription": "Delete “{{theme}}” from the Theme Library? Its source analysis remains in History.",
     "extractedRoleSummary": "{{observed}} observed semantic roles · {{adapted}} preview roles safely adapted",
-    "reanalysisRequired": "Saved with an older extractor — analyze the source again to apply current fixes.",
-    "reanalyze": "Analyze again",
     "exportFormats": {
       "markdown": "DESIGN.md (recommended for AI)",
       "css": "CSS variables (general web)",

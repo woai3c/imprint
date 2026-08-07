@@ -71,6 +71,18 @@ export function labelBreakpointWidths(widths: readonly number[]): Array<{ width:
   }))
 }
 
+export function mergeResponsiveBreakpoints(breakpointGroups: ResponsiveBreakpoint[][]): ResponsiveBreakpoint[] {
+  const changesByWidth = new Map<number, Set<string>>()
+  for (const breakpoint of breakpointGroups.flat()) {
+    const changes = changesByWidth.get(breakpoint.width) || new Set<string>()
+    breakpoint.layoutChanges.forEach((change) => changes.add(change))
+    changesByWidth.set(breakpoint.width, changes)
+  }
+  return labelBreakpointWidths([...changesByWidth.keys()].sort((first, second) => first - second)).map(
+    ({ width, label }) => ({ width, label, layoutChanges: [...(changesByWidth.get(width) || [])] }),
+  )
+}
+
 /**
  * Detect animations and transitions used on the page.
  */
@@ -79,6 +91,17 @@ export interface MotionToken {
   duration: string
   easing: string
   count: number
+}
+
+export function mergeMotionTokens(tokenGroups: MotionToken[][]): MotionToken[] {
+  const merged = new Map<string, MotionToken>()
+  for (const token of tokenGroups.flat()) {
+    const key = `${token.property}|${token.duration}|${token.easing}`
+    const existing = merged.get(key)
+    if (existing) existing.count += token.count
+    else merged.set(key, { ...token })
+  }
+  return [...merged.values()].sort((first, second) => second.count - first.count).slice(0, 10)
 }
 
 export async function detectMotion(page: Page): Promise<MotionToken[]> {

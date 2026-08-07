@@ -18,6 +18,7 @@ export function createExtractedStyles(overrides: Partial<ExtractedStyles> = {}):
     zIndices: [],
     transitions: [],
     usageCount: {},
+    valueSources: {},
     ...overrides,
   }
 }

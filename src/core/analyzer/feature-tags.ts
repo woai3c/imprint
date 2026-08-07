@@ -1,5 +1,69 @@
 import type { DesignToken, ExtractedStyles } from './types.js'
 
+function usageCount(styles: ExtractedStyles, category: string, value: string): number {
+  return styles.usageCount[`${category}:${value}`] || 0
+}
+
+function cssLengthPx(value: string): number | null {
+  const match = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)?$/i)
+  if (!match) return null
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return null
+  return ['rem', 'em'].includes((match[2] || '').toLowerCase()) ? amount * 16 : amount
+}
+
+function representativeRadius(
+  tokens: DesignToken,
+  styles: ExtractedStyles,
+): { value: number; smallShare: number } | null {
+  const candidates = tokens.radii
+    .filter((radius) => !radius.includes('%'))
+    .map((radius) => ({
+      radius: cssLengthPx(radius),
+      count: Math.max(1, usageCount(styles, 'radius', radius)),
+    }))
+    // Very large values are pill/circle implementation sentinels, not a system-wide corner radius.
+    .filter((entry): entry is { radius: number; count: number } => entry.radius !== null && entry.radius <= 64)
+    .sort((first, second) => first.radius - second.radius)
+  if (candidates.length === 0) return null
+
+  const total = candidates.reduce((sum, entry) => sum + entry.count, 0)
+  const midpoint = total / 2
+  let cumulative = 0
+  let representative = candidates[candidates.length - 1].radius
+  for (const entry of candidates) {
+    cumulative += entry.count
+    if (cumulative >= midpoint) {
+      representative = entry.radius
+      break
+    }
+  }
+  const smallCount = candidates.filter((entry) => entry.radius <= 4).reduce((sum, entry) => sum + entry.count, 0)
+  return { value: representative, smallShare: smallCount / total }
+}
+
+function shadowElevation(value: string): number | null {
+  const withoutColors = value.replace(/(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi, '')
+  const firstLayer = withoutColors.split(',')[0]
+  const lengths = firstLayer.match(/-?\d*\.?\d+(?:px|rem|em)|\b0\b/gi) || []
+  if (lengths.length < 2) return null
+  const [offsetX = 0, offsetY = 0, blur = 0, spread = 0] = lengths.map((length) => cssLengthPx(length) || 0)
+  return Math.abs(offsetX) * 0.25 + Math.abs(offsetY) + Math.max(0, blur) + Math.abs(spread) * 0.5
+}
+
+function hasLayeredElevation(tokens: DesignToken): boolean {
+  const levels = [
+    ...new Set(
+      tokens.shadows
+        .map(shadowElevation)
+        .filter((level): level is number => level !== null)
+        .map((level) => Math.round(level * 10) / 10),
+    ),
+  ].sort((first, second) => first - second)
+  if (levels.length < 3) return false
+  return levels[levels.length - 1] - levels[0] >= 8 && levels[levels.length - 1] >= levels[0] * 2
+}
+
 /**
  * Generate design feature tags based on extracted style analysis.
  * Pure code-based — no LLM needed.
@@ -49,12 +113,11 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   }
 
   // Border radius analysis
-  const radii = tokens.radii.map((r) => parseFloat(r)).filter((v) => !isNaN(v))
-  if (radii.length > 0) {
-    const maxRadius = Math.max(...radii)
-    if (maxRadius >= 16) {
+  const radius = representativeRadius(tokens, styles)
+  if (radius) {
+    if (radius.value >= 12) {
       tags.push('large-radius rounded style')
-    } else if (maxRadius <= 4) {
+    } else if (radius.value <= 4 && radius.smallShare >= 0.5) {
       tags.push('sharp-edge geometric style')
     }
   }
@@ -62,7 +125,7 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   // Shadow analysis
   if (tokens.shadows.length === 0) {
     tags.push('flat design (no shadows)')
-  } else if (tokens.shadows.length >= 3) {
+  } else if (hasLayeredElevation(tokens)) {
     tags.push('layered elevation system')
   }
 

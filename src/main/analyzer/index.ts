@@ -4,7 +4,13 @@
  */
 import { app } from 'electron'
 
-import { type AnalysisResult, type AuthMode, type LoginRequest, analyze } from '../../core/analyzer/index.js'
+import {
+  type AnalysisResult,
+  type AuthMode,
+  type LoginRequest,
+  type PageDiscoveryMode,
+  analyze,
+} from '../../core/analyzer/index.js'
 
 export interface ElectronAnalysisOptions {
   viewports?: string[]
@@ -13,6 +19,7 @@ export interface ElectronAnalysisOptions {
   authMode?: AuthMode
   extractDarkMode?: boolean
   depth?: 'standard' | 'deep'
+  pageDiscovery?: PageDiscoveryMode
   proxyServer?: string
 }
 

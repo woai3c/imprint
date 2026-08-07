@@ -49,19 +49,21 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 
 ## 功能
 
-| 功能          | 说明                                                              |
-| ------------- | ----------------------------------------------------------------- |
-| 网站分析      | 输入 URL，自动分析网页视觉风格                                    |
-| 可追溯证据    | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制              |
-| 截图分析      | 从 UI 截图中提取设计规律                                          |
-| 设计系统生成  | 提取颜色、字体、间距、圆角、阴影和组件风格                        |
-| AI 友好文档   | 导出 DESIGN.md，可直接作为 AI Coding 上下文                       |
-| 代码导出      | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens     |
-| 本地 AI Agent | 支持 Claude Code、Codex、Kimi、Gemini CLI、OpenCode 和 x-code-cli |
-| 本地优先存储  | 所有数据保存在本地 SQLite，无需注册账号                           |
-| 网站主题库    | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌              |
-| 内置主题      | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                |
-| 验证场景      | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性        |
+| 功能           | 说明                                                              |
+| -------------- | ----------------------------------------------------------------- |
+| 网站分析       | 输入 URL，自动分析网页视觉风格                                    |
+| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                    |
+| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制              |
+| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                     |
+| 截图分析       | 从 UI 截图中提取设计规律                                          |
+| 设计系统生成   | 提取颜色、字体、间距、圆角、阴影和组件风格                        |
+| AI 友好文档    | 导出 DESIGN.md，可直接作为 AI Coding 上下文                       |
+| 代码导出       | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens     |
+| 本地 AI Agent  | 支持 Claude Code、Codex、Kimi、Gemini CLI、OpenCode 和 x-code-cli |
+| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                           |
+| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌              |
+| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                |
+| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性        |
 
 ## 与 AI Coding Agent 配合使用
 
@@ -118,6 +120,7 @@ CLI 只有在明确传入 `--intelligence` 时才会调用 AI 厂商。API Key �
 pnpm build:cli
 export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
+imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
 imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
 ```

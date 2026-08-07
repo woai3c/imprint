@@ -7,7 +7,7 @@ export function generateDesignProfileJson(profile: DesignProfile): string {
 function claimLines(
   title: string,
   claims: Array<DesignClaim & { label?: string }>,
-  labels: { confidence: string; evidence: string },
+  labels: { confidence: string; evidence: string; tokens: string },
 ) {
   if (claims.length === 0) return []
   return [
@@ -18,6 +18,9 @@ function claimLines(
       `  - ${claim.implementation}`,
       `  - ${labels.confidence}: ${claim.confidence}`,
       `  - ${labels.evidence}: ${claim.evidence.map((reference) => `\`${reference.evidenceId}\``).join(', ')}`,
+      ...(claim.tokenRefs && claim.tokenRefs.length > 0
+        ? [`  - ${labels.tokens}: ${claim.tokenRefs.map((reference) => `\`${reference}\``).join(', ')}`]
+        : []),
     ]),
     '',
   ]
@@ -25,7 +28,11 @@ function claimLines(
 
 export function generateDesignProfileMarkdown(profile: DesignProfile): string {
   const zh = profile.language === 'zh-CN'
-  const labels = { confidence: zh ? '置信度' : 'Confidence', evidence: zh ? '证据' : 'Evidence' }
+  const labels = {
+    confidence: zh ? '置信度' : 'Confidence',
+    evidence: zh ? '证据' : 'Evidence',
+    tokens: zh ? 'Token 引用' : 'Token refs',
+  }
   return [
     zh ? '## AI 设计解读' : '## AI Design Insights',
     '',

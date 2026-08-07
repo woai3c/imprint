@@ -326,6 +326,10 @@ describe('Design Evidence', () => {
       expect.arrayContaining([expect.stringContaining('skipped-interaction:tab@tab:0')]),
     )
     expect(evidence.coverage.accessRestrictions).toEqual(['managed-access', 'auth-wall-detected'])
+    const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+    expect(brief).toContain('被动状态规则：2 条（未执行用户操作）')
+    expect(brief).toContain('安全主动观察：0 条')
+    expect(brief).not.toContain('驱动类型: click')
   })
 
   it('exports facts separately from inferred Design DNA', () => {

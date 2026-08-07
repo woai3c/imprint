@@ -262,7 +262,12 @@ export function buildDesignTokens(
   const borders = sortByFrequency(borderFreq).slice(0, 4)
 
   // Font families - keep both primary names and full stacks
-  const fontStacks = sortByFrequency(frequencyForCategory(styles, 'fontFamily', styles.fontFamilies))
+  const observedTextFamilies = frequencyForCategory(styles, 'fontTextFamily')
+  const fontFamilyFrequency =
+    observedTextFamilies.size > 0
+      ? observedTextFamilies
+      : frequencyForCategory(styles, 'fontFamily', styles.fontFamilies)
+  const fontStacks = sortByFrequency(fontFamilyFrequency)
     .map((f) => f.replace(/"/g, '').trim())
     .filter(uniqueFilter())
     .slice(0, 5)

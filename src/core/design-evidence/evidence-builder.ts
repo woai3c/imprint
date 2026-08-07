@@ -445,16 +445,18 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const page = pages.find((candidate) => candidate.id === pageId)
     const firstSection = sections.find((section) => section.pageId === pageId)
     const interactionStyles =
-      capture.interactionStyles || (captureIndex === 0 ? input.interactionStyles : { hover: [], focus: [], active: [] })
+      capture.interactionStyles ||
+      (captureIndex === 0 ? input.interactionStyles : { hover: [], focus: [], active: [], disabled: [] })
     if (!page || !firstSection) return
     const passiveStyles: Array<{
-      driver: 'hover' | 'focus' | 'click'
+      driver: 'hover' | 'focus' | 'click' | 'disabled'
       triggerKind: string
       styles: Record<string, string>[]
     }> = [
       { driver: 'hover', triggerKind: 'css-pseudo-class:hover', styles: interactionStyles.hover },
       { driver: 'focus', triggerKind: 'css-pseudo-class:focus', styles: interactionStyles.focus },
       { driver: 'click', triggerKind: 'css-pseudo-class:active', styles: interactionStyles.active },
+      { driver: 'disabled', triggerKind: 'state:disabled', styles: interactionStyles.disabled || [] },
     ]
     for (const group of passiveStyles) {
       group.styles.slice(0, 12).forEach((styles, index) => {

@@ -11,6 +11,7 @@ import { extractObservationCandidate, validateSectionObservations } from './obse
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildDesignInterpretationPrompt,
+  buildDesignProfileRepairPrompt,
   buildSectionObservationPrompt,
 } from './prompt.js'
 import type {
@@ -82,6 +83,45 @@ export interface InterpretationPipelineResult {
   callDetails: CallDetail[]
 }
 
+function shouldRepairProfile(candidate: unknown, rejected: string[]): boolean {
+  return (
+    candidate !== null &&
+    typeof candidate === 'object' &&
+    rejected.some((reason) => /:(?:missing-evidence|unsupported-evidence-kind)$/.test(reason))
+  )
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== 'object') return undefined
+    return (current as Record<string, unknown>)[segment]
+  }, value)
+}
+
+function citationDiagnostics(candidate: unknown, rejected: string[], evidencePackage: EvidencePackage): string {
+  const validEvidenceIds = listEvidencePackageIds(evidencePackage)
+  return rejected
+    .filter((reason) => /:(?:missing-evidence|unsupported-evidence-kind)$/.test(reason))
+    .slice(0, 6)
+    .map((reason) => {
+      const path = reason.slice(0, reason.indexOf(':'))
+      const claim = valueAtPath(candidate, path)
+      if (!claim || typeof claim !== 'object') return `${path}[shape=missing]`
+      const record = claim as Record<string, unknown>
+      const citations = Array.isArray(record.evidence) ? record.evidence : []
+      const citationIds = citations.flatMap((item) => {
+        if (!item || typeof item !== 'object') return []
+        const evidenceId = (item as Record<string, unknown>).evidenceId
+        return typeof evidenceId === 'string' ? [evidenceId] : []
+      })
+      const tokenRefs = Array.isArray(record.tokenRefs)
+        ? record.tokenRefs.filter((item): item is string => typeof item === 'string')
+        : []
+      return `${path}[citations=${citations.length},ids=${citationIds.length},valid=${citationIds.filter((id) => validEvidenceIds.has(id)).length},tokenRefs=${tokenRefs.length}]`
+    })
+    .join(', ')
+}
+
 export function splitImagesByPass(
   evidence: DesignEvidence,
   images: AiImageInput[],
@@ -127,9 +167,9 @@ export async function runInterpretationPipeline(
   )
   const prompt = buildDesignInterpretationPrompt(evidencePackage, options.language, observations || undefined)
   const synthesisImages = options.synthesisImages || []
-  const validateCandidate = (text: string) =>
+  const validateCandidate = (candidate: unknown) =>
     validateDesignProfile(
-      extractProfileCandidate(text),
+      candidate,
       evidence,
       options.mode,
       options.language,
@@ -139,9 +179,35 @@ export async function runInterpretationPipeline(
   const response = await options.invoke(prompt, synthesisImages)
   callDetails.push({ pass: 'synthesis', input: response.usage?.input, output: response.usage?.output })
   if (!response.text) throw new Error('DesignProfile output is empty')
-  const validation = validateCandidate(response.text)
+  let candidate = extractProfileCandidate(response.text)
+  let validation = validateCandidate(candidate)
+  let finalResponse = response
+  let repairAttempted = false
+  if (!validation.profile && shouldRepairProfile(candidate, validation.rejected)) {
+    repairAttempted = true
+    const repairPrompt = buildDesignProfileRepairPrompt(
+      evidencePackage,
+      options.language,
+      candidate,
+      validation.rejected,
+    )
+    const repairResponse = await options.invoke(repairPrompt, [])
+    callDetails.push({
+      pass: 'synthesis-repair',
+      input: repairResponse.usage?.input,
+      output: repairResponse.usage?.output,
+    })
+    if (repairResponse.text) {
+      candidate = extractProfileCandidate(repairResponse.text)
+      validation = validateCandidate(candidate)
+      finalResponse = repairResponse
+    }
+  }
   if (!validation.profile) {
-    throw new Error(`DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}`)
+    const diagnostics = citationDiagnostics(candidate, validation.rejected, evidencePackage)
+    throw new Error(
+      `DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}; repair-attempted=${repairAttempted}${diagnostics ? `; citation-shapes=${diagnostics}` : ''}`,
+    )
   }
   const totalUsage = callDetails.reduce(
     (acc, d) => ({
@@ -156,8 +222,8 @@ export async function runInterpretationPipeline(
     pipeline: observations ? 'two-pass' : 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
     rejected: validation.rejected.length > 0 ? validation.rejected : undefined,
-    model: response.model,
-    usage: totalUsage.input || totalUsage.output ? totalUsage : response.usage,
+    model: finalResponse.model || response.model,
+    usage: totalUsage.input || totalUsage.output ? totalUsage : finalResponse.usage || response.usage,
     callDetails,
   }
 }
@@ -169,7 +235,7 @@ export async function interpretDesignEvidence(
   if (options.mode === 'multimodal' && evidence.source.accessMode !== 'anonymous') {
     throw new Error('Screenshot interpretation is unavailable for signed-in evidence')
   }
-  const timeoutSignal = AbortSignal.timeout(60_000)
+  const timeoutSignal = AbortSignal.timeout(120_000)
   let evidencePackage = selectEvidencePackage(evidence, options.mode)
   const selectedImageIds = new Set(evidencePackage.imageIds)
   const images =

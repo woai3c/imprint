@@ -49,6 +49,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     zIndices: [],
     transitions: [],
     usageCount: {},
+    valueSources: {},
   }
 
   for (const styles of stylesList) {
@@ -58,6 +59,9 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     Object.assign(merged.cssVariables, styles.cssVariables)
     for (const [key, count] of Object.entries(styles.usageCount)) {
       merged.usageCount[key] = (merged.usageCount[key] || 0) + count
+    }
+    for (const [key, sources] of Object.entries(styles.valueSources || {})) {
+      merged.valueSources![key] = [...new Set([...(merged.valueSources![key] || []), ...sources])]
     }
   }
 

@@ -71,6 +71,77 @@ function parseEvidenceRefs(value: unknown, validIds: Set<string>): EvidenceRef[]
   })
 }
 
+function buildTokenEvidenceOwners(evidence: DesignEvidence, validIds: Set<string>): Map<string, string[]> {
+  const owners = new Map<string, string[]>()
+  const add = (evidenceId: string, tokenRefs: string[]) => {
+    if (!validIds.has(evidenceId)) return
+    for (const tokenRef of tokenRefs) {
+      const ids = owners.get(tokenRef) || []
+      if (!ids.includes(evidenceId)) ids.push(evidenceId)
+      owners.set(tokenRef, ids)
+    }
+  }
+  evidence.sections.forEach((section) => add(section.id, section.tokenRefs))
+  evidence.layoutNodes.forEach((node) => add(node.id, node.tokenRefs))
+  evidence.components.forEach((component) => add(component.id, component.tokenRefs))
+  return owners
+}
+
+/**
+ * Some models confuse extracted token refs with evidence IDs. A token ref is accepted as a citation only when it can
+ * be deterministically resolved back to selected DOM evidence that uses that token. The normalized profile still
+ * stores the token separately, while downstream validation continues to operate on real evidence IDs.
+ */
+function tokenRefMatchesClaimPath(tokenRef: string, path: string): boolean {
+  if (/^composition\.(?:densityAndWhitespace|rhythm)$/.test(path)) return tokenRef.startsWith('spacing.')
+  if (path === 'attention.contrastStrategy' || path === 'visualLanguage.color') return tokenRef.startsWith('color.')
+  if (path === 'visualLanguage.typography') return tokenRef.startsWith('typography.')
+  if (path === 'visualLanguage.shape') return /^(?:radius|border)\./.test(tokenRef)
+  if (path === 'visualLanguage.surfaces') return /^(?:color|shadow|border)\./.test(tokenRef)
+  return false
+}
+
+function normalizeClaimTokenCitations(value: unknown, tokenOwners: Map<string, string[]>, path = ''): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => normalizeClaimTokenCitations(item, tokenOwners, `${path}.${index}`))
+    return
+  }
+  if (!isRecord(value)) return
+
+  if (typeof value.statement === 'string' && typeof value.implementation === 'string') {
+    const tokenRefs = new Set(
+      Array.isArray(value.tokenRefs)
+        ? value.tokenRefs.filter(
+            (tokenRef): tokenRef is string => typeof tokenRef === 'string' && tokenOwners.has(tokenRef),
+          )
+        : [],
+    )
+    if (Array.isArray(value.evidence)) {
+      value.evidence = value.evidence.flatMap((candidate) => {
+        if (
+          !isRecord(candidate) ||
+          typeof candidate.evidenceId !== 'string' ||
+          !tokenOwners.has(candidate.evidenceId) ||
+          !tokenRefMatchesClaimPath(candidate.evidenceId, path) ||
+          !isSafeText(candidate.note, 240)
+        ) {
+          return [candidate]
+        }
+        tokenRefs.add(candidate.evidenceId)
+        return (tokenOwners.get(candidate.evidenceId) || []).slice(0, 2).map((evidenceId) => ({
+          evidenceId,
+          note: candidate.note,
+        }))
+      })
+    }
+    value.tokenRefs = [...tokenRefs].slice(0, 16)
+  }
+
+  Object.entries(value).forEach(([key, item]) =>
+    normalizeClaimTokenCitations(item, tokenOwners, path ? `${path}.${key}` : key),
+  )
+}
+
 function validateClaim(
   value: unknown,
   validIds: Set<string>,
@@ -127,12 +198,19 @@ function validateClaim(
     /^(?:image|section|layout)-/.test(reference.evidenceId),
   )
   if (confidence === 'high' && (evidence.length < 2 || !hasVisualOrLayoutEvidence)) confidence = 'medium'
-  if (inputMode === 'structural-only' && visualOnly && confidence === 'high') confidence = 'medium'
+  if (inputMode === 'structural-only' && visualOnly && confidence !== 'low') confidence = 'low'
   return {
     statement: value.statement.trim(),
     implementation: value.implementation.trim(),
     confidence,
     evidence,
+    ...(Array.isArray(value.tokenRefs) && value.tokenRefs.length > 0
+      ? {
+          tokenRefs: value.tokenRefs
+            .filter((tokenRef): tokenRef is string => typeof tokenRef === 'string')
+            .slice(0, 16),
+        }
+      : {}),
   }
 }
 
@@ -159,6 +237,7 @@ function validateInteractionClaim(
   value: unknown,
   validIds: Set<string>,
   interactionIds: Set<string>,
+  activeInteractionIds: Set<string>,
   path: string,
   rejected: string[],
   inputMode: IntelligenceInputMode,
@@ -170,6 +249,15 @@ function validateInteractionClaim(
   if (!hasInteractionEvidence) {
     return { ...claim, confidence: 'low' }
   }
+  const hasActiveEvidence = claim.evidence.some((reference) => activeInteractionIds.has(reference.evidenceId))
+  if (!hasActiveEvidence) {
+    const assertsExecutedBehavior =
+      /\b(?:click|clicked|expand|expanded|toggle|toggled|open|opened|close|closed|navigate|navigates)\b|点击|展开|切换|打开|关闭|跳转/i.test(
+        `${claim.statement} ${claim.implementation}`,
+      )
+    if (assertsExecutedBehavior) return { ...claim, confidence: 'low' }
+    if (claim.confidence === 'high') return { ...claim, confidence: 'medium' }
+  }
   return claim
 }
 
@@ -177,6 +265,7 @@ function validateInteractionClaims(
   value: unknown,
   validIds: Set<string>,
   interactionIds: Set<string>,
+  activeInteractionIds: Set<string>,
   path: string,
   rejected: string[],
   inputMode: IntelligenceInputMode,
@@ -191,6 +280,7 @@ function validateInteractionClaims(
         candidate,
         validIds,
         interactionIds,
+        activeInteractionIds,
         `${path}.${index}`,
         rejected,
         inputMode,
@@ -223,6 +313,72 @@ function requireEvidenceKind(
   if (claim.evidence.some((reference) => pattern.test(reference.evidenceId))) return claim
   rejected.push(`${path}:unsupported-evidence-kind`)
   return null
+}
+
+function canonicalPageUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    url.search = ''
+    url.hash = ''
+    return url.href
+  } catch {
+    return value
+  }
+}
+
+interface EvidenceScope {
+  pageUrlByEvidenceId: Map<string, string>
+  sectionRoleByEvidenceId: Map<string, string>
+}
+
+function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
+  const pageUrlByPageId = new Map(evidence.pages.map((page) => [page.id, canonicalPageUrl(page.url)]))
+  const sectionById = new Map(evidence.sections.map((section) => [section.id, section]))
+  const pageUrlByEvidenceId = new Map<string, string>()
+  const sectionRoleByEvidenceId = new Map<string, string>()
+  const assignPage = (evidenceId: string, pageId: string) => {
+    const url = pageUrlByPageId.get(pageId)
+    if (url) pageUrlByEvidenceId.set(evidenceId, url)
+  }
+  const assignSection = (evidenceId: string, sectionId: string) => {
+    const section = sectionById.get(sectionId)
+    if (!section) return
+    assignPage(evidenceId, section.pageId)
+    sectionRoleByEvidenceId.set(evidenceId, section.role)
+  }
+
+  for (const page of evidence.pages) {
+    assignPage(page.id, page.id)
+    for (const image of page.images) assignPage(image.id, page.id)
+  }
+  for (const section of evidence.sections) assignSection(section.id, section.id)
+  for (const component of evidence.components) assignSection(component.id, component.sectionId)
+  for (const node of evidence.layoutNodes) assignSection(node.id, node.sectionId)
+  for (const observation of evidence.interactionObservations) assignSection(observation.id, observation.sectionId)
+  for (const observation of evidence.responsiveObservations) assignSection(observation.id, observation.sectionId)
+  for (const media of evidence.mediaLayers) assignSection(media.id, media.sectionId)
+  for (const layer of evidence.topology.globalLayers) assignPage(layer.id, layer.pageId)
+
+  return { pageUrlByEvidenceId, sectionRoleByEvidenceId }
+}
+
+function referencedPageUrls(claim: DesignClaim, scope: EvidenceScope): Set<string> {
+  return new Set(
+    claim.evidence
+      .map((reference) => scope.pageUrlByEvidenceId.get(reference.evidenceId))
+      .filter((url): url is string => Boolean(url)),
+  )
+}
+
+function capSinglePageGlobalClaim<T extends DesignClaim>(
+  claim: T,
+  scope: EvidenceScope,
+  availablePageCount: number,
+): T {
+  if (availablePageCount <= 1 || referencedPageUrls(claim, scope).size >= 2 || claim.confidence !== 'high') {
+    return claim
+  }
+  return { ...claim, confidence: 'medium' } as T
 }
 
 const GENERIC_IMAGE_DESCRIPTION =
@@ -303,8 +459,24 @@ export function validateDesignProfile(
   const validIds = allowedEvidenceIds
     ? new Set([...allowedEvidenceIds].filter((evidenceId) => allEvidenceIds.has(evidenceId)))
     : allEvidenceIds
+  normalizeClaimTokenCitations(value, buildTokenEvidenceOwners(evidence, validIds))
+  const evidenceScope = buildEvidenceScope(evidence)
+  const availablePageCount = new Set(
+    [...validIds]
+      .map((evidenceId) => evidenceScope.pageUrlByEvidenceId.get(evidenceId))
+      .filter((url): url is string => Boolean(url)),
+  ).size
+  const observedSectionRoles = new Set(
+    evidence.sections.filter((section) => validIds.has(section.id)).map((section) => section.role),
+  )
   const interactionIds = new Set(
     evidence.interactionObservations
+      .map((observation) => observation.id)
+      .filter((evidenceId) => validIds.has(evidenceId)),
+  )
+  const activeInteractionIds = new Set(
+    evidence.interactionObservations
+      .filter((observation) => observation.safety === 'safe-active')
       .map((observation) => observation.id)
       .filter((evidenceId) => validIds.has(evidenceId)),
   )
@@ -515,39 +687,25 @@ export function validateDesignProfile(
   const sectionGrammar = Array.isArray(value.sectionGrammar)
     ? value.sectionGrammar.slice(0, 12).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.role, 80)) return []
+        const role = item.role.trim().toLowerCase()
+        if (!observedSectionRoles.has(role as (typeof evidence.sections)[number]['role'])) {
+          rejected.push(`sectionGrammar.${index}:unobserved-role`)
+          return []
+        }
+        const keepRoleEvidence = (claim: DesignClaim): boolean =>
+          claim.evidence.some((reference) => evidenceScope.sectionRoleByEvidenceId.get(reference.evidenceId) === role)
+        const validateRoleClaims = (claims: unknown, path: string) =>
+          validateClaims(claims, validIds, path, rejected, claimMode, 5, false, knownColors).filter((claim) => {
+            if (keepRoleEvidence(claim)) return true
+            rejected.push(`${path}:mismatched-section-role`)
+            return false
+          })
         return [
           {
-            role: item.role.slice(0, 80),
-            composition: validateClaims(
-              item.composition,
-              validIds,
-              `sectionGrammar.${index}.composition`,
-              rejected,
-              claimMode,
-              5,
-              false,
-              knownColors,
-            ),
-            contentRhythm: validateClaims(
-              item.contentRhythm,
-              validIds,
-              `sectionGrammar.${index}.contentRhythm`,
-              rejected,
-              claimMode,
-              5,
-              false,
-              knownColors,
-            ),
-            transitionToNext: validateClaims(
-              item.transitionToNext,
-              validIds,
-              `sectionGrammar.${index}.transitionToNext`,
-              rejected,
-              claimMode,
-              5,
-              false,
-              knownColors,
-            ),
+            role,
+            composition: validateRoleClaims(item.composition, `sectionGrammar.${index}.composition`),
+            contentRhythm: validateRoleClaims(item.contentRhythm, `sectionGrammar.${index}.contentRhythm`),
+            transitionToNext: validateRoleClaims(item.transitionToNext, `sectionGrammar.${index}.transitionToNext`),
           },
         ]
       })
@@ -556,6 +714,7 @@ export function validateDesignProfile(
     value.interactionLanguage.feedbackStyle,
     validIds,
     interactionIds,
+    activeInteractionIds,
     'interactionLanguage.feedbackStyle',
     rejected,
     claimMode,
@@ -565,6 +724,7 @@ export function validateDesignProfile(
     value.interactionLanguage.stateChangeAmplitude,
     validIds,
     interactionIds,
+    activeInteractionIds,
     'interactionLanguage.stateChangeAmplitude',
     rejected,
     claimMode,
@@ -667,6 +827,7 @@ export function validateDesignProfile(
               item.interactionRules,
               validIds,
               interactionIds,
+              activeInteractionIds,
               `patterns.${index}.interactionRules`,
               rejected,
               claimMode,
@@ -758,6 +919,7 @@ export function validateDesignProfile(
         value.interactionLanguage.primaryDrivers,
         validIds,
         interactionIds,
+        activeInteractionIds,
         'interactionLanguage.primaryDrivers',
         rejected,
         claimMode,
@@ -773,6 +935,7 @@ export function validateDesignProfile(
                 value.interactionLanguage.scrollNarrative,
                 validIds,
                 interactionIds,
+                activeInteractionIds,
                 'interactionLanguage.scrollNarrative',
                 rejected,
                 claimMode,
@@ -780,17 +943,16 @@ export function validateDesignProfile(
               ) || undefined,
           }
         : {}),
-      continuityRules: validateClaims(
+      continuityRules: validateInteractionClaims(
         value.interactionLanguage.continuityRules,
         validIds,
+        interactionIds,
+        activeInteractionIds,
         'interactionLanguage.continuityRules',
         rejected,
         claimMode,
         6,
-        false,
         knownColors,
-      ).map((rule) =>
-        interactionIds.size === 0 && rule.confidence !== 'low' ? { ...rule, confidence: 'low' as const } : rule,
       ),
     },
     componentGrammar,
@@ -829,6 +991,42 @@ export function validateDesignProfile(
     },
     uncertainties: uncertainties.slice(0, 12),
   }
+
+  const constrainGlobal = <T extends DesignClaim>(claim: T): T =>
+    capSinglePageGlobalClaim(claim, evidenceScope, availablePageCount)
+  profile.thesis = constrainGlobal(profile.thesis)
+  profile.signatureMoves = profile.signatureMoves.map((claim) => constrainGlobal(claim))
+  for (const key of Object.keys(profile.composition) as Array<keyof DesignProfile['composition']>) {
+    profile.composition[key] = constrainGlobal(profile.composition[key])
+  }
+  profile.attention.actionHierarchy = constrainGlobal(profile.attention.actionHierarchy)
+  profile.attention.contrastStrategy = constrainGlobal(profile.attention.contrastStrategy)
+  for (const key of ['color', 'typography', 'shape', 'surfaces', 'imagery', 'motion'] as const) {
+    const claim = profile.visualLanguage[key]
+    if (claim) profile.visualLanguage[key] = constrainGlobal(claim)
+  }
+  if (availablePageCount > 1) {
+    profile.interactionLanguage.continuityRules = profile.interactionLanguage.continuityRules.filter((claim, index) => {
+      if (referencedPageUrls(claim, evidenceScope).size >= 2) return true
+      rejected.push(`interactionLanguage.continuityRules.${index}:single-page-continuity`)
+      return false
+    })
+    profile.transferRules.preserve = profile.transferRules.preserve.filter((claim, index) => {
+      if (referencedPageUrls(claim, evidenceScope).size >= 2) return true
+      rejected.push(`transferRules.preserve.${index}:single-page-preserve-rule`)
+      return false
+    })
+  }
+  profile.patterns = profile.patterns?.map((pattern) => {
+    if (pattern.confidence !== 'high' || availablePageCount <= 1) return pattern
+    const pageCount = new Set(
+      pattern.evidenceRefs
+        .map((evidenceId) => evidenceScope.pageUrlByEvidenceId.get(evidenceId))
+        .filter((url): url is string => Boolean(url)),
+    ).size
+    if (pageCount >= 2) return pattern
+    return { ...pattern, confidence: 'medium' as const }
+  })
   if (profile.attention.visualSequence.length === 0) rejected.push('attention.visualSequence:empty')
   if (profile.sectionGrammar.length === 0) rejected.push('sectionGrammar:empty')
   if (profile.componentGrammar.length === 0) rejected.push('componentGrammar:empty')

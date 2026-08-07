@@ -13,14 +13,20 @@ export interface EvidenceSelectionBudget {
   maxSections: number
   maxComponents: number
   maxLayoutNodes: number
+  maxInteractions: number
+  maxResponsiveObservations: number
+  maxMediaLayers: number
   maxImages: number
 }
 
 const DEFAULT_BUDGET: EvidenceSelectionBudget = {
   maxPages: 3,
-  maxSections: 16,
-  maxComponents: 40,
-  maxLayoutNodes: 60,
+  maxSections: 12,
+  maxComponents: 24,
+  maxLayoutNodes: 36,
+  maxInteractions: 24,
+  maxResponsiveObservations: 24,
+  maxMediaLayers: 24,
   maxImages: 4,
 }
 
@@ -91,6 +97,23 @@ export function listEvidencePackageIds(evidencePackage: EvidencePackage): Set<st
   ])
 }
 
+export function listEvidenceTokenRefs(evidence: DesignEvidence): Set<string> {
+  return new Set([
+    ...evidence.sections.flatMap((section) => section.tokenRefs),
+    ...evidence.components.flatMap((component) => component.tokenRefs),
+    ...evidence.layoutNodes.flatMap((node) => node.tokenRefs),
+  ])
+}
+
+export function listEvidencePackageTokenRefs(evidencePackage: EvidencePackage): Set<string> {
+  const evidence = evidencePackage.evidence
+  return new Set([
+    ...evidence.sections.flatMap((section) => section.tokenRefs),
+    ...evidence.components.flatMap((component) => component.tokenRefs),
+    ...evidence.layoutNodes.flatMap((node) => node.tokenRefs),
+  ])
+}
+
 export function restrictEvidencePackageImages(
   evidencePackage: EvidencePackage,
   availableImageIds: Iterable<string>,
@@ -154,6 +177,31 @@ function deduplicateInteractions(observations: InteractionObservation[], limit: 
   return [...seen.values()].slice(0, limit)
 }
 
+function selectRepresentativeSections<T extends { pageId: string }>(
+  sections: T[],
+  pageUrlMap: Map<string, string>,
+  limit: number,
+): T[] {
+  const byUrl = new Map<string, T[]>()
+  for (const section of sections) {
+    const url = pageUrlMap.get(section.pageId)
+    if (!url) continue
+    const group = byUrl.get(url) || []
+    group.push(section)
+    byUrl.set(url, group)
+  }
+  const groups = [...byUrl.values()].map((group) => [...group])
+  const selected: T[] = []
+  while (selected.length < limit && groups.some((group) => group.length > 0)) {
+    for (const group of groups) {
+      const section = group.shift()
+      if (section) selected.push(section)
+      if (selected.length >= limit) break
+    }
+  }
+  return selected
+}
+
 function selectRepresentativePages<T extends { url: string; viewport: string }>(pages: T[], maxPages: number): T[] {
   const byUrl = new Map<string, T[]>()
   for (const page of pages) {
@@ -162,15 +210,17 @@ function selectRepresentativePages<T extends { url: string; viewport: string }>(
     byUrl.set(page.url, existing)
   }
   const result: T[] = []
-  for (const group of byUrl.values()) {
+  const groups = [...byUrl.values()].slice(0, maxPages)
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index]
     const desktop = group.find((p) => p.viewport === 'desktop')
     const mobile = group.find((p) => p.viewport === 'mobile')
-    if (desktop) result.push(desktop)
-    if (mobile) result.push(mobile)
-    if (!desktop && !mobile && group.length > 0) result.push(group[0])
-    if (result.length >= maxPages) break
+    const representative = desktop || mobile || group[0]
+    if (representative) result.push(representative)
+    // Preserve the entry page's responsive comparison without letting it consume the distinct-page budget.
+    if (index === 0 && desktop && mobile && desktop !== mobile) result.push(mobile)
   }
-  return result.slice(0, maxPages)
+  return result
 }
 
 function selectRepresentativeImages(
@@ -191,7 +241,7 @@ function selectRepresentativeImages(
 }
 
 function deduplicateInteractionStyles(
-  styles: { hover: unknown[]; focus: unknown[]; active: unknown[] },
+  styles: { hover: unknown[]; focus: unknown[]; active: unknown[]; disabled?: unknown[] },
   limit: number,
 ): typeof styles {
   const dedup = (arr: unknown[]) => {
@@ -205,7 +255,12 @@ function deduplicateInteractionStyles(
       })
       .slice(0, limit)
   }
-  return { hover: dedup(styles.hover), focus: dedup(styles.focus), active: dedup(styles.active) }
+  return {
+    hover: dedup(styles.hover),
+    focus: dedup(styles.focus),
+    active: dedup(styles.active),
+    disabled: dedup(styles.disabled || []),
+  }
 }
 
 export function selectEvidencePackage(
@@ -218,7 +273,7 @@ export function selectEvidencePackage(
   const selectedPageIds = pages.map((page) => page.id)
   const pageUrlMap = new Map(pages.map((page) => [page.id, page.url]))
   const sectionDedup = new Set<string>()
-  const sections = evidence.sections
+  const sectionCandidates = evidence.sections
     .filter((section) => selectedPageIds.includes(section.pageId))
     .filter((section) => {
       const url = pageUrlMap.get(section.pageId) || ''
@@ -227,7 +282,7 @@ export function selectEvidencePackage(
       sectionDedup.add(key)
       return true
     })
-    .slice(0, limits.maxSections)
+  const sections = selectRepresentativeSections(sectionCandidates, pageUrlMap, limits.maxSections)
   const selectedSectionIds = sections.map((section) => section.id)
   const components = deduplicateComponents(
     evidence.components.filter((component) => selectedSectionIds.includes(component.sectionId)),
@@ -239,7 +294,7 @@ export function selectEvidencePackage(
   )
   const interactionObservations = deduplicateInteractions(
     evidence.interactionObservations.filter((observation) => selectedSectionIds.includes(observation.sectionId)),
-    60,
+    limits.maxInteractions,
   )
   const responsiveObservations = evidence.responsiveObservations
     .filter(
@@ -247,8 +302,10 @@ export function selectEvidencePackage(
         selectedSectionIds.includes(observation.sectionId) ||
         observation.evidenceRefs.some((reference) => selectedSectionIds.includes(reference)),
     )
-    .slice(0, 60)
-  const mediaLayers = evidence.mediaLayers.filter((media) => selectedSectionIds.includes(media.sectionId)).slice(0, 60)
+    .slice(0, limits.maxResponsiveObservations)
+  const mediaLayers = evidence.mediaLayers
+    .filter((media) => selectedSectionIds.includes(media.sectionId))
+    .slice(0, limits.maxMediaLayers)
   const imageIds = inputMode === 'multimodal' ? selectRepresentativeImages(pages, limits.maxImages) : []
 
   const omittedEvidence: EvidencePackage['omittedEvidence'] = []
@@ -281,7 +338,18 @@ export function selectEvidencePackage(
   const usageCount = Object.fromEntries(
     Object.entries(evidence.tokens.usageCount || {})
       .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
-      .slice(0, 50),
+      .slice(0, 30),
+  )
+  const confidencePriority = { high: 3, medium: 2, low: 1 }
+  const tokenEvidence = Object.fromEntries(
+    Object.entries(evidence.tokens.evidence || {})
+      .sort(
+        (first, second) =>
+          confidencePriority[second[1].confidence] - confidencePriority[first[1].confidence] ||
+          second[1].observationCount - first[1].observationCount ||
+          first[0].localeCompare(second[0]),
+      )
+      .slice(0, 40),
   )
 
   return {
@@ -296,6 +364,7 @@ export function selectEvidencePackage(
       tokens: {
         ...evidence.tokens,
         ...(Object.keys(usageCount).length > 0 ? { usageCount } : {}),
+        ...(Object.keys(tokenEvidence).length > 0 ? { evidence: tokenEvidence } : {}),
       },
       pages: pages.map((page) => ({
         id: page.id,

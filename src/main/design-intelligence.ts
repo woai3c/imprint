@@ -15,6 +15,7 @@ import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
+  type CallDetail,
   DESIGN_PROFILE_PROMPT_VERSION,
   type InterpretationInvoke,
   createEvidenceFingerprint,
@@ -283,6 +284,7 @@ export async function runDesignIntelligence(
   const timeoutSignal = AbortSignal.timeout(900_000)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
   const accumulatedUsage = { input: 0, output: 0, calls: 0 }
+  const accumulatedCallDetails: CallDetail[] = []
 
   try {
     const enhancementContext = {
@@ -307,7 +309,12 @@ export async function runDesignIntelligence(
     let invokeCount = 0
     const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
       invokeCount++
-      const passLabel = invokeCount <= 2 ? 'progress.observationPass' : 'progress.synthesisPass'
+      const pass = taskPrompt.includes('section observer')
+        ? 'observation'
+        : taskPrompt.includes('repairing the citation fields')
+          ? 'synthesis-repair'
+          : 'synthesis'
+      const passLabel = pass === 'observation' ? 'progress.observationPass' : 'progress.synthesisPass'
       onProgress?.(passLabel, Math.min(25 + invokeCount * 15, 80))
       log.info(
         'design-intelligence',
@@ -349,6 +356,7 @@ export async function runDesignIntelligence(
       accumulatedUsage.calls++
       accumulatedUsage.input += result.usage?.input || 0
       accumulatedUsage.output += result.usage?.output || 0
+      accumulatedCallDetails.push({ pass, input: result.usage?.input, output: result.usage?.output })
       return result
     }
     const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
@@ -474,6 +482,7 @@ export async function runDesignIntelligence(
         failureReason: reason,
         tokenUsage:
           accumulatedUsage.calls > 0 ? { input: accumulatedUsage.input, output: accumulatedUsage.output } : undefined,
+        callDetails: accumulatedCallDetails.length > 0 ? accumulatedCallDetails : undefined,
       },
     }
   }

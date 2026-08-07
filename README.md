@@ -52,7 +52,9 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Feature                  | Description                                                                                     |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
 | Website analysis         | Analyze visual styles directly from a URL                                                       |
+| Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes              |
 | Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations |
+| Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence               |
 | Screenshot analysis      | Extract design patterns from UI screenshots                                                     |
 | Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance                    |
 | AI-ready documentation   | Export DESIGN.md for AI coding agents                                                           |
@@ -122,6 +124,7 @@ variable:
 pnpm build:cli
 export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
+imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
 imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
 ```

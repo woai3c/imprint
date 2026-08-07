@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest'
 
-import { type ComponentCandidate, summarizeComponentCandidates } from '../../src/core/analyzer/component-detect.js'
+import {
+  type ComponentCandidate,
+  mergeComponentPatterns,
+  summarizeComponentCandidates,
+} from '../../src/core/analyzer/component-detect.js'
 
 describe('component candidate summarization', () => {
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {
@@ -60,5 +64,20 @@ describe('component candidate summarization', () => {
       confidence: 0.78,
       selectors: [],
     })
+  })
+
+  test('merges component evidence and counts across analyzed pages', () => {
+    const merged = mergeComponentPatterns([
+      summarizeComponentCandidates([
+        { type: 'button', confidence: 0.9, evidence: ['native-element'], styles: { borderRadius: '8px' } },
+      ]),
+      summarizeComponentCandidates([
+        { type: 'button', confidence: 0.7, evidence: ['aria-role'], styles: { borderRadius: '4px' } },
+        { type: 'button', confidence: 0.7, evidence: ['aria-role'], styles: { borderRadius: '4px' } },
+      ]),
+    ])
+
+    expect(merged[0]).toMatchObject({ type: 'button', count: 3, confidence: 0.77, styles: { borderRadius: '4px' } })
+    expect(merged[0].evidence).toEqual(['aria-role', 'native-element'])
   })
 })

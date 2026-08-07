@@ -393,8 +393,6 @@
     "deleteTitle": "删除网站主题",
     "deleteDescription": "从主题库删除“{{theme}}”？它的来源分析仍会保留在历史记录中。",
     "extractedRoleSummary": "{{observed}} 个直接观察语义角色 · {{adapted}} 个预览角色经安全补全",
-    "reanalysisRequired": "由旧版提取器保存，请重新分析来源网站以应用当前修复。",
-    "reanalyze": "重新分析",
     "exportFormats": {
       "markdown": "DESIGN.md（推荐给 AI）",
       "css": "CSS 变量（推荐通用 Web）",

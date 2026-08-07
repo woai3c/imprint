@@ -71,6 +71,28 @@ export function summarizeComponentCandidates(candidates: ComponentCandidate[]): 
   return patterns
 }
 
+export function mergeComponentPatterns(patternGroups: ComponentPattern[][]): ComponentPattern[] {
+  return COMPONENT_ORDER.flatMap((type) => {
+    const patterns = patternGroups.flat().filter((pattern) => pattern.type === type)
+    if (patterns.length === 0) return []
+    const count = patterns.reduce((sum, pattern) => sum + pattern.count, 0)
+    const representative = [...patterns].sort(
+      (first, second) => second.count - first.count || second.confidence - first.confidence,
+    )[0]
+    const confidence = patterns.reduce((sum, pattern) => sum + pattern.confidence * pattern.count, 0) / count
+    return [
+      {
+        type,
+        count,
+        selectors: [...new Set(patterns.flatMap((pattern) => pattern.selectors))],
+        styles: representative.styles,
+        confidence: Math.round(confidence * 100) / 100,
+        evidence: [...new Set(patterns.flatMap((pattern) => pattern.evidence))].sort(),
+      },
+    ]
+  })
+}
+
 /**
  * Detect common UI component patterns from visible DOM semantics and visual evidence.
  * Native HTML and ARIA candidates carry stronger confidence than class-name or card heuristics.

@@ -333,6 +333,58 @@ describe('Section observation pass', () => {
     expect(synthesisPrompt).not.toContain('SECTION_OBSERVATIONS')
   })
 
+  it('repairs citation-only validation failures once and revalidates the complete profile', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const calls: string[] = []
+    const invalid = rawProfile()
+    invalid.composition.densityAndWhitespace.evidence = []
+    invalid.attention.contrastStrategy.evidence = []
+    invalid.visualLanguage.color.evidence = []
+    invalid.visualLanguage.typography.evidence = []
+    const invoke: InterpretationInvoke = async (prompt) => {
+      calls.push(prompt)
+      if (prompt.includes('section observer')) return { text: 'invalid observations' }
+      if (prompt.includes('repairing the citation fields')) return { text: JSON.stringify(rawProfile()) }
+      return { text: JSON.stringify(invalid) }
+    }
+
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke,
+    })
+
+    expect(result.profile.visualLanguage.color).toBeDefined()
+    expect(result.callDetails.map((detail) => detail.pass)).toEqual(['observation', 'synthesis', 'synthesis-repair'])
+    expect(calls).toHaveLength(3)
+    expect(calls[2]).toContain('composition.densityAndWhitespace:missing-evidence')
+    expect(calls[2]).toContain('Allowed evidence IDs')
+    expect(calls[2]).toContain('Allowed token refs')
+  })
+
+  it('stops after one failed repair and reports citation shapes without claim content', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const invalid = rawProfile()
+    invalid.visualLanguage.color.evidence = []
+    let calls = 0
+    const invoke: InterpretationInvoke = async (prompt) => {
+      calls += 1
+      if (prompt.includes('section observer')) return { text: 'invalid observations' }
+      return { text: JSON.stringify(invalid) }
+    }
+
+    await expect(
+      runInterpretationPipeline(evidence, evidencePackage, {
+        mode: 'structural-only',
+        language: 'en',
+        invoke,
+      }),
+    ).rejects.toThrow(
+      'repair-attempted=true; citation-shapes=visualLanguage.color[citations=0,ids=0,valid=0,tokenRefs=0]',
+    )
+    expect(calls).toBe(3)
+  })
+
   it('routes region crops to the observation pass and overviews to synthesis', () => {
     const images: AiImageInput[] = [
       { name: 'image-a.png', mimeType: 'image/png', base64: 'AAA' },
@@ -350,5 +402,8 @@ describe('Section observation pass', () => {
     expect(prompt).not.toContain('SECTION_OBSERVATIONS')
     const withNotes = buildDesignInterpretationPrompt(evidencePackage, 'en', [observationEntry('section-a')])
     expect(withNotes).toContain('SECTION_OBSERVATIONS')
+    expect(prompt).toContain('Never put a token ref in evidenceId')
+    expect(prompt).toContain('Allowed evidence IDs')
+    expect(prompt).toContain('Allowed token refs')
   })
 })

@@ -16,7 +16,8 @@ export function generateDesignEvidenceBrief(
   const passiveStates =
     evidence.interactionStyles.hover.length +
     evidence.interactionStyles.focus.length +
-    evidence.interactionStyles.active.length
+    evidence.interactionStyles.active.length +
+    (evidence.interactionStyles.disabled?.length || 0)
   const safeActiveStates = evidence.interactionObservations.filter(
     (observation) => observation.safety === 'safe-active',
   ).length
@@ -86,26 +87,50 @@ export function generateDesignEvidenceBrief(
 
   if (evidence.interactionObservations.length > 0) {
     lines.push('')
-    lines.push(zh ? '### 状态观察' : '### State Observations')
+    lines.push(zh ? '### 状态证据明细' : '### State Evidence Details')
     lines.push('')
-    const driverCounts = new Map<string, number>()
+    const passiveObservations = evidence.interactionObservations.filter(
+      (observation) => observation.safety === 'passive',
+    )
+    const activeObservations = evidence.interactionObservations.filter(
+      (observation) => observation.safety === 'safe-active',
+    )
+    const passiveCounts = new Map<string, number>()
+    const activeDriverCounts = new Map<string, number>()
     const propertyCounts = new Map<string, number>()
     for (const obs of evidence.interactionObservations) {
-      driverCounts.set(obs.driver, (driverCounts.get(obs.driver) || 0) + 1)
+      if (obs.safety === 'passive') {
+        const passiveLabel = obs.trigger.kind.startsWith('css-pseudo-class:')
+          ? obs.trigger.kind.slice('css-pseudo-class:'.length)
+          : obs.trigger.kind
+        passiveCounts.set(passiveLabel, (passiveCounts.get(passiveLabel) || 0) + 1)
+      } else {
+        activeDriverCounts.set(obs.driver, (activeDriverCounts.get(obs.driver) || 0) + 1)
+      }
       for (const prop of obs.changedProperties) {
         propertyCounts.set(prop, (propertyCounts.get(prop) || 0) + 1)
       }
     }
     lines.push(
       zh
-        ? `- 共 ${evidence.interactionObservations.length} 条观察`
-        : `- ${evidence.interactionObservations.length} observations total`,
+        ? `- 被动状态规则：${passiveObservations.length} 条（未执行用户操作）`
+        : `- Passive state rules: ${passiveObservations.length} (no user action executed)`,
     )
-    const driverSummary = [...driverCounts.entries()]
+    const passiveSummary = [...passiveCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([state, count]) => `${state} ×${count}`)
+      .join(', ')
+    if (passiveSummary) lines.push(`- ${zh ? '声明状态' : 'Declared states'}: ${passiveSummary}`)
+    lines.push(
+      zh
+        ? `- 安全主动观察：${activeObservations.length} 条`
+        : `- Safe active observations: ${activeObservations.length}`,
+    )
+    const activeDriverSummary = [...activeDriverCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([driver, count]) => `${driver} ×${count}`)
       .join(', ')
-    lines.push(`- ${zh ? '驱动类型' : 'Drivers'}: ${driverSummary}`)
+    if (activeDriverSummary) lines.push(`- ${zh ? '实际驱动' : 'Executed drivers'}: ${activeDriverSummary}`)
     const propSummary = [...propertyCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)

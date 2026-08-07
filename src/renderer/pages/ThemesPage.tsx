@@ -4,18 +4,12 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 
-import {
-  CURRENT_EXTRACTION_VERSION,
-  THEME_EXPORT_FORMATS,
-  type ThemeExportFormat,
-  type ThemeSummaryRecord,
-} from '../../shared/ipc-contract'
+import { THEME_EXPORT_FORMATS, type ThemeExportFormat, type ThemeSummaryRecord } from '../../shared/ipc-contract'
 import { InfoTip } from '../components/InfoTip'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { createExtractedThemePreview } from '../lib/extracted-theme-preview'
-import { useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 import {
   builtinThemes,
@@ -286,10 +280,6 @@ export function ThemesPage() {
                 onExport={() => handleExportExtracted(theme)}
                 onRename={(name) => handleRenameExtracted(theme, name)}
                 onDelete={() => setPendingDeleteTheme(theme)}
-                onReanalyze={() => {
-                  if (theme.source_url) useAnalysisStore.getState().setUrl(theme.source_url)
-                  navigate('/')
-                }}
               />
             ))}
           </div>
@@ -317,14 +307,12 @@ function ExtractedThemeCard({
   onExport,
   onRename,
   onDelete,
-  onReanalyze,
 }: {
   theme: ThemeSummaryRecord
   onValidate: () => void
   onExport: () => void
   onRename: (name: string) => Promise<void>
   onDelete: () => void
-  onReanalyze: () => void
 }) {
   const { t } = useTranslation()
   const preview = createExtractedThemePreview(theme)
@@ -438,17 +426,6 @@ function ExtractedThemeCard({
           adapted: preview.adaptedRoleCount,
         })}
       </p>
-      {(theme.extraction_version || 1) < CURRENT_EXTRACTION_VERSION && (
-        <div className="mt-1 flex items-start justify-between gap-2 text-xs font-medium leading-5 text-warning-strong">
-          <span>{t('themes.reanalysisRequired')}</span>
-          {theme.source_url && (
-            <button type="button" onClick={onReanalyze} className="shrink-0 underline underline-offset-2">
-              {t('themes.reanalyze')}
-            </button>
-          )}
-        </div>
-      )}
-
       <div className="mt-auto flex items-center justify-end gap-1 pt-3">
         <button
           type="button"

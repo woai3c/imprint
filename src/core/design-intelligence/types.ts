@@ -62,6 +62,7 @@ export interface DesignClaim {
   implementation: string
   confidence: Confidence
   evidence: EvidenceRef[]
+  tokenRefs?: string[]
 }
 
 export interface SignatureMove extends DesignClaim {
@@ -180,6 +181,7 @@ export type AiSafeDesignEvidence = Omit<
     hover: unknown[]
     focus: unknown[]
     active: unknown[]
+    disabled?: unknown[]
   }
   interactionObservations: Array<{
     id: string

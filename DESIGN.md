@@ -251,7 +251,16 @@ runs out, the tab strip scrolls horizontally instead.
   action.
 - Keep this configuration visually quiet: use a label, compact select, and adjacent help text without a decorative icon
   or full-width card surface. Explain that the entered URL counts as the first page, discovered same-site URLs fill the
-  remaining slots, and analysis finishes with fewer pages when the website exposes fewer usable links.
+  remaining slots, and analysis finishes with fewer pages when the website exposes fewer usable routes. Automatic
+  discovery combines rendered navigation links with same-origin sitemap entries, excludes authentication, legal, and
+  asset URLs, and favors a diverse set of product, pricing, documentation, company, support, and content pages instead
+  of filling the run with several near-identical routes. Links inside the primary content or top navigation outrank
+  footer-only contact and support routes; low-representativeness utility routes are skipped rather than used to fill a
+  page quota.
+- The entry page remains authoritative for canvas, surface, and foreground roles. Additional pages may strengthen or
+  add action colors, components, breakpoints, motion, and other tokens. Token JSON and DTCG exports carry deterministic
+  per-token confidence, observation counts, source pages, and provenance; repeated viewports are captures, not distinct
+  pages. DESIGN.md summarizes confidence and calls out low-confidence values for review.
 - Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
   in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
 - Screenshot evidence opens in an in-context lightbox. Wheel and explicit controls zoom the image; zoomed images support
@@ -364,8 +373,6 @@ Visual novelty must remain accountable to the product's extraction and validatio
   that name into one entry; analysis history is retained. Renaming cannot create a duplicate name. Deleting a history
   record does not delete the saved theme. Theme deletion remains explicit and confirms that the source analysis will be
   retained.
-- Version deterministic extraction snapshots. When a saved website theme predates a material extraction change, label it
-  as requiring a fresh source analysis; never imply that missing raw browser evidence can be repaired from stored tokens.
 - Avoid generic superlatives, filler metrics, and decorative labels in product copy. Say what the interface verifies or
   what the user can do.
 

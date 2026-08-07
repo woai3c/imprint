@@ -48,6 +48,7 @@ export interface PageMediaLayerSnapshot {
   sectionKey: string
   kind: 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
   role: 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+  importance: 'major' | 'supporting' | 'icon'
   rect: NormalizedRect
   zIndex?: string
   objectFit?: string
@@ -94,7 +95,16 @@ export interface PageEvidenceSnapshot {
 export async function extractPageEvidence(page: Page, viewport: string): Promise<PageEvidenceSnapshot> {
   return page.evaluate((viewportName) => {
     type BrowserSectionRole =
-      'header' | 'navigation' | 'hero' | 'content' | 'feature-group' | 'media' | 'action' | 'footer' | 'unknown'
+      | 'header'
+      | 'navigation'
+      | 'hero'
+      | 'content'
+      | 'feature-group'
+      | 'media'
+      | 'action'
+      | 'aside'
+      | 'footer'
+      | 'unknown'
     type BrowserLayoutMode = 'flow' | 'sticky' | 'fixed' | 'overlay'
     type BrowserLayoutNodeRole =
       | 'header'
@@ -111,6 +121,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     type BrowserTextRole = 'display' | 'heading' | 'body' | 'label' | 'metadata'
     type BrowserMediaKind = 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
     type BrowserMediaRole = 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+    type BrowserMediaImportance = 'major' | 'supporting' | 'icon'
 
     const computedCache = new WeakMap<Element, CSSStyleDeclaration>()
     const computedFor = (element: Element): CSSStyleDeclaration => {
@@ -139,6 +150,11 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     const body = document.body
     const width = Math.max(documentElement.scrollWidth, body?.scrollWidth || 0, window.innerWidth, 1)
     const height = Math.max(documentElement.scrollHeight, body?.scrollHeight || 0, window.innerHeight, 1)
+    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
+    const areaOf = (element: Element): number => {
+      const rect = element.getBoundingClientRect()
+      return rect.width * rect.height
+    }
     const normalizedRect = (element: Element) => {
       const rect = element.getBoundingClientRect()
       const x = Math.max(0, Math.min(width, rect.left + window.scrollX))
@@ -159,33 +175,58 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return 'flow'
     }
 
+    // Pure wrapper chains (single child covering nearly the whole parent) hide the
+    // real visual region; evaluate heuristics on the innermost meaningful descendant.
+    const pierceSingleChildWrapper = (element: Element): Element => {
+      let current = element
+      for (let depth = 0; depth < 4; depth += 1) {
+        if (!/^(DIV|MAIN|ARTICLE|SECTION)$/.test(current.tagName)) return current
+        const visibleChildren = [...current.children].filter(isVisible)
+        if (visibleChildren.length !== 1) return current
+        const child = visibleChildren[0]
+        if (!/^(DIV|ARTICLE|SECTION)$/.test(child.tagName)) return current
+        if (areaOf(child) < areaOf(current) * 0.85) return current
+        current = child
+      }
+      return current
+    }
+
     const roleForSection = (element: Element): BrowserSectionRole => {
       const tag = element.tagName
       const ariaRole = element.getAttribute('role')
       if (tag === 'HEADER' || ariaRole === 'banner') return 'header'
       if (tag === 'NAV' || ariaRole === 'navigation') return 'navigation'
       if (tag === 'FOOTER' || ariaRole === 'contentinfo') return 'footer'
+      if (tag === 'ASIDE' || ariaRole === 'complementary') return 'aside'
 
-      const rect = element.getBoundingClientRect()
-      const hasHeadingOne = Boolean(element.querySelector('h1'))
+      const target = pierceSingleChildWrapper(element)
+      const rect = target.getBoundingClientRect()
+      const hasHeadingOne = Boolean(target.querySelector('h1'))
       if (hasHeadingOne && rect.top + window.scrollY < window.innerHeight * 1.5) return 'hero'
 
-      const media = element.querySelector('img, picture, video, svg, canvas')
+      const media = target.querySelector('img, picture, video, svg, canvas')
       if (media) {
         const mediaRect = media.getBoundingClientRect()
         if (mediaRect.width * mediaRect.height >= rect.width * rect.height * 0.45) return 'media'
       }
 
-      const visibleChildren = [...element.children].filter(isVisible)
+      const visibleChildren = [...target.children].filter(isVisible)
       if (visibleChildren.length >= 3) {
         const signatures = visibleChildren.map((child) => `${child.tagName}:${child.className}`)
         const repeated = signatures.some((signature) => signatures.filter((value) => value === signature).length >= 2)
         if (repeated) return 'feature-group'
       }
 
-      const actionCount = element.querySelectorAll('button, [role="button"], a[href]').length
-      const textLength = (element.textContent || '').replace(/\s+/g, ' ').trim().length
-      if (actionCount > 0 && textLength > 0 && textLength <= 480) return 'action'
+      const textLength = (target.textContent || '').replace(/\s+/g, ' ').trim().length
+      const linkTextLength = [...target.querySelectorAll('a[href]')].reduce(
+        (sum, link) => sum + (link.textContent || '').replace(/\s+/g, ' ').trim().length,
+        0,
+      )
+      if (textLength > 0 && linkTextLength >= textLength * 0.6) return 'navigation'
+
+      const actionCount = target.querySelectorAll('button, [role="button"], a[href]').length
+      const areaRatio = (rect.width * rect.height) / viewportArea
+      if (actionCount > 0 && textLength > 0 && textLength <= 480 && areaRatio <= 0.35) return 'action'
       return tag === 'MAIN' || tag === 'ARTICLE' || tag === 'SECTION' ? 'content' : 'unknown'
     }
 
@@ -215,18 +256,90 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
     }
 
-    const rawSectionCandidates = [
+    // Strong semantic baseline: landmarks at any depth (modern app shells nest them
+    // inside several wrapper divs). Card-level headers/footers inside articles or
+    // list items are not page sections.
+    const semanticSectionCandidates = [
       ...document.querySelectorAll(
-        'body > header, body > nav, body > main, body > section, body > article, body > footer, main > header, main > nav, main > section, main > article, main > div, [role="banner"], [role="main"], [role="region"], [role="contentinfo"]',
+        'header, nav, main, footer, aside, main > section, main > article, [role="banner"], [role="main"], [role="navigation"], [role="contentinfo"], [role="complementary"], [role="region"]',
       ),
-    ].filter(isVisible)
-    const uniqueCandidates = [...new Set(rawSectionCandidates)]
-    const sectionCandidates = uniqueCandidates.filter((element) => {
-      const rect = element.getBoundingClientRect()
-      if (rect.width < 32 || rect.height < 32) return false
-      if (element.tagName !== 'MAIN' && element.getAttribute('role') !== 'main') return true
-      return uniqueCandidates.filter((candidate) => candidate !== element && element.contains(candidate)).length < 2
+    ].filter((element) => {
+      if (!isVisible(element)) return false
+      const tag = element.tagName
+      if ((tag === 'HEADER' || tag === 'FOOTER') && element.parentElement?.closest('article, li')) return false
+      return true
     })
+    const landmarkSet = new Set<Element>(semanticSectionCandidates)
+
+    // Deterministic visual segmentation: modern app shells bury the real feed/content
+    // under layers of wrappers, so score deep containers and keep the ones that form
+    // genuine visual regions.
+    const regionScore = (element: Element): number => {
+      const visibleChildren = [...element.children].filter(isVisible)
+      if (visibleChildren.length < 2) return 0
+      const area = areaOf(element)
+      const textLength = (element.textContent || '').replace(/\s+/g, ' ').trim().length
+      const mediaCount = element.querySelectorAll('img, picture, video, canvas').length
+      const actionCount = element.querySelectorAll('button, [role="button"], a[href]').length
+      const frequencies = new Map<string, number>()
+      for (const child of visibleChildren) {
+        const signature = `${child.tagName}:${typeof child.className === 'string' ? child.className : ''}`
+        frequencies.set(signature, (frequencies.get(signature) || 0) + 1)
+      }
+      const maxRepeat = Math.max(0, ...frequencies.values())
+      let score = 0
+      if (area >= viewportArea * 0.3) score += 2
+      else if (area >= viewportArea * 0.08) score += 1
+      if (maxRepeat >= 3) score += 2
+      else if (maxRepeat >= 2) score += 1
+      if (textLength >= 600) score += 1
+      if (mediaCount >= 2) score += 1
+      if (actionCount >= 3) score += 1
+      return score
+    }
+    const mainRoots = semanticSectionCandidates.filter(
+      (element) => element.tagName === 'MAIN' || element.getAttribute('role') === 'main',
+    )
+    const searchRoots = mainRoots.length > 0 ? mainRoots : ([document.body].filter(Boolean) as Element[])
+    const discoveredRegions: Element[] = []
+    for (const root of searchRoots) {
+      for (const element of [...root.querySelectorAll('div, section, article, ul, ol')].slice(0, 400)) {
+        if (!isVisible(element)) continue
+        if (
+          element.closest(
+            'header, footer, nav, aside, [role="banner"], [role="contentinfo"], [role="navigation"], [role="complementary"]',
+          )
+        ) {
+          continue
+        }
+        if (areaOf(element) < viewportArea * 0.04) continue
+        if (regionScore(element) >= 4) discoveredRegions.push(element)
+      }
+    }
+
+    const combinedCandidates = [...new Set([...semanticSectionCandidates, ...discoveredRegions])].filter((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.width >= 32 && rect.height >= 32
+    })
+    // Containment suppression: layered wrappers around the same visual region must
+    // not produce several nested sections. Landmarks win over anonymous wrappers.
+    const suppressed = new Set<Element>()
+    for (const ancestor of combinedCandidates) {
+      for (const descendant of combinedCandidates) {
+        if (ancestor === descendant || !ancestor.contains(descendant)) continue
+        const ancestorArea = areaOf(ancestor)
+        const descendantArea = areaOf(descendant)
+        if (descendantArea >= ancestorArea * 0.85) {
+          if (landmarkSet.has(ancestor) && !landmarkSet.has(descendant)) suppressed.add(descendant)
+          else suppressed.add(ancestor)
+          continue
+        }
+        if (!landmarkSet.has(ancestor) && landmarkSet.has(descendant) && descendantArea >= ancestorArea * 0.5) {
+          suppressed.add(ancestor)
+        }
+      }
+    }
+    const sectionCandidates = combinedCandidates.filter((element) => !suppressed.has(element))
     if (sectionCandidates.length === 0) {
       const fallback = document.querySelector('main') || document.body
       if (fallback && isVisible(fallback)) sectionCandidates.push(fallback)
@@ -442,9 +555,18 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       ]
     })
 
+    const MAX_MEDIA_LAYERS = 150
+    const MAX_ICON_MEDIA = 48
+    const MAX_ICON_MEDIA_PER_SECTION = 12
+
     const explicitMediaCandidates = [
       ...document.querySelectorAll('img, picture, video, svg, canvas, [style*="background-image"]'),
-    ].filter(isVisible)
+    ].filter((element) => {
+      if (!isVisible(element)) return false
+      // A picture element is represented by its inner img; counting both double-counts it.
+      if (element.tagName === 'PICTURE' && element.querySelector('img')) return false
+      return true
+    })
     const cssBackgroundCandidates: Element[] = []
     for (const element of document.querySelectorAll('body *')) {
       if (cssBackgroundCandidates.length >= 80) break
@@ -459,27 +581,82 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (rect.width >= 32 && rect.height >= 32) cssBackgroundCandidates.push(element)
     }
     const mediaCandidates = [...new Set([...explicitMediaCandidates, ...cssBackgroundCandidates])]
-    const mediaLayers = mediaCandidates.slice(0, 150).flatMap((element) => {
+
+    const kindForMedia = (element: Element): BrowserMediaKind => {
+      // SVG elements keep their lowercase tagName; normalize before comparing.
+      const tag = element.tagName.toUpperCase()
+      return tag === 'VIDEO'
+        ? 'video'
+        : tag === 'SVG'
+          ? 'svg'
+          : tag === 'CANVAS'
+            ? 'canvas'
+            : tag === 'IMG' || tag === 'PICTURE'
+              ? 'image'
+              : 'css-background'
+    }
+    const mediaSignatureFor = (element: Element, kind: BrowserMediaKind): string | null => {
+      if (kind === 'image') {
+        const source = element.getAttribute('src') || element.getAttribute('data-src')
+        return source ? `img:${source.slice(0, 160)}` : null
+      }
+      if (kind === 'svg') {
+        const markup = element.innerHTML
+        let hash = 0
+        for (let index = 0; index < markup.length; index += 1) hash = (hash * 31 + markup.charCodeAt(index)) | 0
+        return `svg:${hash}`
+      }
+      return null
+    }
+    const importanceForMedia = (element: Element, kind: BrowserMediaKind): BrowserMediaImportance => {
+      const rect = element.getBoundingClientRect()
+      const areaRatio = (rect.width * rect.height) / viewportArea
+      const inChrome = Boolean(element.closest('button, a, nav, header, [role="button"], [role="navigation"]'))
+      if ((rect.width <= 64 && rect.height <= 64) || (kind === 'svg' && inChrome)) return 'icon'
+      if (areaRatio >= 0.06) return 'major'
+      if (kind !== 'svg' && kind !== 'canvas' && !inChrome && areaRatio >= 0.015) return 'major'
+      if (areaRatio >= 0.004) return 'supporting'
+      return 'icon'
+    }
+
+    // Dedupe repeated avatars (same src) and identical SVG shapes, then prioritize
+    // major media so DOM order cannot crowd out hero/cover imagery with icons.
+    const seenMediaSignatures = new Set<string>()
+    const mediaEntries = mediaCandidates.flatMap((element, domIndex) => {
+      const kind = kindForMedia(element)
+      const signature = mediaSignatureFor(element, kind)
+      if (signature) {
+        if (seenMediaSignatures.has(signature)) return []
+        seenMediaSignatures.add(signature)
+      }
+      return [{ element, domIndex, kind, importance: importanceForMedia(element, kind), area: areaOf(element) }]
+    })
+    const importanceRank: Record<BrowserMediaImportance, number> = { major: 0, supporting: 1, icon: 2 }
+    mediaEntries.sort(
+      (a, b) =>
+        importanceRank[a.importance] - importanceRank[b.importance] || b.area - a.area || a.domIndex - b.domIndex,
+    )
+    let iconCount = 0
+    const iconCountBySection = new Map<string, number>()
+    const mediaLayers = mediaEntries.slice(0, MAX_MEDIA_LAYERS).flatMap((entry) => {
+      const element = entry.element
       const section = sectionFor(element)
       if (!section) return []
+      if (entry.importance === 'icon') {
+        const sectionIconCount = iconCountBySection.get(section.key) || 0
+        if (iconCount >= MAX_ICON_MEDIA || sectionIconCount >= MAX_ICON_MEDIA_PER_SECTION) return []
+        iconCount += 1
+        iconCountBySection.set(section.key, sectionIconCount + 1)
+      }
       const computed = computedFor(element)
-      const tag = element.tagName
-      const kind: BrowserMediaKind =
-        tag === 'VIDEO'
-          ? 'video'
-          : tag === 'SVG'
-            ? 'svg'
-            : tag === 'CANVAS'
-              ? 'canvas'
-              : tag === 'IMG' || tag === 'PICTURE'
-                ? 'image'
-                : 'css-background'
+      const tag = element.tagName.toUpperCase()
+      const kind = entry.kind
       const rect = element.getBoundingClientRect()
-      const areaRatio = (rect.width * rect.height) / Math.max(1, window.innerWidth * window.innerHeight)
+      const areaRatio = (rect.width * rect.height) / viewportArea
       const semanticHint =
         `${element.id} ${typeof element.className === 'string' ? element.className : ''}`.toLowerCase()
       const role: BrowserMediaRole =
-        rect.width <= 48 && rect.height <= 48
+        entry.importance === 'icon'
           ? 'icon'
           : kind === 'css-background' && areaRatio >= 0.5
             ? 'ambient'
@@ -509,6 +686,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           sectionKey: section.key,
           kind,
           role,
+          importance: entry.importance,
           rect: normalizedRect(element),
           zIndex: computed.zIndex,
           objectFit: computed.objectFit,

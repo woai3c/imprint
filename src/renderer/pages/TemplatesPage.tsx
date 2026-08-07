@@ -17,6 +17,7 @@ import { LoginTemplate } from '../components/templates/LoginTemplate'
 import { PricingTemplate } from '../components/templates/PricingTemplate'
 import { ProfileTemplate } from '../components/templates/ProfileTemplate'
 import { SettingsTemplate } from '../components/templates/SettingsTemplate'
+import { ThemeCalibrationStrip } from '../components/templates/ThemeCalibrationStrip'
 import { type ExtractedThemeColorMode, createExtractedThemePreview } from '../lib/extracted-theme-preview'
 import { getValidationScenarioPreference, setValidationScenarioPreference } from '../lib/preferences'
 import { VALIDATION_SCENARIO_IDS, type ValidationScenarioId } from '../lib/validation-scenarios'
@@ -199,6 +200,16 @@ export function TemplatesPage() {
             })}
           </span>
           <div className="flex items-center gap-2">
+            {extractedPreview.hasDarkMode && selectedExtractedTheme.dark_mode_method && (
+              <span className="text-[10px] text-muted-foreground">
+                {t(
+                  `templates.extractedDarkSource.${
+                    selectedExtractedTheme.dark_mode_method === 'class-toggle' ? 'toggle' : 'media'
+                  }`,
+                  { selector: selectedExtractedTheme.dark_mode_selector || '.dark' },
+                )}
+              </span>
+            )}
             {extractedPreview.hasDarkMode && (
               <div
                 role="group"
@@ -238,6 +249,7 @@ export function TemplatesPage() {
         style={extractedPreview?.style}
         className="ui-enter mx-8 mb-8 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
       >
+        <ThemeCalibrationStrip />
         <ActiveComponent />
       </div>
     </div>

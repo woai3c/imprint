@@ -213,6 +213,23 @@ describe('Design benchmark corpus', () => {
           }
         }
 
+        if (annotation.expectedFeatureTags) {
+          for (const tag of annotation.expectedFeatureTags) {
+            expect(evidence.featureTags, `missing feature tag ${tag}`).toContain(tag)
+          }
+        }
+        if (annotation.forbiddenFeatureTags) {
+          for (const tag of annotation.forbiddenFeatureTags) {
+            expect(evidence.featureTags, `unexpected feature tag ${tag}`).not.toContain(tag)
+          }
+        }
+        if (annotation.maxMajorMediaRegions !== undefined) {
+          expect(
+            evidence.coverage.mediaCoverage.majorRegions,
+            `too many major media regions (icons must stay out of the major count)`,
+          ).toBeLessThanOrEqual(annotation.maxMajorMediaRegions)
+        }
+
         const rerun = await analyzeFixture(annotation.fixture, dataDir)
         expect(rerun.designEvidence.sections.map((section) => section.id)).toEqual(
           evidence.sections.map((section) => section.id),

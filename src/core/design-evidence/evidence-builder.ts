@@ -427,6 +427,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         sectionId,
         kind: media.kind,
         role: media.role,
+        importance: media.importance,
         rect: media.rect,
         zIndex: media.zIndex,
         objectFit: media.objectFit,
@@ -504,8 +505,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   }
   limitations.push(...skippedCandidateLabels.slice(0, 20))
   if (interactionObservations.length === 0) limitations.push('no-interaction-states-observed')
-  if (mediaLayers.length === 0) limitations.push('no-major-media-detected')
-  if (mediaLayers.length > 0 && mediaLayers.every((media) => media.role === 'unknown')) {
+  const majorMediaLayers = mediaLayers.filter((media) => media.importance === 'major')
+  if (majorMediaLayers.length === 0) limitations.push('no-major-media-detected')
+  if (majorMediaLayers.length > 0 && majorMediaLayers.every((media) => media.role === 'unknown')) {
     limitations.push('no-classified-media-regions')
   }
 
@@ -564,8 +566,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       skipped: Math.max(0, interactionCandidateCount - safelyObservedCount),
     },
     mediaCoverage: {
-      majorRegions: mediaLayers.length,
-      classifiedRegions: mediaLayers.filter((media) => media.role !== 'unknown').length,
+      majorRegions: mediaLayers.filter((media) => media.importance === 'major').length,
+      classifiedRegions: mediaLayers.filter((media) => media.importance === 'major' && media.role !== 'unknown').length,
+      iconRegions: mediaLayers.filter((media) => media.importance === 'icon').length,
     },
     accessRestrictions: [
       ...(input.accessMode === 'managed' ? ['managed-access'] : []),

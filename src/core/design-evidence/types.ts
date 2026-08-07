@@ -3,7 +3,7 @@ import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
 
 export type PageRole = 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'unknown'
 export type SectionRole =
-  'header' | 'navigation' | 'hero' | 'content' | 'feature-group' | 'media' | 'action' | 'footer' | 'unknown'
+  'header' | 'navigation' | 'hero' | 'content' | 'feature-group' | 'media' | 'action' | 'aside' | 'footer' | 'unknown'
 export type LayoutMode = 'flow' | 'sticky' | 'fixed' | 'overlay'
 
 export interface NormalizedRect {
@@ -144,6 +144,7 @@ export interface MediaLayerEvidence {
   sectionId: string
   kind: 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
   role: 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+  importance: 'major' | 'supporting' | 'icon'
   rect: NormalizedRect
   zIndex?: string
   objectFit?: string
@@ -167,6 +168,7 @@ export interface EvidenceCoverage {
   mediaCoverage: {
     majorRegions: number
     classifiedRegions: number
+    iconRegions: number
   }
   accessRestrictions: string[]
   limitations: string[]

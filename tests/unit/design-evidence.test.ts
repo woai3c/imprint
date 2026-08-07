@@ -237,6 +237,7 @@ describe('Design Evidence', () => {
         sectionKey: 'hero:1',
         kind: 'image',
         role: 'narrative',
+        importance: 'major',
         rect: { x: 0.2, y: 0.15, width: 0.5, height: 0.25 },
         naturalSize: { width: 2400, height: 1200 },
         hasResponsiveSources: true,
@@ -327,9 +328,84 @@ describe('Design Evidence', () => {
     )
     expect(evidence.coverage.accessRestrictions).toEqual(['managed-access', 'auth-wall-detected'])
     const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
-    expect(brief).toContain('被动状态规则：2 条（未执行用户操作）')
+    expect(brief).toContain('被动状态观察：2 条（未执行用户操作，与概览口径一致）')
+    expect(brief).toContain('2 条被动状态观察（未执行用户操作）')
     expect(brief).toContain('安全主动观察：0 条')
     expect(brief).not.toContain('驱动类型: click')
+  })
+
+  it('counts major media regions separately from supporting media and icons', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.mediaLayers = [
+      {
+        key: 'image:hero',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'narrative',
+        importance: 'major',
+        rect: { x: 0.2, y: 0.15, width: 0.5, height: 0.25 },
+      },
+      {
+        key: 'image:wide-unknown',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'unknown',
+        importance: 'major',
+        rect: { x: 0.1, y: 0.5, width: 0.8, height: 0.2 },
+      },
+      {
+        key: 'image:thumb',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'unknown',
+        importance: 'supporting',
+        rect: { x: 0.2, y: 0.7, width: 0.1, height: 0.05 },
+      },
+      {
+        key: 'svg:icon-1',
+        sectionKey: 'navigation:0',
+        kind: 'svg',
+        role: 'icon',
+        importance: 'icon',
+        rect: { x: 0.05, y: 0.02, width: 0.02, height: 0.02 },
+      },
+      {
+        key: 'image:avatar',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'icon',
+        importance: 'icon',
+        rect: { x: 0.22, y: 0.2, width: 0.03, height: 0.03 },
+      },
+    ]
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-media-coverage',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\media.png', viewport: 'desktop' },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.coverage.mediaCoverage).toEqual({
+      majorRegions: 2,
+      classifiedRegions: 1,
+      iconRegions: 2,
+    })
+    expect(evidence.limitations).not.toContain('no-major-media-detected')
+    const brief = generateDesignEvidenceBrief(evidence)
+    expect(brief).toContain('2 major regions (1 classified)')
+    expect(brief).toContain('2 icon instances')
   })
 
   it('exports facts separately from inferred Design DNA', () => {

@@ -329,6 +329,17 @@ function canonicalPageUrl(value: string): string {
 interface EvidenceScope {
   pageUrlByEvidenceId: Map<string, string>
   sectionRoleByEvidenceId: Map<string, string>
+  // Evidence owned by footer/legal or small fixed utility regions. "Evidence exists"
+  // does not mean "semantically important" — these can only support local claims.
+  utilityEvidenceIds: Set<string>
+}
+
+function isUtilitySection(section: DesignEvidence['sections'][number]): boolean {
+  if (section.role === 'footer') return true
+  const area = section.rect.width * section.rect.height
+  if (area < 0.005) return true
+  if (section.layoutMode !== 'flow' && area < 0.02) return true
+  return false
 }
 
 function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
@@ -336,6 +347,7 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
   const sectionById = new Map(evidence.sections.map((section) => [section.id, section]))
   const pageUrlByEvidenceId = new Map<string, string>()
   const sectionRoleByEvidenceId = new Map<string, string>()
+  const utilityEvidenceIds = new Set<string>()
   const assignPage = (evidenceId: string, pageId: string) => {
     const url = pageUrlByPageId.get(pageId)
     if (url) pageUrlByEvidenceId.set(evidenceId, url)
@@ -345,6 +357,7 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
     if (!section) return
     assignPage(evidenceId, section.pageId)
     sectionRoleByEvidenceId.set(evidenceId, section.role)
+    if (isUtilitySection(section)) utilityEvidenceIds.add(evidenceId)
   }
 
   for (const page of evidence.pages) {
@@ -359,7 +372,7 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
   for (const media of evidence.mediaLayers) assignSection(media.id, media.sectionId)
   for (const layer of evidence.topology.globalLayers) assignPage(layer.id, layer.pageId)
 
-  return { pageUrlByEvidenceId, sectionRoleByEvidenceId }
+  return { pageUrlByEvidenceId, sectionRoleByEvidenceId, utilityEvidenceIds }
 }
 
 function referencedPageUrls(claim: DesignClaim, scope: EvidenceScope): Set<string> {
@@ -375,7 +388,11 @@ function capSinglePageGlobalClaim<T extends DesignClaim>(
   scope: EvidenceScope,
   availablePageCount: number,
 ): T {
-  if (availablePageCount <= 1 || referencedPageUrls(claim, scope).size >= 2 || claim.confidence !== 'high') {
+  if (claim.confidence !== 'high') return claim
+  const utilityOnly =
+    claim.evidence.length > 0 && claim.evidence.every((reference) => scope.utilityEvidenceIds.has(reference.evidenceId))
+  if (utilityOnly) return { ...claim, confidence: 'medium' } as T
+  if (availablePageCount <= 1 || referencedPageUrls(claim, scope).size >= 2) {
     return claim
   }
   return { ...claim, confidence: 'medium' } as T
@@ -491,6 +508,16 @@ export function validateDesignProfile(
     }
     const claim = validateClaim(candidate, validIds, `signatureMoves.${index}`, rejected, claimMode, false, knownColors)
     if (!claim || !isSafeText(candidate.distinctiveness, 240)) return []
+    // A site-wide signature needs recurring, non-incidental support: at least two distinct
+    // page URLs (when several exist) and at least one citation outside footer/utility chrome.
+    if (availablePageCount > 1 && referencedPageUrls(claim, evidenceScope).size < 2) {
+      rejected.push(`signatureMoves.${index}:single-page-signature`)
+      return []
+    }
+    if (!claim.evidence.some((reference) => !evidenceScope.utilityEvidenceIds.has(reference.evidenceId))) {
+      rejected.push(`signatureMoves.${index}:utility-only-evidence`)
+      return []
+    }
     return [
       {
         ...claim,
@@ -1012,8 +1039,21 @@ export function validateDesignProfile(
       return false
     })
     profile.transferRules.preserve = profile.transferRules.preserve.filter((claim, index) => {
-      if (referencedPageUrls(claim, evidenceScope).size >= 2) return true
-      rejected.push(`transferRules.preserve.${index}:single-page-preserve-rule`)
+      if (referencedPageUrls(claim, evidenceScope).size < 2) {
+        rejected.push(`transferRules.preserve.${index}:single-page-preserve-rule`)
+        return false
+      }
+      if (!claim.evidence.some((reference) => !evidenceScope.utilityEvidenceIds.has(reference.evidenceId))) {
+        rejected.push(`transferRules.preserve.${index}:utility-only-evidence`)
+        return false
+      }
+      return true
+    })
+  }
+  if (availablePageCount <= 1) {
+    profile.transferRules.preserve = profile.transferRules.preserve.filter((claim, index) => {
+      if (claim.evidence.some((reference) => !evidenceScope.utilityEvidenceIds.has(reference.evidenceId))) return true
+      rejected.push(`transferRules.preserve.${index}:utility-only-evidence`)
       return false
     })
   }

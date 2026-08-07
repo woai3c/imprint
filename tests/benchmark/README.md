@@ -1,6 +1,6 @@
 # Design DNA Benchmark
 
-固定的质量考卷：10 个风格迥异的合成 fixture + 人工标注，用来回答两个问题——**证据提取是否完整**、**设计语言理解是否具体**。修改提取器、prompt 或校验器之后必须跑一遍，指标退化即视为回归。
+固定的质量考卷：14 个风格迥异的合成 fixture + 人工标注，用来回答两个问题——**证据提取是否完整**、**设计语言理解是否具体**。修改提取器、prompt 或校验器之后必须跑一遍，指标退化即视为回归。
 
 ## 运行
 
@@ -33,19 +33,21 @@ pnpm test:benchmark:live -- --provider deepseek --vision
 
 每个 fixture 执行真实 `analyze()`（desktop + mobile，anonymous），然后断言：
 
-| 门检         | 来源字段                                | 含义                                                                            |
-| ------------ | --------------------------------------- | ------------------------------------------------------------------------------- |
-| 区块角色子集 | `expectedSectionRoles`                  | 标注的角色全部出现在提取结果中                                                  |
-| 区块数量下限 | `minSections`                           | 分段没有塌缩成一整块                                                            |
-| 组件类型子集 | `expectedComponentTypes`                | 关键组件实例被识别                                                              |
-| 视口覆盖     | desktop + mobile                        | 响应式证据成立                                                                  |
-| 区块覆盖下限 | `minSectionCoverage`                    | `coverage.sectionCoverage`                                                      |
-| 安全交互下限 | `minSafelyObservedInteractions`         | allowlist 主动观察真实执行且可恢复                                              |
-| 响应式变化   | `expectedResponsiveChangeTypesAny`      | 命中任一标注的 changeType                                                       |
-| 媒体层级     | `minMediaLayers` / `expectedMediaKinds` | 媒体被观察且类型正确                                                            |
-| 显著性特征   | `expectedSalienceTraits`                | layout node traits 命中                                                         |
-| ID 稳定性    | 两次运行 section ID 序列一致            | 证据引用不会因重跑失效                                                          |
-| 线束自检     | `referenceProfile` 构造的 profile       | `validateDesignProfile` 接受且 `evaluateProfileQuality` groundedness/safety = 1 |
+| 门检         | 来源字段                                       | 含义                                                                            |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| 区块角色子集 | `expectedSectionRoles`                         | 标注的角色全部出现在提取结果中                                                  |
+| 区块数量下限 | `minSections`                                  | 分段没有塌缩成一整块                                                            |
+| 组件类型子集 | `expectedComponentTypes`                       | 关键组件实例被识别                                                              |
+| 视口覆盖     | desktop + mobile                               | 响应式证据成立                                                                  |
+| 区块覆盖下限 | `minSectionCoverage`                           | `coverage.sectionCoverage`                                                      |
+| 安全交互下限 | `minSafelyObservedInteractions`                | allowlist 主动观察真实执行且可恢复                                              |
+| 响应式变化   | `expectedResponsiveChangeTypesAny`             | 命中任一标注的 changeType                                                       |
+| 媒体层级     | `minMediaLayers` / `expectedMediaKinds`        | 媒体被观察且类型正确                                                            |
+| 显著性特征   | `expectedSalienceTraits`                       | layout node traits 命中                                                         |
+| 特征标签     | `expectedFeatureTags` / `forbiddenFeatureTags` | 调色板等特征标签按语义角色判定（如中性底 + 单强调 ≠ rich palette）              |
+| 主要媒体上限 | `maxMajorMediaRegions`                         | 图标/头像不计入 major media region                                              |
+| ID 稳定性    | 两次运行 section ID 序列一致                   | 证据引用不会因重跑失效                                                          |
+| 线束自检     | `referenceProfile` 构造的 profile              | `validateDesignProfile` 接受且 `evaluateProfileQuality` groundedness/safety = 1 |
 
 标注是**对当前提取器行为的特征化（characterization）**：首次建立时按实际合理行为标定，之后行为变化会立刻失败。修改提取器时有两种合法结果——行为确实改进了（更新标注并在提交信息中说明），或行为退化了（修代码）。
 

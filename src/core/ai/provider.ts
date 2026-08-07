@@ -9,6 +9,7 @@ export interface AiProviderConfig {
   fetchFn?: typeof fetch
   reasoningEffort?: string
   thinkingEnabled?: boolean
+  maxOutputTokens?: number
 }
 
 export interface AiImageInput {
@@ -37,6 +38,12 @@ const MAX_PROMPT_CHARS = 2_000_000
 const MAX_IMAGES = 6
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024
+
+function outputTokenLimit(config: AiProviderConfig, fallback: number): number {
+  const requested = config.maxOutputTokens
+  if (!requested || !Number.isFinite(requested)) return fallback
+  return Math.max(256, Math.min(16_384, Math.round(requested)))
+}
 
 function validateRequestBudget(prompt: string, images: AiImageInput[]): void {
   if (prompt.length > MAX_PROMPT_CHARS) throw new Error('AI provider prompt exceeded the size limit')
@@ -103,7 +110,12 @@ async function callAnthropic(
       'anthropic-version': '2023-06-01',
       'x-api-key': config.apiKey,
     },
-    body: JSON.stringify({ model, max_tokens: 16384, temperature: 0.2, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({
+      model,
+      max_tokens: outputTokenLimit(config, 16_384),
+      temperature: 0.2,
+      messages: [{ role: 'user', content }],
+    }),
     signal: requestSignal(config),
   })
   const data = (await readJsonResponse(response)) as {
@@ -139,7 +151,11 @@ async function callGoogle(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 6000, responseMimeType: 'application/json' },
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: outputTokenLimit(config, 6000),
+          responseMimeType: 'application/json',
+        },
       }),
       signal: requestSignal(config),
     },
@@ -184,9 +200,9 @@ async function callOpenAiCompatible(
     messages: [{ role: 'user', content }],
   }
   if (config.thinkingEnabled) {
-    body.max_completion_tokens = 16384
+    body.max_completion_tokens = outputTokenLimit(config, 16_384)
   } else {
-    body.max_tokens = 16384
+    body.max_tokens = outputTokenLimit(config, 16_384)
   }
   const noTemperature = isDeepseekV4 || config.provider === 'moonshotai'
   if (!noTemperature) {

@@ -1,7 +1,7 @@
 import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence-selector.js'
 import type { EvidencePackage, SectionObservation } from './types.js'
 
-export const DESIGN_PROFILE_PROMPT_VERSION = '5'
+export const DESIGN_PROFILE_PROMPT_VERSION = '6'
 
 function allowedEvidenceIds(evidencePackage: EvidencePackage): string {
   return [...listEvidencePackageIds(evidencePackage)].sort().join(', ')
@@ -23,6 +23,7 @@ Security and evidence rules:
 - Cite only evidence IDs present in the package. Every observation needs at least one cited ID.
 - Do not return token values, HTML, scripts, Markdown, external URLs, copied page text, logos, or asset descriptions.
 - Use ${outputLanguage}. Keep structure, visualRelations, and states under 360 characters each, limitations under 240.
+- Keep the entire response under 12,000 characters. Never quote or restate evidence text; one concise note per section is enough.
 - Avoid generic-only descriptions such as modern, clean, premium, professional, friendly, or high-tech.
 
 Return one JSON object matching this exact structure:
@@ -85,8 +86,10 @@ Security and evidence rules:
 - In structural-only mode, describe attention only as a geometry- or DOM-implied reading order. Do not claim what viewers notice first.
 - A site-wide thesis, signature move, continuity rule, or preserve rule must recur across at least two distinct page URLs when multiple URLs are present. Treat one-page structures as local adaptations.
 - Do not let contact, about, legal, community, or support-page structures define the product's main content grammar unless the same pattern recurs on another page.
+- Footer, legal/filing, consent, and small fixed utility regions are local chrome. They may only support page-local claims — never a site-wide signature move, preserve rule, or high-confidence global claim. A signature move needs support from primary content sections on at least two distinct page URLs when several exist.
 - Passive CSS pseudo-class and ARIA evidence proves declared states, not that a click, expansion, or transition was actively executed.
 - Avoid generic-only descriptions such as modern, clean, premium, professional, friendly, or high-tech.
+- Keep the entire response under 24,000 characters. Never quote or restate evidence text, and do not repeat the same idea across multiple claims.
 
 Return one JSON object matching this exact structure:
 {
@@ -116,7 +119,7 @@ Return one JSON object matching this exact structure:
     "motion": CLAIM_OR_OMIT
   },
   "sectionGrammar": [{
-    "role": "header|navigation|hero|content|feature-group|media|action|footer|unknown",
+    "role": "header|navigation|hero|content|feature-group|media|action|aside|footer|unknown",
     "composition": [CLAIM],
     "contentRhythm": [CLAIM],
     "transitionToNext": [CLAIM]

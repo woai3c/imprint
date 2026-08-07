@@ -38,6 +38,7 @@ export function createEvidenceFingerprint(
   selectedImageIds?: Iterable<string>,
   promptVersion = '1',
   profileSchemaVersion = '1',
+  language: 'en' | 'zh-CN' = 'en',
 ): string {
   const selectedImages =
     inputMode === 'multimodal'
@@ -47,9 +48,49 @@ export function createEvidenceFingerprint(
     schemaVersion: evidence.schemaVersion,
     profileSchemaVersion,
     promptVersion,
+    language,
     tokens: evidence.tokens,
     topology: evidence.topology,
     sections: evidence.sections,
+    interactions: evidence.interactionObservations,
+    responsive: evidence.responsiveObservations,
+    images:
+      inputMode === 'multimodal'
+        ? evidence.pages.flatMap((page) =>
+            page.images
+              .filter((image) => selectedImages.has(image.id))
+              .map((image) => ({ id: image.id, contentHash: image.contentHash })),
+          )
+        : [],
+    provider,
+    model,
+  })
+  return createHash('sha256').update(source).digest('hex')
+}
+
+/**
+ * Fingerprint of the structural evidence only (no tokens). Observation-pass results are
+ * cached under this key, so rerunning interpretation after token-only changes (for example
+ * semantic renames) reuses the structural observations instead of paying for a new pass.
+ */
+export function createStructuralFingerprint(
+  evidence: DesignEvidence,
+  inputMode: IntelligenceInputMode,
+  provider: string,
+  model: string,
+  selectedImageIds: Iterable<string> = [],
+  promptVersion = '1',
+  language: 'en' | 'zh-CN' = 'en',
+): string {
+  const selectedImages = new Set(selectedImageIds)
+  const source = JSON.stringify({
+    schemaVersion: evidence.schemaVersion,
+    promptVersion,
+    language,
+    topology: evidence.topology,
+    sections: evidence.sections,
+    components: evidence.components,
+    layoutNodes: evidence.layoutNodes,
     interactions: evidence.interactionObservations,
     responsive: evidence.responsiveObservations,
     images:
@@ -303,8 +344,10 @@ export function selectEvidencePackage(
         observation.evidenceRefs.some((reference) => selectedSectionIds.includes(reference)),
     )
     .slice(0, limits.maxResponsiveObservations)
+  const mediaImportanceRank: Record<string, number> = { major: 0, supporting: 1, icon: 2 }
   const mediaLayers = evidence.mediaLayers
     .filter((media) => selectedSectionIds.includes(media.sectionId))
+    .sort((a, b) => (mediaImportanceRank[a.importance] ?? 1) - (mediaImportanceRank[b.importance] ?? 1))
     .slice(0, limits.maxMediaLayers)
   const imageIds = inputMode === 'multimodal' ? selectRepresentativeImages(pages, limits.maxImages) : []
 

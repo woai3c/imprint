@@ -5,6 +5,7 @@ import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   compareDesignProfiles,
   createEvidenceFingerprint,
+  createStructuralFingerprint,
   createValidationRecipe,
   evaluateProfileQuality,
   generateAgentContextBundle,
@@ -515,6 +516,89 @@ describe('Design intelligence', () => {
     )
   })
 
+  it('rejects global claims supported only by footer or utility regions', () => {
+    const footerSection = (id: string, pageId: string) => ({
+      id,
+      pageId,
+      order: 9,
+      role: 'footer' as const,
+      rect: { x: 0, y: 0.95, width: 1, height: 0.05 },
+      layoutMode: 'flow' as const,
+      tokenRefs: [],
+      componentRefs: [],
+      interactionRefs: [],
+      mediaLayerRefs: [],
+      evidenceRefs: [],
+    })
+    const utilityEvidence: DesignEvidence = {
+      ...multiUrlEvidence(),
+      sections: [
+        ...multiUrlEvidence().sections,
+        footerSection('section-footer-a', 'page-a'),
+        footerSection('section-footer-b', 'page-b'),
+      ],
+    }
+
+    // A signature move backed only by footer regions on both pages is still local chrome.
+    const utilitySignature = rawProfile()
+    utilitySignature.signatureMoves = [
+      {
+        ...claim('The filing footer anchors every page with dense legal links'),
+        evidence: [
+          { evidenceId: 'section-footer-a', note: 'Entry footer' },
+          { evidenceId: 'section-footer-b', note: 'Pricing footer' },
+        ],
+        id: 'move-legal-footer',
+        name: 'Legal footer anchor',
+        distinctiveness: 'The same dense legal block repeats at the bottom of pages.',
+      },
+    ]
+    const signatureResult = validateDesignProfile(utilitySignature, utilityEvidence, 'structural-only', 'en')
+    expect(signatureResult.profile).toBeNull()
+    expect(signatureResult.rejected).toContain('signatureMoves.0:utility-only-evidence')
+
+    // A signature move seen on only one of several pages is not site-wide.
+    const singlePageSignature = rawProfile()
+    singlePageSignature.signatureMoves = [
+      {
+        ...claim('The entry hero pairs oversized type with a compact action cluster'),
+        evidence: [
+          { evidenceId: 'section-a', note: 'Entry hero' },
+          { evidenceId: 'image-a', note: 'Entry overview' },
+        ],
+        id: 'move-entry-hero',
+        name: 'Entry hero',
+        distinctiveness: 'The opening compresses all attention into one cluster.',
+      },
+    ]
+    const singlePageResult = validateDesignProfile(singlePageSignature, utilityEvidence, 'structural-only', 'en')
+    expect(singlePageResult.profile).toBeNull()
+    expect(singlePageResult.rejected).toContain('signatureMoves.0:single-page-signature')
+
+    // Preserve rules and high-confidence global claims cannot rest on utility chrome alone.
+    const utilityPreserve = rawProfile()
+    utilityPreserve.transferRules.preserve = [
+      {
+        ...claim('Keep the legal filing block pinned to the bottom of every page'),
+        evidence: [
+          { evidenceId: 'section-footer-a', note: 'Entry footer' },
+          { evidenceId: 'section-footer-b', note: 'Pricing footer' },
+        ],
+      },
+    ]
+    utilityPreserve.composition.alignmentStrategy = {
+      ...claim('Footer links align to the page edges'),
+      evidence: [{ evidenceId: 'section-footer-a', note: 'Entry footer alignment' }],
+    }
+    const preserveResult = validateDesignProfile(utilityPreserve, utilityEvidence, 'structural-only', 'en')
+    expect(preserveResult.rejected).toContain('transferRules.preserve.0:utility-only-evidence')
+    expect(preserveResult.profile?.composition.alignmentStrategy.confidence).toBe('medium')
+
+    // Cross-page content evidence still supports global claims.
+    const contentSignature = validateDesignProfile(rawProfile(), utilityEvidence, 'structural-only', 'en')
+    expect(contentSignature.profile?.signatureMoves).toHaveLength(1)
+  })
+
   it('partially accepts optional claims but rejects malicious required claims', () => {
     const partial = rawProfile()
     partial.attention.visualSequence.push(claim('<script>alert(1)</script>'))
@@ -590,6 +674,12 @@ describe('Design intelligence', () => {
       base,
     )
     expect(createEvidenceFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', undefined, '1', '1')).toBe(base)
+    expect(
+      createEvidenceFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', undefined, '1', '1', 'zh-CN'),
+    ).not.toBe(base)
+    expect(createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'zh-CN')).not.toBe(
+      createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'en'),
+    )
   })
 
   it('requires observed target state differences when interaction evidence exists', () => {

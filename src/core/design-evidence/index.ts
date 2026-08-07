@@ -1,6 +1,8 @@
 export { buildDesignEvidence } from './evidence-builder.js'
 export type { BuildDesignEvidenceInput, CapturedPageEvidence } from './evidence-builder.js'
 export { generateDesignEvidenceBrief, generateDesignEvidenceJson } from './evidence-export.js'
+export { computeInteractionStateMetrics } from './interaction-metrics.js'
+export type { InteractionStateMetrics } from './interaction-metrics.js'
 export { extractPageEvidence } from './page-extractor.js'
 export { observeSafeInteractions } from './interaction-observer.js'
 export type { InteractionObservationSnapshot } from './interaction-observer.js'

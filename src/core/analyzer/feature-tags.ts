@@ -4,6 +4,88 @@ function usageCount(styles: ExtractedStyles, category: string, value: string): n
   return styles.usageCount[`${category}:${value}`] || 0
 }
 
+interface ColorChannels {
+  r: number
+  g: number
+  b: number
+}
+
+const CHROMATIC_CHROMA_THRESHOLD = 24
+const COLOR_MATCH_TOLERANCE = 20
+const UI_COLOR_CATEGORIES = new Set([
+  'primaryActionColor',
+  'actionColor',
+  'selectedColor',
+  'accentColor',
+  'linkColor',
+  'brandTokenColor',
+  'declaredColor',
+  'bgColor',
+  'bgArea',
+  'textColor',
+])
+
+function parseColorChannels(value: string): ColorChannels | null {
+  const hex = value.trim().match(/^#([0-9a-f]{6}|[0-9a-f]{3})$/i)
+  if (hex) {
+    let digits = hex[1]
+    if (digits.length === 3) {
+      digits = digits
+        .split('')
+        .map((char) => char + char)
+        .join('')
+    }
+    return {
+      r: parseInt(digits.slice(0, 2), 16),
+      g: parseInt(digits.slice(2, 4), 16),
+      b: parseInt(digits.slice(4, 6), 16),
+    }
+  }
+  const rgb = value.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i)
+  if (rgb) return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }
+  return null
+}
+
+function colorChroma({ r, g, b }: ColorChannels): number {
+  return Math.max(r, g, b) - Math.min(r, g, b)
+}
+
+function colorHue({ r, g, b }: ColorChannels): number {
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  if (delta === 0) return 0
+  let hue: number
+  if (max === r) hue = 60 * (((g - b) / delta) % 6)
+  else if (max === g) hue = 60 * ((b - r) / delta + 2)
+  else hue = 60 * ((r - g) / delta + 4)
+  return (hue + 360) % 360
+}
+
+function colorUsageWeight(styles: ExtractedStyles, channels: ColorChannels): { ui: number; status: number } {
+  let ui = 0
+  let status = 0
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    if (!Number.isFinite(count) || count <= 0) continue
+    const separator = key.indexOf(':')
+    if (separator <= 0) continue
+    const category = key.slice(0, separator)
+    const isStatus = category === 'statusColor'
+    if (!isStatus && !UI_COLOR_CATEGORIES.has(category)) continue
+    const candidate = parseColorChannels(key.slice(separator + 1))
+    if (!candidate) continue
+    const distance = Math.sqrt(
+      Math.pow(candidate.r - channels.r, 2) +
+        Math.pow(candidate.g - channels.g, 2) +
+        Math.pow(candidate.b - channels.b, 2),
+    )
+    if (distance > COLOR_MATCH_TOLERANCE) continue
+    if (isStatus) status += count
+    else ui += count
+  }
+  return { ui, status }
+}
+
 function cssLengthPx(value: string): number | null {
   const match = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)?$/i)
   if (!match) return null
@@ -92,12 +174,33 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
     tags.push('single-font system')
   }
 
-  // Color palette analysis
-  const colorCount = Object.keys(tokens.colors).length
-  if (colorCount <= 4) {
+  // Color palette analysis. Richness is judged by stable, independently used chromatic
+  // UI roles — not by the raw number of extracted colors. Content sites pick up avatar,
+  // badge, and status colors that inflate the count without being part of the design system.
+  const colorEntries = Object.entries(tokens.colors)
+  if (colorEntries.length <= 4) {
     tags.push('minimal palette')
-  } else if (colorCount >= 10) {
-    tags.push('rich color system')
+  } else {
+    const familyWeights = new Map<number, number>()
+    for (const [, value] of colorEntries) {
+      const channels = parseColorChannels(value)
+      if (!channels || colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) continue
+      const weight = colorUsageWeight(styles, channels)
+      // Status-dominant colors (success/warning/error) and colors with no stable UI
+      // evidence (image/incidental sampling) never qualify as brand palette roles.
+      if (weight.ui === 0 || weight.status * 2 >= weight.ui) continue
+      const family = Math.floor(colorHue(channels) / 30)
+      familyWeights.set(family, (familyWeights.get(family) || 0) + weight.ui)
+    }
+    const maxFamilyWeight = Math.max(0, ...familyWeights.values())
+    const significantFamilies = [...familyWeights.values()].filter(
+      (weight) => weight >= Math.max(3, maxFamilyWeight * 0.15),
+    ).length
+    if (significantFamilies >= 3) {
+      tags.push('rich color system')
+    } else if (significantFamilies === 1) {
+      tags.push('neutral palette with a single accent')
+    }
   }
 
   // Check if monochrome

@@ -6,19 +6,22 @@ import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/ca
 import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import {
   buildExamplePrompt,
+  completeExampleGeneration,
+  createExampleValidationContext,
   generateExamplesWithLlm,
-  parseExampleResponse,
 } from '../core/analyzer/example-generator.js'
+import type { ExampleGenerationResult } from '../core/analyzer/example-generator.js'
 import { enhanceSemanticNaming } from '../core/analyzer/semantic-enhancer.js'
 import { validateColorRenames } from '../core/analyzer/token-renamer.js'
-import type { GeneratedExampleComponent } from '../core/analyzer/types.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   type CallDetail,
   DESIGN_PROFILE_PROMPT_VERSION,
   type InterpretationInvoke,
+  type ObservationCache,
   createEvidenceFingerprint,
+  createStructuralFingerprint,
   createValidationRecipe,
   generateAgentContextBundle,
   generateReconstructionBrief,
@@ -32,6 +35,7 @@ import type {
   DesignIntelligenceMeta,
   DesignProfile,
   IntelligenceInputMode,
+  SectionObservation,
   ValidationReport,
 } from '../core/design-intelligence/types.js'
 import type { AppSettings } from '../shared/ipc-contract.js'
@@ -47,7 +51,6 @@ export interface IntelligenceRunResult {
   tokens: DesignToken
   profile: DesignProfile | null
   meta: DesignIntelligenceMeta
-  examples: GeneratedExampleComponent[]
   reconstructionBrief: string | null
   validationReport: ValidationReport | null
 }
@@ -213,6 +216,114 @@ function failureCode(error: unknown, timedOut = false): string {
 
 export type ProgressCallback = (step: string, percent: number) => void
 
+// Session-level observation cache: rerunning interpretation for the same structural
+// evidence (for example after token-only changes or a failed synthesis) reuses the
+// structural observation pass instead of paying for it again.
+const observationCacheStore = new Map<string, SectionObservation[]>()
+const OBSERVATION_CACHE_LIMIT = 8
+const observationCache: ObservationCache = {
+  get: (key) => observationCacheStore.get(key),
+  set: (key, observations) => {
+    if (observationCacheStore.size >= OBSERVATION_CACHE_LIMIT) {
+      const oldest = observationCacheStore.keys().next().value
+      if (oldest !== undefined) observationCacheStore.delete(oldest)
+    }
+    observationCacheStore.set(key, observations)
+  },
+}
+
+export async function runExampleGeneration(
+  evidence: DesignEvidence,
+  tokens: DesignToken,
+  profile: DesignProfile,
+  settings: AppSettings,
+  language: 'en' | 'zh-CN',
+  signal?: AbortSignal,
+): Promise<ExampleGenerationResult> {
+  if (!hasDesignIntelligenceConfiguration(settings)) {
+    return {
+      examples: [],
+      status: 'failed',
+      failureCode: 'not-configured',
+      failureReason: 'AI example generation is not configured',
+      rejections: [],
+    }
+  }
+
+  const startedAt = Date.now()
+  const timeoutSignal = AbortSignal.timeout(300_000)
+  const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+  const route = chooseDesignIntelligenceRoute(settings, evidence)
+  const evidencePackage = selectEvidencePackage(evidence, route.mode)
+  const context = {
+    featureTags: evidence.featureTags,
+    components: [] as never[],
+    language,
+    techStack: evidence.techStack,
+    designProfile: profile,
+  }
+  const validationContext = createExampleValidationContext(tokens, evidence.source.requestedUrl, language)
+
+  try {
+    let result: ExampleGenerationResult
+    if (settings.aiMode === 'apiKey') {
+      const allImages = route.mode === 'multimodal' ? loadSelectedImages(evidence, evidencePackage.imageIds) : []
+      const { synthesisImages } = splitImagesByPass(evidence, allImages)
+      result = await generateExamplesWithLlm(
+        tokens,
+        evidence.source.requestedUrl,
+        {
+          provider: settings.provider,
+          apiKey: settings.apiKey,
+          baseUrl: settings.baseUrl || undefined,
+          model: resolveEffectiveModel(settings.provider, settings.model),
+          signal: runSignal,
+          fetchFn: net.fetch as unknown as typeof fetch,
+          reasoningEffort: settings.reasoningEffort || 'medium',
+          thinkingEnabled: settings.thinkingEnabled === true,
+          maxOutputTokens: 4096,
+        },
+        context,
+        synthesisImages,
+      )
+    } else {
+      const allImages = route.mode === 'multimodal' ? collectSelectedImageFiles(evidence, evidencePackage.imageIds) : []
+      const regionCropIds = new Set(
+        evidence.pages
+          .flatMap((page) => page.images)
+          .filter((image) => image.kind === 'region-crop')
+          .map((image) => image.id),
+      )
+      const synthesisImages = allImages.filter((image) => !regionCropIds.has(image.name.replace(/\.[^.]+$/, '')))
+      const prompt = buildExamplePrompt(tokens, evidence.source.requestedUrl, context)
+      const response = await executeAgentPrompt(settings.agentCli, prompt, runSignal, synthesisImages, language)
+      result = await completeExampleGeneration(response || '', validationContext, language, async (repairPrompt) => {
+        return (await executeAgentPrompt(settings.agentCli, repairPrompt, runSignal, [], language)) || ''
+      })
+    }
+    log.info(
+      'design-examples',
+      `done: status=${result.status} examples=${result.examples.length} durationMs=${Date.now() - startedAt} violations=${[
+        ...new Set(result.rejections.flatMap((rejection) => rejection.violations)),
+      ].join(',')}`,
+    )
+    return result
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    log.error(
+      'design-examples',
+      `failed: durationMs=${Date.now() - startedAt} reason=${error instanceof Error ? error.message.slice(0, 300) : 'unknown'}`,
+    )
+    return {
+      examples: [],
+      status: 'failed',
+      failureCode: 'provider-error',
+      failureReason: error instanceof Error ? error.message : 'AI example generation failed',
+      rejections: [],
+    }
+  }
+}
+
 export async function runDesignIntelligence(
   evidence: DesignEvidence,
   tokens: DesignToken,
@@ -225,7 +336,6 @@ export async function runDesignIntelligence(
     return {
       tokens,
       profile: null,
-      examples: [],
       reconstructionBrief: null,
       validationReport: null,
       meta: { status: 'not-configured', capabilityLevel: 'evidence-only' },
@@ -269,6 +379,7 @@ export async function runDesignIntelligence(
     evidencePackage.imageIds,
     DESIGN_PROFILE_PROMPT_VERSION,
     '1',
+    language,
   )
   const baseMeta: DesignIntelligenceMeta = {
     status: 'pending',
@@ -325,14 +436,8 @@ export async function runDesignIntelligence(
       if (settings.aiMode === 'apiKey') {
         result = await callAiProvider(
           {
-            provider: settings.provider,
-            apiKey: settings.apiKey,
-            baseUrl: settings.baseUrl || undefined,
-            model: resolveEffectiveModel(settings.provider, settings.model),
-            signal: runSignal,
-            fetchFn: net.fetch as unknown as typeof fetch,
-            reasoningEffort: settings.reasoningEffort || 'medium',
-            thinkingEnabled: settings.thinkingEnabled === true,
+            ...providerConfig,
+            maxOutputTokens: pass === 'observation' ? 4096 : 8192,
           },
           taskPrompt,
           passImages,
@@ -349,6 +454,7 @@ export async function runDesignIntelligence(
         }
       }
       const invokeMs = Date.now() - invokeStart
+      result.durationMs = invokeMs
       log.info(
         'design-intelligence',
         `invoke #${invokeCount} done: ${invokeMs}ms tokens=${result.usage?.input || 0}+${result.usage?.output || 0} textLen=${result.text.length}`,
@@ -356,7 +462,12 @@ export async function runDesignIntelligence(
       accumulatedUsage.calls++
       accumulatedUsage.input += result.usage?.input || 0
       accumulatedUsage.output += result.usage?.output || 0
-      accumulatedCallDetails.push({ pass, input: result.usage?.input, output: result.usage?.output })
+      accumulatedCallDetails.push({
+        pass,
+        input: result.usage?.input,
+        output: result.usage?.output,
+        durationMs: invokeMs,
+      })
       return result
     }
     const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
@@ -381,6 +492,16 @@ export async function runDesignIntelligence(
       observationImages,
       synthesisImages,
       requireImageObservations: isAgentCli && route.mode === 'multimodal' ? synthesisImageIds : undefined,
+      observationCache,
+      observationCacheKey: createStructuralFingerprint(
+        evidence,
+        route.mode,
+        route.provider,
+        route.model,
+        evidencePackage.imageIds,
+        DESIGN_PROFILE_PROMPT_VERSION,
+        language,
+      ),
     })
 
     const [renameProposals, result] = await Promise.all([renamePromise, interpretationPromise])
@@ -391,53 +512,13 @@ export async function runDesignIntelligence(
     const effectiveMode = result.profile.inputMode
     const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
 
-    // Phase 2: generate examples using the completed DesignProfile + screenshots
-    onProgress?.('progress.generatingExamples', 88)
-    const exampleContext = {
-      ...enhancementContext,
-      designProfile: result.profile,
-    }
-    const exampleImages = isAgentCli ? [] : synthesisImages
-    log.info(
-      'design-intelligence',
-      `generating examples with profile: mode=${effectiveMode} images=${exampleImages.length}`,
-    )
-    let examples: GeneratedExampleComponent[] = []
-    if (settings.aiMode === 'apiKey') {
-      examples =
-        (await generateExamplesWithLlm(
-          tokens,
-          evidence.source.requestedUrl,
-          providerConfig,
-          exampleContext,
-          exampleImages,
-        )) || []
-    } else {
-      const examplePrompt = buildExamplePrompt(tokens, evidence.source.requestedUrl, exampleContext)
-      const cliExampleImages = synthesisImages.flatMap((image) => {
-        const cliImage = cliImageByName.get(image.name)
-        return cliImage ? [cliImage] : []
-      })
-      const exampleText = await executeAgentPrompt(
-        settings.agentCli,
-        examplePrompt,
-        runSignal,
-        cliExampleImages,
-        language,
-      )
-      if (exampleText) {
-        examples = parseExampleResponse(exampleText)
-      }
-    }
-
-    onProgress?.('progress.validatingProfile', 92)
+    onProgress?.('progress.validatingProfile', 90)
     const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
     const recipe = createValidationRecipe('workflow', result.profile, tokens)
     const validationReport = validateRecipe(recipe, result.profile, tokens, capabilityLevel)
     return {
       tokens,
       profile: result.profile,
-      examples,
       reconstructionBrief,
       validationReport,
       meta: {
@@ -451,6 +532,7 @@ export async function runDesignIntelligence(
         tokenUsage: result.usage,
         callDetails: result.callDetails,
         rejected: result.rejected,
+        exampleGeneration: { status: 'not-requested' },
       },
     }
   } catch (error: unknown) {
@@ -470,7 +552,6 @@ export async function runDesignIntelligence(
     return {
       tokens,
       profile: null,
-      examples: [],
       reconstructionBrief: null,
       validationReport: null,
       meta: {

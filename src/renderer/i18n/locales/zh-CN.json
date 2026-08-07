@@ -283,7 +283,15 @@
       "sectionCoverage": "已识别的区块覆盖 {{percent}}% 的页面区域",
       "noSections": "未识别出明确的区块",
       "statesTitle": "交互与响应式",
-      "statesPassive": "记录 {{count}} 条交互状态样式（悬停、聚焦等）",
+      "statesPassive": "{{count}} 个去重交互状态模式（悬停、聚焦、激活、禁用）",
+      "statesPassiveObservations": "{{count}} 条被动 CSS 状态观察（未执行用户操作）",
+      "statesPassiveTooltip": "被动状态仅来自 CSS 声明，没有执行点击或输入等用户操作；这是数据采集方式，不代表低置信度。",
+      "stateLabels": {
+        "hover": "悬停",
+        "focus": "聚焦",
+        "active": "激活",
+        "disabled": "禁用"
+      },
       "statesActive": "完成 {{count}} 项交互行为观察",
       "statesResponsive": "发现 {{count}} 处不同屏幕尺寸下的布局差异",
       "statesEmpty": "未记录到交互状态或屏幕尺寸差异。",
@@ -306,6 +314,7 @@
         "feature-group": "功能组",
         "media": "媒体",
         "action": "操作",
+        "aside": "侧边栏",
         "footer": "页脚",
         "unknown": "未知"
       },
@@ -488,6 +497,22 @@
     "title": "设计验证场景",
     "description": "在典型界面中检验当前主题的层级、状态、密度与可读性",
     "scenarioLabel": "验证场景",
+    "calibration": {
+      "label": "主题校准",
+      "note": "固定组件 —— 用于比较同一组控件在不同主题下的表现",
+      "primaryAction": "主要操作",
+      "secondaryAction": "次要操作",
+      "link": "文本链接",
+      "inputPlaceholder": "聚焦以预览焦点环",
+      "checkbox": "复选框",
+      "radio": "单选框",
+      "status": {
+        "default": "默认",
+        "success": "成功",
+        "warning": "警告",
+        "error": "错误"
+      }
+    },
     "groups": {
       "workflow": "产品工作流",
       "content": "内容与展示",
@@ -516,6 +541,10 @@
     "extractedColorModes": {
       "base": "原始",
       "dark": "暗色"
+    },
+    "extractedDarkSource": {
+      "media": "暗色变体通过模拟 prefers-color-scheme 观察得到，不代表站点默认以暗色加载",
+      "toggle": "暗色变体通过切换 {{selector}} 观察得到，不代表站点默认以暗色加载"
     },
     "extractedContrastWarning": "发现 {{count}} 组观察颜色未达到 AA 对比度",
     "examples": {
@@ -1023,6 +1052,19 @@
     "copyValue": "复制 {{value}}",
     "exampleComponents": "示例组件",
     "exampleComponentsHint": "由已配置的 AI 根据提取的设计令牌、设计规则与组件模式生成；用于验证样式组合，不代表原站源码",
+    "exampleGeneration": {
+      "title": "可选生成示例",
+      "description": "需要额外验证界面时，可单独生成使用设计令牌的中立组件。该步骤不会阻塞首次 AI 设计解读。",
+      "action": "生成示例",
+      "generating": "正在生成示例...",
+      "complete": "已生成并通过校验的示例",
+      "failed": "示例未生成",
+      "failures": {
+        "not-configured": "尚未配置可用于生成示例的 AI 引擎。",
+        "provider-error": "当前 AI 引擎未能完成示例生成，请稍后重试。",
+        "validation-failed": "生成内容未通过来源身份或设计令牌安全校验，已停止输出；你可以重试。"
+      }
+    },
     "colorGroups": {
       "surface": "表面",
       "text": "文字",

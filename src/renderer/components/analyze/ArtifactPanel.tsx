@@ -39,11 +39,12 @@ export function ArtifactPanel({
   onResultUpdate,
   onOpenEvidence,
 }: ArtifactPanelProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const navigate = useNavigate()
   const notify = useFeedbackStore((state) => state.show)
   const [activeTab, setActiveTab] = useState<ExportTab>('overview')
   const [savingTheme, setSavingTheme] = useState(false)
+  const [generatingExamples, setGeneratingExamples] = useState(false)
   const [saveConflict, setSaveConflict] = useState<ThemeSaveConflict | null>(null)
 
   const exportArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
@@ -115,6 +116,25 @@ export function ArtifactPanel({
       notify(t('feedback.actionFailed'), 'error')
     } finally {
       setSavingTheme(false)
+    }
+  }
+
+  const generateExamples = async () => {
+    if (!result.analysisId || generatingExamples) return
+    setGeneratingExamples(true)
+    try {
+      const response = await window.electronAPI.generateDesignExamples(result.analysisId, i18n.language)
+      if (response.error) throw new Error(response.message || 'Example generation failed')
+      onResultUpdate?.(response)
+      if (response.designIntelligence?.exampleGeneration?.status === 'complete') {
+        notify(t('preview.exampleGeneration.complete'), 'success')
+      } else {
+        notify(t('preview.exampleGeneration.failed'), 'error')
+      }
+    } catch {
+      notify(t('preview.exampleGeneration.failed'), 'error')
+    } finally {
+      setGeneratingExamples(false)
     }
   }
 
@@ -197,7 +217,17 @@ export function ArtifactPanel({
             <>
               <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
               <div className="px-6 pb-6">
-                <ExampleComponents designDoc={result.designDoc} cssVariables={result.cssVariables} />
+                <ExampleComponents
+                  designDoc={result.designDoc}
+                  cssVariables={result.cssVariables}
+                  generation={result.designIntelligence?.exampleGeneration}
+                  generating={generatingExamples}
+                  canGenerate={
+                    Boolean(result.analysisId && result.designProfile) &&
+                    ['complete', 'partial'].includes(result.designIntelligence?.status || '')
+                  }
+                  onGenerate={() => void generateExamples()}
+                />
               </div>
             </>
           )}

@@ -238,6 +238,7 @@ export interface ElectronAPI {
     language?: string,
     force?: boolean,
   ) => Promise<DesignIntelligenceResponse>
+  generateDesignExamples: (analysisId: string, language?: string) => Promise<DesignIntelligenceResponse>
   cancelDesignIntelligence: (analysisId: string) => Promise<{ success: boolean }>
   skipDesignIntelligence: (
     analysisId: string,

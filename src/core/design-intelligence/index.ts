@@ -9,11 +9,13 @@ export type {
   InterpretationPipelineOptions,
   InterpretationPipelineResult,
   InterpretationProviderConfig,
+  ObservationCache,
 } from './interpreter.js'
 export { extractObservationCandidate, validateSectionObservations } from './observation-pass.js'
 export type { ObservationValidationResult } from './observation-pass.js'
 export {
   createEvidenceFingerprint,
+  createStructuralFingerprint,
   listEvidenceIds,
   listEvidencePackageIds,
   listEvidencePackageTokenRefs,

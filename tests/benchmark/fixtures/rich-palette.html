@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rich Palette — Benchmark Fixture</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #fafafa;
+        color: #171717;
+        font-family: -apple-system, 'Segoe UI', sans-serif;
+        line-height: 1.55;
+      }
+      header.site {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 60px;
+        padding: 0 28px;
+        background: #ffffff;
+        border-bottom: 1px solid #e5e5e5;
+      }
+      header.site .brand {
+        font-weight: 700;
+      }
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+      .hero {
+        padding: 24px 0 32px;
+      }
+      .hero h1 {
+        font-size: 32px;
+        margin-bottom: 8px;
+      }
+      .hero p {
+        color: #525252;
+        max-width: 560px;
+      }
+      .categories {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .category {
+        border-radius: 10px;
+        padding: 20px;
+        color: #ffffff;
+        min-height: 150px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .category h2 {
+        font-size: 18px;
+      }
+      .category p {
+        font-size: 13px;
+        opacity: 0.85;
+        flex: 1;
+      }
+      .category button {
+        align-self: flex-start;
+        border: 0;
+        border-radius: 6px;
+        background: rgb(255 255 255 / 92%);
+        padding: 7px 14px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .cat-design {
+        background: #4f46e5;
+      }
+      .cat-design button {
+        color: #4f46e5;
+      }
+      .cat-data {
+        background: #0891b2;
+      }
+      .cat-data button {
+        color: #0891b2;
+      }
+      .cat-growth {
+        background: #16a34a;
+      }
+      .cat-growth button {
+        color: #16a34a;
+      }
+      .cat-labs {
+        background: #ea580c;
+      }
+      .cat-labs button {
+        color: #ea580c;
+      }
+      .cat-docs {
+        background: #dc2626;
+      }
+      .cat-docs button {
+        color: #dc2626;
+      }
+      .cat-community {
+        background: #9333ea;
+      }
+      .cat-community button {
+        color: #9333ea;
+      }
+      footer.site {
+        margin-top: 40px;
+        padding: 20px 28px;
+        font-size: 12px;
+        color: #a3a3a3;
+        text-align: center;
+      }
+      @media (max-width: 768px) {
+        .categories {
+          grid-template-columns: 1fr;
+        }
+        .hero h1 {
+          font-size: 26px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site">
+      <span class="brand">Spectrum</span>
+      <nav style="display: flex; gap: 18px; font-size: 14px">
+        <a href="#" style="color: #525252; text-decoration: none">Products</a>
+        <a href="#" style="color: #525252; text-decoration: none">Pricing</a>
+        <a href="#" style="color: #525252; text-decoration: none">Company</a>
+      </nav>
+      <button
+        type="button"
+        aria-expanded="false"
+        aria-controls="nav-panel"
+        style="border: 1px solid #e5e5e5; background: #fff; border-radius: 6px; padding: 6px 12px; font-size: 13px"
+      >
+        Menu
+      </button>
+    </header>
+    <div class="panel" id="nav-panel" hidden style="padding: 12px 28px; font-size: 14px">
+      Products — Pricing — Company
+    </div>
+    <main>
+      <section class="hero">
+        <h1>Every product line, its own color</h1>
+        <p>
+          Six teams ship under one roof. Each product family keeps a distinct hue so customers can tell where they are
+          without reading the URL.
+        </p>
+      </section>
+      <section class="categories">
+        <article class="category cat-design">
+          <h2>Design Studio</h2>
+          <p>Canvas, components, libraries, and interactive prototypes for product designers.</p>
+          <button type="button">Open Design</button>
+        </article>
+        <article class="category cat-data">
+          <h2>Data Cloud</h2>
+          <p>Pipelines, warehouses, scheduled transforms, and data quality monitors.</p>
+          <button type="button">Open Data</button>
+        </article>
+        <article class="category cat-growth">
+          <h2>Growth Suite</h2>
+          <p>Campaigns, audience segments, experiments, and lifecycle messaging.</p>
+          <button type="button">Open Growth</button>
+        </article>
+        <article class="category cat-labs">
+          <h2>Labs</h2>
+          <p>Beta experiments that every workspace administrator can opt into early.</p>
+          <button type="button">Open Labs</button>
+        </article>
+        <article class="category cat-docs">
+          <h2>Docs Hub</h2>
+          <p>Guides, API references, tutorials, and migration notes for every plan.</p>
+          <button type="button">Open Docs</button>
+        </article>
+        <article class="category cat-community">
+          <h2>Community</h2>
+          <p>Forums, project showcases, AMA sessions, and the annual conference.</p>
+          <button type="button">Open Community</button>
+        </article>
+      </section>
+    </main>
+    <footer class="site">Spectrum fixture — six product families, six hues</footer>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

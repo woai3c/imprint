@@ -46,6 +46,7 @@ export interface InterpretEvidenceResult {
 export interface InterpretationInvokeResult {
   text: string
   model?: string
+  durationMs?: number
   usage?: {
     input?: number
     output?: number
@@ -61,12 +62,23 @@ export interface InterpretationPipelineOptions {
   observationImages?: AiImageInput[]
   synthesisImages?: AiImageInput[]
   requireImageObservations?: string[]
+  // Structural observation results are reusable while the page structure is unchanged
+  // (for example when only extracted tokens differ between two runs of the same site).
+  observationCache?: ObservationCache
+  observationCacheKey?: string
 }
 
 export interface CallDetail {
   pass: string
   input?: number
   output?: number
+  cached?: boolean
+  durationMs?: number
+}
+
+export interface ObservationCache {
+  get(key: string): SectionObservation[] | undefined
+  set(key: string, observations: SectionObservation[]): void
 }
 
 export interface InterpretationPipelineResult {
@@ -144,7 +156,12 @@ async function runObservationPass(
   try {
     const prompt = buildSectionObservationPrompt(evidencePackage, language)
     const response = await invoke(prompt, images)
-    callDetails.push({ pass: 'observation', input: response.usage?.input, output: response.usage?.output })
+    callDetails.push({
+      pass: 'observation',
+      input: response.usage?.input,
+      output: response.usage?.output,
+      durationMs: response.durationMs,
+    })
     const validation = validateSectionObservations(extractObservationCandidate(response.text), evidencePackage)
     return validation.observations.length > 0 ? validation.observations : null
   } catch {
@@ -158,13 +175,26 @@ export async function runInterpretationPipeline(
   options: InterpretationPipelineOptions,
 ): Promise<InterpretationPipelineResult> {
   const callDetails: CallDetail[] = []
-  const observations = await runObservationPass(
-    evidencePackage,
-    options.language,
-    options.invoke,
-    options.observationImages || [],
-    callDetails,
-  )
+  const cachedObservations =
+    options.observationCache && options.observationCacheKey
+      ? options.observationCache.get(options.observationCacheKey)
+      : undefined
+  let observations: SectionObservation[] | null
+  if (cachedObservations && cachedObservations.length > 0) {
+    observations = cachedObservations
+    callDetails.push({ pass: 'observation', input: 0, output: 0, cached: true })
+  } else {
+    observations = await runObservationPass(
+      evidencePackage,
+      options.language,
+      options.invoke,
+      options.observationImages || [],
+      callDetails,
+    )
+    if (observations && options.observationCache && options.observationCacheKey) {
+      options.observationCache.set(options.observationCacheKey, observations)
+    }
+  }
   const prompt = buildDesignInterpretationPrompt(evidencePackage, options.language, observations || undefined)
   const synthesisImages = options.synthesisImages || []
   const validateCandidate = (candidate: unknown) =>
@@ -177,7 +207,12 @@ export async function runInterpretationPipeline(
       options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
     )
   const response = await options.invoke(prompt, synthesisImages)
-  callDetails.push({ pass: 'synthesis', input: response.usage?.input, output: response.usage?.output })
+  callDetails.push({
+    pass: 'synthesis',
+    input: response.usage?.input,
+    output: response.usage?.output,
+    durationMs: response.durationMs,
+  })
   if (!response.text) throw new Error('DesignProfile output is empty')
   let candidate = extractProfileCandidate(response.text)
   let validation = validateCandidate(candidate)
@@ -196,6 +231,7 @@ export async function runInterpretationPipeline(
       pass: 'synthesis-repair',
       input: repairResponse.usage?.input,
       output: repairResponse.usage?.output,
+      durationMs: repairResponse.durationMs,
     })
     if (repairResponse.text) {
       candidate = extractProfileCandidate(repairResponse.text)

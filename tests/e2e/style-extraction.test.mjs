@@ -134,3 +134,20 @@ test('does not mistake generic Emotion classes for MUI', async () => {
   const mui = await detectTechStack(page)
   assert.equal(mui.uiLibraries.includes('MUI'), true)
 })
+
+test('reports generic css-* hashes without naming a specific styling library', async () => {
+  const generated = Array.from({ length: 8 }, (_, index) => `<p class="css-hash${index}ab">Text ${index}</p>`).join('')
+  await page.setContent(`<!doctype html><main>${generated}</main>`)
+  const generic = await detectTechStack(page)
+  assert.deepEqual(generic.cssApproach, ['CSS-in-JS or generated class names observed'])
+  assert.equal(generic.uiLibraries.length, 0)
+
+  await page.evaluate(() => {
+    document.querySelectorAll('p').forEach((element, index) => {
+      element.className = `sc-widget-${index}`
+    })
+  })
+  const styledComponents = await detectTechStack(page)
+  assert.ok(styledComponents.cssApproach.includes('styled-components'))
+  assert.equal(styledComponents.cssApproach.includes('CSS-in-JS or generated class names observed'), false)
+})

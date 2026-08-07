@@ -723,14 +723,6 @@ export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
     if (w.__REMIX_CONTEXT) frameworks.push('Remix')
     if (document.querySelector('[ng-version]') || document.querySelector('[_ngcontent]')) frameworks.push('Angular')
 
-    const rootEl = document.getElementById('root') || document.getElementById('app') || document.body
-    const reactRoot =
-      rootEl && ('_reactRootContainer' in rootEl || (rootEl as HTMLElement).querySelector('[data-reactroot]'))
-    if (reactRoot && !frameworks.some((f) => f.includes('Next'))) frameworks.push('React')
-    if (w.__VUE__ || document.querySelector('[data-v-]') || document.querySelector('[data-vue]')) {
-      if (!frameworks.some((f) => f.includes('Nuxt'))) frameworks.push('Vue')
-    }
-
     const allClasses = new Set<string>()
     const sampleEls = document.querySelectorAll('body *')
     const sampleCount = Math.min(sampleEls.length, 500)
@@ -739,6 +731,30 @@ export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
       el.classList.forEach((c) => allClasses.add(c))
     }
     const classArr = [...allClasses]
+
+    const rootEl = document.getElementById('root') || document.getElementById('app') || document.body
+    // Legacy React roots expose _reactRootContainer / data-reactroot. React 18 createRoot leaves
+    // __reactContainer$ / __reactFiber$ expandos on rendered descendants instead, and a single
+    // expando is not enough evidence — require at least two independent signals.
+    const hasLegacyReactRoot = Boolean(
+      rootEl && ('_reactRootContainer' in rootEl || (rootEl as HTMLElement).querySelector('[data-reactroot]')),
+    )
+    const reactExpandoPattern = /^__react(?:Container|Fiber|Props)\b/
+    let reactExpandoCount = 0
+    if (!hasLegacyReactRoot) {
+      const probeCount = Math.min(sampleEls.length, 200)
+      for (let i = 0; i < probeCount; i++) {
+        const el = sampleEls[Math.floor((i * sampleEls.length) / probeCount)]
+        if (Object.keys(el).some((key) => reactExpandoPattern.test(key))) reactExpandoCount += 1
+        if (reactExpandoCount >= 2) break
+      }
+    }
+    if ((hasLegacyReactRoot || reactExpandoCount >= 2) && !frameworks.some((f) => f.includes('Next'))) {
+      frameworks.push('React')
+    }
+    if (w.__VUE__ || document.querySelector('[data-v-]') || document.querySelector('[data-vue]')) {
+      if (!frameworks.some((f) => f.includes('Nuxt'))) frameworks.push('Vue')
+    }
 
     const classPatterns: Array<{ pattern: RegExp | ((classes: string[]) => boolean); name: string }> = [
       { pattern: (cs) => cs.some((c) => /^chakra-/.test(c)), name: 'Chakra UI' },
@@ -785,8 +801,17 @@ export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
     ).length
     if (cssModuleCount > 5) cssApproach.push('CSS Modules')
 
-    const styledCount = classArr.filter((c) => /^(sc-|css-|emotion-|__emotion_)/.test(c)).length
-    if (styledCount > 5) cssApproach.push('CSS-in-JS')
+    // Only library-specific signatures justify naming a concrete styling library. Generic
+    // `css-*` hashes prove generated class names, not styled-components, Emotion, or MUI.
+    const styledComponentsCount = classArr.filter((c) => /^sc-/.test(c)).length
+    const hasEmotionSignature =
+      classArr.some((c) => /^(__emotion_|emotion-)/.test(c)) || Boolean(document.querySelector('[data-emotion]'))
+    if (styledComponentsCount > 5) cssApproach.push('styled-components')
+    if (hasEmotionSignature) cssApproach.push('Emotion')
+    const generatedClassCount = classArr.filter((c) => /^css-[\da-z]{4,}$/i.test(c)).length
+    if (styledComponentsCount <= 5 && !hasEmotionSignature && generatedClassCount > 5) {
+      cssApproach.push('CSS-in-JS or generated class names observed')
+    }
 
     if (cssApproach.length === 0) cssApproach.push('Vanilla CSS')
 

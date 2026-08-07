@@ -35,12 +35,18 @@ export interface DesignIntelligenceMeta {
     pass: string
     input?: number
     output?: number
+    cached?: boolean
+    durationMs?: number
   }>
   failureCode?: string
   failureReason?: string
   rejected?: string[]
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
+  exampleGeneration?: {
+    status: 'not-requested' | 'pending' | 'complete' | 'failed'
+    failureCode?: 'not-configured' | 'provider-error' | 'validation-failed'
+  }
 }
 
 export interface SectionObservation {
@@ -197,6 +203,7 @@ export type AiSafeDesignEvidence = Omit<
     id: string
     sectionId: string
     role: string
+    importance?: string
     layoutMode?: string
   }>
 }

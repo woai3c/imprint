@@ -1,4 +1,5 @@
 import type { DocLanguage } from '../analyzer/agent-guide.js'
+import { computeInteractionStateMetrics } from './interaction-metrics.js'
 import type { DesignEvidence } from './types.js'
 
 export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
@@ -13,14 +14,8 @@ export function generateDesignEvidenceBrief(
   const zh = language === 'zh-CN'
   const lines: string[] = []
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
-  const passiveStates =
-    evidence.interactionStyles.hover.length +
-    evidence.interactionStyles.focus.length +
-    evidence.interactionStyles.active.length +
-    (evidence.interactionStyles.disabled?.length || 0)
-  const safeActiveStates = evidence.interactionObservations.filter(
-    (observation) => observation.safety === 'safe-active',
-  ).length
+  const stateMetrics = computeInteractionStateMetrics(evidence)
+  const iconRegions = evidence.coverage.mediaCoverage.iconRegions ?? 0
 
   lines.push(zh ? '## 设计证据概览' : '## Design Evidence Overview')
   lines.push('')
@@ -47,13 +42,13 @@ export function generateDesignEvidenceBrief(
   )
   lines.push(
     zh
-      ? `- 状态证据：${passiveStates} 条被动样式规则、${safeActiveStates} 条安全主动观察、${evidence.coverage.interactionCoverage.skipped} 个跳过候选`
-      : `- State evidence: ${passiveStates} passive style rules, ${safeActiveStates} safe active observations, ${evidence.coverage.interactionCoverage.skipped} skipped candidates`,
+      ? `- 状态证据：${stateMetrics.dedupedStatePatterns} 个去重状态模式、${stateMetrics.passiveObservations} 条被动状态观察（未执行用户操作）、${stateMetrics.safeActiveObservations} 条安全主动观察、${stateMetrics.skippedCandidates} 个跳过候选`
+      : `- State evidence: ${stateMetrics.dedupedStatePatterns} deduped state patterns, ${stateMetrics.passiveObservations} passive state observations (no user action), ${stateMetrics.safeActiveObservations} safe active observations, ${stateMetrics.skippedCandidates} skipped candidates`,
   )
   lines.push(
     zh
-      ? `- 媒体证据：${evidence.coverage.mediaCoverage.majorRegions} 个主要区域，${evidence.coverage.mediaCoverage.classifiedRegions} 个已分类区域`
-      : `- Media evidence: ${evidence.coverage.mediaCoverage.majorRegions} major regions, ${evidence.coverage.mediaCoverage.classifiedRegions} classified regions`,
+      ? `- 媒体证据：${evidence.coverage.mediaCoverage.majorRegions} 个主要区域（${evidence.coverage.mediaCoverage.classifiedRegions} 个已分类），另有 ${iconRegions} 个图标实例不计入主要区域`
+      : `- Media evidence: ${evidence.coverage.mediaCoverage.majorRegions} major regions (${evidence.coverage.mediaCoverage.classifiedRegions} classified), plus ${iconRegions} icon instances not counted as major regions`,
   )
   lines.push('')
 
@@ -113,8 +108,8 @@ export function generateDesignEvidenceBrief(
     }
     lines.push(
       zh
-        ? `- 被动状态规则：${passiveObservations.length} 条（未执行用户操作）`
-        : `- Passive state rules: ${passiveObservations.length} (no user action executed)`,
+        ? `- 被动状态观察：${passiveObservations.length} 条（未执行用户操作，与概览口径一致）`
+        : `- Passive state observations: ${passiveObservations.length} (no user action executed; same metric as the overview)`,
     )
     const passiveSummary = [...passiveCounts.entries()]
       .sort((a, b) => b[1] - a[1])

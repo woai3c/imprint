@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 
+import { computeInteractionStateMetrics } from '../../../core/design-evidence/interaction-metrics'
 import type { DesignEvidence } from '../../../core/design-evidence/types'
 
 interface DesignEvidencePanelProps {
@@ -35,21 +36,36 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
   const hoverCount = evidence.interactionStyles.hover.length
   const focusCount = evidence.interactionStyles.focus.length
   const activeCount = evidence.interactionStyles.active.length
-  const passiveStateCount = hoverCount + focusCount + activeCount
+  const disabledCount = evidence.interactionStyles.disabled?.length || 0
+  const passiveStateCount = hoverCount + focusCount + activeCount + disabledCount
+  const stateMetrics = computeInteractionStateMetrics(evidence)
 
   const driverCounts = new Map<string, number>()
   for (const obs of evidence.interactionObservations) {
     driverCounts.set(obs.driver, (driverCounts.get(obs.driver) || 0) + 1)
   }
-  const activeObservationCount = evidence.interactionObservations.filter(
-    (observation) => observation.safety === 'safe-active',
-  ).length
   const responsiveCount = evidence.responsiveObservations.length
+  const passiveTooltip = t('analyze.overview.statesPassiveTooltip')
   const stateFacts = [
-    passiveStateCount > 0 ? t('analyze.overview.statesPassive', { count: passiveStateCount }) : null,
-    activeObservationCount > 0 ? t('analyze.overview.statesActive', { count: activeObservationCount }) : null,
-    responsiveCount > 0 ? t('analyze.overview.statesResponsive', { count: responsiveCount }) : null,
-  ].filter((fact): fact is string => Boolean(fact))
+    stateMetrics.dedupedStatePatterns > 0
+      ? {
+          text: t('analyze.overview.statesPassive', { count: stateMetrics.dedupedStatePatterns }),
+          tooltip: passiveTooltip,
+        }
+      : null,
+    stateMetrics.passiveObservations > 0
+      ? {
+          text: t('analyze.overview.statesPassiveObservations', { count: stateMetrics.passiveObservations }),
+          tooltip: passiveTooltip,
+        }
+      : null,
+    stateMetrics.safeActiveObservations > 0
+      ? { text: t('analyze.overview.statesActive', { count: stateMetrics.safeActiveObservations }), tooltip: undefined }
+      : null,
+    responsiveCount > 0
+      ? { text: t('analyze.overview.statesResponsive', { count: responsiveCount }), tooltip: undefined }
+      : null,
+  ].filter((fact): fact is { text: string; tooltip?: string } => Boolean(fact))
   const visibleLimitations = evidence.limitations.filter((limitation) => !limitation.startsWith('skipped-interaction:'))
 
   return (
@@ -148,7 +164,9 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
           {stateFacts.length > 0 ? (
             <ul className="mt-2 space-y-1.5 text-sm leading-6 text-muted-foreground">
               {stateFacts.map((fact) => (
-                <li key={fact}>{fact}</li>
+                <li key={fact.text} title={fact.tooltip}>
+                  {fact.text}
+                </li>
               ))}
             </ul>
           ) : (
@@ -159,17 +177,22 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
             <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-3">
               {hoverCount > 0 && (
                 <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
-                  hover ×{hoverCount}
+                  {t('analyze.overview.stateLabels.hover')} ×{hoverCount}
                 </span>
               )}
               {focusCount > 0 && (
                 <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
-                  focus ×{focusCount}
+                  {t('analyze.overview.stateLabels.focus')} ×{focusCount}
                 </span>
               )}
               {activeCount > 0 && (
                 <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
-                  active ×{activeCount}
+                  {t('analyze.overview.stateLabels.active')} ×{activeCount}
+                </span>
+              )}
+              {disabledCount > 0 && (
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs text-muted-foreground">
+                  {t('analyze.overview.stateLabels.disabled')} ×{disabledCount}
                 </span>
               )}
               {[...driverCounts.entries()].map(([driver, count]) => (

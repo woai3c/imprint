@@ -202,8 +202,8 @@ console.log(JSON.stringify({
   examples: colorName
     ? [
         {
-          title: 'AI action card',
-          html: '<article style="background: var(--color-' + colorName + '); color: var(--color-background); padding: var(--spacing-3)"><h3>AI example card</h3></article>'
+          title: 'Neutral card',
+          html: '<article style="background: var(--color-' + colorName + '); color: var(--color-background); padding: var(--spacing-3)"><h3>Card</h3></article>'
         }
       ]
     : []
@@ -409,13 +409,13 @@ test('extracts a local design system without LLM credentials and persists it', {
       )
       .waitFor({ state: 'visible' })
     await page.getByTestId('artifact-tab-preview').click()
+    await page.getByTestId('example-generation').waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('example-components').count(), 0)
+    await page.getByTestId('generate-examples').click()
     await page.getByTestId('example-components').waitFor({ state: 'visible' })
     assert.equal(await page.getByTestId('example-component-frame').count(), 1)
     const aiExampleFrame = page.getByTestId('example-component-frame')
-    assert.match(
-      await aiExampleFrame.evaluate((frame) => frame.contentDocument?.body.textContent || ''),
-      /AI example card/,
-    )
+    assert.match(await aiExampleFrame.evaluate((frame) => frame.contentDocument?.body.textContent || ''), /Card/)
     assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-primary/)
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-evidence-link').first().click()

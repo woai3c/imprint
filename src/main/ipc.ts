@@ -55,6 +55,7 @@ import {
   createTaskContext,
   getInitialDesignIntelligenceMeta,
   runDesignIntelligence,
+  runExampleGeneration,
 } from './design-intelligence.js'
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
@@ -67,6 +68,7 @@ interface SaveTextFileOptions {
 }
 
 const designIntelligenceControllers = new Map<string, AbortController>()
+const exampleGenerationControllers = new Map<string, AbortController>()
 const analysisStartTimes = new Map<string, number>()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
@@ -715,6 +717,7 @@ export function registerIpcHandlers() {
       undefined,
       DESIGN_PROFILE_PROMPT_VERSION,
       '1',
+      outputLanguage,
     )
     if (
       !force &&
@@ -811,7 +814,7 @@ export function registerIpcHandlers() {
         designEvidence.breakpoints,
         undefined,
         outputLanguage,
-        intelligence.examples,
+        [],
         designEvidence,
         intelligence.profile,
         reconstructionBrief || undefined,
@@ -877,6 +880,102 @@ export function registerIpcHandlers() {
       reconstructionBrief,
       agentContext,
       validationReport,
+    }
+  })
+
+  ipcMain.handle('design-examples:start', async (_event, analysisId: string, language?: string) => {
+    const db = getDb()
+    const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(analysisId) as
+      Record<string, unknown> | undefined
+    if (!record) return { error: true, message: 'Analysis not found' }
+    if (!record.design_evidence_json || !record.design_profile_json) {
+      return { error: true, message: 'A validated design interpretation is required' }
+    }
+
+    const designEvidence = JSON.parse(record.design_evidence_json as string) as DesignEvidence
+    const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile
+    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
+    const outputLanguage = language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
+    const existingMeta = record.design_intelligence_meta_json
+      ? (JSON.parse(record.design_intelligence_meta_json as string) as DesignIntelligenceMeta)
+      : ({ status: 'complete', capabilityLevel: 'structural-ai' } as DesignIntelligenceMeta)
+    const pendingMeta: DesignIntelligenceMeta = {
+      ...existingMeta,
+      exampleGeneration: { status: 'pending' },
+    }
+    db.prepare('UPDATE analyses SET design_intelligence_meta_json = ? WHERE id = ?').run(
+      JSON.stringify(pendingMeta),
+      analysisId,
+    )
+
+    exampleGenerationControllers.get(analysisId)?.abort()
+    const controller = new AbortController()
+    exampleGenerationControllers.set(analysisId, controller)
+    const generation = await runExampleGeneration(
+      designEvidence,
+      tokens,
+      designProfile,
+      getSettings(),
+      outputLanguage,
+      controller.signal,
+    )
+    if (exampleGenerationControllers.get(analysisId) === controller) {
+      exampleGenerationControllers.delete(analysisId)
+    }
+
+    const updatedMeta: DesignIntelligenceMeta = {
+      ...existingMeta,
+      exampleGeneration: {
+        status: generation.status,
+        failureCode: generation.failureCode,
+      },
+    }
+    const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
+    const darkModeExport = readDarkModeExportData(
+      record.dark_tokens_json,
+      tokens,
+      record.dark_mode_method,
+      record.dark_mode_selector,
+    )
+    // Always rebuild the document. A failed retry must remove examples from a prior
+    // successful run so stale generated HTML is never left in Markdown exports.
+    const designDoc = generateDesignDoc(
+      tokens,
+      record.url as string,
+      designEvidence.featureTags,
+      darkModeExport,
+      designEvidence.breakpoints,
+      undefined,
+      outputLanguage,
+      generation.status === 'complete' ? generation.examples : [],
+      designEvidence,
+      designProfile,
+      reconstructionBrief,
+    )
+
+    db.prepare(
+      `UPDATE analyses
+       SET design_doc = ?, design_intelligence_meta_json = ?
+       WHERE id = ?`,
+    ).run(designDoc, JSON.stringify(updatedMeta), analysisId)
+    const currentThemeLink = db.prepare('SELECT theme_id FROM analyses WHERE id = ?').get(analysisId) as
+      { theme_id: string | null } | undefined
+    if (typeof currentThemeLink?.theme_id === 'string') {
+      db.prepare(
+        `UPDATE themes
+         SET design_doc = ?, design_intelligence_meta_json = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(designDoc, JSON.stringify(updatedMeta), new Date().toISOString(), currentThemeLink.theme_id)
+    }
+
+    return {
+      ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
+      designEvidence,
+      designProfile,
+      designIntelligence: updatedMeta,
+      reconstructionBrief,
+      agentContext: createTaskContext('Create a new page or component', designEvidence, designProfile, updatedMeta),
+      validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
     }
   })
 

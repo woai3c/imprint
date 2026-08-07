@@ -43,6 +43,70 @@ describe('design feature tags', () => {
     expect(tags).not.toContain('large-radius rounded style')
   })
 
+  test('does not call a neutral palette with one brand accent a rich color system', () => {
+    // Zhihu-like: gray canvas, white surface, one blue accent, plus status and incidental colors.
+    const designTokens = tokens({
+      colors: {
+        background: '#f4f6f9',
+        surface: '#ffffff',
+        foreground: '#191b1f',
+        'muted-foreground': '#373a40',
+        primary: '#1772f6',
+        accent: '#09408e',
+        border: '#e5e7eb',
+        'border-subtle': '#eef0f2',
+        'palette-1': '#f6d365',
+        'palette-2': '#22c55e',
+        'palette-3': '#ef4444',
+        'palette-4': '#f97316',
+      },
+    })
+    const styles = createExtractedStyles({
+      usageCount: {
+        // The blue accent family carries real UI usage.
+        'primaryActionColor:rgb(23, 114, 246)': 40,
+        'linkColor:rgb(23, 114, 246)': 25,
+        'selectedColor:rgb(9, 64, 142)': 12,
+        // Yellow badge is barely used; green/red are status-dominant.
+        'bgColor:rgb(246, 211, 101)': 2,
+        'statusColor:rgb(34, 197, 94)': 30,
+        'statusColor:rgb(239, 68, 68)': 28,
+        'actionColor:rgb(239, 68, 68)': 2,
+        // Orange avatar/badge chrome with no stable role evidence.
+        'declaredColor:rgb(249, 115, 22)': 1,
+      },
+    })
+
+    const tags = generateFeatureTags(designTokens, styles)
+    expect(tags).toContain('neutral palette with a single accent')
+    expect(tags).not.toContain('rich color system')
+  })
+
+  test('keeps rich color system for genuinely multi-hue product palettes', () => {
+    const designTokens = tokens({
+      colors: {
+        background: '#ffffff',
+        foreground: '#111111',
+        primary: '#4f46e5',
+        accent: '#0ea5e9',
+        'palette-1': '#22c55e',
+        'palette-2': '#f97316',
+        'palette-3': '#e11d48',
+      },
+    })
+    const styles = createExtractedStyles({
+      usageCount: {
+        'primaryActionColor:rgb(79, 70, 229)': 30,
+        'brandTokenColor:rgb(14, 165, 233)': 24,
+        'bgColor:rgb(34, 197, 94)': 18,
+        'actionColor:rgb(249, 115, 22)': 16,
+        'bgColor:rgb(225, 29, 72)': 14,
+      },
+    })
+
+    expect(generateFeatureTags(designTokens, styles)).toContain('rich color system')
+  })
+
   test('requires materially different shadow elevations before calling the system layered', () => {
     const subtle = tokens({
       shadows: [

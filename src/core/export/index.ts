@@ -351,10 +351,16 @@ export function generateDesignDoc(
   if (darkMode?.hasDarkMode) {
     const detection =
       darkMode.method === 'class-toggle'
-        ? `${darkMode.method}: ${normalizeDarkSelector(darkMode.selector)}`
-        : darkMode.method
+        ? zh
+          ? `切换 ${normalizeDarkSelector(darkMode.selector)} 后读取计算样式`
+          : `toggling ${normalizeDarkSelector(darkMode.selector)} and reading computed styles`
+        : zh
+          ? '模拟 prefers-color-scheme: dark 后读取计算样式'
+          : 'emulating prefers-color-scheme: dark and reading computed styles'
     lines.push(
-      zh ? `\n**深色模式：** 支持（检测方式：${detection}）` : `\n**Dark Mode:** Supported (detected via ${detection})`,
+      zh
+        ? `\n**深色模式：** 支持。暗色令牌通过${detection}主动观察得到；不代表该站点默认以深色加载。`
+        : `\n**Dark Mode:** Supported. Dark tokens were observed by ${detection}; this does not imply the site loads in dark by default.`,
     )
   } else {
     lines.push(zh ? `\n**深色模式：** 未检测到` : `\n**Dark Mode:** Not detected`)

@@ -7,7 +7,7 @@
   "minSafelyObservedInteractions": 1,
   "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
   "minMediaLayers": 1,
-  "expectedMediaKinds": ["css-background"],
+  "expectedMediaKinds": ["svg"],
   "expectedSalienceTraits": ["salience:max-type"],
   "minSectionCoverage": 0.3,
   "referenceProfile": {

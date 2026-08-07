@@ -11,6 +11,9 @@ export interface FixtureAnnotation {
   expectedMediaKinds: string[]
   expectedSalienceTraits: string[]
   minSectionCoverage: number
+  expectedFeatureTags?: string[]
+  forbiddenFeatureTags?: string[]
+  maxMajorMediaRegions?: number
   referenceProfile: {
     thesis: string
     signatureMoves: string[]

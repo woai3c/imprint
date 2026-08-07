@@ -29,6 +29,8 @@ const api = {
   ) => ipcRenderer.invoke('analyze:url', url, options),
   startDesignIntelligence: (analysisId: string, language?: string, force = false) =>
     ipcRenderer.invoke('design-intelligence:start', analysisId, language, force),
+  generateDesignExamples: (analysisId: string, language?: string) =>
+    ipcRenderer.invoke('design-examples:start', analysisId, language),
   cancelDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:cancel', analysisId),
   skipDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:skip', analysisId),
   generateValidation: (analysisId: string, scenario: 'workflow' | 'content' | 'states') =>

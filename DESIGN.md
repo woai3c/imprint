@@ -336,7 +336,9 @@ When AI enhancement is configured and returns validated example HTML, the Previe
 sandboxed iframe with the extracted CSS variables applied. Without AI, after AI failure, or when its output is invalid,
 Imprint omits the example section from both the preview and generated DESIGN.md so deterministic extraction stays
 compact. AI examples are validation surfaces rather than reconstructions of source markup. Rendering never executes
-scripts.
+scripts. Example generation is an explicit, optional Preview action after AI design insights complete; it never blocks
+the first interpretation result. While it runs, the action shows a busy state. Validation and provider failures remain
+separate, localized states, and invalid HTML is never persisted or rendered.
 
 ## Anti-slop guardrails
 
@@ -354,6 +356,10 @@ Visual novelty must remain accountable to the product's extraction and validatio
 - Treat the examples in the desktop app as validation scenarios, not bundled website templates. Organize them by product
   workflow, content and presentation, and interaction states. Keep every scenario directly visible in a compact grouped
   tile layout; do not hide scenario switching inside a select menu.
+- Pin a compact theme-calibration strip above every validation surface: primary and secondary actions, a text link, an
+  input with a focus ring, checkbox and radio controls, and default/success/warning/error status badges. Every control
+  binds directly to a semantic theme role (no arbitrary fallback colors), and the strip states that these fixed
+  components exist to compare the same controls across themes.
 - Keep every built-in and extracted theme visible by name and separate palette swatches beside the validation controls.
   Present them in two labeled groups: Imprint appearance themes are complete systems that change the app shell, while
   extracted website themes are evidence snapshots scoped to the current preview. Theme choices wrap within their group

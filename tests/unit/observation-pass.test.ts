@@ -5,6 +5,7 @@ import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   type InterpretationInvoke,
+  type SectionObservation,
   buildDesignInterpretationPrompt,
   buildSectionObservationPrompt,
   extractObservationCandidate,
@@ -292,6 +293,41 @@ describe('Section observation pass', () => {
     expect(calls[0]).toContain('section observer')
     expect(calls[1]).toContain('SECTION_OBSERVATIONS')
     expect(calls[1]).toContain('section-a')
+  })
+
+  it('reuses cached structural observations without a new observation call', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const observationCache = new Map<string, SectionObservation[]>()
+    let observationCalls = 0
+    const invoke: InterpretationInvoke = async (prompt) => {
+      if (prompt.includes('section observer')) {
+        observationCalls += 1
+        return {
+          text: JSON.stringify({
+            observations: [observationEntry('section-a'), observationEntry('section-b', ['image-b'])],
+          }),
+        }
+      }
+      return { text: JSON.stringify(rawProfile()) }
+    }
+    const options = {
+      mode: 'structural-only' as const,
+      language: 'en' as const,
+      invoke,
+      observationCache,
+      observationCacheKey: 'structure-fingerprint-v1',
+    }
+
+    const first = await runInterpretationPipeline(evidence, evidencePackage, options)
+    expect(first.pipeline).toBe('two-pass')
+    expect(observationCalls).toBe(1)
+
+    const second = await runInterpretationPipeline(evidence, evidencePackage, options)
+    expect(second.pipeline).toBe('two-pass')
+    expect(observationCalls).toBe(1)
+    expect(second.callDetails).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pass: 'observation', cached: true })]),
+    )
   })
 
   it('degrades to single-pass when observation output is invalid', async () => {

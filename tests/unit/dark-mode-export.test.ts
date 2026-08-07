@@ -165,6 +165,29 @@ describe('dark mode export data', () => {
     expect(generateScssVariables(baseTokens, darkMode)).toContain('$dark-line-height-1: 1.5;')
   })
 
+  test('labels dark token provenance without implying a dark-by-default site', () => {
+    const darkTokens = { ...baseTokens, colors: { background: '#16171d', foreground: '#f5f5f5' } }
+    const mediaDoc = generateDesignDoc(baseTokens, undefined, undefined, {
+      hasDarkMode: true,
+      darkTokens,
+      method: 'media-query',
+    })
+    expect(mediaDoc).toContain('observed by emulating prefers-color-scheme: dark')
+    expect(mediaDoc).toContain('does not imply the site loads in dark by default')
+
+    const toggleDoc = generateDesignDoc(
+      baseTokens,
+      undefined,
+      undefined,
+      { hasDarkMode: true, darkTokens, method: 'class-toggle', selector: '[data-theme="dark"]' },
+      undefined,
+      undefined,
+      'zh-CN',
+    )
+    expect(toggleDoc).toContain('切换 [data-theme="dark"] 后读取计算样式')
+    expect(toggleDoc).toContain('不代表该站点默认以深色加载')
+  })
+
   test('rejects unsafe stored dark selectors', () => {
     const restored = restoreDarkModeExportData(baseTokens, baseTokens, 'class-toggle', 'body { color: red }')
     expect(restored?.selector).toBe('.dark')

@@ -224,6 +224,22 @@ export interface FileOperationResult {
   filePath?: string
 }
 
+export interface RendererPerformanceSample {
+  windowMs: number
+  frames: number
+  fps: number
+  p95FrameMs: number
+  maxFrameMs: number
+  framesOver50Ms: number
+  longTasks: number
+  longTaskMs: number
+  focused: boolean
+  theme: string
+  route: string
+  devicePixelRatio: number
+  hardwareConcurrency: number
+}
+
 export interface ElectronAPI {
   platform: string
   initialSettings: AppSettings
@@ -260,6 +276,7 @@ export interface ElectronAPI {
   ) => Promise<FileOperationResult>
   openLogsFolder: () => Promise<{ success: boolean; path: string }>
   logEvent: (level: 'info' | 'warn' | 'error', message: string) => void
+  reportPerformance: (sample: RendererPerformanceSample) => void
   getSettings: () => Promise<AppSettings>
   saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
   detectAgentClis: (force?: boolean) => Promise<AgentCliInfo[]>

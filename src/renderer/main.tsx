@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 
 import { App } from './App'
 import './i18n'
+import { startRendererPerformanceMonitor } from './lib/performance-monitor'
 import { initThemePreference } from './lib/theme-preference'
 import { initColorMode, preloadThemeBackdrops } from './stores/skin-store'
 import './styles/globals.css'
@@ -10,6 +11,7 @@ import './styles/globals.css'
 initColorMode()
 initThemePreference()
 preloadThemeBackdrops()
+startRendererPerformanceMonitor()
 
 // Forward uncaught renderer errors to the main-process log file.
 window.addEventListener('error', (event) => {

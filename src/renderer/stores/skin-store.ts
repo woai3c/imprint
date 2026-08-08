@@ -872,32 +872,32 @@ export const builtinThemes: AppTheme[] = [
     }),
     identity: {
       values: ['层次', '流动', '轻盈'],
-      patterns: ['功能层玻璃', '内容层稳定', '色彩透射'],
-      evidence: ['模糊仅用于侧栏与顶栏', '阅读卡片使用近实体表面', '极光停留在内容背板之后'],
+      patterns: ['功能层玻璃', '层压信息卡', '色彩折射'],
+      evidence: ['实时模糊仅用于固定外壳', '信息卡以半透明渐变和高光边缘塑造玻璃', '极光穿过内容空隙与卡片表面'],
     },
     designProfile: {
       thesis:
-        'A layered glass interface where functional chrome (navigation, toolbars) uses translucent blur while content surfaces remain opaque — aurora color gradients create depth without competing with information.',
+        'A prismatic glass interface where a vivid aurora passes through fixed translucent chrome and laminated content cards, restoring depth and color transmission without expensive per-card live blur.',
       signatureMoves: [
         {
           name: 'Functional-layer glass',
           description:
-            'Backdrop-blur and translucency apply exclusively to navigation chrome (sidebar, toolbar); content areas remain opaque. This creates a depth illusion where tools "float" above the content plane.',
+            'High-radius backdrop blur stays on fixed navigation chrome (sidebar, toolbar), where it creates a convincing floating shell without multiplying repaint cost across scrolling content.',
         },
         {
-          name: 'Content-layer stability',
+          name: 'Laminated content glass',
           description:
-            'Reading cards use near-white surfaces (oklch 98% 0.012 260) with no transparency, ensuring that aurora gradients beneath never reduce text contrast or legibility.',
+            'Cards use a translucent near-white fill, a directional sheen, a bright inner edge, and a violet shadow. The already-soft aurora passes through without a live backdrop filter, preserving text contrast and responsiveness.',
         },
         {
           name: 'Color refraction',
           description:
-            'The violet-to-indigo aurora spectrum (hue 254–292) appears through translucent chrome layers as a subtle color shift, mimicking light refracting through glass prisms.',
+            'A violet anchor is crossed by cyan, rose, and restrained amber caustics. Their overlap stays in the backdrop and reads through translucent surfaces like light refracting through a prism.',
         },
       ],
       composition: {
         containerStrategy:
-          'Three depth planes — background aurora, translucent chrome, opaque content — create a parallax-like spatial hierarchy without actual 3D transforms.',
+          'Three depth planes — background aurora, translucent chrome, laminated content — create a spatial hierarchy without animated transforms.',
         alignmentStrategy:
           'Tight negative heading letter-spacing (-0.02em) creates sleek, compressed titles that contrast with the airy whitespace around them.',
         densityAndWhitespace:
@@ -907,13 +907,13 @@ export const builtinThemes: AppTheme[] = [
       },
       visualLanguage: {
         color:
-          'Violet-indigo spectrum (hue 254–292): primary is a vivid violet (oklch 57% 0.205 282), accent is a lighter indigo; the ring color is the most saturated point (oklch 52% 0.23 292). Neutrals lean purple-tinted.',
+          'Violet remains the interaction anchor: primary is oklch 57% 0.205 282 and the ring is the most saturated point at oklch 52% 0.23 292. Cyan, rose, and amber appear only as ambient aurora light; neutrals lean purple-tinted.',
         typography:
           'System sans-serif (Segoe UI Variable) for both body and headings; the display variant adds optical weight to headings. Typography stays neutral to let the color system carry the visual identity.',
         shape:
           'Large radius (1rem) creates pronounced pill shapes on buttons and cards — the generous rounding reinforces the soft, glass-bead aesthetic.',
         surfaces:
-          'Three surface types: opaque content (oklch 98%), translucent chrome (blur + 60% opacity), and the aurora background. Shadows use violet-tinted gray (rgb 67 62 110) for color consistency.',
+          'Three surface types: laminated translucent content, fixed blurred chrome, and the aurora background. Bright inner edges and violet-tinted shadows separate the layers without live blur on every card.',
         motion:
           'Smooth ease-out (cubic-bezier 0.2, 0, 0, 1) with 520ms slow transitions — major state changes feel fluid and languid, matching the flowing aurora aesthetic.',
       },
@@ -923,29 +923,29 @@ export const builtinThemes: AppTheme[] = [
         actionHierarchy:
           'Primary actions use the saturated violet; secondary actions use translucent glass surfaces; tertiary actions are plain text. The saturation jump from glass (0.03 chroma) to primary (0.205 chroma) is the largest of any theme.',
         contrastStrategy:
-          'Depth-based hierarchy: the aurora background is the deepest layer, translucent chrome floats above it, and opaque content sits on top. Attention flows from the most opaque (content) to the most translucent (chrome).',
+          'Depth-based hierarchy: the aurora background is the deepest layer, translucent chrome floats above it, and laminated content sits on top with brighter edges and denser fill.',
       },
       interactionLanguage: {
         feedbackStyle:
-          'Glass-refraction feedback — hover increases backdrop-blur intensity and shifts the surface\u2019s color temperature slightly toward the aurora spectrum.',
+          'Glass-refraction feedback — hover strengthens the existing violet surface tint or bright edge without changing blur radius or introducing a new hue.',
         stateChangeAmplitude:
           'Moderate: hover brightens the violet tint on translucent surfaces; focus applies the highly saturated ring (oklch 52% 0.23 292); active states shift from violet to indigo.',
       },
       transferRules: {
         preserve: [
-          'Glass effects are for chrome only — never apply backdrop-blur to content reading surfaces.',
-          'Aurora color gradient must stay in the violet-indigo range (hue 254–292) and behind all content.',
+          'Live backdrop blur is for fixed chrome only; content cards express glass through translucent fill, sheen, edge, and shadow.',
+          'The prismatic aurora must remain visible through content gaps and laminated surfaces while text contrast stays stable.',
           'The three-plane depth hierarchy (background → chrome → content) must be maintained.',
         ],
         adapt: [
-          'Aurora hue range can shift across the spectrum (e.g., teal-to-cyan, pink-to-magenta) while maintaining the gradient approach.',
-          'Glass blur radius can increase (up to 24px) or decrease (down to 8px) depending on desired translucency depth.',
+          'Supporting aurora caustics can shift within cyan, rose, or amber while violet remains the interaction anchor.',
+          'Fixed-chrome blur can range from 16px to 30px depending on the desired translucency depth.',
           'Large border radius can reduce to 0.75rem for a slightly sharper glass-edge feel.',
         ],
         avoid: [
-          'Do not make content surfaces translucent — readability requires opaque reading surfaces.',
+          'Do not add live backdrop-filter to repeated or scrolling content cards — it turns routine repaints into GPU-wide blur work.',
           'Do not flatten the depth hierarchy to a single plane — the glass effect depends on visible layering.',
-          'Do not use warm/earthy colors — the violet-indigo identity depends on cool, prismatic tones.',
+          'Do not promote amber into the surface or interaction palette — it is a restrained light caustic, not a second action hue.',
         ],
       },
     },
@@ -1951,9 +1951,17 @@ function getThemeBackgroundCss(themeId: string): string | null {
 }`,
     glassmorphism: `.app-shell::before {
   background:
-    radial-gradient(ellipse at 20% 80%, oklch(70% 0.18 280 / 22%), transparent 38%),
-    radial-gradient(ellipse at 78% 22%, oklch(72% 0.14 195 / 18%), transparent 34%),
-    linear-gradient(155deg, oklch(95% 0.03 262), oklch(94% 0.025 255) 58%, oklch(95% 0.02 268));
+    radial-gradient(circle at 16% 16%, rgb(116 95 255 / 44%), transparent 26%),
+    radial-gradient(circle at 82% 18%, rgb(54 218 224 / 42%), transparent 25%),
+    radial-gradient(circle at 68% 82%, rgb(255 116 190 / 30%), transparent 27%),
+    radial-gradient(circle at 20% 82%, rgb(255 196 100 / 25%), transparent 24%),
+    linear-gradient(135deg, #eef0ff, #e9fbfa 54%, #f6eafa);
+}
+
+.app-shell::after {
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 13%), transparent 44%),
+    radial-gradient(circle at 50% 40%, rgb(255 255 255 / 30%), transparent 52%);
 }`,
     dunhuang: `.app-shell::before {
   background:

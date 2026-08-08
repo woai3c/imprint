@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import { pathToFileURL } from 'node:url'
 
 import { BrowserWindow, Menu, Tray, app, nativeImage, net, protocol } from 'electron'
@@ -8,6 +9,7 @@ import { isLinux, isMacOS, isWindows } from '../shared/platform.js'
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
 import { initLogger, log } from './logger.js'
+import { monitorWindowPerformance } from './performance-monitor.js'
 
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,AutofillEnableAccountWalletStorage')
 
@@ -35,6 +37,7 @@ function getIconPath(...segments: string[]) {
 }
 
 function createWindow() {
+  const createdAt = performance.now()
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -50,6 +53,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+  monitorWindowPerformance(mainWindow, createdAt)
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)

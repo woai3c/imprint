@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { AppSettings, ElectronAPI, LoginRequiredEvent } from '../shared/ipc-contract.js'
+import type { AppSettings, ElectronAPI, LoginRequiredEvent, RendererPerformanceSample } from '../shared/ipc-contract.js'
 
 const api = {
   platform: process.platform,
@@ -48,6 +48,7 @@ const api = {
     ipcRenderer.invoke('export:toDirectory', files, assets, defaultDir),
   openLogsFolder: () => ipcRenderer.invoke('app:openLogsFolder'),
   logEvent: (level: 'info' | 'warn' | 'error', message: string) => ipcRenderer.send('log:event', level, message),
+  reportPerformance: (sample: RendererPerformanceSample) => ipcRenderer.send('performance:renderer-sample', sample),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),

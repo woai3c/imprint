@@ -505,11 +505,11 @@
         "name": "Aurora Glass",
         "description": "Flowing color behind clear, floating layers",
         "values": ["Layering", "Flow", "Lightness"],
-        "patterns": ["Functional glass layer", "Stable content layer", "Color transmission"],
+        "patterns": ["Functional glass layer", "Laminated content cards", "Color refraction"],
         "evidence": [
-          "Blur is limited to the sidebar and top bar",
-          "Reading cards use near-solid surfaces",
-          "Aurora color remains behind the content plane"
+          "Live blur is limited to fixed chrome",
+          "Cards use translucent gradients and bright glass edges",
+          "Aurora passes through content gaps and card surfaces"
         ]
       },
       "dunhuang": {

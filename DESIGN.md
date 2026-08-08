@@ -346,9 +346,11 @@ Visual novelty must remain accountable to the product's extraction and validatio
 
 - Curate built-in themes as foundation, narrative, or experimental systems. Do not add a theme unless it has a distinct
   validation purpose and passes the complete-theme checklist.
-- Limit a theme backdrop to two non-structural ambient color effects. A grid, paper, or mural texture may add one
-  structural material layer when it carries the theme metaphor. Blur belongs only where transparency communicates a
-  functional layer; reading surfaces stay stable and near-solid.
+- Limit a theme backdrop to two non-structural ambient compositions. A multi-stop gradient that behaves as one coherent
+  light field counts as one composition; do not scatter unrelated decorative blobs. A grid, paper, or mural texture may
+  add one structural material layer when it carries the theme metaphor. Live blur belongs only where transparency
+  communicates a fixed functional layer. Repeated reading cards stay stable: they may use a translucent laminated fill,
+  sheen, and defined edge over a soft backdrop, but never a per-card live backdrop filter.
 - Do not run decorative ambient animation. Motion must explain a user action, a state change, or content continuity.
 - Choose a defined edge or elevation for a surface instead of stacking a hairline border, wide shadow, and glow.
 - Every theme value or design-pattern claim must point to an observable token, component rule, or interaction behavior.

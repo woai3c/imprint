@@ -129,6 +129,25 @@ describe('design token builder', () => {
     expect(tokens.colors.border).toBe('rgb(235, 236, 237)')
   })
 
+  test('does not emit a palette token for a color already assigned under a different notation', () => {
+    const styles = createExtractedStyles({
+      usageCount: { 'structuralBorderColor:rgb(59, 52, 64)': 100 },
+    })
+    const tokens = buildDesignTokens(styles, {
+      palette: [
+        { hex: '#3b3440', count: 107 },
+        { hex: '#db2777', count: 5 },
+      ],
+      backgrounds: ['#16171d'],
+      texts: ['#ffffff'],
+      accents: ['#6b1eb9'],
+    })
+
+    expect(tokens.colors.border).toBe('rgb(59, 52, 64)')
+    expect(tokens.colors['palette-1']).toBeUndefined()
+    expect(tokens.colors['palette-2']).toBe('#db2777')
+  })
+
   test('separates default and subtle borders while keeping a secondary surface distinct from white cards', () => {
     const styles = createExtractedStyles({
       usageCount: {

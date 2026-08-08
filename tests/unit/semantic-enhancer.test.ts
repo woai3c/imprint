@@ -43,6 +43,30 @@ describe('Semantic naming protocol', () => {
     expect(prompt).not.toContain('designIntent')
   })
 
+  test('feeds observed usage into the prompt so names follow roles instead of hue guesses', () => {
+    const tokens = createTokens()
+    tokens.colors['palette-3'] = '#000000'
+    tokens.evidence = {
+      'colors.palette-3': {
+        value: '#000000',
+        confidence: 'high',
+        observationCount: 588,
+        pageCount: 3,
+        captureCount: 4,
+        pages: [],
+        sources: ['usage:textColor'],
+        reasons: ['computed-style'],
+      },
+    }
+
+    const prompt = buildSemanticNamingPrompt(tokens, 'https://example.com', {})
+
+    expect(prompt).toContain('palette-3: #000000 — 588 observations across 3 page(s); roles: text')
+    expect(prompt).toContain('primary: #2563eb — no observed usage')
+    expect(prompt).toContain('Omit tokens with "no observed usage"')
+    expect(prompt).toContain('text-* for text')
+  })
+
   test('parses wrapped rename output from an Agent CLI', () => {
     const response = JSON.stringify({
       type: 'result',

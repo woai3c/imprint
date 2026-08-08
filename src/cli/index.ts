@@ -7,6 +7,7 @@ import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabili
 import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
 import { type AiImageInput, mimeTypeForPath } from '../core/ai/provider.js'
 import { analyze } from '../core/analyzer/index.js'
+import { applyColorRenames } from '../core/analyzer/token-renamer.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
 import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
@@ -193,13 +194,26 @@ async function main() {
     reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens)
   }
 
-  const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
-  const tailwind = generateTailwindTheme(result.tokens, darkModeExport, result.breakpoints)
+  const aliasResult =
+    profile?.tokenAliases && profile.tokenAliases.length > 0
+      ? applyColorRenames(result.tokens, profile.tokenAliases)
+      : null
+  const exportTokens = aliasResult?.tokens ?? result.tokens
+  const exportDarkMode =
+    aliasResult && darkModeExport?.darkTokens
+      ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
+      : darkModeExport
+  const aliasComment = aliasResult
+    ? `/* AI token aliases: ${aliasResult.applied.map((item) => `${item.tokenId} -> ${item.name}`).join(', ')} */\n`
+    : ''
+
+  const cssVars = aliasComment + generateCssVariables(exportTokens, exportDarkMode, result.breakpoints)
+  const tailwind = aliasComment + generateTailwindTheme(exportTokens, exportDarkMode, result.breakpoints)
   const designDoc = generateDesignDoc(
-    result.tokens,
+    exportTokens,
     url,
     result.featureTags,
-    darkModeExport,
+    exportDarkMode,
     result.breakpoints,
     result.components,
     'en',
@@ -208,7 +222,7 @@ async function main() {
     profile || undefined,
     reconstructionBrief,
   )
-  const dtcgJson = generateDtcgJson(result.tokens, darkModeExport)
+  const dtcgJson = generateDtcgJson(exportTokens, exportDarkMode)
   const evidenceJson = generateDesignEvidenceJson(result.designEvidence)
 
   // JSON stdout mode — pipe-friendly
@@ -262,7 +276,7 @@ async function main() {
         break
       case 'scss':
         filename = 'variables.scss'
-        content = generateScssVariables(result.tokens, darkModeExport)
+        content = aliasComment + generateScssVariables(exportTokens, exportDarkMode)
         break
       case 'json':
         filename = 'design-tokens.json'

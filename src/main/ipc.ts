@@ -18,6 +18,7 @@ import {
   type LoginDecision,
   type PageDiscoveryMode,
 } from '../core/analyzer/index.js'
+import { applyColorRenames } from '../core/analyzer/token-renamer.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
@@ -788,6 +789,8 @@ export function registerIpcHandlers() {
       intelligence.meta,
     )
 
+    let aliasedCss: string | null = null
+    let aliasedTailwind: string | null = null
     if (intelligence.profile) {
       win?.webContents.send('design-intelligence:progress', {
         step: 'progress.validatingDesignLanguage',
@@ -806,11 +809,20 @@ export function registerIpcHandlers() {
         record.dark_mode_method,
         record.dark_mode_selector,
       )
+      const aliasResult =
+        intelligence.profile.tokenAliases && intelligence.profile.tokenAliases.length > 0
+          ? applyColorRenames(tokens, intelligence.profile.tokenAliases)
+          : null
+      const exportTokens = aliasResult?.tokens ?? tokens
+      const exportDarkMode =
+        aliasResult && darkModeExport?.darkTokens
+          ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
+          : darkModeExport
       designDoc = generateDesignDoc(
-        tokens,
+        exportTokens,
         record.url as string,
         designEvidence.featureTags,
-        darkModeExport,
+        exportDarkMode,
         designEvidence.breakpoints,
         undefined,
         outputLanguage,
@@ -819,6 +831,11 @@ export function registerIpcHandlers() {
         intelligence.profile,
         reconstructionBrief || undefined,
       )
+      if (aliasResult) {
+        const aliasComment = `/* AI token aliases: ${aliasResult.applied.map((item) => `${item.tokenId} -> ${item.name}`).join(', ')} */\n`
+        aliasedCss = aliasComment + generateCssVariables(exportTokens, exportDarkMode, designEvidence.breakpoints)
+        aliasedTailwind = aliasComment + generateTailwindTheme(exportTokens, exportDarkMode, designEvidence.breakpoints)
+      }
     }
 
     const startTime = analysisStartTimes.get(analysisId)
@@ -828,7 +845,8 @@ export function registerIpcHandlers() {
     db.prepare(
       `UPDATE analyses
        SET design_doc = ?, design_profile_json = ?, design_intelligence_status = ?,
-           design_intelligence_meta_json = ?, validation_report_json = ?${totalDuration != null ? ', duration_ms = ?' : ''}
+           design_intelligence_meta_json = ?, validation_report_json = ?,
+           css_variables = ?, tailwind_theme = ?${totalDuration != null ? ', duration_ms = ?' : ''}
        WHERE id = ?`,
     ).run(
       ...[
@@ -837,6 +855,8 @@ export function registerIpcHandlers() {
         intelligence.meta.status,
         JSON.stringify(intelligence.meta),
         validationReport ? JSON.stringify(validationReport) : null,
+        aliasedCss ?? record.css_variables,
+        aliasedTailwind ?? record.tailwind_theme,
         ...(totalDuration != null ? [totalDuration] : []),
         analysisId,
       ],
@@ -847,15 +867,18 @@ export function registerIpcHandlers() {
       db.prepare(
         `UPDATE themes
          SET design_doc = ?, design_evidence_json = ?, design_profile_json = ?,
-             design_intelligence_meta_json = ?, updated_at = ?
+             design_intelligence_meta_json = ?, updated_at = ?${aliasedCss ? ', css_variables = ?, tailwind_theme = ?' : ''}
          WHERE id = ?`,
       ).run(
-        designDoc,
-        record.design_evidence_json,
-        designProfile ? JSON.stringify(designProfile) : null,
-        JSON.stringify(intelligence.meta),
-        new Date().toISOString(),
-        currentThemeLink.theme_id,
+        ...[
+          designDoc,
+          record.design_evidence_json,
+          designProfile ? JSON.stringify(designProfile) : null,
+          JSON.stringify(intelligence.meta),
+          new Date().toISOString(),
+          ...(aliasedCss ? [aliasedCss, aliasedTailwind] : []),
+          currentThemeLink.theme_id,
+        ],
       )
     }
     win?.webContents.send('design-intelligence:progress', {
@@ -937,13 +960,22 @@ export function registerIpcHandlers() {
       record.dark_mode_method,
       record.dark_mode_selector,
     )
+    const aliasResult =
+      designProfile.tokenAliases && designProfile.tokenAliases.length > 0
+        ? applyColorRenames(tokens, designProfile.tokenAliases)
+        : null
+    const exportTokens = aliasResult?.tokens ?? tokens
+    const exportDarkMode =
+      aliasResult && darkModeExport?.darkTokens
+        ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
+        : darkModeExport
     // Always rebuild the document. A failed retry must remove examples from a prior
     // successful run so stale generated HTML is never left in Markdown exports.
     const designDoc = generateDesignDoc(
-      tokens,
+      exportTokens,
       record.url as string,
       designEvidence.featureTags,
-      darkModeExport,
+      exportDarkMode,
       designEvidence.breakpoints,
       undefined,
       outputLanguage,

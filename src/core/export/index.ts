@@ -374,7 +374,7 @@ export function generateDesignDoc(
   }
 
   if (designProfile) {
-    lines.push(generateDesignProfileMarkdown(designProfile))
+    lines.push(generateDesignProfileMarkdown(designProfile, tokens))
     lines.push('')
   }
 
@@ -492,7 +492,7 @@ export function generateDesignDoc(
     )
     const lowConfidence = Object.entries(tokens.evidence)
       .filter(([, item]) => item.confidence === 'low')
-      .map(([tokenPath]) => `\`${tokenPath}\``)
+      .map(([tokenPath, item]) => `\`${tokenPath}\` (\`${item.value}\`)`)
       .slice(0, 12)
     lines.push(zh ? '\n## 提取置信度\n' : '\n## Extraction Confidence\n')
     lines.push(

@@ -1,4 +1,4 @@
-import type { ClusteredColors } from './color-cluster.js'
+import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
 import type { DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 
@@ -213,9 +213,13 @@ export function buildDesignTokens(
     if (subtleBorder !== defaultBorder) colors['border-subtle'] = subtleBorder
   }
 
-  // Add remaining palette colors
+  // Add remaining palette colors. Compare normalized values so the same color observed in
+  // different notations (e.g. rgb(59, 52, 64) vs #3b3440) is not emitted as two tokens.
+  const takenColors = new Set(Object.values(colors).map((value) => normalizeColorValue(value) || value))
   clusteredColors.palette.forEach((item, i) => {
-    if (!Object.values(colors).includes(item.hex)) {
+    const normalized = normalizeColorValue(item.hex) || item.hex
+    if (!takenColors.has(normalized)) {
+      takenColors.add(normalized)
       colors[`palette-${i + 1}`] = item.hex
     }
   })

@@ -26,13 +26,38 @@ export async function enhanceSemanticNaming(
   }
 }
 
+const COLOR_ROLE_LABELS: ReadonlyArray<[RegExp, string]> = [
+  [/^usage:(?:primaryActionColor|actionColor|selectedColor)$/, 'action'],
+  [/^usage:linkColor$/, 'link'],
+  [/^usage:textColor$/, 'text'],
+  [/^usage:(?:bgColor|bgArea)$/, 'background'],
+  [/^usage:(?:structuralBorderColor|borderColor)$/, 'border'],
+  [/^usage:(?:accentColor|brandTokenColor)$/, 'accent'],
+]
+
+// Summarizes observed usage so names describe what the color actually does instead of
+// what its hue vaguely suggests (e.g. #000000 used 588x as text must not become "surface-deep").
+function colorUsageSummary(tokens: DesignToken, name: string): string {
+  const evidence = tokens.evidence?.[`colors.${name}`]
+  if (!evidence || !(evidence.observationCount > 0)) return 'no observed usage'
+  const roles = [
+    ...new Set(
+      evidence.sources
+        .map((source) => COLOR_ROLE_LABELS.find(([pattern]) => pattern.test(source))?.[1])
+        .filter((role): role is string => Boolean(role)),
+    ),
+  ]
+  const observations = `${Math.round(evidence.observationCount)} observations across ${evidence.pageCount} page(s)`
+  return roles.length > 0 ? `${observations}; roles: ${roles.join(', ')}` : `${observations}; role unknown`
+}
+
 export function buildSemanticNamingPrompt(
   tokens: DesignToken,
   url: string,
   context: SemanticNamingContext = {},
 ): string {
   const colorList = Object.entries(tokens.colors)
-    .map(([name, value]) => `${name}: ${value}`)
+    .map(([name, value]) => `${name}: ${value} — ${colorUsageSummary(tokens, name)}`)
     .join('\n')
   const outputLanguage = context.language === 'zh-CN' ? 'Simplified Chinese' : 'English'
 
@@ -42,7 +67,7 @@ Do not use tools, read files, inspect the working directory, or modify anything.
 
 Source URL: ${url}
 
-Color tokens (tokenId: value):
+Color tokens (tokenId: value — observed usage):
 ${colorList}
 
 Design features: ${context.featureTags?.join(', ') || 'none detected'}
@@ -57,9 +82,11 @@ Respond in JSON format:
 Rename rules:
 - Only use token IDs listed above
 - Do not change, add, or repeat token values
-- Names must use lowercase kebab-case and describe usage (e.g., "surface-primary", "text-muted", "action-brand")
-- Names may use ${outputLanguage} conventions but must remain lowercase kebab-case
+- Names must use lowercase kebab-case and describe the dominant observed role: text-* for text, surface-* for
+  backgrounds, border-* for borders, action-* for actions, link-* for links (e.g., "surface-raised", "text-muted")
+- Omit tokens with "no observed usage" — a name guessed from hue alone is worse than keeping the palette-N name
 - Omit tokens whose current name is already clear
+- Names may use ${outputLanguage} conventions but must remain lowercase kebab-case
 - Return only the JSON object, without Markdown fences or commentary`
 }
 

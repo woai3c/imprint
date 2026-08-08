@@ -417,18 +417,16 @@ html[data-app-theme='cyberpunk'] {
     linear-gradient(145deg, #091419, #081116 58%, #071015);
   --art-backdrop-size: auto, auto, 32px 32px, 32px 32px, auto;
   --art-overlay: repeating-linear-gradient(180deg, transparent 0 3px, rgb(255 255 255 / 1.5%) 3px 4px);
-  --art-overlay-opacity: 0.48;
-  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
+  --art-overlay-opacity: 0.24;
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 94%, transparent);
   --art-sidebar-border: color-mix(in oklab, var(--color-accent) 28%, transparent);
   --art-sidebar-shadow: 14px 0 42px rgb(0 0 0 / 30%), inset -1px 0 rgb(78 201 210 / 7%);
-  --art-sidebar-filter: blur(18px);
   --art-nav-active-bg: linear-gradient(90deg, color-mix(in oklab, var(--color-primary) 18%, transparent), transparent);
   --art-nav-active-shadow:
     inset 2px 0 var(--color-primary), -6px 0 18px color-mix(in oklab, var(--color-primary) 18%, transparent);
   --art-nav-text-shadow: 0 0 12px color-mix(in oklab, var(--color-primary) 52%, transparent);
-  --art-topbar-bg: color-mix(in oklab, var(--color-background) 72%, transparent);
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 90%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-accent) 20%, transparent);
-  --art-topbar-filter: blur(15px);
   --art-content-bg: radial-gradient(circle at 72% 10%, rgb(214 169 70 / 3%), transparent 36%);
   --art-heading-shadow: 0 0 18px color-mix(in oklab, var(--color-primary) 14%, transparent);
   --art-card-bg: color-mix(in oklab, var(--color-card) 91%, transparent);
@@ -454,15 +452,13 @@ html[data-app-theme='nordic'] {
   --art-overlay: radial-gradient(rgb(55 70 75 / 7%) 0.5px, transparent 0.5px);
   --art-overlay-size: 5px 5px;
   --art-overlay-opacity: 0.15;
-  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 91%, transparent);
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 94%, transparent);
   --art-sidebar-border: color-mix(in oklab, var(--color-border) 64%, transparent);
   --art-sidebar-shadow: 12px 0 38px rgb(58 72 75 / 7%);
-  --art-sidebar-filter: blur(16px) saturate(0.85);
   --art-nav-active-bg: color-mix(in oklab, var(--color-card) 88%, transparent);
   --art-nav-active-shadow: 0 8px 20px rgb(65 78 78 / 7%), inset 0 0 0 1px rgb(255 255 255 / 45%);
-  --art-topbar-bg: color-mix(in oklab, var(--color-background) 46%, transparent);
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 88%, transparent);
   --art-topbar-border: color-mix(in oklab, var(--color-border) 50%, transparent);
-  --art-topbar-filter: blur(12px);
   --art-content-bg: linear-gradient(180deg, rgb(255 255 255 / 12%), rgb(255 255 255 / 30%));
   --art-card-bg: color-mix(in oklab, var(--color-card) 94%, transparent);
   --art-secondary-bg: color-mix(in oklab, var(--color-secondary) 88%, transparent);
@@ -480,9 +476,17 @@ html[data-app-theme='nordic'] .app-nav-link[aria-current='page'] {
 
 /* Aurora Glass — color remains in the content backdrop; glass is reserved for functional layers. */
 html[data-app-theme='glassmorphism'] {
+  /* The four-color aurora is the theme's identity. No live filter layer here:
+     saturate/contrast on a full-window surface re-rasterizes on every repaint. */
   --art-backdrop:
-    radial-gradient(ellipse at 18% 12%, rgb(116 95 255 / 28%), transparent 48%),
-    linear-gradient(145deg, #eef1ff, #e9f7f7 56%, #f5eef8);
+    radial-gradient(circle at 16% 16%, rgb(116 95 255 / 44%), transparent 26%),
+    radial-gradient(circle at 82% 18%, rgb(54 218 224 / 42%), transparent 25%),
+    radial-gradient(circle at 68% 82%, rgb(255 116 190 / 30%), transparent 27%),
+    radial-gradient(circle at 20% 82%, rgb(255 196 100 / 25%), transparent 24%),
+    linear-gradient(135deg, #eef0ff, #e9fbfa 54%, #f6eafa);
+  --art-overlay:
+    linear-gradient(135deg, rgb(255 255 255 / 13%), transparent 44%),
+    radial-gradient(circle at 50% 40%, rgb(255 255 255 / 30%), transparent 52%);
   --art-sidebar-bg: color-mix(in oklab, var(--color-card) 70%, transparent);
   --art-sidebar-border: rgb(255 255 255 / 55%);
   --art-sidebar-shadow: 12px 0 32px rgb(65 62 108 / 8%);
@@ -609,8 +613,10 @@ html[data-app-theme='blueprint'] {
 
 .theme-card-preview-glassmorphism {
   background:
-    radial-gradient(ellipse at 16% 20%, rgb(118 91 255 / 52%), transparent 44%),
-    linear-gradient(140deg, #ebefff, #e9f8f5 56%, #f7eef8);
+    radial-gradient(circle at 14% 22%, rgb(118 91 255 / 72%), transparent 32%),
+    radial-gradient(circle at 82% 25%, rgb(45 222 218 / 68%), transparent 30%),
+    radial-gradient(circle at 67% 88%, rgb(255 105 184 / 52%), transparent 34%),
+    linear-gradient(135deg, #ebefff, #effafa 54%, #f8eefa);
 }
 
 .theme-card-preview-glassmorphism::after {

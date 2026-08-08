@@ -532,7 +532,7 @@ export const builtinThemes: AppTheme[] = [
       secondary: 'oklch(20% 0.025 245)',
       'secondary-foreground': 'oklch(84% 0.022 210)',
       muted: 'oklch(17% 0.018 245)',
-      'muted-foreground': 'oklch(66% 0.028 215)',
+      'muted-foreground': 'oklch(72% 0.026 215)',
       accent: 'oklch(24% 0.035 215)',
       'accent-foreground': 'oklch(86% 0.02 210)',
       card: 'oklch(15% 0.022 247)',

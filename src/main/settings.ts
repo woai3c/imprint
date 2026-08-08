@@ -18,7 +18,7 @@ const defaults: AppSettings = {
   agentCli: '',
   exportFormat: 'markdown',
   proxyServer: '',
-  reasoningEffort: 'medium',
+  reasoningEffort: '',
   thinkingEnabled: false,
   language: '',
   colorMode: '',

@@ -72,7 +72,7 @@ export function SettingsPage() {
   const [detecting, setDetecting] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [reasoningEffort, setReasoningEffort] = useState('medium')
+  const [reasoningEffort, setReasoningEffort] = useState('')
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [proxyServer, setProxyServer] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -89,7 +89,7 @@ export function SettingsPage() {
       setModelSupportsVision(s.modelSupportsVision === true)
       setManagedVisionConsent(s.managedVisionConsent !== false)
       setSelectedCli(s.agentCli || '')
-      setReasoningEffort(s.reasoningEffort || 'medium')
+      setReasoningEffort(s.reasoningEffort || '')
       setThinkingEnabled(s.thinkingEnabled === true)
       setProxyServer(s.proxyServer || '')
       setLoaded(true)
@@ -512,7 +512,7 @@ export function SettingsPage() {
                         </label>
                         <select
                           id="ai-reasoning-effort"
-                          value={reasoningEffort}
+                          value={reasoningEffort || tiers[0]?.value || ''}
                           onChange={(e) => {
                             setReasoningEffort(e.target.value)
                             save({ reasoningEffort: e.target.value })

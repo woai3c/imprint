@@ -27,9 +27,17 @@ export function mimeTypeForPath(filePath: string): AiImageInput['mimeType'] {
 export interface AiResponse {
   text: string
   model: string
+  // Set when the first attempt returned no content (thinking models can exhaust the
+  // completion budget on reasoning tokens) and the request was retried with thinking off.
+  retriedWithoutThinking?: boolean
+  // Provider stop reason (e.g. 'stop', 'length'); 'length' means the answer was truncated.
+  finishReason?: string
   usage?: {
     input?: number
     output?: number
+    // Reasoning (thinking) tokens consumed before the visible answer; reported
+    // separately and excluded from `output` so usage stats reflect real content.
+    reasoning?: number
   }
 }
 
@@ -40,9 +48,17 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024
 
 function outputTokenLimit(config: AiProviderConfig, fallback: number): number {
+  // Thinking models charge reasoning tokens against the same completion budget, so the
+  // visible answer needs a reasoning reserve on top — otherwise a long reasoning phase
+  // truncates the actual JSON output (finish_reason=length).
+  const reasoningReserve = 16_384
+  const cap = config.thinkingEnabled ? 65_536 : 16_384
   const requested = config.maxOutputTokens
-  if (!requested || !Number.isFinite(requested)) return fallback
-  return Math.max(256, Math.min(16_384, Math.round(requested)))
+  if (!requested || !Number.isFinite(requested)) {
+    return Math.min(cap, config.thinkingEnabled ? fallback * 2 + reasoningReserve : fallback)
+  }
+  const visible = Math.max(256, Math.round(requested))
+  return Math.min(cap, config.thinkingEnabled ? visible + reasoningReserve : visible)
 }
 
 function validateRequestBudget(prompt: string, images: AiImageInput[]): void {
@@ -65,24 +81,85 @@ function imageLabel(image: AiImageInput): string {
 }
 
 function requestSignal(config: AiProviderConfig): AbortSignal {
-  const timeout = AbortSignal.timeout(300_000)
+  // Thinking models generate reasoning tokens before the visible answer and can take
+  // several minutes on large prompts, so they get a longer per-request budget.
+  const timeout = AbortSignal.timeout(config.thinkingEnabled ? 600_000 : 300_000)
   return config.signal ? AbortSignal.any([config.signal, timeout]) : timeout
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {
   const text = await response.text()
-  if (!response.ok) {
-    let detail = ''
-    try {
-      const body = JSON.parse(text) as { error?: { message?: string }; message?: string }
-      detail = body?.error?.message || body?.message || ''
-    } catch {
-      detail = text.slice(0, 200)
-    }
-    throw new Error(`HTTP ${response.status}${detail ? ': ' + detail : ''}`)
-  }
+  if (!response.ok) throw providerHttpError(response, text)
   if (text.length > MAX_RESPONSE_CHARS) throw new Error('AI provider response exceeded the size limit')
   return JSON.parse(text)
+}
+
+function providerHttpError(response: Response, text: string): Error {
+  let detail = ''
+  try {
+    const body = JSON.parse(text) as { error?: { message?: string }; message?: string }
+    detail = body?.error?.message || body?.message || ''
+  } catch {
+    detail = text.slice(0, 200)
+  }
+  return new Error(`HTTP ${response.status}${detail ? ': ' + detail : ''}`)
+}
+
+interface StreamedCompletion {
+  text: string
+  finishReason?: string
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    completion_tokens_details?: { reasoning_tokens?: number }
+  }
+}
+
+// Long generations (thinking + large JSON) can take several minutes. Gateway proxies in
+// front of providers kill connections that stay silent for ~5 minutes (HTTP 504), so for
+// known-slow providers we stream: tokens start flowing immediately and keep the
+// connection alive for the whole generation.
+function supportsStreaming(provider: string): boolean {
+  return provider === 'deepseek' || provider === 'moonshotai'
+}
+
+async function readOpenAiStream(response: Response): Promise<StreamedCompletion> {
+  const body = response.body
+  if (!body) throw new Error('AI provider response had no body')
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let text = ''
+  let finishReason: string | undefined
+  let usage: StreamedCompletion['usage']
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let newlineIndex = buffer.indexOf('\n')
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim()
+      buffer = buffer.slice(newlineIndex + 1)
+      newlineIndex = buffer.indexOf('\n')
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      try {
+        const chunk = JSON.parse(payload) as {
+          choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>
+          usage?: StreamedCompletion['usage']
+        }
+        const choice = chunk.choices?.[0]
+        if (choice?.delta?.content) text += choice.delta.content
+        if (choice?.finish_reason) finishReason = choice.finish_reason
+        if (chunk.usage) usage = chunk.usage
+      } catch {
+        // Ignore malformed keep-alive chunks.
+      }
+      if (text.length > MAX_RESPONSE_CHARS) throw new Error('AI provider response exceeded the size limit')
+    }
+  }
+  return { text, finishReason, usage }
 }
 
 async function callAnthropic(
@@ -120,11 +197,13 @@ async function callAnthropic(
   })
   const data = (await readJsonResponse(response)) as {
     content?: Array<{ type?: string; text?: string }>
+    stop_reason?: string
     usage?: { input_tokens?: number; output_tokens?: number }
   }
   return {
     text: data.content?.find((item) => item.type === 'text')?.text || '',
     model,
+    finishReason: data.stop_reason,
     usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
   }
 }
@@ -161,12 +240,13 @@ async function callGoogle(
     },
   )
   const data = (await readJsonResponse(response)) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
   }
   return {
     text: data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '',
     model,
+    finishReason: data.candidates?.[0]?.finishReason,
     usage: {
       input: data.usageMetadata?.promptTokenCount,
       output: data.usageMetadata?.candidatesTokenCount,
@@ -214,11 +294,16 @@ async function callOpenAiCompatible(
     } else if (isDeepseekV4) {
       body.thinking = { type: 'enabled' }
     }
+    if (config.reasoningEffort) {
+      body.reasoning_effort = config.reasoningEffort
+    }
   } else if (isDeepseekV4) {
     body.thinking = { type: 'disabled' }
   }
-  if (config.reasoningEffort) {
-    body.reasoning_effort = config.reasoningEffort
+  const useStream = supportsStreaming(config.provider)
+  if (useStream) {
+    body.stream = true
+    body.stream_options = { include_usage: true }
   }
   const doFetch = config.fetchFn || fetch
   const response = await doFetch(`${baseUrl}/chat/completions`, {
@@ -230,14 +315,40 @@ async function callOpenAiCompatible(
     body: JSON.stringify(body),
     signal: requestSignal(config),
   })
-  const data = (await readJsonResponse(response)) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
+  if (useStream && response.ok) {
+    const streamed = await readOpenAiStream(response)
+    const reasoning = streamed.usage?.completion_tokens_details?.reasoning_tokens || 0
+    const completion = streamed.usage?.completion_tokens
+    return {
+      text: streamed.text,
+      model,
+      finishReason: streamed.finishReason,
+      usage: {
+        input: streamed.usage?.prompt_tokens,
+        output: typeof completion === 'number' ? Math.max(0, completion - reasoning) : undefined,
+        ...(reasoning > 0 ? { reasoning } : {}),
+      },
+    }
   }
+  const data = (await readJsonResponse(response)) as {
+    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
+    usage?: {
+      prompt_tokens?: number
+      completion_tokens?: number
+      completion_tokens_details?: { reasoning_tokens?: number }
+    }
+  }
+  const reasoning = data.usage?.completion_tokens_details?.reasoning_tokens || 0
+  const completion = data.usage?.completion_tokens
   return {
     text: data.choices?.[0]?.message?.content || '',
     model,
-    usage: { input: data.usage?.prompt_tokens, output: data.usage?.completion_tokens },
+    finishReason: data.choices?.[0]?.finish_reason,
+    usage: {
+      input: data.usage?.prompt_tokens,
+      output: typeof completion === 'number' ? Math.max(0, completion - reasoning) : undefined,
+      ...(reasoning > 0 ? { reasoning } : {}),
+    },
   }
 }
 
@@ -261,12 +372,11 @@ function isRetryableProviderError(error: unknown): boolean {
   return /HTTP (?:429|5\d\d)|fetch failed|network|ECONNRESET|ETIMEDOUT/i.test(error.message)
 }
 
-export async function callAiProvider(
+async function callAiProviderWithHttpRetry(
   config: AiProviderConfig,
   prompt: string,
-  images: AiImageInput[] = [],
+  images: AiImageInput[],
 ): Promise<AiResponse> {
-  validateRequestBudget(prompt, images)
   try {
     return await callAiProviderOnce(config, prompt, images)
   } catch (error: unknown) {
@@ -274,4 +384,22 @@ export async function callAiProvider(
     await new Promise((resolve) => setTimeout(resolve, 250))
     return callAiProviderOnce(config, prompt, images)
   }
+}
+
+export async function callAiProvider(
+  config: AiProviderConfig,
+  prompt: string,
+  images: AiImageInput[] = [],
+): Promise<AiResponse> {
+  validateRequestBudget(prompt, images)
+  const response = await callAiProviderWithHttpRetry(config, prompt, images)
+  if (config.thinkingEnabled && (!response.text || response.finishReason === 'length')) {
+    // An empty answer or a length-truncated one with thinking on almost always means
+    // reasoning tokens consumed the completion budget. Degrade to a non-thinking call
+    // instead of failing the entire run and discarding the tokens already spent.
+    const fallback = await callAiProviderWithHttpRetry({ ...config, thinkingEnabled: false }, prompt, images)
+    fallback.retriedWithoutThinking = true
+    return fallback
+  }
+  return response
 }

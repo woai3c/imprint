@@ -125,6 +125,12 @@ export function getReasoningTiers(provider: string, modelId: string): ReasoningT
   return [...config.options]
 }
 
+// Reasoning defaults to the provider's lowest tier; users opt into deeper reasoning explicitly.
+export function getDefaultReasoningEffort(provider: string, modelId: string): string {
+  const tiers = getReasoningTiers(provider, modelId)
+  return tiers?.[0]?.value ?? ''
+}
+
 export function getCatalogModels(provider: string): CatalogModel[] {
   return MODEL_CATALOG[provider] ?? []
 }

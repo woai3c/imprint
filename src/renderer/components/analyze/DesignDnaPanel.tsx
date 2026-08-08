@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 
 import { useState } from 'react'
@@ -35,6 +36,26 @@ function EvidenceLink({ evidenceId, onOpen }: { evidenceId: string; onOpen?: (ev
       {onOpen && <ExternalLink size={9} className="shrink-0" />}
     </button>
   )
+}
+
+function countProfileClaims(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countProfileClaims(item), 0)
+  if (!value || typeof value !== 'object') return 0
+  const record = value as Record<string, unknown>
+  const isClaim = typeof record.statement === 'string' && Array.isArray(record.evidence)
+  return (isClaim ? 1 : 0) + Object.values(record).reduce<number>((sum, item) => sum + countProfileClaims(item), 0)
+}
+
+// Validator rejections are machine strings like `sectionGrammar.0.transitionToNext:mismatched-section-role`;
+// render them as "区块语法 · 引用的证据不属于该区块" so a single rejection reads as a detail, not a failure.
+function formatRejectedClaim(item: string, t: TFunction): string {
+  const separator = item.lastIndexOf(':')
+  if (separator <= 0) return item
+  const field = item.slice(0, separator).split('.')[0]
+  const reason = item.slice(separator + 1)
+  const fieldLabel = t(`analyze.designDna.rejectedField.${field}`, { defaultValue: field })
+  const reasonLabel = t(`analyze.designDna.rejectedReason.${reason}`, { defaultValue: reason })
+  return `${fieldLabel} · ${reasonLabel}`
 }
 
 function ClaimCard({
@@ -185,6 +206,7 @@ function StatusCard({
   onRetry,
   onCancel,
   managedEvidence,
+  claimsTotal,
 }: {
   meta?: DesignIntelligenceMeta
   running?: boolean
@@ -192,6 +214,7 @@ function StatusCard({
   onRetry?: () => void
   onCancel?: () => void
   managedEvidence?: boolean
+  claimsTotal?: number
 }) {
   const { t } = useTranslation()
   const status = running
@@ -232,9 +255,24 @@ function StatusCard({
           {failed && meta?.failureReason && (
             <p className="mt-1 break-all text-[10px] leading-4 text-destructive/80">{meta.failureReason}</p>
           )}
+          {successful && Boolean(claimsTotal) && (
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground/70">
+              {meta?.rejected?.length
+                ? t('analyze.designDna.claimsSummary', {
+                    total: (claimsTotal || 0) + meta.rejected.length,
+                    rejected: meta.rejected.length,
+                  })
+                : t('analyze.designDna.claimsSummaryComplete', { total: claimsTotal })}
+            </p>
+          )}
           {status === 'partial' && meta?.rejected && meta.rejected.length > 0 && (
             <p className="mt-1 text-[10px] leading-4 text-muted-foreground/70">
-              {t('analyze.designDna.incompleteFields')}: {meta.rejected.slice(0, 5).join(', ')}
+              {t('analyze.designDna.incompleteFields')}:{' '}
+              {meta.rejected
+                .slice(0, 3)
+                .map((item) => formatRejectedClaim(item, t))
+                .join('；')}
+              {meta.rejected.length > 3 ? ` +${meta.rejected.length - 3}` : ''}
             </p>
           )}
           {meta?.provider && (
@@ -411,6 +449,7 @@ export function DesignDnaPanel({
         onRetry={onRetry}
         onCancel={onCancel}
         managedEvidence={evidence?.source.accessMode === 'managed'}
+        claimsTotal={profile ? countProfileClaims(profile) : undefined}
       />
 
       {!intelligenceRunning && meta?.pendingChoice === 'model-no-vision' && meta.status === 'not-requested' && (

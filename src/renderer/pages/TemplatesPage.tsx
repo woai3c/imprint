@@ -88,169 +88,171 @@ export function TemplatesPage() {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <PageHeader title={t('templates.title')} description={t('templates.description')} />
+    <div className="h-full overflow-auto">
+      <div className="flex min-h-full flex-col">
+        <PageHeader title={t('templates.title')} description={t('templates.description')} />
 
-      <div className="px-8 pb-4 space-y-3">
-        <div data-testid="validation-theme-groups" className="space-y-2">
-          <ThemeOptionGroup
-            label={t('templates.builtinThemeLabel')}
-            description={t('templates.builtinThemeDescription')}
+        <div className="px-8 pb-4 space-y-3">
+          <div data-testid="validation-theme-groups" className="space-y-2">
+            <ThemeOptionGroup
+              label={t('templates.builtinThemeLabel')}
+              description={t('templates.builtinThemeDescription')}
+            >
+              {builtinThemes.map((theme) => {
+                const name = t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })
+                return (
+                  <ThemeOption
+                    key={theme.id}
+                    name={name}
+                    colors={getBuiltinThemeColors(theme)}
+                    selected={!selectedExtractedTheme && currentThemeId === theme.id}
+                    testId={`validation-theme-${theme.id}`}
+                    onSelect={() => handleApplyBuiltin(theme.id)}
+                  />
+                )
+              })}
+            </ThemeOptionGroup>
+
+            <ThemeOptionGroup
+              label={t('templates.extractedThemeLabel')}
+              description={t('templates.extractedThemeDescription')}
+            >
+              {themeError ? (
+                <span className="py-1 text-xs text-destructive">{t('themes.loadFailed')}</span>
+              ) : extractedThemes.length > 0 ? (
+                extractedThemes.map((theme) => (
+                  <ThemeOption
+                    key={theme.id}
+                    name={theme.name}
+                    colors={getExtractedThemeColors(theme)}
+                    selected={selectedExtractedThemeId === theme.id}
+                    testId={`validation-theme-extracted-${theme.id}`}
+                    onSelect={() => handleApplyExtracted(theme.id)}
+                  />
+                ))
+              ) : (
+                <span className="py-1 text-xs text-muted-foreground">{t('templates.noExtractedThemes')}</span>
+              )}
+            </ThemeOptionGroup>
+          </div>
+
+          {/* Row 2: Directly visible validation scenarios */}
+          <div
+            data-testid="validation-scenario-grid"
+            role="group"
+            aria-label={t('templates.scenarioLabel')}
+            className="grid grid-cols-3 gap-2.5"
           >
-            {builtinThemes.map((theme) => {
-              const name = t(`themes.presets.${theme.id}.name`, { defaultValue: theme.name })
+            {scenarioGroups.map((group) => {
+              const groupTemplates = templates.filter((template) => template.group === group)
               return (
-                <ThemeOption
-                  key={theme.id}
-                  name={name}
-                  colors={getBuiltinThemeColors(theme)}
-                  selected={!selectedExtractedTheme && currentThemeId === theme.id}
-                  testId={`validation-theme-${theme.id}`}
-                  onSelect={() => handleApplyBuiltin(theme.id)}
-                />
+                <section key={group} className="rounded-xl border border-border/60 bg-card/50 p-2.5">
+                  <div className="mb-2 flex items-center justify-between px-1">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t(`templates.groups.${group}`)}
+                    </h3>
+                    <span className="rounded-full bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
+                      {groupTemplates.length}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {groupTemplates.map((template) => {
+                      const active = activeTemplate === template.id
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          data-testid={`validation-scenario-${template.id}`}
+                          onClick={() => selectTemplate(template.id)}
+                          aria-pressed={active}
+                          className={`flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-all ${
+                            active
+                              ? 'border-primary/40 bg-primary text-primary-foreground shadow-sm'
+                              : 'border-transparent bg-secondary/50 text-secondary-foreground hover:border-border hover:bg-accent'
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              active ? 'bg-primary-foreground' : 'bg-muted-foreground/45'
+                            }`}
+                          />
+                          <span className="truncate">{template.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
               )
             })}
-          </ThemeOptionGroup>
-
-          <ThemeOptionGroup
-            label={t('templates.extractedThemeLabel')}
-            description={t('templates.extractedThemeDescription')}
-          >
-            {themeError ? (
-              <span className="py-1 text-xs text-destructive">{t('themes.loadFailed')}</span>
-            ) : extractedThemes.length > 0 ? (
-              extractedThemes.map((theme) => (
-                <ThemeOption
-                  key={theme.id}
-                  name={theme.name}
-                  colors={getExtractedThemeColors(theme)}
-                  selected={selectedExtractedThemeId === theme.id}
-                  testId={`validation-theme-extracted-${theme.id}`}
-                  onSelect={() => handleApplyExtracted(theme.id)}
-                />
-              ))
-            ) : (
-              <span className="py-1 text-xs text-muted-foreground">{t('templates.noExtractedThemes')}</span>
-            )}
-          </ThemeOptionGroup>
-        </div>
-
-        {/* Row 2: Directly visible validation scenarios */}
-        <div
-          data-testid="validation-scenario-grid"
-          role="group"
-          aria-label={t('templates.scenarioLabel')}
-          className="grid grid-cols-3 gap-2.5"
-        >
-          {scenarioGroups.map((group) => {
-            const groupTemplates = templates.filter((template) => template.group === group)
-            return (
-              <section key={group} className="rounded-xl border border-border/60 bg-card/50 p-2.5">
-                <div className="mb-2 flex items-center justify-between px-1">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t(`templates.groups.${group}`)}
-                  </h3>
-                  <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {groupTemplates.length}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {groupTemplates.map((template) => {
-                    const active = activeTemplate === template.id
-                    return (
-                      <button
-                        key={template.id}
-                        type="button"
-                        data-testid={`validation-scenario-${template.id}`}
-                        onClick={() => selectTemplate(template.id)}
-                        aria-pressed={active}
-                        className={`flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-all ${
-                          active
-                            ? 'border-primary/40 bg-primary text-primary-foreground shadow-sm'
-                            : 'border-transparent bg-secondary/50 text-secondary-foreground hover:border-border hover:bg-accent'
-                        }`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                            active ? 'bg-primary-foreground' : 'bg-muted-foreground/45'
-                          }`}
-                        />
-                        <span className="truncate">{template.name}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
-        </div>
-      </div>
-
-      {selectedExtractedTheme && extractedPreview && (
-        <div
-          data-testid="extracted-theme-preview-info"
-          className="mx-8 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-secondary/45 px-3 py-2 text-xs text-muted-foreground"
-        >
-          <span>
-            {t('templates.extractedPreviewSummary', {
-              theme: selectedExtractedTheme.name,
-              observed: extractedPreview.observedRoleCount,
-              adapted: extractedPreview.adaptedRoleCount,
-            })}
-          </span>
-          <div className="flex items-center gap-2">
-            {extractedPreview.hasDarkMode && selectedExtractedTheme.dark_mode_method && (
-              <span className="text-[10px] text-muted-foreground">
-                {t(
-                  `templates.extractedDarkSource.${
-                    selectedExtractedTheme.dark_mode_method === 'class-toggle' ? 'toggle' : 'media'
-                  }`,
-                  { selector: selectedExtractedTheme.dark_mode_selector || '.dark' },
-                )}
-              </span>
-            )}
-            {extractedPreview.hasDarkMode && (
-              <div
-                role="group"
-                aria-label={t('templates.extractedColorModeLabel')}
-                className="flex rounded-md border border-border bg-background p-0.5"
-              >
-                {(['base', 'dark'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={extractedPreview.colorMode === mode}
-                    onClick={() => setExtractedColorMode(mode)}
-                    className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
-                      extractedPreview.colorMode === mode
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                    }`}
-                  >
-                    {t(`templates.extractedColorModes.${mode}`)}
-                  </button>
-                ))}
-              </div>
-            )}
-            {extractedPreview.contrastIssueCount > 0 && (
-              <span className="font-medium text-warning-strong">
-                {t('templates.extractedContrastWarning', { count: extractedPreview.contrastIssueCount })}
-              </span>
-            )}
           </div>
         </div>
-      )}
 
-      <div
-        key={activeTemplate}
-        data-theme-preview={selectedExtractedTheme ? 'extracted' : 'builtin'}
-        data-theme-color-mode={extractedPreview?.colorMode}
-        style={extractedPreview?.style}
-        className="ui-enter mx-8 mb-8 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
-      >
-        <ThemeCalibrationStrip />
-        <ActiveComponent />
+        {selectedExtractedTheme && extractedPreview && (
+          <div
+            data-testid="extracted-theme-preview-info"
+            className="mx-8 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-secondary/45 px-3 py-2 text-xs text-muted-foreground"
+          >
+            <span>
+              {t('templates.extractedPreviewSummary', {
+                theme: selectedExtractedTheme.name,
+                observed: extractedPreview.observedRoleCount,
+                adapted: extractedPreview.adaptedRoleCount,
+              })}
+            </span>
+            <div className="flex items-center gap-2">
+              {extractedPreview.hasDarkMode && selectedExtractedTheme.dark_mode_method && (
+                <span className="text-xs text-muted-foreground">
+                  {t(
+                    `templates.extractedDarkSource.${
+                      selectedExtractedTheme.dark_mode_method === 'class-toggle' ? 'toggle' : 'media'
+                    }`,
+                    { selector: selectedExtractedTheme.dark_mode_selector || '.dark' },
+                  )}
+                </span>
+              )}
+              {extractedPreview.hasDarkMode && (
+                <div
+                  role="group"
+                  aria-label={t('templates.extractedColorModeLabel')}
+                  className="flex rounded-md border border-border bg-background p-0.5"
+                >
+                  {(['base', 'dark'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={extractedPreview.colorMode === mode}
+                      onClick={() => setExtractedColorMode(mode)}
+                      className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+                        extractedPreview.colorMode === mode
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                      }`}
+                    >
+                      {t(`templates.extractedColorModes.${mode}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {extractedPreview.contrastIssueCount > 0 && (
+                <span className="font-medium text-warning-strong">
+                  {t('templates.extractedContrastWarning', { count: extractedPreview.contrastIssueCount })}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div
+          key={activeTemplate}
+          data-theme-preview={selectedExtractedTheme ? 'extracted' : 'builtin'}
+          data-theme-color-mode={extractedPreview?.colorMode}
+          style={extractedPreview?.style}
+          className="ui-enter mx-8 mb-8 min-h-120 flex-1 overflow-auto rounded-xl border border-border shadow-sm"
+        >
+          <ThemeCalibrationStrip />
+          <ActiveComponent />
+        </div>
       </div>
     </div>
   )
@@ -296,8 +298,8 @@ function ThemeOptionGroup({
   return (
     <section className="flex min-h-12 items-start gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2.5">
       <div className="w-40 shrink-0 pt-0.5">
-        <h2 className="text-xs font-semibold text-foreground">{label}</h2>
-        <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">{description}</p>
+        <h2 className="text-sm font-semibold text-foreground">{label}</h2>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" role="group" aria-label={label}>
         {children}

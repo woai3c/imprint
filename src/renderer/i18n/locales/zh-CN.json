@@ -966,6 +966,10 @@
     "ai": {
       "title": "AI 引擎配置",
       "description": "设计风格的语义化分析需要 AI 支持。请选择印记连接 AI 的方式：",
+      "enabled": "启用 AI 增强",
+      "enabledHint": "关闭后，印记只执行本地提取，不会调用任何 AI；下方两种连接方式的配置都会保留。",
+      "disabled": "AI 增强已停用",
+      "disabledHint": "停用期间不会向任何 AI 发送数据；可在上方开关随时重新启用。",
       "currentEngine": "当前生效",
       "notConfigured": "尚未启用 AI 增强",
       "activeApiKey": "API Key · {{provider}}",

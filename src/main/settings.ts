@@ -6,6 +6,7 @@ import { app } from 'electron'
 import { type AppSettings, THEME_EXPORT_FORMATS } from '../shared/ipc-contract.js'
 
 const defaults: AppSettings = {
+  aiEnabled: true,
   aiMode: 'apiKey',
   provider: '',
   apiKey: '',
@@ -42,6 +43,7 @@ function readFromDisk(): AppSettings {
     return {
       ...defaults,
       ...saved,
+      aiEnabled: saved.aiEnabled !== false,
       modelSupportsVision: saved.modelSupportsVision === true,
       visionAnalysisConsent: true,
       managedVisionConsent: saved.managedVisionConsent !== false,
@@ -70,6 +72,7 @@ export function saveSettings(update: Partial<AppSettings>): AppSettings {
   const current = readFromDisk()
   const merged = { ...current, ...update }
   if (!isExportFormat(merged.exportFormat)) merged.exportFormat = defaults.exportFormat
+  merged.aiEnabled = merged.aiEnabled !== false
   merged.modelSupportsVision = merged.modelSupportsVision === true
   merged.visionAnalysisConsent = true
   merged.managedVisionConsent = merged.managedVisionConsent !== false

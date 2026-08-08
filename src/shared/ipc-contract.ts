@@ -24,6 +24,7 @@ export type {
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
 export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
 export interface AppSettings {
+  aiEnabled: boolean
   aiMode: 'apiKey' | 'agentCli'
   provider: string
   apiKey: string

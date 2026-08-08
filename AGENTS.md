@@ -68,6 +68,9 @@ Extraction and export changes belong in `src/core`; do not create a second deskt
 - Relative imports in `.ts` files use `.js` extensions (e.g. `from './database.js'`) — required for the compiled CLI output.
 - ESLint: unused imports are errors; intentionally unused vars/args must be prefixed with `_`.
 - Renderer UI strings go through i18next — add keys to BOTH `src/renderer/i18n/locales/en.json` and `zh-CN.json`.
+- Renderer font sizes must resolve to even pixel values (12px, 14px, 16px …): use the `text-xs/sm/base` scale or even
+  `text-[Npx]` — never odd px (`text-[11px]`) or fractional rem that lands on odd pixels (`0.9375rem` = 15px). Odd
+  sizes render CJK text blurry on Windows. This also applies to theme typography tokens in `skin-store.ts`.
 - Export actions must name the artifact they create. Recommend `DESIGN.md` + the current screenshot/source for AI UI
   revisions; CSS/Tailwind are implementation outputs, and Tokens JSON is structured tool input. The saved export-format
   preference applies only to Theme Library cards.

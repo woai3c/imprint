@@ -19,13 +19,13 @@ export function ThemeCalibrationStrip() {
   return (
     <div
       data-testid="theme-calibration-strip"
-      className="sticky top-0 z-10 border-b border-border bg-card/95 px-5 py-3 backdrop-blur"
+      className="sticky top-2 z-10 mx-2 mt-2 mb-3 rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-sm backdrop-blur"
     >
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t('templates.calibration.label')}
         </p>
-        <p className="text-[10px] text-muted-foreground">{t('templates.calibration.note')}</p>
+        <p className="text-xs text-muted-foreground">{t('templates.calibration.note')}</p>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button

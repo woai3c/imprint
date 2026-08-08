@@ -60,6 +60,7 @@ async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]>
 export function SettingsPage() {
   const { t } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
+  const [aiEnabled, setAiEnabled] = useState(true)
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -81,6 +82,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s) => {
+      setAiEnabled(s.aiEnabled !== false)
       setAiMode(s.aiMode || 'apiKey')
       setProvider(s.provider || '')
       setApiKey(s.apiKey || '')
@@ -252,16 +254,20 @@ export function SettingsPage() {
   const selectedAgentCli = agentClis.find((item) => item.command === selectedCli)
   const hasApiKeyConfiguration = Boolean(provider && apiKey)
   const hasAgentCliConfiguration = Boolean(selectedCli && (agentClis.length === 0 || selectedAgentCli?.available))
-  const hasActiveAiConfiguration = aiMode === 'apiKey' ? hasApiKeyConfiguration : hasAgentCliConfiguration
-  const activeEngineLabel =
-    aiMode === 'apiKey' && hasApiKeyConfiguration
+  const hasActiveAiConfiguration =
+    aiEnabled && (aiMode === 'apiKey' ? hasApiKeyConfiguration : hasAgentCliConfiguration)
+  const activeEngineLabel = !aiEnabled
+    ? t('settings.ai.disabled')
+    : aiMode === 'apiKey' && hasApiKeyConfiguration
       ? t('settings.ai.activeApiKey', { provider: selectedProvider?.name || provider })
       : aiMode === 'agentCli' && hasAgentCliConfiguration
         ? t('settings.ai.activeAgentCli', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
         : t('settings.ai.notConfigured')
-  const activeEngineHint = hasActiveAiConfiguration
-    ? t('settings.ai.activeHint')
-    : t(aiMode === 'apiKey' ? 'settings.ai.apiKeyIncomplete' : 'settings.ai.agentCliIncomplete')
+  const activeEngineHint = !aiEnabled
+    ? t('settings.ai.disabledHint')
+    : hasActiveAiConfiguration
+      ? t('settings.ai.activeHint')
+      : t(aiMode === 'apiKey' ? 'settings.ai.apiKeyIncomplete' : 'settings.ai.agentCliIncomplete')
   const apiKeySummary = hasApiKeyConfiguration
     ? t('settings.ai.apiKeyConfigured', { provider: selectedProvider?.name || provider })
     : t('settings.ai.apiKeyNotConfigured')
@@ -288,6 +294,23 @@ export function SettingsPage() {
         <section>
           <h3 className="text-lg font-semibold mb-2">{t('settings.ai.title')}</h3>
           <p className="text-sm text-muted-foreground mb-4">{t('settings.ai.description')}</p>
+
+          <label className="mb-5 flex items-start gap-3 rounded-lg border border-border bg-card p-4">
+            <input
+              data-testid="ai-enabled"
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={(event) => {
+                setAiEnabled(event.target.checked)
+                save({ aiEnabled: event.target.checked })
+              }}
+              className="mt-0.5 size-4 accent-primary"
+            />
+            <span>
+              <span className="block text-sm font-medium">{t('settings.ai.enabled')}</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('settings.ai.enabledHint')}</span>
+            </span>
+          </label>
 
           <div
             data-testid="ai-engine-status"
@@ -316,257 +339,321 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <fieldset className="mb-6">
-            <legend className="mb-2 text-sm font-medium">{t('settings.ai.methodLabel')}</legend>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <button
-                data-testid="ai-mode-api-key"
-                type="button"
-                onClick={() => handleAiModeChange('apiKey')}
-                aria-pressed={aiMode === 'apiKey'}
-                className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  aiMode === 'apiKey'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
-                }`}
-              >
-                <span
-                  className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
-                    aiMode === 'apiKey' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+          <div
+            aria-disabled={!aiEnabled}
+            className={aiEnabled ? undefined : 'pointer-events-none select-none opacity-55'}
+          >
+            <fieldset className="mb-6">
+              <legend className="mb-2 text-sm font-medium">{t('settings.ai.methodLabel')}</legend>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  data-testid="ai-mode-api-key"
+                  type="button"
+                  onClick={() => handleAiModeChange('apiKey')}
+                  aria-pressed={aiMode === 'apiKey'}
+                  className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    aiMode === 'apiKey'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
                   }`}
                 >
-                  <KeyRound size={17} aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{t('settings.ai.useApiKey')}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{apiKeySummary}</span>
-                </span>
-                {aiMode === 'apiKey' && <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />}
-              </button>
-
-              <button
-                data-testid="ai-mode-agent-cli"
-                type="button"
-                onClick={() => handleAiModeChange('agentCli')}
-                aria-pressed={aiMode === 'agentCli'}
-                className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  aiMode === 'agentCli'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
-                }`}
-              >
-                <span
-                  className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
-                    aiMode === 'agentCli' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  <Terminal size={17} aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{t('settings.ai.useAgentCli')}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{agentCliSummary}</span>
-                </span>
-                {aiMode === 'agentCli' && (
-                  <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
-                )}
-              </button>
-            </div>
-          </fieldset>
-
-          {aiMode === 'apiKey' ? (
-            <div className="space-y-4 p-4 rounded-lg border border-border">
-              <div>
-                <label htmlFor="ai-provider" className="text-sm font-medium block mb-1.5">
-                  {t('settings.ai.provider')}
-                </label>
-                <select
-                  id="ai-provider"
-                  value={provider}
-                  onChange={(e) => handleProviderChange(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                             focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">{t('settings.ai.selectProvider')}</option>
-                  {PROVIDERS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {provider && (
-                <>
-                  <div>
-                    <label htmlFor="ai-api-key" className="text-sm font-medium block mb-1.5">
-                      {t('settings.ai.apiKey')}
-                      <span className="text-muted-foreground font-normal ml-2">
-                        ({PROVIDERS.find((p) => p.id === provider)?.envVar})
-                      </span>
-                    </label>
-                    <input
-                      id="ai-api-key"
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => handleApiKeyChange(e.target.value)}
-                      placeholder="sk-..."
-                      className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="ai-model" className="text-sm font-medium block mb-1.5">
-                      {t('settings.ai.model')}
-                    </label>
-                    {provider === 'custom' ? (
-                      <>
-                        <input
-                          id="ai-model"
-                          type="text"
-                          value={model}
-                          onChange={(e) => handleModelChange(e.target.value)}
-                          placeholder={t('settings.ai.modelPlaceholder')}
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.modelHint')}</p>
-                      </>
-                    ) : (
-                      <>
-                        <select
-                          id="ai-model"
-                          value={effectiveModel}
-                          onChange={(e) => handleModelChange(e.target.value)}
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          {getCatalogModels(provider).map((entry) => (
-                            <option key={entry.id} value={entry.id}>
-                              {entry.label}
-                            </option>
-                          ))}
-                          {effectiveModel && !selectedCatalogModel && (
-                            <option value={effectiveModel}>
-                              {t('settings.ai.modelLegacy', { model: effectiveModel })}
-                            </option>
-                          )}
-                        </select>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {selectedCatalogModel
-                            ? `${t('settings.ai.modelPrice', { price: selectedCatalogModel.price })} · ${
-                                selectedCatalogModel.vision
-                                  ? t('settings.ai.modelVisionYes')
-                                  : t('settings.ai.modelVisionNo')
-                              }`
-                            : t('settings.ai.modelCatalogHint')}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  {BASE_URL_OPTIONS[provider] && (
-                    <div>
-                      <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
-                        {t('settings.ai.baseUrl')}
-                      </label>
-                      <select
-                        id="ai-base-url"
-                        value={customBaseUrl || getDefaultBaseUrl(provider)}
-                        onChange={(e) =>
-                          handleBaseUrlChange(e.target.value === getDefaultBaseUrl(provider) ? '' : e.target.value)
-                        }
-                        className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                   focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        {BASE_URL_OPTIONS[provider].map((opt) => (
-                          <option key={opt.url} value={opt.url}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
+                      aiMode === 'apiKey' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                    }`}
+                  >
+                    <KeyRound size={17} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{t('settings.ai.useApiKey')}</span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{apiKeySummary}</span>
+                  </span>
+                  {aiMode === 'apiKey' && (
+                    <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
                   )}
-                  {provider === 'custom' && (
+                </button>
+
+                <button
+                  data-testid="ai-mode-agent-cli"
+                  type="button"
+                  onClick={() => handleAiModeChange('agentCli')}
+                  aria-pressed={aiMode === 'agentCli'}
+                  className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    aiMode === 'agentCli'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
+                  }`}
+                >
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
+                      aiMode === 'agentCli'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-muted-foreground'
+                    }`}
+                  >
+                    <Terminal size={17} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{t('settings.ai.useAgentCli')}</span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{agentCliSummary}</span>
+                  </span>
+                  {aiMode === 'agentCli' && (
+                    <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+            </fieldset>
+
+            {aiMode === 'apiKey' ? (
+              <div className="space-y-4 p-4 rounded-lg border border-border">
+                <div>
+                  <label htmlFor="ai-provider" className="text-sm font-medium block mb-1.5">
+                    {t('settings.ai.provider')}
+                  </label>
+                  <select
+                    id="ai-provider"
+                    value={provider}
+                    onChange={(e) => handleProviderChange(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                             focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">{t('settings.ai.selectProvider')}</option>
+                    {PROVIDERS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {provider && (
+                  <>
                     <div>
-                      <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
-                        {t('settings.ai.baseUrl')}
-                        <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
+                      <label htmlFor="ai-api-key" className="text-sm font-medium block mb-1.5">
+                        {t('settings.ai.apiKey')}
+                        <span className="text-muted-foreground font-normal ml-2">
+                          ({PROVIDERS.find((p) => p.id === provider)?.envVar})
+                        </span>
                       </label>
                       <input
-                        id="ai-base-url"
-                        type="text"
-                        value={customBaseUrl}
-                        onChange={(e) => handleBaseUrlChange(e.target.value)}
-                        placeholder="https://api.example.com/v1"
+                        id="ai-api-key"
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => handleApiKeyChange(e.target.value)}
+                        placeholder="sk-..."
                         className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                   placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
-                  )}
-                  {(() => {
-                    const tiers = getReasoningTiers(provider, effectiveModel)
-                    if (!tiers) return null
-                    return (
+                    <div>
+                      <label htmlFor="ai-model" className="text-sm font-medium block mb-1.5">
+                        {t('settings.ai.model')}
+                      </label>
+                      {provider === 'custom' ? (
+                        <>
+                          <input
+                            id="ai-model"
+                            type="text"
+                            value={model}
+                            onChange={(e) => handleModelChange(e.target.value)}
+                            placeholder={t('settings.ai.modelPlaceholder')}
+                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.modelHint')}</p>
+                        </>
+                      ) : (
+                        <>
+                          <select
+                            id="ai-model"
+                            value={effectiveModel}
+                            onChange={(e) => handleModelChange(e.target.value)}
+                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            {getCatalogModels(provider).map((entry) => (
+                              <option key={entry.id} value={entry.id}>
+                                {entry.label}
+                              </option>
+                            ))}
+                            {effectiveModel && !selectedCatalogModel && (
+                              <option value={effectiveModel}>
+                                {t('settings.ai.modelLegacy', { model: effectiveModel })}
+                              </option>
+                            )}
+                          </select>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {selectedCatalogModel
+                              ? `${t('settings.ai.modelPrice', { price: selectedCatalogModel.price })} · ${
+                                  selectedCatalogModel.vision
+                                    ? t('settings.ai.modelVisionYes')
+                                    : t('settings.ai.modelVisionNo')
+                                }`
+                              : t('settings.ai.modelCatalogHint')}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    {BASE_URL_OPTIONS[provider] && (
                       <div>
-                        <label htmlFor="ai-reasoning-effort" className="text-sm font-medium block mb-1.5">
-                          {t('settings.ai.reasoningEffort')}
+                        <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
+                          {t('settings.ai.baseUrl')}
                         </label>
                         <select
-                          id="ai-reasoning-effort"
-                          value={reasoningEffort || tiers[0]?.value || ''}
-                          onChange={(e) => {
-                            setReasoningEffort(e.target.value)
-                            save({ reasoningEffort: e.target.value })
-                          }}
+                          id="ai-base-url"
+                          value={customBaseUrl || getDefaultBaseUrl(provider)}
+                          onChange={(e) =>
+                            handleBaseUrlChange(e.target.value === getDefaultBaseUrl(provider) ? '' : e.target.value)
+                          }
                           className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-ring"
+                                   focus:outline-none focus:ring-2 focus:ring-ring"
                         >
-                          {tiers.map((tier) => (
-                            <option key={tier.value} value={tier.value}>
-                              {tier.label} — {tier.description}
+                          {BASE_URL_OPTIONS[provider].map((opt) => (
+                            <option key={opt.url} value={opt.url}>
+                              {opt.label}
                             </option>
                           ))}
                         </select>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {t('settings.ai.reasoningEffortHint')}
-                        </p>
                       </div>
-                    )
-                  })()}
-                  {supportsThinkingToggle(provider, effectiveModel) && (
-                    <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                    )}
+                    {provider === 'custom' && (
+                      <div>
+                        <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
+                          {t('settings.ai.baseUrl')}
+                          <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
+                        </label>
+                        <input
+                          id="ai-base-url"
+                          type="text"
+                          value={customBaseUrl}
+                          onChange={(e) => handleBaseUrlChange(e.target.value)}
+                          placeholder="https://api.example.com/v1"
+                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                   placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </div>
+                    )}
+                    {(() => {
+                      const tiers = getReasoningTiers(provider, effectiveModel)
+                      if (!tiers) return null
+                      return (
+                        <div>
+                          <label htmlFor="ai-reasoning-effort" className="text-sm font-medium block mb-1.5">
+                            {t('settings.ai.reasoningEffort')}
+                          </label>
+                          <select
+                            id="ai-reasoning-effort"
+                            value={reasoningEffort || tiers[0]?.value || ''}
+                            onChange={(e) => {
+                              setReasoningEffort(e.target.value)
+                              save({ reasoningEffort: e.target.value })
+                            }}
+                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
+                                     focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            {tiers.map((tier) => (
+                              <option key={tier.value} value={tier.value}>
+                                {tier.label} — {tier.description}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {t('settings.ai.reasoningEffortHint')}
+                          </p>
+                        </div>
+                      )
+                    })()}
+                    {supportsThinkingToggle(provider, effectiveModel) && (
+                      <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                        <input
+                          type="checkbox"
+                          checked={thinkingEnabled}
+                          onChange={(event) => {
+                            setThinkingEnabled(event.target.checked)
+                            save({ thinkingEnabled: event.target.checked })
+                          }}
+                          className="mt-0.5 size-4 accent-primary"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium">{t('settings.ai.thinkingEnabled')}</span>
+                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                            {t('settings.ai.thinkingEnabledHint')}
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                    {provider === 'custom' && (
+                      <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
+                        <input
+                          type="checkbox"
+                          checked={modelSupportsVision}
+                          onChange={(event) => handleModelSupportsVisionChange(event.target.checked)}
+                          className="mt-0.5 size-4 accent-primary"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium">{t('settings.ai.customVision')}</span>
+                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                            {t('settings.ai.customVisionHint')}
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                    <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
                       <input
+                        data-testid="managed-vision-consent"
                         type="checkbox"
-                        checked={thinkingEnabled}
-                        onChange={(event) => {
-                          setThinkingEnabled(event.target.checked)
-                          save({ thinkingEnabled: event.target.checked })
-                        }}
+                        checked={managedVisionConsent}
+                        onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
                         className="mt-0.5 size-4 accent-primary"
                       />
                       <span>
-                        <span className="block text-sm font-medium">{t('settings.ai.thinkingEnabled')}</span>
+                        <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
                         <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                          {t('settings.ai.thinkingEnabledHint')}
+                          {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
                         </span>
                       </span>
                     </label>
-                  )}
-                  {provider === 'custom' && (
-                    <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
-                      <input
-                        type="checkbox"
-                        checked={modelSupportsVision}
-                        onChange={(event) => handleModelSupportsVisionChange(event.target.checked)}
-                        className="mt-0.5 size-4 accent-primary"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium">{t('settings.ai.customVision')}</span>
-                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                          {t('settings.ai.customVisionHint')}
+                  </>
+                )}
+
+                {provider && apiKey && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleTestConnection}
+                      disabled={testing}
+                      className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
+                               hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      {testing ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 size={14} className="animate-spin" />
+                          {t('settings.ai.testing')}
                         </span>
-                      </span>
-                    </label>
-                  )}
+                      ) : (
+                        t('settings.ai.testConnection')
+                      )}
+                    </button>
+                    {testResult && (
+                      <p
+                        className={`text-xs flex items-start gap-1.5 leading-5 ${testResult.success ? 'text-success' : 'text-destructive'}`}
+                      >
+                        {testResult.success ? (
+                          <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+                        ) : (
+                          <XCircle size={14} className="mt-0.5 shrink-0" />
+                        )}
+                        <span className="break-all">{testResult.message}</span>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 rounded-lg border border-border">
+                <p className="mb-4 rounded-lg bg-secondary/45 p-3 text-xs leading-5 text-muted-foreground">
+                  {t('settings.ai.agentCliStructuralHint')}
+                </p>
+                <div className="mb-4 space-y-2">
                   <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
                     <input
                       data-testid="managed-vision-consent"
@@ -578,151 +665,96 @@ export function SettingsPage() {
                     <span>
                       <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
                       <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
+                        {t('settings.ai.managedVisionConsentHint', {
+                          provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
+                        })}
                       </span>
                     </span>
                   </label>
-                </>
-              )}
-
-              {provider && apiKey && (
-                <div className="space-y-2">
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={testing}
-                    className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
-                               hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    {testing ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 size={14} className="animate-spin" />
-                        {t('settings.ai.testing')}
-                      </span>
-                    ) : (
-                      t('settings.ai.testConnection')
+                </div>
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.detectHint')}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {selectedCli && (
+                      <button
+                        data-testid="agent-cli-clear"
+                        type="button"
+                        onClick={() => handleCliSelect(selectedCli)}
+                        className="h-8 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {t('settings.ai.clearCli')}
+                      </button>
                     )}
-                  </button>
-                  {testResult && (
-                    <p
-                      className={`text-xs flex items-start gap-1.5 leading-5 ${testResult.success ? 'text-success' : 'text-destructive'}`}
-                    >
-                      {testResult.success ? (
-                        <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-                      ) : (
-                        <XCircle size={14} className="mt-0.5 shrink-0" />
-                      )}
-                      <span className="break-all">{testResult.message}</span>
-                    </p>
-                  )}
+                    <IconButton
+                      icon={RefreshCw}
+                      label={t('settings.ai.redetect')}
+                      onClick={() => handleDetectClis(true)}
+                      disabled={detecting}
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="p-4 rounded-lg border border-border">
-              <p className="mb-4 rounded-lg bg-secondary/45 p-3 text-xs leading-5 text-muted-foreground">
-                {t('settings.ai.agentCliStructuralHint')}
-              </p>
-              <div className="mb-4 space-y-2">
-                <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
-                  <input
-                    data-testid="managed-vision-consent"
-                    type="checkbox"
-                    checked={managedVisionConsent}
-                    onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
-                    className="mt-0.5 size-4 accent-primary"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
-                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                      {t('settings.ai.managedVisionConsentHint', {
-                        provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
-                      })}
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.detectHint')}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {selectedCli && (
-                    <button
-                      data-testid="agent-cli-clear"
-                      type="button"
-                      onClick={() => handleCliSelect(selectedCli)}
-                      className="h-8 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {t('settings.ai.clearCli')}
-                    </button>
-                  )}
-                  <IconButton
-                    icon={RefreshCw}
-                    label={t('settings.ai.redetect')}
-                    onClick={() => handleDetectClis(true)}
-                    disabled={detecting}
-                  />
-                </div>
-              </div>
 
-              {detecting && (
-                <div
-                  data-testid="agent-cli-detecting"
-                  className="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
-                  role="status"
-                >
-                  <Loader2 size={16} className="animate-spin" />
-                  {t('settings.ai.detecting')}
-                </div>
-              )}
-
-              <div data-testid="agent-cli-list" className="space-y-2">
-                {agentClis.map((cli) => (
-                  <button
-                    key={cli.command}
-                    data-testid={`agent-cli-option-${cli.command}`}
-                    type="button"
-                    aria-pressed={selectedCli === cli.command}
-                    aria-label={t(selectedCli === cli.command ? 'settings.ai.deselectCli' : 'settings.ai.selectCli', {
-                      name: cli.name,
-                    })}
-                    onClick={() => handleCliSelect(cli.command)}
-                    disabled={!cli.available}
-                    className={`flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                      selectedCli === cli.command
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-muted-foreground/30'
-                    } ${!cli.available ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                {detecting && (
+                  <div
+                    data-testid="agent-cli-detecting"
+                    className="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
+                    role="status"
                   >
-                    <span
-                      className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
-                        selectedCli === cli.command ? 'border-primary' : 'border-muted-foreground/50'
-                      }`}
-                      aria-hidden="true"
-                    >
-                      {selectedCli === cli.command && <span className="size-2 rounded-full bg-primary" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{cli.name}</span>
-                        <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
-                      </div>
-                      {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
-                    </div>
-                    {cli.available ? (
-                      <CheckCircle2 size={14} className="text-success" />
-                    ) : (
-                      <XCircle size={14} className="text-muted-foreground" />
-                    )}
-                  </button>
-                ))}
-                {agentClis.length === 0 && !detecting && (
-                  <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>
+                    <Loader2 size={16} className="animate-spin" />
+                    {t('settings.ai.detecting')}
+                  </div>
                 )}
+
+                <div data-testid="agent-cli-list" className="space-y-2">
+                  {agentClis.map((cli) => (
+                    <button
+                      key={cli.command}
+                      data-testid={`agent-cli-option-${cli.command}`}
+                      type="button"
+                      aria-pressed={selectedCli === cli.command}
+                      aria-label={t(selectedCli === cli.command ? 'settings.ai.deselectCli' : 'settings.ai.selectCli', {
+                        name: cli.name,
+                      })}
+                      onClick={() => handleCliSelect(cli.command)}
+                      disabled={!cli.available}
+                      className={`flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        selectedCli === cli.command
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-muted-foreground/30'
+                      } ${!cli.available ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    >
+                      <span
+                        className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
+                          selectedCli === cli.command ? 'border-primary' : 'border-muted-foreground/50'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {selectedCli === cli.command && <span className="size-2 rounded-full bg-primary" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{cli.name}</span>
+                          <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
+                        </div>
+                        {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
+                      </div>
+                      {cli.available ? (
+                        <CheckCircle2 size={14} className="text-success" />
+                      ) : (
+                        <XCircle size={14} className="text-muted-foreground" />
+                      )}
+                    </button>
+                  ))}
+                  {agentClis.length === 0 && !detecting && (
+                    <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         <section>

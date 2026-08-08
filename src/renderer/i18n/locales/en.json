@@ -1012,6 +1012,10 @@
     "ai": {
       "title": "AI Engine Configuration",
       "description": "Semantic analysis of design styles requires AI support. Choose how Imprint should connect:",
+      "enabled": "Enable AI enhancement",
+      "enabledHint": "When off, Imprint only runs local extraction and never calls any AI. Both connection configurations below are preserved.",
+      "disabled": "AI enhancement is off",
+      "disabledHint": "No data is sent to any AI while disabled. Turn it back on with the switch above at any time.",
       "currentEngine": "Currently active",
       "notConfigured": "AI enhancement is not enabled",
       "activeApiKey": "API Key · {{provider}}",

@@ -57,6 +57,7 @@ export interface IntelligenceRunResult {
 }
 
 export function hasDesignIntelligenceConfiguration(settings: AppSettings): boolean {
+  if (settings.aiEnabled === false) return false
   return settings.aiMode === 'apiKey' ? Boolean(settings.provider && settings.apiKey) : Boolean(settings.agentCli)
 }
 

@@ -177,7 +177,7 @@ export function ThemesPage() {
             type="button"
             onClick={() => setTab('builtin')}
             aria-pressed={tab === 'builtin'}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === 'builtin' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
             }`}
           >
@@ -187,7 +187,7 @@ export function ThemesPage() {
             type="button"
             onClick={() => setTab('extracted')}
             aria-pressed={tab === 'extracted'}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === 'extracted' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
             }`}
           >

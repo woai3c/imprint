@@ -51,7 +51,8 @@ export function AnalyzePage() {
   useEffect(() => {
     const refresh = () => {
       window.electronAPI.getSettings().then((s) => {
-        const configured = s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli)
+        const configured =
+          s.aiEnabled !== false && (s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKey) : Boolean(s.agentCli))
         setHasAiConfig(configured)
         if (!configured) setAiTipDismissed(false)
         setAnalysisDepth(s.analysisDepth === 'deep' ? 'deep' : 'standard')

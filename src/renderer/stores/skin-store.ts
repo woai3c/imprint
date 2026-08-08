@@ -552,7 +552,7 @@ export const builtinThemes: AppTheme[] = [
         fontBody: '"Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif',
         fontHeading: '"Cascadia Code", "SFMono-Regular", Consolas, monospace',
         sizes: {
-          base: '0.9375rem',
+          base: '1rem',
         },
         letterSpacing: {
           body: '0.015em',
@@ -617,7 +617,7 @@ export const builtinThemes: AppTheme[] = [
         densityAndWhitespace:
           'Compact density with tight spacing to maximize information per viewport — mimics the density of a cockpit instrument panel.',
         rhythm:
-          'Rapid vertical rhythm with 0.9375rem base font size; elements stack tightly with minimal breathing room to emphasize data density.',
+          'Rapid vertical rhythm with a 1rem base font size; elements stack tightly with minimal breathing room to emphasize data density.',
       },
       visualLanguage: {
         color:
@@ -1126,7 +1126,7 @@ export const builtinThemes: AppTheme[] = [
         fontBody: '"Cascadia Code", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace',
         fontHeading: '"Cascadia Code", "SFMono-Regular", Consolas, monospace',
         sizes: {
-          base: '0.9375rem',
+          base: '1rem',
         },
         letterSpacing: {
           body: '0.02em',
@@ -1201,7 +1201,7 @@ export const builtinThemes: AppTheme[] = [
         color:
           'Cool dark-blue spectrum (hue 242–246) for neutral surfaces; cyan (hue 210) for all interactive elements; drafting yellow (hue 82) exclusively for focus. The palette mimics Prussian blue blueprint paper with architectural annotation colors.',
         typography:
-          'All-monospace typography (Cascadia Code) at 0.9375rem base size — the theme\u2019s most distinctive choice. Wide label tracking (0.08em) creates data-readout aesthetics. Even body text feels like technical documentation.',
+          'All-monospace typography (Cascadia Code) at 1rem base size — the theme\u2019s most distinctive choice. Wide label tracking (0.08em) creates data-readout aesthetics. Even body text feels like technical documentation.',
         shape:
           'Near-zero radius (0.125rem) — the sharpest corners across all themes — creates precisely machined edges appropriate for a precision-drafting environment.',
         surfaces:

@@ -328,7 +328,11 @@ function canonicalPageUrl(value: string): string {
 
 interface EvidenceScope {
   pageUrlByEvidenceId: Map<string, string>
+  pageIdByEvidenceId: Map<string, string>
   sectionRoleByEvidenceId: Map<string, string>
+  // Roles present in each page capture. Page screenshots (image-*) are capture-level evidence:
+  // they can legitimately support a section-grammar claim for any role that capture contains.
+  sectionRolesByPageId: Map<string, Set<string>>
   // Evidence owned by footer/legal or small fixed utility regions. "Evidence exists"
   // does not mean "semantically important" — these can only support local claims.
   utilityEvidenceIds: Set<string>
@@ -346,9 +350,12 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
   const pageUrlByPageId = new Map(evidence.pages.map((page) => [page.id, canonicalPageUrl(page.url)]))
   const sectionById = new Map(evidence.sections.map((section) => [section.id, section]))
   const pageUrlByEvidenceId = new Map<string, string>()
+  const pageIdByEvidenceId = new Map<string, string>()
   const sectionRoleByEvidenceId = new Map<string, string>()
+  const sectionRolesByPageId = new Map<string, Set<string>>()
   const utilityEvidenceIds = new Set<string>()
   const assignPage = (evidenceId: string, pageId: string) => {
+    pageIdByEvidenceId.set(evidenceId, pageId)
     const url = pageUrlByPageId.get(pageId)
     if (url) pageUrlByEvidenceId.set(evidenceId, url)
   }
@@ -364,7 +371,12 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
     assignPage(page.id, page.id)
     for (const image of page.images) assignPage(image.id, page.id)
   }
-  for (const section of evidence.sections) assignSection(section.id, section.id)
+  for (const section of evidence.sections) {
+    assignSection(section.id, section.id)
+    const roles = sectionRolesByPageId.get(section.pageId) || new Set<string>()
+    roles.add(section.role)
+    sectionRolesByPageId.set(section.pageId, roles)
+  }
   for (const component of evidence.components) assignSection(component.id, component.sectionId)
   for (const node of evidence.layoutNodes) assignSection(node.id, node.sectionId)
   for (const observation of evidence.interactionObservations) assignSection(observation.id, observation.sectionId)
@@ -372,7 +384,7 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
   for (const media of evidence.mediaLayers) assignSection(media.id, media.sectionId)
   for (const layer of evidence.topology.globalLayers) assignPage(layer.id, layer.pageId)
 
-  return { pageUrlByEvidenceId, sectionRoleByEvidenceId, utilityEvidenceIds }
+  return { pageUrlByEvidenceId, pageIdByEvidenceId, sectionRoleByEvidenceId, sectionRolesByPageId, utilityEvidenceIds }
 }
 
 function referencedPageUrls(claim: DesignClaim, scope: EvidenceScope): Set<string> {
@@ -508,12 +520,11 @@ export function validateDesignProfile(
     }
     const claim = validateClaim(candidate, validIds, `signatureMoves.${index}`, rejected, claimMode, false, knownColors)
     if (!claim || !isSafeText(candidate.distinctiveness, 240)) return []
-    // A site-wide signature needs recurring, non-incidental support: at least two distinct
-    // page URLs (when several exist) and at least one citation outside footer/utility chrome.
-    if (availablePageCount > 1 && referencedPageUrls(claim, evidenceScope).size < 2) {
-      rejected.push(`signatureMoves.${index}:single-page-signature`)
-      return []
-    }
+    // A site-wide signature needs recurring, non-incidental support. Single-page support caps
+    // confidence instead of dropping the move (same treatment as patterns and global claims);
+    // footer/utility-only support is a real quality problem and still rejects.
+    const capped =
+      availablePageCount > 1 && referencedPageUrls(claim, evidenceScope).size < 2 && claim.confidence === 'high'
     if (!claim.evidence.some((reference) => !evidenceScope.utilityEvidenceIds.has(reference.evidenceId))) {
       rejected.push(`signatureMoves.${index}:utility-only-evidence`)
       return []
@@ -521,6 +532,7 @@ export function validateDesignProfile(
     return [
       {
         ...claim,
+        confidence: capped ? ('medium' as const) : claim.confidence,
         id: candidate.id.slice(0, 80),
         name: candidate.name.slice(0, 100),
         distinctiveness: candidate.distinctiveness.slice(0, 240),
@@ -720,7 +732,12 @@ export function validateDesignProfile(
           return []
         }
         const keepRoleEvidence = (claim: DesignClaim): boolean =>
-          claim.evidence.some((reference) => evidenceScope.sectionRoleByEvidenceId.get(reference.evidenceId) === role)
+          claim.evidence.some((reference) => {
+            if (evidenceScope.sectionRoleByEvidenceId.get(reference.evidenceId) === role) return true
+            if (!reference.evidenceId.startsWith('image-')) return false
+            const pageId = evidenceScope.pageIdByEvidenceId.get(reference.evidenceId)
+            return Boolean(pageId && evidenceScope.sectionRolesByPageId.get(pageId)?.has(role))
+          })
         const validateRoleClaims = (claims: unknown, path: string) =>
           validateClaims(claims, validIds, path, rejected, claimMode, 5, false, knownColors).filter((claim) => {
             if (keepRoleEvidence(claim)) return true
@@ -1033,21 +1050,21 @@ export function validateDesignProfile(
     if (claim) profile.visualLanguage[key] = constrainGlobal(claim)
   }
   if (availablePageCount > 1) {
-    profile.interactionLanguage.continuityRules = profile.interactionLanguage.continuityRules.filter((claim, index) => {
-      if (referencedPageUrls(claim, evidenceScope).size >= 2) return true
-      rejected.push(`interactionLanguage.continuityRules.${index}:single-page-continuity`)
-      return false
-    })
-    profile.transferRules.preserve = profile.transferRules.preserve.filter((claim, index) => {
-      if (referencedPageUrls(claim, evidenceScope).size < 2) {
-        rejected.push(`transferRules.preserve.${index}:single-page-preserve-rule`)
-        return false
-      }
+    // Interaction evidence is usually concentrated on the entry page, so single-page continuity
+    // is structural, not a model error: demote to low confidence (surfaced as cautious
+    // inferences) instead of dropping. Preserve rules keep the claim with capped confidence.
+    profile.interactionLanguage.continuityRules = profile.interactionLanguage.continuityRules.map((claim) =>
+      referencedPageUrls(claim, evidenceScope).size >= 2 ? claim : { ...claim, confidence: 'low' as const },
+    )
+    profile.transferRules.preserve = profile.transferRules.preserve.flatMap((claim, index) => {
       if (!claim.evidence.some((reference) => !evidenceScope.utilityEvidenceIds.has(reference.evidenceId))) {
         rejected.push(`transferRules.preserve.${index}:utility-only-evidence`)
-        return false
+        return []
       }
-      return true
+      if (referencedPageUrls(claim, evidenceScope).size < 2 && claim.confidence === 'high') {
+        return [{ ...claim, confidence: 'medium' as const }]
+      }
+      return [claim]
     })
   }
   if (availablePageCount <= 1) {

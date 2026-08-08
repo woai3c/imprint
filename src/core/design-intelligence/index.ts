@@ -1,4 +1,6 @@
 export { generateAgentContextBundle } from './agent-context.js'
+export { dedupeProfileClaims } from './claim-dedupe.js'
+export type { ClaimDedupeResult } from './claim-dedupe.js'
 export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
 export type {
   CallDetail,

@@ -487,7 +487,7 @@ describe('Design intelligence', () => {
     expect(validation.rejected).toContain('visualLanguage.color:missing-evidence')
   })
 
-  it('drops unobserved section roles and single-page preserve rules from multi-page profiles', () => {
+  it('drops unobserved section roles and demotes single-page preserve rules in multi-page profiles', () => {
     const raw = rawProfile()
     raw.sectionGrammar.push({
       role: 'main-feed',
@@ -507,13 +507,52 @@ describe('Design intelligence', () => {
 
     const validation = validateDesignProfile(raw, multiUrlEvidence(), 'structural-only', 'en')
     expect(validation.profile?.sectionGrammar.some((grammar) => grammar.role === 'main-feed')).toBe(false)
-    expect(validation.profile?.transferRules.preserve).toEqual([])
-    expect(validation.rejected).toEqual(
-      expect.arrayContaining([
-        'sectionGrammar.1:unobserved-role',
-        'transferRules.preserve.0:single-page-preserve-rule',
-      ]),
-    )
+    // Single-page support caps confidence instead of dropping the rule (same as patterns).
+    expect(validation.profile?.transferRules.preserve).toHaveLength(1)
+    expect(validation.profile?.transferRules.preserve[0].confidence).toBe('medium')
+    expect(validation.rejected).toContain('sectionGrammar.1:unobserved-role')
+    expect(validation.rejected).not.toContain('transferRules.preserve.0:single-page-preserve-rule')
+  })
+
+  it('maps page screenshots to the roles present on their page', () => {
+    const mixedEvidence: DesignEvidence = {
+      ...evidence,
+      sections: evidence.sections.map((section) =>
+        section.id === 'section-b' ? { ...section, role: 'footer' as const } : section,
+      ),
+    }
+    const raw = rawProfile()
+    raw.sectionGrammar = [
+      {
+        role: 'hero',
+        composition: [
+          {
+            ...claim('The hero centers a short promise above one action'),
+            evidence: [{ evidenceId: 'image-a', note: 'Entry overview' }],
+          },
+        ],
+        contentRhythm: [claim()],
+        transitionToNext: [claim()],
+      },
+      {
+        role: 'footer',
+        composition: [
+          {
+            ...claim('The footer closes the page with quiet links'),
+            evidence: [{ evidenceId: 'image-a', note: 'Entry overview' }],
+          },
+        ],
+        contentRhythm: [claim()],
+        transitionToNext: [claim()],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, mixedEvidence, 'structural-only', 'en')
+    // Page A contains a hero, so its screenshot supports the hero grammar claim...
+    expect(validation.profile?.sectionGrammar.find((grammar) => grammar.role === 'hero')?.composition).toHaveLength(1)
+    // ...but not a footer claim, since page A has no footer.
+    expect(validation.profile?.sectionGrammar.find((grammar) => grammar.role === 'footer')?.composition).toHaveLength(0)
+    expect(validation.rejected).toContain('sectionGrammar.1.composition:mismatched-section-role')
   })
 
   it('rejects global claims supported only by footer or utility regions', () => {
@@ -572,8 +611,9 @@ describe('Design intelligence', () => {
       },
     ]
     const singlePageResult = validateDesignProfile(singlePageSignature, utilityEvidence, 'structural-only', 'en')
-    expect(singlePageResult.profile).toBeNull()
-    expect(singlePageResult.rejected).toContain('signatureMoves.0:single-page-signature')
+    expect(singlePageResult.profile?.signatureMoves).toHaveLength(1)
+    expect(singlePageResult.profile?.signatureMoves[0].confidence).toBe('medium')
+    expect(singlePageResult.rejected).not.toContain('signatureMoves.0:single-page-signature')
 
     // Preserve rules and high-confidence global claims cannot rest on utility chrome alone.
     const utilityPreserve = rawProfile()

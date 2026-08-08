@@ -16,6 +16,12 @@ function labeledClaimLine(label: string, claim: DesignClaim): string {
   ].join(', ')}]`
 }
 
+// The brief is actionable guidance for coding agents; low-confidence claims are noise there.
+const solid = <T extends DesignClaim>(claims: T[]): T[] => claims.filter((claim) => claim.confidence !== 'low')
+
+const solidLine = (claim: DesignClaim, render: (claim: DesignClaim) => string): string[] =>
+  claim.confidence === 'low' ? [] : [render(claim)]
+
 export function generateReconstructionBrief(
   profile: DesignProfile,
   evidence: DesignEvidence,
@@ -36,59 +42,64 @@ export function generateReconstructionBrief(
     '',
     zh ? '## 标志性手法' : '## Signature Moves',
     '',
-    ...profile.signatureMoves.map((move) => `- **${move.name}:** ${move.implementation}`),
+    ...solid(profile.signatureMoves).map((move) => `- **${move.name}:** ${move.implementation}`),
     '',
     zh ? '## 构图与注意力' : '## Composition and Attention',
     '',
-    ...Object.entries(profile.composition).map(([label, claim]) => labeledClaimLine(label, claim)),
-    labeledClaimLine('entryPoint', profile.attention.entryPoint),
-    ...profile.attention.visualSequence.map((claim, index) => labeledClaimLine(`visualSequence${index + 1}`, claim)),
-    labeledClaimLine('actionHierarchy', profile.attention.actionHierarchy),
-    labeledClaimLine('contrastStrategy', profile.attention.contrastStrategy),
+    ...Object.entries(profile.composition).flatMap(([label, claim]) =>
+      solidLine(claim, (item) => labeledClaimLine(label, item)),
+    ),
+    ...solidLine(profile.attention.entryPoint, (claim) => labeledClaimLine('entryPoint', claim)),
+    ...solid(profile.attention.visualSequence).map((claim, index) =>
+      labeledClaimLine(`visualSequence${index + 1}`, claim),
+    ),
+    ...solidLine(profile.attention.actionHierarchy, (claim) => labeledClaimLine('actionHierarchy', claim)),
+    ...solidLine(profile.attention.contrastStrategy, (claim) => labeledClaimLine('contrastStrategy', claim)),
     '',
     zh ? '## 区块与组件语法' : '## Section and Component Grammar',
     '',
-    ...profile.sectionGrammar
-      .slice(0, 8)
-      .flatMap((section) =>
-        [...section.composition, ...section.contentRhythm, ...section.transitionToNext]
-          .slice(0, 4)
-          .map((claim) => labeledClaimLine(section.role, claim)),
-      ),
-    ...profile.componentGrammar
-      .slice(0, 10)
-      .flatMap((component) =>
-        component.rules
-          .slice(0, 4)
-          .map((claim) => labeledClaimLine(`${component.component} / ${component.role}`, claim)),
-      ),
-    ...(profile.patterns || [])
-      .slice(0, 6)
-      .flatMap((pattern) =>
-        [...pattern.structureRules, ...pattern.visualRules, ...pattern.interactionRules, ...pattern.responsiveRules]
-          .slice(0, 4)
-          .map((claim) => labeledClaimLine(pattern.name, claim)),
-      ),
+    ...profile.sectionGrammar.slice(0, 8).flatMap((section) =>
+      solid([...section.composition, ...section.contentRhythm, ...section.transitionToNext])
+        .slice(0, 4)
+        .map((claim) => labeledClaimLine(section.role, claim)),
+    ),
+    ...profile.componentGrammar.slice(0, 10).flatMap((component) =>
+      solid(component.rules)
+        .slice(0, 4)
+        .map((claim) => labeledClaimLine(`${component.component} / ${component.role}`, claim)),
+    ),
+    ...(profile.patterns || []).slice(0, 6).flatMap((pattern) =>
+      solid([
+        ...pattern.structureRules,
+        ...pattern.visualRules,
+        ...pattern.interactionRules,
+        ...pattern.responsiveRules,
+      ])
+        .slice(0, 4)
+        .map((claim) => labeledClaimLine(pattern.name, claim)),
+    ),
     '',
     zh ? '## 交互语言' : '## Interaction Language',
     '',
-    ...profile.interactionLanguage.primaryDrivers.map(claimLine),
-    claimLine(profile.interactionLanguage.feedbackStyle),
-    claimLine(profile.interactionLanguage.stateChangeAmplitude),
-    ...(profile.interactionLanguage.scrollNarrative ? [claimLine(profile.interactionLanguage.scrollNarrative)] : []),
-    ...profile.interactionLanguage.continuityRules.map(claimLine),
+    ...solid(profile.interactionLanguage.primaryDrivers).map(claimLine),
+    ...solidLine(profile.interactionLanguage.feedbackStyle, claimLine),
+    ...solidLine(profile.interactionLanguage.stateChangeAmplitude, claimLine),
+    ...(profile.interactionLanguage.scrollNarrative
+      ? solidLine(profile.interactionLanguage.scrollNarrative, claimLine)
+      : []),
+    ...solid(profile.interactionLanguage.continuityRules).map(claimLine),
     '',
     zh ? '## 必须保持' : '## Preserve',
     '',
-    ...profile.transferRules.preserve.map(claimLine),
+    ...solid(profile.transferRules.preserve).map(claimLine),
     '',
     zh ? '## 可以适配' : '## Adapt',
     '',
-    ...profile.transferRules.adapt.map(claimLine),
+    ...solid(profile.transferRules.adapt).map(claimLine),
     '',
     zh ? '## 必须避免' : '## Avoid',
     '',
-    ...profile.transferRules.avoid.map(claimLine),
+    ...solid(profile.transferRules.avoid).map(claimLine),
     '',
     zh ? '## 实现值' : '## Implementation Values',
     '',

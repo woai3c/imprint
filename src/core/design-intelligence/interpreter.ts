@@ -1,6 +1,7 @@
 import type { AiImageInput } from '../ai/provider.js'
 import { callAiProvider } from '../ai/provider.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { dedupeProfileClaims } from './claim-dedupe.js'
 import {
   createEvidenceFingerprint,
   listEvidencePackageIds,
@@ -47,9 +48,12 @@ export interface InterpretationInvokeResult {
   text: string
   model?: string
   durationMs?: number
+  retriedWithoutThinking?: boolean
+  finishReason?: string
   usage?: {
     input?: number
     output?: number
+    reasoning?: number
   }
 }
 
@@ -87,6 +91,7 @@ export interface InterpretationPipelineResult {
   pipeline: 'single-pass' | 'two-pass'
   imageObservationsValid?: boolean
   rejected?: string[]
+  dedupedClaims?: number
   model?: string
   usage?: {
     input?: number
@@ -245,6 +250,7 @@ export async function runInterpretationPipeline(
       `DesignProfile output failed validation: ${validation.rejected.slice(0, 4).join('; ')}; repair-attempted=${repairAttempted}${diagnostics ? `; citation-shapes=${diagnostics}` : ''}`,
     )
   }
+  const deduped = dedupeProfileClaims(validation.profile)
   const totalUsage = callDetails.reduce(
     (acc, d) => ({
       input: (acc.input || 0) + (d.input || 0),
@@ -253,11 +259,12 @@ export async function runInterpretationPipeline(
     {} as { input?: number; output?: number },
   )
   return {
-    profile: validation.profile,
+    profile: deduped.profile,
     status: validation.status === 'complete' ? 'complete' : 'partial',
     pipeline: observations ? 'two-pass' : 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
     rejected: validation.rejected.length > 0 ? validation.rejected : undefined,
+    dedupedClaims: deduped.removed > 0 ? deduped.removed : undefined,
     model: finalResponse.model || response.model,
     usage: totalUsage.input || totalUsage.output ? totalUsage : finalResponse.usage || response.usage,
     callDetails,

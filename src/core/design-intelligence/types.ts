@@ -149,6 +149,19 @@ export interface DesignProfile {
   tokenAliases?: ColorRenameProposal[]
 }
 
+export interface ApproximateBounds {
+  widthShare?: string
+  heightShare?: string
+  anchor: 'left' | 'center' | 'right' | 'full'
+  vertical: 'top' | 'middle' | 'bottom'
+}
+
+export interface InteractionChange {
+  property: string
+  from: string
+  to: string
+}
+
 export type AiSafeDesignEvidence = Omit<
   DesignEvidence,
   | 'pages'
@@ -167,7 +180,12 @@ export type AiSafeDesignEvidence = Omit<
     role?: string
     imageIds: string[]
   }>
-  sections: Array<Omit<DesignEvidence['sections'][number], 'evidenceRefs'> & { evidenceRefs?: string[] }>
+  sections: Array<
+    Omit<DesignEvidence['sections'][number], 'evidenceRefs' | 'rect'> & {
+      evidenceRefs?: string[]
+      approxBounds: ApproximateBounds
+    }
+  >
   components: Array<{
     id: string
     sectionId: string
@@ -196,6 +214,7 @@ export type AiSafeDesignEvidence = Omit<
     safety: string
     trigger: { kind: string; threshold?: string }
     changedProperties: string[]
+    changes: InteractionChange[]
     transition?: { duration?: string; easing?: string; properties?: string[] }
   }>
   responsiveObservations: Array<Omit<DesignEvidence['responsiveObservations'][number], 'evidenceRefs'>>

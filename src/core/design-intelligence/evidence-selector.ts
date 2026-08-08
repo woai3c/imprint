@@ -5,8 +5,9 @@ import type {
   DesignEvidence,
   InteractionObservation,
   LayoutEvidenceNode,
+  NormalizedRect,
 } from '../design-evidence/types.js'
-import type { EvidencePackage, IntelligenceInputMode } from './types.js'
+import type { ApproximateBounds, EvidencePackage, IntelligenceInputMode, InteractionChange } from './types.js'
 
 export interface EvidenceSelectionBudget {
   maxPages: number
@@ -175,6 +176,74 @@ export function restrictEvidencePackageImages(
     },
     omittedEvidence: [...evidencePackage.omittedEvidence, { kind: 'images', reason: 'budget' }],
   }
+}
+
+// Section rects are normalized to the whole page, which produces misleading precision
+// ("offset 10.96%, width 29.2%"). The model only needs coarse proportions, so we quantize
+// to friendly fractions and drop the value when nothing fits.
+const WIDTH_FRACTIONS: Array<[number, string]> = [
+  [1 / 4, '1/4'],
+  [1 / 3, '1/3'],
+  [1 / 2, '1/2'],
+  [2 / 3, '2/3'],
+  [3 / 4, '3/4'],
+]
+
+const HEIGHT_FRACTIONS: Array<[number, string]> = [
+  [1 / 12, '1/12'],
+  [1 / 8, '1/8'],
+  [1 / 6, '1/6'],
+  [1 / 5, '1/5'],
+  [1 / 4, '1/4'],
+  [1 / 3, '1/3'],
+  [1 / 2, '1/2'],
+  [2 / 3, '2/3'],
+  [3 / 4, '3/4'],
+]
+
+function friendlyFraction(value: number, fractions: Array<[number, string]>, tolerance: number): string | undefined {
+  for (const [fraction, label] of fractions) {
+    if (Math.abs(value - fraction) <= tolerance) return label
+  }
+  return undefined
+}
+
+export function approximateBounds(rect: NormalizedRect): ApproximateBounds {
+  const horizontalCenter = rect.x + rect.width / 2
+  const anchor: ApproximateBounds['anchor'] =
+    rect.width >= 0.92 ? 'full' : horizontalCenter < 0.4 ? 'left' : horizontalCenter > 0.6 ? 'right' : 'center'
+  const vertical: ApproximateBounds['vertical'] = rect.y <= 0.05 ? 'top' : rect.y >= 0.85 ? 'bottom' : 'middle'
+  const heightShare =
+    rect.height >= 0.92
+      ? 'full'
+      : rect.height < 0.05 && rect.height > 0
+        ? 'strip'
+        : friendlyFraction(rect.height, HEIGHT_FRACTIONS, 0.02)
+  const widthShare = rect.width >= 0.92 ? 'full' : friendlyFraction(rect.width, WIDTH_FRACTIONS, 0.04)
+  return {
+    ...(widthShare ? { widthShare } : {}),
+    ...(heightShare ? { heightShare } : {}),
+    anchor,
+    vertical,
+  }
+}
+
+const MAX_DISTILLED_CHANGES = 6
+const MAX_CHANGE_VALUE_CHARS = 80
+
+// before/after hold full computed styles; only the properties that actually changed carry
+// signal for the model, so we distill to short from -> to pairs.
+export function distillInteractionChanges(observation: InteractionObservation): InteractionChange[] {
+  const changes: InteractionChange[] = []
+  for (const property of observation.changedProperties) {
+    if (changes.length >= MAX_DISTILLED_CHANGES) break
+    const from = observation.before?.[property]
+    const to = observation.after?.[property]
+    if (typeof from !== 'string' || typeof to !== 'string' || from === to) continue
+    if (from.length > MAX_CHANGE_VALUE_CHARS || to.length > MAX_CHANGE_VALUE_CHARS) continue
+    changes.push({ property, from, to })
+  }
+  return changes
 }
 
 function componentSignature(c: ComponentEvidence): string {
@@ -417,15 +486,16 @@ export function selectEvidencePackage(
         imageIds: page.images.map((image) => image.id).filter((imageId) => imageIds.includes(imageId)),
       })),
       topology,
-      sections: sections.map(({ evidenceRefs: _e, ...s }) => s),
+      sections: sections.map(({ evidenceRefs: _e, rect, ...s }) => ({ ...s, approxBounds: approximateBounds(rect) })),
       components: components.map(
         ({ styles: _s, evidenceRefs: _e, rect: _r, pageId: _p, stateRefs: _st, confidence: _cf, ...c }) => c,
       ),
       layoutNodes: layoutNodes.map(({ rect: _r, pageId: _p, ...n }) => n),
       interactionStyles: deduplicateInteractionStyles(evidence.interactionStyles, 20),
-      interactionObservations: interactionObservations.map(
-        ({ before: _b, after: _a, evidenceRefs: _e, pageId: _p, targetId: _t, ...obs }) => obs,
-      ),
+      interactionObservations: interactionObservations.map((observation) => {
+        const { before: _b, after: _a, evidenceRefs: _e, pageId: _p, targetId: _t, ...obs } = observation
+        return { ...obs, changes: distillInteractionChanges(observation) }
+      }),
       responsiveObservations: responsiveObservations.map(({ evidenceRefs: _e, ...obs }) => obs),
       mediaLayers: mediaLayers.map(({ rect: _r, pageId: _p, ...m }) => m),
       breakpoints: evidence.breakpoints.slice(0, 8),

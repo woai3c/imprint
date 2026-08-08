@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { nativeImage, net } from 'electron'
 
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
+import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
 import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import {
   buildExamplePrompt,
@@ -279,9 +280,11 @@ export async function runExampleGeneration(
           model: resolveEffectiveModel(settings.provider, settings.model),
           signal: runSignal,
           fetchFn: net.fetch as unknown as typeof fetch,
-          reasoningEffort: settings.reasoningEffort || 'medium',
+          reasoningEffort:
+            settings.reasoningEffort ||
+            getDefaultReasoningEffort(settings.provider, resolveEffectiveModel(settings.provider, settings.model)),
           thinkingEnabled: settings.thinkingEnabled === true,
-          maxOutputTokens: 4096,
+          maxOutputTokens: settings.thinkingEnabled === true ? 8192 : 4096,
         },
         context,
         synthesisImages,
@@ -411,7 +414,9 @@ export async function runDesignIntelligence(
       model: resolveEffectiveModel(settings.provider, settings.model),
       signal: runSignal,
       fetchFn: net.fetch as unknown as typeof fetch,
-      reasoningEffort: settings.reasoningEffort || 'medium',
+      reasoningEffort:
+        settings.reasoningEffort ||
+        getDefaultReasoningEffort(settings.provider, resolveEffectiveModel(settings.provider, settings.model)),
       thinkingEnabled: settings.thinkingEnabled === true,
     }
     // Phase 1: semantic naming + design interpretation (parallel)
@@ -434,10 +439,13 @@ export async function runDesignIntelligence(
       let result: Awaited<ReturnType<InterpretationInvoke>>
       const invokeStart = Date.now()
       if (settings.aiMode === 'apiKey') {
+        // Thinking models share the completion budget between reasoning tokens and
+        // the visible answer, so passes need extra headroom when thinking is on.
+        const thinking = settings.thinkingEnabled === true
         result = await callAiProvider(
           {
             ...providerConfig,
-            maxOutputTokens: pass === 'observation' ? 4096 : 8192,
+            maxOutputTokens: pass === 'observation' ? (thinking ? 12288 : 4096) : thinking ? 24576 : 8192,
           },
           taskPrompt,
           passImages,
@@ -457,7 +465,7 @@ export async function runDesignIntelligence(
       result.durationMs = invokeMs
       log.info(
         'design-intelligence',
-        `invoke #${invokeCount} done: ${invokeMs}ms tokens=${result.usage?.input || 0}+${result.usage?.output || 0} textLen=${result.text.length}`,
+        `invoke #${invokeCount} done: ${invokeMs}ms tokens=${result.usage?.input || 0}+${result.usage?.output || 0}${result.usage?.reasoning ? ` reasoning=${result.usage.reasoning}` : ''} textLen=${result.text.length}${result.retriedWithoutThinking ? ' fallback=no-thinking' : ''}${result.finishReason && !/^(?:stop|end_turn)$/i.test(result.finishReason) ? ` finish=${result.finishReason}` : ''}`,
       )
       accumulatedUsage.calls++
       accumulatedUsage.input += result.usage?.input || 0
@@ -539,7 +547,8 @@ export async function runDesignIntelligence(
     const code = failureCode(error, timeoutSignal.aborted && !signal?.aborted)
     let reason: string | undefined
     if (code === 'timeout') {
-      reason = 'AI interpretation timed out (15 min). The model may be slow — try again or switch to a faster model.'
+      reason =
+        'AI interpretation timed out. Thinking models can be slow on large pages — try again, disable thinking, or switch to a faster model.'
     } else if (code === 'cancelled') {
       reason = undefined
     } else {

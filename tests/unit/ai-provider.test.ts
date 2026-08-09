@@ -19,6 +19,51 @@ function sseResponse(
 }
 
 describe('AI provider output budgets', () => {
+  it('reports the real HTTP attempt count when a retry succeeds', async () => {
+    let calls = 0
+    const response = await callAiProvider(
+      {
+        provider: 'custom',
+        apiKey: 'test-key',
+        baseUrl: 'https://provider.example/v1',
+        model: 'test-model',
+        fetchFn: async () => {
+          calls += 1
+          if (calls === 1) return new Response('temporary failure', { status: 503 })
+          return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+      },
+      'Return JSON',
+    )
+
+    expect(calls).toBe(2)
+    expect(response.transportAttempts).toBe(2)
+    expect(response.transportMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('attaches the real attempt count when both HTTP attempts fail', async () => {
+    let calls = 0
+    const request = callAiProvider(
+      {
+        provider: 'custom',
+        apiKey: 'test-key',
+        baseUrl: 'https://provider.example/v1',
+        model: 'test-model',
+        fetchFn: async () => {
+          calls += 1
+          return new Response('temporary failure', { status: 503 })
+        },
+      },
+      'Return JSON',
+    )
+
+    await expect(request).rejects.toMatchObject({ transportAttempts: 2 })
+    expect(calls).toBe(2)
+  })
+
   it('applies the per-pass output token limit to compatible providers', async () => {
     let requestBody: Record<string, unknown> | undefined
     const response = await callAiProvider(

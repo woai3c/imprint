@@ -2,7 +2,7 @@ import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
 
-export type PageRole = 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'unknown'
+export type PageRole = 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'workspace' | 'unknown'
 export type SectionRole =
   'header' | 'navigation' | 'hero' | 'content' | 'feature-group' | 'media' | 'action' | 'aside' | 'footer' | 'unknown'
 export type LayoutMode = 'flow' | 'sticky' | 'fixed' | 'overlay'
@@ -21,6 +21,14 @@ export interface EvidenceImage {
   width: number
   height: number
   contentHash?: string
+  aiSummary?: {
+    version: string
+    path: string
+    width: number
+    height: number
+    bytes: number
+    contentHash: string
+  }
   sourceRect?: NormalizedRect
   sectionId?: string
 }

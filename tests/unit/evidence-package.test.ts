@@ -258,6 +258,40 @@ describe('selectEvidencePackage packaging', () => {
     expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toHaveLength(2)
   })
 
+  test('keeps one image when the second view adds too little information', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      { id: 'viewport-a', kind: 'viewport-crop', path: 'a.png', width: 1_440, height: 900 },
+      { id: 'viewport-b', kind: 'viewport-crop', path: 'b.png', width: 1_440, height: 900 },
+    ]
+
+    expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toEqual(['viewport-a'])
+  })
+
+  test('drops a useful second image when it would exceed the visual token budget', () => {
+    const evidence = makeEvidence()
+    evidence.pages = [
+      {
+        id: 'page-a',
+        url: 'https://example.com/',
+        viewport: 'desktop',
+        role: 'landing',
+        images: [{ id: 'large-a', kind: 'viewport-crop', path: 'a.png', width: 1_600, height: 1_600 }],
+      },
+      {
+        id: 'page-b',
+        url: 'https://example.com/pricing',
+        viewport: 'desktop',
+        role: 'pricing',
+        images: [{ id: 'large-b', kind: 'viewport-crop', path: 'b.png', width: 1_600, height: 1_600 }],
+      },
+    ]
+    evidence.topology.pages = evidence.pages.map((page) => ({ pageId: page.id, role: page.role, sectionIds: [] }))
+    evidence.sections = []
+
+    expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toEqual(['large-a'])
+  })
+
   test('selects a readable viewport overview and a salient region instead of a very long full-page image', () => {
     const evidence = makeEvidence()
     evidence.pages[0].images = [
@@ -321,6 +355,7 @@ describe('selectEvidencePackage packaging', () => {
       content: { width: 1_440, height: 900 },
       overlayAreaRatio: 0.8,
       mutationCount: 0,
+      aiEligible: false,
       issues: [{ code: 'captcha', severity: 'error', recoverable: false }],
     }
     evidence.pages.push({
@@ -337,6 +372,7 @@ describe('selectEvidencePackage packaging', () => {
         content: { width: 1_440, height: 900 },
         overlayAreaRatio: 0,
         mutationCount: 0,
+        aiEligible: true,
         issues: [],
       },
       images: [{ id: 'healthy-viewport', kind: 'viewport-crop', path: 'healthy.png', width: 1_440, height: 900 }],
@@ -346,5 +382,50 @@ describe('selectEvidencePackage packaging', () => {
     const selected = selectEvidencePackage(evidence, 'multimodal')
     expect(selected.imageIds).toEqual(['healthy-viewport'])
     expect(selected.imageIds).not.toContain('image-a')
+  })
+
+  test('removes every dependent fact from a degraded page that is not AI-eligible', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].health = {
+      status: 'degraded',
+      checkedAt: '2026-08-09T00:00:00.000Z',
+      recovered: false,
+      attempts: 2,
+      viewport: { width: 1_440, height: 900 },
+      content: { width: 1_440, height: 1_800 },
+      overlayAreaRatio: 0.2,
+      mutationCount: 0,
+      aiEligible: false,
+      issues: [{ code: 'large-overlay', severity: 'warning', recoverable: true }],
+    }
+
+    const selected = selectEvidencePackage(evidence, 'structural-only')
+
+    expect(selected.selectedPageIds).toEqual([])
+    expect(selected.selectedSectionIds).toEqual([])
+    expect(selected.evidence.components).toEqual([])
+    expect(selected.evidence.layoutNodes).toEqual([])
+    expect(selected.omittedEvidence).toContainEqual({ kind: 'pages', reason: 'unsafe' })
+  })
+
+  test('keeps eligible health warnings attached to the matching short page ID', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].health = {
+      status: 'degraded',
+      checkedAt: '2026-08-09T00:00:00.000Z',
+      recovered: false,
+      attempts: 1,
+      viewport: { width: 1_440, height: 900 },
+      content: { width: 1_444, height: 1_800 },
+      overlayAreaRatio: 0,
+      mutationCount: 0,
+      aiEligible: true,
+      issues: [{ code: 'horizontal-overflow', severity: 'warning', recoverable: false }],
+    }
+
+    const selected = selectEvidencePackage(evidence, 'structural-only')
+    const digest = buildAnalysisDigest(evidence, selected).digest
+
+    expect(digest.pages[0].limitations).toContain('page-health:horizontal-overflow')
   })
 })

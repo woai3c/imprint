@@ -28,6 +28,7 @@ export interface DesignIntelligenceMeta {
   schemaVersion?: string
   promptVersion?: string
   inputFingerprint?: string
+  cacheKey?: string
   inputImageCount?: number
   tokenUsage?: {
     input?: number
@@ -39,6 +40,8 @@ export interface DesignIntelligenceMeta {
     output?: number
     cached?: boolean
     durationMs?: number
+    transportAttempts?: number
+    transportMs?: number
   }>
   failureCode?: string
   failureReason?: string
@@ -188,6 +191,7 @@ export type AiSafeDesignEvidence = Omit<
     horizontalOverflow?: boolean
     health?: {
       status: string
+      aiEligible?: boolean
       issues: Array<{ code: string; severity: string }>
     }
     imageIds: string[]

@@ -4,8 +4,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
+import { loadEvidenceImageInputs } from '../core/ai/image-summary.js'
 import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
-import { type AiImageInput, mimeTypeForPath } from '../core/ai/provider.js'
+import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import { analyze } from '../core/analyzer/index.js'
 import { applyColorRenames } from '../core/analyzer/token-renamer.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
@@ -68,29 +69,9 @@ function parseArgs(args: string[]): { url: string; options: CliOptions } {
 
 const providerApiKey = providerApiKeyFromEnv
 
-function loadEvidenceImages(
-  evidence: Parameters<typeof selectEvidencePackage>[0],
-  mode: IntelligenceInputMode,
-): AiImageInput[] {
+function loadEvidenceImages(evidence: Parameters<typeof selectEvidencePackage>[0], mode: IntelligenceInputMode) {
   if (mode !== 'multimodal') return []
-  const selected = new Set(selectEvidencePackage(evidence, mode).imageIds)
-  let totalBytes = 0
-  return evidence.pages
-    .flatMap((page) => page.images)
-    .filter((image) => selected.has(image.id) && fs.existsSync(image.path))
-    .flatMap((image) => {
-      const size = fs.statSync(image.path).size
-      if (size > 8 * 1024 * 1024 || totalBytes + size > 24 * 1024 * 1024) return []
-      totalBytes += size
-      const mimeType = mimeTypeForPath(image.path)
-      return [
-        {
-          name: `${image.id}.${mimeType.split('/')[1]}`,
-          mimeType,
-          base64: fs.readFileSync(image.path).toString('base64'),
-        },
-      ]
-    })
+  return loadEvidenceImageInputs(evidence, selectEvidencePackage(evidence, mode).imageIds)
 }
 
 function getFlag(args: string[], flag: string): string | undefined {
@@ -171,6 +152,7 @@ async function main() {
 
   let profile: DesignProfile | null = null
   let reconstructionBrief: string | undefined
+  let finalTiming = result.timing
   if (options.intelligence !== 'none') {
     const apiKey = providerApiKey(options.provider)
     if (!apiKey) {
@@ -193,6 +175,7 @@ async function main() {
       images: loadEvidenceImages(result.designEvidence, mode),
     })
     profile = interpreted.profile
+    finalTiming = mergeAnalysisTimings(result.timing, interpreted.meta.timing)
     reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens)
   }
 
@@ -317,7 +300,7 @@ async function main() {
 
   log(`\n  Done in ${(result.duration / 1000).toFixed(1)}s\n`, options.quiet)
   log(
-    `  Timing: browser=${result.timing.browserMs || 0}ms preparation=${result.timing.preparationMs || 0}ms health=${result.timing.healthGateMs || 0}ms extraction=${result.timing.extractionMs || 0}ms screenshots=${result.timing.imageSummaryMs || 0}ms`,
+    `  Timing: total=${finalTiming.totalMs}ms program=${finalTiming.programTotalMs || 0}ms ai=${finalTiming.aiTotalMs || 0}ms browser=${finalTiming.browserMs || 0}ms preparation=${finalTiming.preparationMs || 0}ms health=${finalTiming.healthGateMs || 0}ms extraction=${finalTiming.extractionMs || 0}ms images=${finalTiming.imageSummaryMs || 0}ms transportAttempts=${finalTiming.aiTransportAttempts || 0}`,
     options.quiet,
   )
 }

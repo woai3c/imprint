@@ -44,6 +44,31 @@ before(async () => {
       </style><header><nav><a href="/">Home</a></nav></header><main><h1>Pricing plans</h1><p>Choose a plan for a growing team.</p><section class="plans"><article>Starter</article><article>Team</article><article>Scale</article></section></main><footer>Pricing help</footer>`)
       return
     }
+    if (request.url === '/similar-entry' || request.url === '/similar-child') {
+      const childLink = request.url === '/similar-entry' ? '<a href="/similar-child">Read the second article</a>' : ''
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;color:#172033} header,main,footer{max-width:960px;margin:auto;padding:32px}
+        article{display:grid;grid-template-columns:1fr 1fr;gap:24px} section{padding:24px;background:#f3f6fa}
+        @media(max-width:640px){article{grid-template-columns:1fr}header,main,footer{padding:20px}}
+      </style><header><nav><a href="/similar-entry">Articles</a></nav></header><main><h1>Design systems article</h1>
+      <article><section><h2>Foundations</h2><p>Build reusable foundations for a consistent product.</p></section>
+      <section><h2>Components</h2><p>Compose predictable components from shared decisions.</p></section></article>${childLink}</main>
+      <footer>Article collection</footer>`)
+      return
+    }
+    if (request.url === '/campaign' || request.url === '/campaign-stuck') {
+      const closeButton =
+        request.url === '/campaign'
+          ? '<button aria-label="Close promotion" onclick="document.getElementById(\'campaign\').remove()">Close</button>'
+          : ''
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
+        .card{padding:32px;border-radius:16px;background:#dbeafe}.campaign{position:fixed;inset:0;z-index:99;background:#ff00ff;color:#050505;display:grid;place-items:center}
+      </style><main><h1>Underlying product page</h1><section class="card"><h2>Stable design system</h2>
+      <p>The analysis should use this content after closing the temporary promotion.</p></section></main>
+      <div id="campaign" class="campaign" role="dialog" aria-modal="true"><div><h2>Limited promotion</h2>${closeButton}</div></div>`)
+      return
+    }
     response.end(`<!doctype html><nav><a href="/pricing">Pricing</a></nav>
       <main><a href="/question/123/answer/456">Representative content</a></main>
       <a href="/blog/post-one">Post one</a>
@@ -119,4 +144,60 @@ test('adaptively captures one mobile view for a structurally distinct sub-page',
     pricingCaptures.some((item) => item.horizontalOverflow),
     true,
   )
+  const summaries = result.designEvidence.pages.flatMap((item) =>
+    item.images.flatMap((image) => (image.aiSummary ? [image.aiSummary] : [])),
+  )
+  assert.ok(summaries.length > 0)
+  assert.ok(summaries.length <= 2)
+  assert.ok(summaries.every((summary) => summary.width <= 1_600 && summary.height <= 1_600))
+  assert.ok(
+    summaries.every((summary) => summary.bytes <= 250 * 1024 && fs.statSync(summary.path).size === summary.bytes),
+  )
+  assert.ok(summaries.every((summary) => /^[a-f0-9]{64}$/.test(summary.contentHash)))
 })
+
+test(
+  'does not add a mobile capture for a structurally similar sub-page with the same breakpoints',
+  { timeout: 120_000 },
+  async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-adaptive-similar-e2e-'))
+    const result = await analyze(`${origin}/similar-entry`, {
+      viewports: ['desktop'],
+      maxPages: 2,
+      useSession: false,
+      pageDiscovery: 'links',
+      dataDir,
+    })
+    const childCaptures = result.designEvidence.pages.filter((item) => new URL(item.url).pathname === '/similar-child')
+
+    assert.deepEqual(new Set(childCaptures.map((item) => item.viewport)), new Set(['desktop']))
+  },
+)
+
+test(
+  'dismisses a temporary campaign before extraction and isolates a campaign that cannot be closed',
+  { timeout: 120_000 },
+  async () => {
+    const dismissed = await analyze(`${origin}/campaign`, {
+      viewports: ['desktop'],
+      maxPages: 1,
+      useSession: false,
+      pageDiscovery: 'links',
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-campaign-e2e-')),
+    })
+    assert.ok(dismissed.designEvidence.pages.length > 0)
+    assert.equal(JSON.stringify(dismissed.tokens.colors).includes('255, 0, 255'), false)
+    assert.equal(JSON.stringify(dismissed.designEvidence.tokens.colors).includes('255, 0, 255'), false)
+
+    const isolated = await analyze(`${origin}/campaign-stuck`, {
+      viewports: ['desktop'],
+      maxPages: 1,
+      useSession: false,
+      pageDiscovery: 'links',
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-campaign-stuck-e2e-')),
+    })
+    assert.equal(isolated.designEvidence.pages.length, 0)
+    assert.deepEqual(isolated.designEvidence.tokens.colors, {})
+    assert.ok(isolated.extractionIssues.some((issue) => issue.stage.includes('health:large-overlay')))
+  },
+)

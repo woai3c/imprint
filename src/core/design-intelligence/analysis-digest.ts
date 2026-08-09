@@ -249,6 +249,7 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       .map((section) => sectionShortId(section.id))
     const limitations: string[] = []
     if (page.horizontalOverflow) limitations.push('horizontal-overflow-observed')
+    for (const issue of page.health?.issues || []) limitations.push(`page-health:${issue.code}`)
     if (selected.coverage.accessRestrictions.includes('auth-wall-resolved-by-managed-access')) {
       limitations.push('authenticated-managed-capture')
     }
@@ -422,7 +423,14 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       omitted: evidencePackage.omittedEvidence.map((item) => `${item.kind}:${item.reason}`),
     },
     uncertainties: stableUnique(
-      [...selected.limitations, ...selected.coverage.limitations, ...selected.coverage.accessRestrictions],
+      [...selected.limitations, ...selected.coverage.limitations, ...selected.coverage.accessRestrictions].flatMap(
+        (limitation) => {
+          const health = limitation.match(/^page-health:([^@]+)@(.+)$/)
+          if (!health) return [limitation]
+          const pageId = ids.evidenceShortIdMap.get(health[2])
+          return pageId ? [`page-health:${health[1]}@${pageId}`] : []
+        },
+      ),
       20,
     ),
   }

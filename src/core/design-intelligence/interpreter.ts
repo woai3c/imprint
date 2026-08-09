@@ -7,12 +7,8 @@ import { dedupeProfileClaims } from './claim-dedupe.js'
 import { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
 import { checkProfileContradictions } from './contradiction-checker.js'
 import { buildEvidenceFallbackProfile } from './evidence-fallback.js'
-import {
-  createEvidenceFingerprint,
-  listEvidencePackageIds,
-  restrictEvidencePackageImages,
-  selectEvidencePackage,
-} from './evidence-selector.js'
+import { listEvidencePackageIds, restrictEvidencePackageImages, selectEvidencePackage } from './evidence-selector.js'
+import { createEvidenceFingerprint } from './input-fingerprint.js'
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
   buildCompactDesignInterpretationPrompt,
@@ -34,6 +30,8 @@ export interface InterpretationProviderConfig {
   apiKey: string
   baseUrl?: string
   model?: string
+  reasoningEffort?: string
+  thinkingEnabled?: boolean
 }
 
 export interface InterpretEvidenceOptions {
@@ -54,6 +52,8 @@ export interface InterpretationInvokeResult {
   durationMs?: number
   retriedWithoutThinking?: boolean
   finishReason?: string
+  transportAttempts?: number
+  transportMs?: number
   usage?: {
     input?: number
     output?: number
@@ -83,6 +83,8 @@ export interface CallDetail {
   output?: number
   cached?: boolean
   durationMs?: number
+  transportAttempts?: number
+  transportMs?: number
 }
 
 /** @deprecated The default interpretation path no longer runs or caches an observation pass. */
@@ -152,6 +154,8 @@ export async function runInterpretationPipeline(
       input: response.usage?.input,
       output: response.usage?.output,
       durationMs: aiInvokeMs,
+      transportAttempts: response.transportAttempts,
+      transportMs: response.transportMs,
     },
   ]
   if (!response.text) throw new Error('DesignProfile output is empty')
@@ -207,8 +211,12 @@ export async function runInterpretationPipeline(
     timing: {
       digestMs,
       imageSummaryMs: 0,
+      aiQueueMs: 0,
       aiInvokeMs,
+      aiNetworkMs: response.transportMs,
+      aiTransportAttempts: response.transportAttempts,
       validationMs,
+      aiTotalMs: Date.now() - startedAt,
       totalMs: Date.now() - startedAt,
       aiInputTokens: response.usage?.input,
       aiOutputTokens: response.usage?.output,
@@ -230,6 +238,9 @@ export async function interpretDesignEvidence(
   }
   const timeoutSignal = AbortSignal.timeout(300_000)
   let evidencePackage = selectEvidencePackage(evidence, options.mode)
+  if (evidencePackage.evidence.pages.length === 0) {
+    throw new Error('No page passed the AI evidence health gate')
+  }
   const selectedImageIds = new Set(evidencePackage.imageIds)
   const images =
     options.mode === 'multimodal'
@@ -257,7 +268,10 @@ export async function interpretDesignEvidence(
           baseUrl: options.provider.baseUrl,
           model: options.provider.model,
           signal: timeoutSignal,
+          reasoningEffort: options.provider.reasoningEffort,
+          thinkingEnabled: options.provider.thinkingEnabled,
           maxOutputTokens: 4096,
+          allowThinkingFallback: false,
         },
         prompt,
         passImages,

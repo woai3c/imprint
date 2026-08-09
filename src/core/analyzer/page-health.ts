@@ -17,6 +17,8 @@ export interface PageHealthIssue {
     | 'error-page'
     | 'rate-limited'
     | 'unexpected-navigation'
+    | 'health-recovery-failed'
+    | 'health-recovery-timeout'
   severity: 'warning' | 'error'
   recoverable: boolean
   detail?: string
@@ -31,6 +33,7 @@ export interface PageHealthReport {
   content: { width: number; height: number }
   overlayAreaRatio: number
   mutationCount: number
+  aiEligible: boolean
   issues: PageHealthIssue[]
 }
 
@@ -45,6 +48,25 @@ function sameOrigin(first: string, second: string): boolean {
   } catch {
     return first === second
   }
+}
+
+const AI_UNSAFE_HEALTH_CODES = new Set<PageHealthIssue['code']>([
+  'large-overlay',
+  'main-content-empty',
+  'skeleton-heavy',
+  'fonts-not-ready',
+  'dom-still-mutating',
+  'auth-wall',
+  'captcha',
+  'error-page',
+  'rate-limited',
+  'unexpected-navigation',
+  'health-recovery-failed',
+  'health-recovery-timeout',
+])
+
+export function isPageHealthAiEligible(report: Pick<PageHealthReport, 'status' | 'issues'>): boolean {
+  return report.status !== 'unusable' && !report.issues.some((issue) => AI_UNSAFE_HEALTH_CODES.has(issue.code))
 }
 
 export async function inspectPageHealth(page: Page, options: PageHealthOptions): Promise<PageHealthReport> {
@@ -163,7 +185,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     : issues.length > 0
       ? 'degraded'
       : 'healthy'
-  return {
+  const report: PageHealthReport = {
     status,
     checkedAt: new Date().toISOString(),
     recovered: false,
@@ -172,15 +194,45 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     content: { width: facts.contentWidth, height: facts.contentHeight },
     overlayAreaRatio: facts.overlayAreaRatio,
     mutationCount: facts.mutationCount,
+    aiEligible: false,
     issues,
   }
+  report.aiEligible = isPageHealthAiEligible(report)
+  return report
 }
 
 export async function ensurePageHealth(page: Page, options: PageHealthOptions): Promise<PageHealthReport> {
   const initial = await inspectPageHealth(page, options)
   if (!initial.issues.some((issue) => issue.recoverable)) return initial
 
-  await preparePageForExtraction(page, { recovery: true })
-  const recovered = await inspectPageHealth(page, options)
-  return { ...recovered, recovered: recovered.issues.length < initial.issues.length, attempts: 2 }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new Error('page health recovery exceeded 8000ms')), 8_000)
+  try {
+    const recovery = (async () => {
+      await preparePageForExtraction(page, { recovery: true, signal: controller.signal })
+      if (controller.signal.aborted) throw controller.signal.reason
+      return inspectPageHealth(page, options)
+    })()
+    const recovered = await Promise.race([
+      recovery,
+      new Promise<never>((_resolve, reject) =>
+        controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }),
+      ),
+    ])
+    return { ...recovered, recovered: recovered.issues.length < initial.issues.length, attempts: 2 }
+  } catch (error) {
+    const timedOut = controller.signal.aborted
+    const issues: PageHealthIssue[] = [
+      ...initial.issues,
+      {
+        code: timedOut ? 'health-recovery-timeout' : 'health-recovery-failed',
+        severity: 'warning',
+        recoverable: false,
+        detail: timedOut ? '8000ms' : error instanceof Error ? error.message : String(error),
+      },
+    ]
+    return { ...initial, aiEligible: false, attempts: 2, issues }
+  } finally {
+    clearTimeout(timeout)
+  }
 }

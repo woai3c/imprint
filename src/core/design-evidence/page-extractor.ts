@@ -235,9 +235,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return tag === 'MAIN' || tag === 'ARTICLE' || tag === 'SECTION' ? 'content' : 'unknown'
     }
 
-    const pageRole = (): 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'unknown' => {
+    const pageRole = (): 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'workspace' | 'unknown' => {
       const path = location.pathname.toLowerCase()
       if (/\/(pricing|plans|billing)(\/|$)/.test(path)) return 'pricing'
+      if (/\/(workspace|editor|studio|console)(\/|$)/.test(path)) return 'workspace'
       if (/\/(account|profile|settings|dashboard)(\/|$)/.test(path)) return 'account'
       if (/\/(product|products|features)(\/|$)/.test(path)) return 'product'
       if (/\/(article|blog|docs|guide|about)(\/|$)/.test(path)) return 'content'

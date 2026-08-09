@@ -320,41 +320,48 @@ async function waitForDomQuiet(page: Page, maximumMs = 1_800, quietMs = 250): Pr
  */
 export async function preparePageForExtraction(
   page: Page,
-  options: { recovery?: boolean } = {},
+  options: { recovery?: boolean; signal?: AbortSignal } = {},
 ): Promise<PagePreparationResult> {
   const issues: PagePreparationIssue[] = []
   let dismissedObstructions = 0
   let hiddenObstructions = 0
+  const active = () => !options.signal?.aborted
 
   try {
+    if (!active()) throw options.signal?.reason
     await waitForFonts(page, options.recovery ? 1_500 : 5_000)
   } catch (error) {
     issues.push({ stage: 'fonts', reason: reasonFrom(error) })
   }
   try {
+    if (!active()) throw options.signal?.reason
     hiddenObstructions += await hideConsentObstructions(page)
     dismissedObstructions += await dismissTransientObstructions(page)
   } catch (error) {
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }
   try {
+    if (!active()) throw options.signal?.reason
     if (!options.recovery) await triggerLazyContent(page)
   } catch (error) {
     issues.push({ stage: 'lazy-content', reason: reasonFrom(error) })
   }
   try {
+    if (!active()) throw options.signal?.reason
     hiddenObstructions += await hideConsentObstructions(page)
     dismissedObstructions += await dismissTransientObstructions(page)
   } catch (error) {
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }
   try {
+    if (!active()) throw options.signal?.reason
     await waitForDomQuiet(page, options.recovery ? 1_000 : 1_800, options.recovery ? 250 : 500)
   } catch (error) {
     issues.push({ stage: 'settle', reason: reasonFrom(error) })
   }
 
   try {
+    if (!active()) throw options.signal?.reason
     const hiddenAfterSettle = await hideConsentObstructions(page)
     const dismissedAfterSettle = await dismissTransientObstructions(page)
     hiddenObstructions += hiddenAfterSettle

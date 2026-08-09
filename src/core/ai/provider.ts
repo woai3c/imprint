@@ -33,6 +33,8 @@ export interface AiResponse {
   retriedWithoutThinking?: boolean
   // Provider stop reason (e.g. 'stop', 'length'); 'length' means the answer was truncated.
   finishReason?: string
+  transportAttempts?: number
+  transportMs?: number
   usage?: {
     input?: number
     output?: number
@@ -373,17 +375,40 @@ function isRetryableProviderError(error: unknown): boolean {
   return /HTTP (?:429|5\d\d)|fetch failed|network|ECONNRESET|ETIMEDOUT/i.test(error.message)
 }
 
+function withTransportMetadata(error: unknown, transportAttempts: number, transportMs: number): Error {
+  const result = error instanceof Error ? error : new Error(String(error))
+  Object.assign(result, { transportAttempts, transportMs })
+  return result
+}
+
 async function callAiProviderWithHttpRetry(
   config: AiProviderConfig,
   prompt: string,
   images: AiImageInput[],
 ): Promise<AiResponse> {
+  let transportAttempts = 0
+  let transportMs = 0
+  const attempt = async () => {
+    transportAttempts += 1
+    const startedAt = Date.now()
+    try {
+      return await callAiProviderOnce(config, prompt, images)
+    } finally {
+      transportMs += Date.now() - startedAt
+    }
+  }
   try {
-    return await callAiProviderOnce(config, prompt, images)
+    const response = await attempt()
+    return { ...response, transportAttempts, transportMs }
   } catch (error: unknown) {
-    if (!isRetryableProviderError(error)) throw error
+    if (!isRetryableProviderError(error)) throw withTransportMetadata(error, transportAttempts, transportMs)
     await new Promise((resolve) => setTimeout(resolve, 250))
-    return callAiProviderOnce(config, prompt, images)
+    try {
+      const response = await attempt()
+      return { ...response, transportAttempts, transportMs }
+    } catch (retryError) {
+      throw withTransportMetadata(retryError, transportAttempts, transportMs)
+    }
   }
 }
 
@@ -404,6 +429,13 @@ export async function callAiProvider(
     // instead of failing the entire run and discarding the tokens already spent.
     const fallback = await callAiProviderWithHttpRetry({ ...config, thinkingEnabled: false }, prompt, images)
     fallback.retriedWithoutThinking = true
+    fallback.transportAttempts = (response.transportAttempts || 0) + (fallback.transportAttempts || 0)
+    fallback.transportMs = (response.transportMs || 0) + (fallback.transportMs || 0)
+    fallback.usage = {
+      input: (response.usage?.input || 0) + (fallback.usage?.input || 0),
+      output: (response.usage?.output || 0) + (fallback.usage?.output || 0),
+      reasoning: (response.usage?.reasoning || 0) + (fallback.usage?.reasoning || 0),
+    }
     return fallback
   }
   return response

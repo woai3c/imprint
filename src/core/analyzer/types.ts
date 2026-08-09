@@ -65,6 +65,8 @@ export interface ExtractionIssue {
 }
 
 export interface AnalysisTiming {
+  programTotalMs?: number
+  aiTotalMs?: number
   browserMs?: number
   preparationMs?: number
   extractionMs?: number
@@ -72,6 +74,8 @@ export interface AnalysisTiming {
   digestMs: number
   imageSummaryMs: number
   aiQueueMs?: number
+  aiNetworkMs?: number
+  aiTransportAttempts?: number
   aiInvokeMs: number
   validationMs: number
   totalMs: number

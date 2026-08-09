@@ -490,6 +490,40 @@ describe('Design intelligence', () => {
     expect(checked.profile.uncertainties.some((item) => item.topic === 'Deterministic contradiction check')).toBe(true)
   })
 
+  it('removes false extrema and color-role claims instead of retaining them as low-confidence facts', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.visualLanguage.typography.statement = 'The maximum font weight is 400.'
+    profile.visualLanguage.typography.implementation = 'Cap every heading at font-weight 400.'
+    profile.visualLanguage.color.statement = '#2563eb is the background color for neutral page surfaces.'
+    profile.visualLanguage.color.implementation = 'Fill all page backgrounds with #2563eb.'
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.tokens.evidence = {
+      'colors.primary': {
+        value: '#2563eb',
+        confidence: 'high',
+        observationCount: 8,
+        pageCount: 1,
+        captureCount: 1,
+        pages: ['https://example.com/'],
+        sources: ['usage:primary-action-color'],
+        reasons: ['rendered-use'],
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('font-weight-boundary-contradiction'),
+        expect.stringContaining('color-role-contradiction'),
+      ]),
+    )
+    expect(checked.profile.visualLanguage.typography.statement).not.toContain('maximum font weight is 400')
+    expect(checked.profile.visualLanguage.color.statement).not.toContain('background color')
+    expect(checked.profile.visualLanguage.typography.confidence).toBe('low')
+    expect(checked.profile.visualLanguage.color.confidence).toBe('low')
+  })
+
   it('resolves misplaced token citations back to selected DOM evidence', () => {
     const raw = rawProfile()
     raw.composition.densityAndWhitespace = {
@@ -782,6 +816,73 @@ describe('Design intelligence', () => {
     expect(createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'zh-CN')).not.toBe(
       createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'en'),
     )
+  })
+
+  it('invalidates the evidence fingerprint for every material digest and visual-summary change', () => {
+    const structuralFingerprint = (candidate: DesignEvidence) =>
+      createEvidenceFingerprint(candidate, 'structural-only', 'openai', 'gpt-4o')
+    const base = structuralFingerprint(evidence)
+
+    const componentChanged = structuredClone(evidence)
+    componentChanged.components[0].styles.borderRadius = '12px'
+    expect(structuralFingerprint(componentChanged)).not.toBe(base)
+
+    const layoutChanged = structuredClone(evidence)
+    layoutChanged.layoutNodes = [
+      {
+        id: 'layout-a',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        role: 'heading',
+        rect: { x: 0.2, y: 0.2, width: 0.5, height: 0.1 },
+        textRole: 'display',
+        tokenRefs: ['typography.font-size.1'],
+        traits: ['text-length:short'],
+      },
+    ]
+    expect(structuralFingerprint(layoutChanged)).not.toBe(base)
+
+    const mediaChanged = structuredClone(evidence)
+    mediaChanged.mediaLayers = [
+      {
+        id: 'media-a',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        kind: 'image',
+        role: 'product',
+        importance: 'major',
+        rect: { x: 0.5, y: 0.2, width: 0.4, height: 0.3 },
+      },
+    ]
+    expect(structuralFingerprint(mediaChanged)).not.toBe(base)
+
+    const healthChanged = structuredClone(evidence)
+    healthChanged.pages[0].health = {
+      status: 'degraded',
+      checkedAt: '2026-08-09T00:00:00.000Z',
+      recovered: false,
+      attempts: 1,
+      viewport: { width: 1_440, height: 900 },
+      content: { width: 1_444, height: 1_600 },
+      overlayAreaRatio: 0,
+      mutationCount: 0,
+      aiEligible: true,
+      issues: [{ code: 'horizontal-overflow', severity: 'warning', recoverable: false }],
+    }
+    expect(structuralFingerprint(healthChanged)).not.toBe(base)
+
+    const visualChanged = structuredClone(evidence)
+    visualChanged.pages[0].images[0].aiSummary = {
+      version: '2',
+      path: 'C:\\private\\capture.ai-v2.jpeg',
+      width: 1_440,
+      height: 1_500,
+      bytes: 120_000,
+      contentHash: 'summary-a',
+    }
+    const visualBase = createEvidenceFingerprint(visualChanged, 'multimodal', 'openai', 'gpt-4o', ['image-a'])
+    visualChanged.pages[0].images[0].aiSummary!.contentHash = 'summary-b'
+    expect(createEvidenceFingerprint(visualChanged, 'multimodal', 'openai', 'gpt-4o', ['image-a'])).not.toBe(visualBase)
   })
 
   it('invalidates the persistent interpretation cache for every material input', () => {

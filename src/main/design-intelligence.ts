@@ -5,6 +5,7 @@ import path from 'node:path'
 import { nativeImage, net } from 'electron'
 
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
+import { loadEvidenceImageFiles, loadEvidenceImageInputs } from '../core/ai/image-summary.js'
 import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
 import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import {
@@ -259,7 +260,10 @@ function prepareAiImage(filePath: string): PreparedAiImage | null {
 }
 
 function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiImageInput[] {
-  return selectAvailableImages(evidence, imageIds).flatMap((image) => {
+  const shared = loadEvidenceImageInputs(evidence, imageIds)
+  const sharedIds = new Set(shared.map((image) => image.name.replace(/\.[^.]+$/, '')))
+  const fallback = selectAvailableImages(evidence, imageIds).flatMap((image) => {
+    if (sharedIds.has(image.id)) return []
     const prepared = prepareAiImage(image.path)
     return prepared
       ? [
@@ -271,14 +275,19 @@ function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiIma
         ]
       : []
   })
+  return [...shared, ...fallback]
 }
 
 function collectSelectedImageFiles(evidence: DesignEvidence, imageIds: string[]): AgentCliImageInput[] {
-  return selectAvailableImages(evidence, imageIds).flatMap((image) => {
+  const shared = loadEvidenceImageFiles(evidence, imageIds)
+  const sharedIds = new Set(shared.map((image) => image.name.replace(/\.[^.]+$/, '')))
+  const fallback = selectAvailableImages(evidence, imageIds).flatMap((image) => {
+    if (sharedIds.has(image.id)) return []
     const prepared = prepareAiImage(image.path)
     if (!prepared) return []
     return [{ name: image.name.replace(/\.[^.]+$/, '.jpeg'), sourcePath: prepared.sourcePath }]
   })
+  return [...shared, ...fallback]
 }
 
 function failureCode(error: unknown, timedOut = false): string {
@@ -411,6 +420,25 @@ export async function runDesignIntelligence(
   const imageStartedAt = Date.now()
   let route = chooseDesignIntelligenceRoute(settings, evidence)
   let evidencePackage = selectEvidencePackage(evidence, route.mode)
+  if (evidencePackage.evidence.pages.length === 0) {
+    return {
+      tokens,
+      profile: null,
+      reconstructionBrief: null,
+      validationReport: null,
+      meta: {
+        status: 'skipped',
+        capabilityLevel: 'evidence-only',
+        inputMode: 'structural-only',
+        provider: route.provider,
+        model: route.model,
+        schemaVersion: '1',
+        promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
+        failureCode: 'no-ai-eligible-pages',
+        failureReason: 'No page passed the AI evidence health gate.',
+      },
+    }
+  }
   evidencePackage.imageSelection.forEach((selection, index) => {
     log.info(
       'design-intelligence',
@@ -506,31 +534,45 @@ export async function runDesignIntelligence(
       )
       let result: Awaited<ReturnType<InterpretationInvoke>>
       const invokeStart = Date.now()
-      if (settings.aiMode === 'apiKey') {
-        const thinking = settings.thinkingEnabled === true
-        result = await callAiProvider(
-          {
-            ...providerConfig,
-            maxOutputTokens: thinking ? 8192 : 4096,
-          },
-          taskPrompt,
-          passImages,
-        )
-      } else {
-        const passCliImages = passImages.flatMap((image) => {
-          const imageId = image.name.replace(/\.[^.]+$/, '')
-          const cliImage =
-            cliImageByName.get(image.name) || cliImageByStableId.get(imageId) || cliImageByShortId.get(imageId)
-          return cliImage ? [cliImage] : []
-        })
-        const cliText = await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)
-        result = {
-          text: cliText || '',
-          model: settings.agentCli,
+      try {
+        if (settings.aiMode === 'apiKey') {
+          const thinking = settings.thinkingEnabled === true
+          result = await callAiProvider(
+            {
+              ...providerConfig,
+              maxOutputTokens: thinking ? 8192 : 4096,
+            },
+            taskPrompt,
+            passImages,
+          )
+        } else {
+          const passCliImages = passImages.flatMap((image) => {
+            const imageId = image.name.replace(/\.[^.]+$/, '')
+            const cliImage =
+              cliImageByName.get(image.name) || cliImageByStableId.get(imageId) || cliImageByShortId.get(imageId)
+            return cliImage ? [cliImage] : []
+          })
+          const cliText = await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)
+          result = {
+            text: cliText || '',
+            model: settings.agentCli,
+            transportAttempts: 1,
+          }
         }
+      } catch (error) {
+        const invokeMs = Date.now() - invokeStart
+        const transportError = error as Error & { transportAttempts?: number; transportMs?: number }
+        accumulatedCallDetails.push({
+          pass,
+          durationMs: invokeMs,
+          transportAttempts: transportError.transportAttempts || 1,
+          transportMs: transportError.transportMs ?? invokeMs,
+        })
+        throw error
       }
       const invokeMs = Date.now() - invokeStart
       result.durationMs = invokeMs
+      result.transportMs = result.transportMs ?? invokeMs
       log.info(
         'design-intelligence',
         `invoke #${invokeCount} done: ${invokeMs}ms tokens=${result.usage?.input || 0}+${result.usage?.output || 0}${result.usage?.reasoning ? ` reasoning=${result.usage.reasoning}` : ''} textLen=${result.text.length}${result.retriedWithoutThinking ? ' fallback=no-thinking' : ''}${result.finishReason && !/^(?:stop|end_turn)$/i.test(result.finishReason) ? ` finish=${result.finishReason}` : ''}`,
@@ -543,6 +585,8 @@ export async function runDesignIntelligence(
         input: result.usage?.input,
         output: result.usage?.output,
         durationMs: invokeMs,
+        transportAttempts: result.transportAttempts,
+        transportMs: result.transportMs,
       })
       return result
     }
@@ -603,6 +647,7 @@ export async function runDesignIntelligence(
         timing: {
           ...result.timing,
           imageSummaryMs,
+          aiTotalMs: Date.now() - runStartedAt,
           totalMs: Date.now() - runStartedAt,
         },
         rejected: result.rejected,
@@ -642,8 +687,12 @@ export async function runDesignIntelligence(
         timing: {
           digestMs: 0,
           imageSummaryMs,
+          aiQueueMs: 0,
+          aiNetworkMs: accumulatedCallDetails.reduce((sum, detail) => sum + (detail.transportMs || 0), 0),
+          aiTransportAttempts: accumulatedCallDetails.reduce((sum, detail) => sum + (detail.transportAttempts || 0), 0),
           aiInvokeMs: accumulatedCallDetails.reduce((sum, detail) => sum + (detail.durationMs || 0), 0),
           validationMs: 0,
+          aiTotalMs: Date.now() - runStartedAt,
           totalMs: Date.now() - runStartedAt,
           aiInputTokens: accumulatedUsage.input || undefined,
           aiOutputTokens: accumulatedUsage.output || undefined,

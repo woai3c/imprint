@@ -24,7 +24,6 @@ export type {
 export { extractObservationCandidate, validateSectionObservations } from './observation-pass.js'
 export type { ObservationValidationResult } from './observation-pass.js'
 export {
-  createEvidenceFingerprint,
   createStructuralFingerprint,
   listEvidenceIds,
   listEvidencePackageIds,
@@ -33,6 +32,7 @@ export {
   restrictEvidencePackageImages,
   selectEvidencePackage,
 } from './evidence-selector.js'
+export { createEvidenceFingerprint } from './input-fingerprint.js'
 export {
   DESIGN_PROFILE_PROMPT_VERSION,
   DESIGN_PROFILE_PROMPT_CHAR_LIMIT,

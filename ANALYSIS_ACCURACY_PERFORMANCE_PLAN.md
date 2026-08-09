@@ -12,6 +12,7 @@
 - API 路径默认输出上限为 4096 token，默认视觉输入最多 2 张，每张硬限制为 1600×1600、250KB；设计解读不会因 thinking 截断自动再次请求；
 - AI 解读和程序提取均已记录分阶段耗时、token、图片数量和预算超限；本地 SQLite 可复用完整解读结果；
 - 页面健康门检、自适应单子页 mobile、安全交互、确定性矛盾校验、可选组件规格/视觉 QA 和显式深度复核均已落地；
+- 2026-08-09 复审提出的 5 个 P1 与 2 个 P2 已逐项修复，并增加缓存、图片、污染页、矛盾、重试和自适应捕获回归用例；
 - 单元测试、类型检查、ESLint、Electron/CLI 构建、浏览器 E2E 和 15 个 fixture 的离线 benchmark 已通过；在线 AI 配对 benchmark 尚未执行。
 
 ## 1. 目标
@@ -534,7 +535,7 @@ pnpm test:benchmark
 | 单次 synthesis 缺少 observation 的局部细节 | 由程序生成 section/component 聚合摘要；在线 benchmark 对照  |
 | 紧凑输出丢失表达能力                       | claim pool 只压缩结构，不压缩必要语义；程序展开成兼容 V1    |
 | 图片减少导致视觉风格判断退化               | 使用页面级摘要 + 增量区域，按信息增益而非固定首页选图       |
-| 自适应 mobile 捕获增加程序耗时             | 总预算 20 秒，最多一个额外页面，达到软上限立即停止          |
+| 自适应 mobile 捕获增加程序耗时             | 总预算 20 秒，最多一个额外页面，达到硬 deadline 立即停止    |
 | 本地矛盾校验过严                           | 降为 uncertainty 优先于整条失败；保留 rejected 原因用于调试 |
 | 缓存返回旧结果                             | 内容 hash + prompt/schema/model/语言完整参与 key            |
 | 供应商速度波动                             | 独立记录 queue/invoke；超时返回确定性 evidence fallback     |
@@ -560,3 +561,17 @@ pnpm test:benchmark
 4. 新流程在固定 benchmark 上质量不低于当前版本。
 5. 用户在常见网络与低推理强度模型下，首次完整结果 P50 不超过 4 分钟。
 6. 任何额外 AI 深度分析都必须由用户主动触发，并明确提示时间成本。
+
+## 12. 2026-08-09 复审问题关闭记录
+
+| 问题                       | 修复结果                                                                                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-01 缓存输入不完整       | cache key 现在基于最终裁剪后的 `AnalysisDigest`、实际外发图片摘要 hash/版本、input mode、provider/model、reasoning、thinking、语言及 prompt/schema；同记录快捷命中也必须匹配完整 key。               |
+| P1-02 污染页进入 AI        | 活动弹层先尝试安全关闭；不可用或 `aiEligible=false` 页面及其 section/component/layout/interaction/image/token 不进入 AI 包。健康恢复硬限 8 秒，无合格页面时直接跳过 AI。                             |
+| P1-03 CLI/MCP 原图绕过预算 | 图片摘要移到共享 core，Desktop、CLI、MCP、benchmark 共用最多 2 张、单张 1600×1600/250KB 的内容哈希 JPEG；第二张必须满足信息增益与 4,000 visual-token 总预算。                                        |
+| P1-04 硬矛盾残留           | 增加最大/最小/范围/数量、颜色用途、overflow、passive interaction、managed auth 与 dark palette 规则；可证明为假的 claim 被移除或替换为明确 uncertainty。                                             |
+| P1-05 benchmark 不足       | `baseline.json` 保存每 fixture 七维下限；在线档以相同 provider/model/reasoning 配置成对执行 legacy 双阶段和当前单阶段各 5 轮，并对质量、失败/repair、AI 与总耗时 P50/P95 执行门槛。                  |
+| P2-01 timing 分裂          | Desktop、CLI、MCP 返回统一端到端 timing，区分程序、AI、network、logical invoke 与 HTTP transport attempts；缓存命中归零 AI 时间，强制重跑不会重复累计旧 AI 时间。                                    |
+| P2-02 自适应预算不实       | mobile 信号改为新增 breakpoint/container query、DOM 结构距离、overflow 与 product/pricing/account/workspace 角色；单页 mobile 20 秒和整体 120 秒使用真实 deadline，安全交互为每项 1.5 秒/总计 6 秒。 |
+
+本地确定性验收已完成。真实供应商在线配对 benchmark 需要用户配置 API 凭据后执行，未执行前不宣称已经验证外部模型质量和实际 AI P50/P95。

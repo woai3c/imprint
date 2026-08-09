@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
 
+import {
+  AI_IMAGE_MAX_HEIGHT,
+  AI_IMAGE_MAX_WIDTH,
+  AI_VISUAL_TOKEN_BUDGET,
+  estimateVisualTokens,
+} from '../ai/image-summary.js'
+import { createEvidenceId } from '../design-evidence/stable-id.js'
 import type {
   ComponentEvidence,
   DesignEvidence,
@@ -18,6 +25,7 @@ export interface EvidenceSelectionBudget {
   maxResponsiveObservations: number
   maxMediaLayers: number
   maxImages: number
+  maxVisualTokens: number
 }
 
 const DEFAULT_BUDGET: EvidenceSelectionBudget = {
@@ -29,44 +37,7 @@ const DEFAULT_BUDGET: EvidenceSelectionBudget = {
   maxResponsiveObservations: 24,
   maxMediaLayers: 24,
   maxImages: 2,
-}
-
-export function createEvidenceFingerprint(
-  evidence: DesignEvidence,
-  inputMode: IntelligenceInputMode,
-  provider: string,
-  model: string,
-  selectedImageIds?: Iterable<string>,
-  promptVersion = '1',
-  profileSchemaVersion = '1',
-  language: 'en' | 'zh-CN' = 'en',
-): string {
-  const selectedImages =
-    inputMode === 'multimodal'
-      ? new Set(selectedImageIds || selectEvidencePackage(evidence, inputMode).imageIds)
-      : new Set<string>()
-  const source = JSON.stringify({
-    schemaVersion: evidence.schemaVersion,
-    profileSchemaVersion,
-    promptVersion,
-    language,
-    tokens: evidence.tokens,
-    topology: evidence.topology,
-    sections: evidence.sections,
-    interactions: evidence.interactionObservations,
-    responsive: evidence.responsiveObservations,
-    images:
-      inputMode === 'multimodal'
-        ? evidence.pages.flatMap((page) =>
-            page.images
-              .filter((image) => selectedImages.has(image.id))
-              .map((image) => ({ id: image.id, contentHash: image.contentHash })),
-          )
-        : [],
-    provider,
-    model,
-  })
-  return createHash('sha256').update(source).digest('hex')
+  maxVisualTokens: AI_VISUAL_TOKEN_BUDGET,
 }
 
 /**
@@ -334,6 +305,12 @@ function selectRepresentativePages<T extends { url: string; viewport: string }>(
   return result
 }
 
+function expectedSummarySize(width: number, height: number): { width: number; height: number } {
+  const croppedHeight = height / Math.max(width, 1) > 2.5 ? Math.min(height, Math.round(width * 1.5)) : height
+  const scale = Math.min(AI_IMAGE_MAX_WIDTH / width, AI_IMAGE_MAX_HEIGHT / croppedHeight, 1)
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(croppedHeight * scale)) }
+}
+
 interface ImageSelection {
   id: string
   score: number
@@ -347,11 +324,19 @@ function selectRepresentativeImages(
     url: string
     role?: string
     horizontalOverflow?: boolean
-    health?: { status: string }
-    images: { id: string; kind: string; width: number; height: number; sectionId?: string }[]
+    health?: { status: string; aiEligible?: boolean }
+    images: Array<{
+      id: string
+      kind: string
+      width: number
+      height: number
+      sectionId?: string
+      aiSummary?: { width: number; height: number }
+    }>
   }[],
   evidence: DesignEvidence,
   maxImages: number,
+  maxVisualTokens: number,
 ): ImageSelection[] {
   if (maxImages <= 0 || pages.length === 0) return []
 
@@ -410,7 +395,16 @@ function selectRepresentativeImages(
         }
         if (majorMediaSections.has(image.sectionId || '')) score += 10
 
-        return { ...image, page, score, reason, isSalientRegion }
+        const summarySize = image.aiSummary || expectedSummarySize(image.width, image.height)
+
+        return {
+          ...image,
+          page,
+          score,
+          reason,
+          isSalientRegion,
+          visualTokens: estimateVisualTokens(summarySize.width, summarySize.height),
+        }
       }),
     )
 
@@ -440,7 +434,7 @@ function selectRepresentativeImages(
         return { ...candidate, informationGain, totalScore: candidate.score + informationGain }
       })
       .sort((a, b) => b.totalScore - a.totalScore || a.id.localeCompare(b.id))[0]
-    if (second) {
+    if (second && second.informationGain >= 24 && first.visualTokens + second.visualTokens <= maxVisualTokens) {
       selected.push({
         ...second,
         score: second.totalScore,
@@ -481,7 +475,10 @@ export function selectEvidencePackage(
   budget: Partial<EvidenceSelectionBudget> = {},
 ): EvidencePackage {
   const limits = { ...DEFAULT_BUDGET, ...budget }
-  const pages = selectRepresentativePages(evidence.pages, limits.maxPages)
+  const eligiblePages = evidence.pages.filter(
+    (page) => page.health?.status !== 'unusable' && page.health?.aiEligible !== false,
+  )
+  const pages = selectRepresentativePages(eligiblePages, limits.maxPages)
   const selectedPageIds = pages.map((page) => page.id)
   const pageUrlMap = new Map(pages.map((page) => [page.id, page.url]))
   const sectionDedup = new Set<string>()
@@ -520,10 +517,14 @@ export function selectEvidencePackage(
     .filter((media) => selectedSectionIds.includes(media.sectionId))
     .sort((a, b) => (mediaImportanceRank[a.importance] ?? 1) - (mediaImportanceRank[b.importance] ?? 1))
     .slice(0, limits.maxMediaLayers)
-  const imageSelection = inputMode === 'multimodal' ? selectRepresentativeImages(pages, evidence, limits.maxImages) : []
+  const imageSelection =
+    inputMode === 'multimodal'
+      ? selectRepresentativeImages(pages, evidence, limits.maxImages, limits.maxVisualTokens)
+      : []
   const imageIds = imageSelection.map((selection) => selection.id)
 
   const omittedEvidence: EvidencePackage['omittedEvidence'] = []
+  if (eligiblePages.length < evidence.pages.length) omittedEvidence.push({ kind: 'pages', reason: 'unsafe' })
   if (evidence.pages.length > pages.length) omittedEvidence.push({ kind: 'pages', reason: 'budget' })
   if (evidence.sections.length > sections.length) omittedEvidence.push({ kind: 'sections', reason: 'budget' })
   if (evidence.components.length > components.length) omittedEvidence.push({ kind: 'components', reason: 'budget' })
@@ -549,6 +550,15 @@ export function selectEvidencePackage(
         sectionIds: page.sectionIds.filter((sectionId) => selectedSectionIds.includes(sectionId)),
       })),
     globalLayers: evidence.topology.globalLayers.filter((layer) => selectedPageIds.includes(layer.pageId)),
+    crossPagePatternIds: [...new Set(sections.map((section) => section.role))].flatMap((role) => {
+      const urls = new Set(
+        sections
+          .filter((section) => section.role === role)
+          .map((section) => pageUrlMap.get(section.pageId))
+          .filter((url): url is string => Boolean(url)),
+      )
+      return urls.size >= 2 ? [createEvidenceId('pattern', 'section-role', role)] : []
+    }),
   }
   const usageCount = Object.fromEntries(
     Object.entries(evidence.tokens.usageCount || {})
@@ -595,6 +605,7 @@ export function selectEvidencePackage(
         health: page.health
           ? {
               status: page.health.status,
+              aiEligible: page.health.aiEligible,
               issues: page.health.issues.map(({ code, severity }) => ({ code, severity })),
             }
           : undefined,

@@ -10,19 +10,18 @@
  * - imprint_extract: Extract design tokens from a URL
  * - imprint_compare: Compare design systems of two URLs
  */
-import fs from 'node:fs'
 import * as readline from 'node:readline'
 
 import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
+import { loadEvidenceImageInputs } from '../core/ai/image-summary.js'
 import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
-import type { AiImageInput } from '../core/ai/provider.js'
+import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
 import { compareDesignProfiles } from '../core/design-intelligence/profile-compare.js'
-import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
 import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
 import {
   buildDarkModeExportData,
@@ -134,37 +133,12 @@ const TOOLS = [
   },
 ]
 
-function loadEvidenceImages(evidence: DesignEvidence, mode: IntelligenceInputMode): AiImageInput[] {
+function loadEvidenceImages(evidence: DesignEvidence, mode: IntelligenceInputMode) {
   if (mode !== 'multimodal') return []
-  const imageIds = new Set(selectEvidencePackage(evidence, mode).imageIds)
-  let totalBytes = 0
-  return evidence.pages.flatMap((page) =>
-    page.images.flatMap((image) => {
-      if (!imageIds.has(image.id) || !fs.existsSync(image.path)) return []
-      const size = fs.statSync(image.path).size
-      if (size > 8 * 1024 * 1024 || totalBytes + size > 24 * 1024 * 1024) return []
-      totalBytes += size
-      const mimeType: AiImageInput['mimeType'] = /\.jpe?g$/i.test(image.path)
-        ? 'image/jpeg'
-        : /\.webp$/i.test(image.path)
-          ? 'image/webp'
-          : 'image/png'
-      return [
-        {
-          name: `${image.id}.${mimeType.split('/')[1]}`,
-          mimeType,
-          base64: fs.readFileSync(image.path).toString('base64'),
-        },
-      ]
-    }),
-  )
+  return loadEvidenceImageInputs(evidence, selectEvidencePackage(evidence, mode).imageIds)
 }
 
-async function interpretResult(
-  evidence: DesignEvidence,
-  params: Record<string, unknown>,
-  mode: IntelligenceInputMode,
-): Promise<DesignProfile> {
+async function interpretResult(evidence: DesignEvidence, params: Record<string, unknown>, mode: IntelligenceInputMode) {
   const provider = String(params.provider || '')
   const apiKey = providerApiKeyFromEnv(provider)
   if (!provider || !apiKey) {
@@ -184,7 +158,7 @@ async function interpretResult(
     },
     images: loadEvidenceImages(evidence, mode),
   })
-  return result.profile
+  return result
 }
 
 async function handleToolCall(name: string, params: Record<string, unknown>): Promise<unknown> {
@@ -320,6 +294,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
       throw new Error('The selected model is not declared vision-capable')
     }
     let designEvidence: DesignEvidence
+    let programTiming: Awaited<ReturnType<typeof analyze>>['timing'] | undefined
     if (params.evidence) {
       if (requestedMode === 'multimodal') {
         throw new Error('Existing evidence objects are structural-only because MCP-supplied file paths are not trusted')
@@ -336,9 +311,27 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
         dataDir,
       })
       designEvidence = result.designEvidence
+      programTiming = result.timing
     }
-    const profile = await interpretResult(designEvidence, params, requestedMode)
-    return { content: [{ type: 'text', text: generateDesignProfileJson(profile) }] }
+    const interpreted = await interpretResult(designEvidence, params, requestedMode)
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              profile: interpreted.profile,
+              interpretation: interpreted.meta,
+              ...(programTiming
+                ? { analysisTiming: mergeAnalysisTimings(programTiming, interpreted.meta.timing) }
+                : {}),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    }
   }
 
   if (name === 'imprint_compare') {
@@ -362,12 +355,27 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
 
     if (params.depth === 'language') {
       if (!params.provider) throw new Error('Language comparison requires an explicit provider')
-      const [profileA, profileB] = await Promise.all([
+      const [interpretedA, interpretedB] = await Promise.all([
         interpretResult(resultA.designEvidence, params, 'structural-only'),
         interpretResult(resultB.designEvidence, params, 'structural-only'),
       ])
       return {
-        content: [{ type: 'text', text: JSON.stringify(compareDesignProfiles(profileA, profileB), null, 2) }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                comparison: compareDesignProfiles(interpretedA.profile, interpretedB.profile),
+                timing: {
+                  first: mergeAnalysisTimings(resultA.timing, interpretedA.meta.timing),
+                  second: mergeAnalysisTimings(resultB.timing, interpretedB.meta.timing),
+                },
+              },
+              null,
+              2,
+            ),
+          },
+        ],
       }
     }
     const diff = compareDesigns(resultA.tokens, resultB.tokens, urlA, urlB)

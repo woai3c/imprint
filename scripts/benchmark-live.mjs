@@ -11,6 +11,7 @@ import readline from 'node:readline'
 //   node scripts/benchmark-live.mjs                    interactive picker (falls back to first when not a TTY)
 //   node scripts/benchmark-live.mjs --provider first   skip the picker, use the first configured provider
 //   node scripts/benchmark-live.mjs --provider deepseek --vision
+//   node scripts/benchmark-live.mjs --provider deepseek --rounds 5 --reasoning low --thinking
 
 // Names match the CLI/MCP convention in src/cli/index.ts and src/mcp/server.ts exactly,
 // so one .env serves the benchmark, the CLI, and the MCP server.
@@ -99,8 +100,10 @@ async function chooseProvider() {
 }
 
 const selected = await chooseProvider()
+const rounds = argValue('--rounds')
+const reasoningEffort = argValue('--reasoning')
 console.log(
-  `Running live benchmark with provider=${selected.provider}${selected.model ? ` model=${selected.model}` : ''}`,
+  `Running paired live benchmark with provider=${selected.provider}${selected.model ? ` model=${selected.model}` : ''}${rounds ? ` rounds=${rounds}` : ''}${reasoningEffort ? ` reasoning=${reasoningEffort}` : ''}${process.argv.includes('--thinking') ? ' thinking=on' : ''}`,
 )
 
 const child = spawn(
@@ -115,6 +118,9 @@ const child = spawn(
       ...(selected.model ? { IMPRINT_BENCHMARK_MODEL: selected.model } : {}),
       ...(selected.baseUrl ? { IMPRINT_BENCHMARK_BASE_URL: selected.baseUrl } : {}),
       ...(process.argv.includes('--vision') ? { IMPRINT_BENCHMARK_VISION: '1' } : {}),
+      ...(rounds ? { IMPRINT_BENCHMARK_ROUNDS: rounds } : {}),
+      ...(reasoningEffort ? { IMPRINT_BENCHMARK_REASONING_EFFORT: reasoningEffort } : {}),
+      ...(process.argv.includes('--thinking') ? { IMPRINT_BENCHMARK_THINKING: '1' } : {}),
     },
   },
 )

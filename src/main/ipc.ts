@@ -5,7 +5,9 @@ import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, net, shell } from 'electron'
 
 import { getDefaultBaseUrl } from '../core/ai/capabilities.js'
+import { availableEvidenceImageIds } from '../core/ai/image-summary.js'
 import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
+import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import {
   listManagedSessions,
   migrateLegacyManagedSessions,
@@ -30,6 +32,8 @@ import {
   createValidationRecipe,
   generateAgentContextBundle,
   generateReconstructionBrief,
+  prepareAnalysisDigestPackageForPrompt,
+  restrictEvidencePackageImages,
   selectEvidencePackage,
   validateRecipe,
 } from '../core/design-intelligence/index.js'
@@ -331,6 +335,12 @@ function buildStoredAnalysisResult(
     analysisTiming: record.analysis_timing_json ? JSON.parse(record.analysis_timing_json as string) : undefined,
     url: record.url,
   }
+}
+
+function readStoredAnalysisTiming(record: Record<string, unknown>) {
+  return record.analysis_timing_json
+    ? (JSON.parse(record.analysis_timing_json as string) as import('../core/analyzer/types.js').AnalysisTiming)
+    : undefined
 }
 
 async function saveTextFile(content: string, options: SaveTextFileOptions) {
@@ -938,12 +948,18 @@ export function registerIpcHandlers() {
       ? (JSON.parse(record.design_intelligence_meta_json as string) as DesignIntelligenceMeta)
       : null
     const route = chooseDesignIntelligenceRoute(settings, designEvidence)
+    const expectedPackage = selectEvidencePackage(designEvidence, route.mode)
+    const expectedImageIds =
+      route.mode === 'multimodal'
+        ? availableEvidenceImageIds(designEvidence, expectedPackage.imageIds)
+        : expectedPackage.imageIds
+    const expectedMode = route.mode === 'multimodal' && expectedImageIds.length === 0 ? 'structural-only' : route.mode
     const expectedFingerprint = createEvidenceFingerprint(
       designEvidence,
-      route.mode,
+      expectedMode,
       route.provider,
       route.model,
-      undefined,
+      expectedImageIds,
       DESIGN_PROFILE_PROMPT_VERSION,
       '1',
       outputLanguage,
@@ -960,6 +976,7 @@ export function registerIpcHandlers() {
       record.design_profile_json &&
       existingMeta &&
       (existingMeta.status === 'complete' || existingMeta.status === 'partial') &&
+      existingMeta.cacheKey === cacheKey &&
       existingMeta.inputFingerprint === expectedFingerprint &&
       existingMeta.schemaVersion === '1' &&
       existingMeta.promptVersion === DESIGN_PROFILE_PROMPT_VERSION
@@ -968,12 +985,23 @@ export function registerIpcHandlers() {
       const cachedMeta = {
         ...existingMeta,
         timing: existingMeta.timing
-          ? { ...existingMeta.timing, cacheHit: true, totalMs: 0, aiInvokeMs: 0 }
+          ? {
+              ...existingMeta.timing,
+              cacheHit: true,
+              aiTotalMs: 0,
+              aiQueueMs: 0,
+              aiNetworkMs: 0,
+              aiTransportAttempts: 0,
+              totalMs: 0,
+              aiInvokeMs: 0,
+            }
           : existingMeta.timing,
       }
       const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
+      const programTiming = readStoredAnalysisTiming(record)
       return {
         ...buildStoredAnalysisResult(record, tokens),
+        analysisTiming: programTiming ? mergeAnalysisTimings(programTiming, cachedMeta.timing) : cachedMeta.timing,
         designEvidence,
         designProfile,
         designIntelligence: cachedMeta,
@@ -991,9 +1019,19 @@ export function registerIpcHandlers() {
         const storedMeta = JSON.parse(persistentCache.meta_json as string) as DesignIntelligenceMeta
         const cachedMeta: DesignIntelligenceMeta = {
           ...storedMeta,
+          cacheKey,
           inputFingerprint: expectedFingerprint,
           timing: storedMeta.timing
-            ? { ...storedMeta.timing, cacheHit: true, totalMs: 0, aiInvokeMs: 0 }
+            ? {
+                ...storedMeta.timing,
+                cacheHit: true,
+                aiTotalMs: 0,
+                aiQueueMs: 0,
+                aiNetworkMs: 0,
+                aiTransportAttempts: 0,
+                totalMs: 0,
+                aiInvokeMs: 0,
+              }
             : storedMeta.timing,
         }
         const cachedValidation = persistentCache.validation_report_json
@@ -1016,9 +1054,11 @@ export function registerIpcHandlers() {
           cacheKey,
         )
         const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens)
+        const programTiming = readStoredAnalysisTiming(record)
         log.info('design-intelligence', `persistent cache hit: key=${cacheKey.slice(0, 12)}`)
         return {
           ...buildStoredAnalysisResult(record, tokens),
+          analysisTiming: programTiming ? mergeAnalysisTimings(programTiming, cachedMeta.timing) : cachedMeta.timing,
           designEvidence,
           designProfile: cachedProfile,
           designIntelligence: cachedMeta,
@@ -1053,6 +1093,18 @@ export function registerIpcHandlers() {
         win?.webContents.send('design-intelligence:progress', { step, percent })
       },
     )
+    const completedCacheKey = createIntelligenceCacheKey(
+      intelligence.meta.inputFingerprint || expectedFingerprint,
+      route,
+      settings,
+      outputLanguage,
+      designEvidence.source.accessMode,
+    )
+    intelligence.meta.cacheKey = completedCacheKey
+    const programTiming = readStoredAnalysisTiming(record)
+    const combinedTiming = programTiming
+      ? mergeAnalysisTimings(programTiming, intelligence.meta.timing)
+      : intelligence.meta.timing
     if (designIntelligenceControllers.get(analysisId) === intelligenceController) {
       designIntelligenceControllers.delete(analysisId)
     }
@@ -1133,7 +1185,7 @@ export function registerIpcHandlers() {
       `UPDATE analyses
        SET design_doc = ?, design_profile_json = ?, design_intelligence_status = ?,
            design_intelligence_meta_json = ?, validation_report_json = ?,
-           css_variables = ?, tailwind_theme = ?${totalDuration != null ? ', duration_ms = ?' : ''}
+           css_variables = ?, tailwind_theme = ?, analysis_timing_json = ?${totalDuration != null ? ', duration_ms = ?' : ''}
        WHERE id = ?`,
     ).run(
       ...[
@@ -1144,24 +1196,23 @@ export function registerIpcHandlers() {
         validationReport ? JSON.stringify(validationReport) : null,
         aliasedCss ?? record.css_variables,
         aliasedTailwind ?? record.tailwind_theme,
+        combinedTiming ? JSON.stringify(combinedTiming) : record.analysis_timing_json,
         ...(totalDuration != null ? [totalDuration] : []),
         analysisId,
       ],
     )
     if (intelligence.profile && ['complete', 'partial'].includes(intelligence.meta.status)) {
       const storedFingerprint = intelligence.meta.inputFingerprint || expectedFingerprint
-      const storedCacheKey = createIntelligenceCacheKey(
-        storedFingerprint,
-        route,
-        settings,
-        outputLanguage,
-        designEvidence.source.accessMode,
-      )
+      const storedMode = intelligence.meta.inputMode || route.mode
+      let storedPackage = selectEvidencePackage(designEvidence, storedMode)
+      if (storedMode === 'multimodal') {
+        storedPackage = restrictEvidencePackageImages(
+          storedPackage,
+          availableEvidenceImageIds(designEvidence, storedPackage.imageIds),
+        )
+      }
       const digestJson = JSON.stringify(
-        buildAnalysisDigest(
-          designEvidence,
-          selectEvidencePackage(designEvidence, intelligence.meta.inputMode || route.mode),
-        ).digest,
+        prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(designEvidence, storedPackage)).digest,
       )
       const now = new Date().toISOString()
       db.prepare(
@@ -1175,7 +1226,7 @@ export function registerIpcHandlers() {
            validation_report_json = excluded.validation_report_json,
            last_accessed_at = excluded.last_accessed_at`,
       ).run(
-        storedCacheKey,
+        completedCacheKey,
         storedFingerprint,
         digestJson,
         JSON.stringify(intelligence.profile),
@@ -1219,6 +1270,7 @@ export function registerIpcHandlers() {
 
     return {
       ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
+      analysisTiming: combinedTiming,
       featureTags: designEvidence.featureTags,
       darkTokens:
         readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)

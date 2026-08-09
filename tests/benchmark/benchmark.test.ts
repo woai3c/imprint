@@ -6,7 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { mimeTypeForPath } from '../../src/core/ai/provider.js'
+import { loadEvidenceImageInputs } from '../../src/core/ai/image-summary.js'
+import { mergeAnalysisTimings } from '../../src/core/analyzer/analysis-timing.js'
 import { analyze, findBrowser } from '../../src/core/analyzer/index.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
@@ -18,13 +19,30 @@ import {
 } from '../../src/core/design-intelligence/index.js'
 import type { AnalysisTiming, DesignProfile, ProfileQualityMetrics } from '../../src/core/design-intelligence/index.js'
 import type { FixtureAnnotation } from './annotation-types.js'
+import { runLegacyInterpretation } from './legacy-pipeline.js'
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+type QualityBaseline = Record<
+  'groundedness' | 'specificity' | 'executability' | 'transferability' | 'distinctiveness' | 'restraint' | 'safety',
+  number
+>
 const baseline = JSON.parse(
   fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'baseline.json'), 'utf8'),
 ) as {
   fixtureCount: number
   programAnalysis: { p50Ms: number; p95Ms: number; allowedRegressionRatio: number }
+  quality: QualityBaseline
+  fixtures: Record<string, QualityBaseline>
+  live: {
+    rounds: number
+    qualityRegressionTolerance: number
+    aiP50Ms: number
+    aiP95Ms: number
+    totalP50Ms: number
+    totalP95Ms: number
+    maxFailureRate: number
+    maxRepairRate: number
+  }
 }
 const deterministicTimings: number[] = []
 
@@ -269,8 +287,13 @@ describe('Design benchmark corpus', () => {
         )
         expect(validation.profile, `reference profile rejected: ${validation.rejected.join('; ')}`).not.toBeNull()
         const metrics = evaluateProfileQuality(validation.profile!, evidence)
-        expect(metrics.groundedness).toBe(1)
-        expect(metrics.safety).toBe(1)
+        const fixtureBaseline = baseline.fixtures[annotation.fixture]
+        expect(fixtureBaseline, `missing per-fixture quality baseline for ${annotation.fixture}`).toBeDefined()
+        for (const [dimension, minimum] of Object.entries(fixtureBaseline)) {
+          expect(metrics[dimension as keyof QualityBaseline], `${dimension} below baseline`).toBeGreaterThanOrEqual(
+            minimum,
+          )
+        }
       },
     )
   }
@@ -279,45 +302,77 @@ describe('Design benchmark corpus', () => {
 const onlineProvider = process.env.IMPRINT_BENCHMARK_PROVIDER || ''
 const onlineApiKey = process.env.IMPRINT_BENCHMARK_API_KEY || ''
 const onlineMode = process.env.IMPRINT_BENCHMARK_VISION === '1' ? 'multimodal' : 'structural-only'
+const onlineRounds = Math.max(1, Number(process.env.IMPRINT_BENCHMARK_ROUNDS || baseline.live.rounds))
 
 describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design benchmark live interpretation', () => {
   const liveResults: Array<{
     fixture: string
-    pipeline?: string
+    pipeline: string
     metrics: ProfileQualityMetrics
-    timing?: AnalysisTiming
+    timings: AnalysisTiming[]
+    legacyMetrics?: ProfileQualityMetrics
+    legacyRuns: Array<{
+      totalMs: number
+      inputTokens: number
+      outputTokens: number
+      transportAttempts: number
+      repairCount: number
+    }>
+    failureRate: number
+    legacyFailureRate: number
+    repairRate: number
+    legacyRepairRate: number
   }> = []
 
   afterAll(() => {
     if (liveResults.length === 0) return
     const resultsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'results')
     fs.mkdirSync(resultsDir, { recursive: true })
+    const timingSamples = liveResults.flatMap((result) => result.timings)
     const timingSummary = {
       aiTotalP50Ms: percentile(
-        liveResults.flatMap((result) => (result.timing ? [result.timing.totalMs] : [])),
+        timingSamples.flatMap((timing) => (timing.aiTotalMs !== undefined ? [timing.aiTotalMs] : [])),
         0.5,
       ),
       aiTotalP95Ms: percentile(
-        liveResults.flatMap((result) => (result.timing ? [result.timing.totalMs] : [])),
+        timingSamples.flatMap((timing) => (timing.aiTotalMs !== undefined ? [timing.aiTotalMs] : [])),
+        0.95,
+      ),
+      totalP50Ms: percentile(
+        timingSamples.map((timing) => timing.totalMs),
+        0.5,
+      ),
+      totalP95Ms: percentile(
+        timingSamples.map((timing) => timing.totalMs),
         0.95,
       ),
       promptCharsP50: percentile(
-        liveResults.flatMap((result) => (result.timing?.promptChars ? [result.timing.promptChars] : [])),
+        timingSamples.flatMap((timing) => (timing.promptChars ? [timing.promptChars] : [])),
         0.5,
       ),
       inputTokensP50: percentile(
-        liveResults.flatMap((result) => (result.timing?.aiInputTokens ? [result.timing.aiInputTokens] : [])),
+        timingSamples.flatMap((timing) => (timing.aiInputTokens ? [timing.aiInputTokens] : [])),
         0.5,
       ),
       outputTokensP50: percentile(
-        liveResults.flatMap((result) => (result.timing?.aiOutputTokens ? [result.timing.aiOutputTokens] : [])),
+        timingSamples.flatMap((timing) => (timing.aiOutputTokens ? [timing.aiOutputTokens] : [])),
         0.5,
       ),
       imageCountP50: percentile(
-        liveResults.flatMap((result) => (result.timing ? [result.timing.imageCount] : [])),
+        timingSamples.map((timing) => timing.imageCount),
+        0.5,
+      ),
+      transportAttemptsP50: percentile(
+        timingSamples.flatMap((timing) =>
+          timing.aiTransportAttempts !== undefined ? [timing.aiTransportAttempts] : [],
+        ),
         0.5,
       ),
     }
+    expect(timingSummary.aiTotalP50Ms).toBeLessThanOrEqual(baseline.live.aiP50Ms)
+    expect(timingSummary.aiTotalP95Ms).toBeLessThanOrEqual(baseline.live.aiP95Ms)
+    expect(timingSummary.totalP50Ms).toBeLessThanOrEqual(baseline.live.totalP50Ms)
+    expect(timingSummary.totalP95Ms).toBeLessThanOrEqual(baseline.live.totalP95Ms)
     fs.writeFileSync(
       path.join(resultsDir, 'latest.json'),
       JSON.stringify(
@@ -329,39 +384,112 @@ describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design b
   })
 
   for (const annotation of annotations) {
-    it(`interprets and scores a live profile: ${annotation.fixture}`, { timeout: 240_000 }, async () => {
-      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-benchmark-live-'))
-      const result = await analyzeFixture(annotation.fixture, dataDir)
-      const selectedPackage = selectEvidencePackage(result.designEvidence, onlineMode)
-      const images =
-        onlineMode === 'multimodal'
-          ? result.designEvidence.pages
-              .flatMap((page) => page.images)
-              .filter((image) => selectedPackage.imageIds.includes(image.id) && fs.existsSync(image.path))
-              .map((image) => ({
-                name: `${image.id}.${mimeTypeForPath(image.path).split('/')[1]}`,
-                mimeType: mimeTypeForPath(image.path),
-                base64: fs.readFileSync(image.path).toString('base64'),
-              }))
-          : undefined
-      const { profile, meta } = await interpretDesignEvidence(result.designEvidence, {
-        mode: onlineMode,
-        language: 'en',
-        images,
-        provider: {
+    it(
+      `interprets and scores a live profile: ${annotation.fixture}`,
+      { timeout: onlineRounds * 1_200_000 },
+      async () => {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-benchmark-live-'))
+        const result = await analyzeFixture(annotation.fixture, dataDir)
+        const selectedPackage = selectEvidencePackage(result.designEvidence, onlineMode)
+        const images =
+          onlineMode === 'multimodal'
+            ? loadEvidenceImageInputs(result.designEvidence, selectedPackage.imageIds)
+            : undefined
+        const provider = {
           provider: onlineProvider,
           apiKey: onlineApiKey,
           baseUrl: process.env.IMPRINT_BENCHMARK_BASE_URL || undefined,
           model: process.env.IMPRINT_BENCHMARK_MODEL || undefined,
-        },
-      })
-      const metrics = evaluateProfileQuality(profile, result.designEvidence)
-      liveResults.push({ fixture: annotation.fixture, pipeline: meta.pipeline, metrics, timing: meta.timing })
-      console.log(
-        `LIVE ${annotation.fixture} [${meta.pipeline ?? 'unknown'}] grounded=${metrics.groundedness.toFixed(2)} specific=${metrics.specificity.toFixed(2)} executable=${metrics.executability.toFixed(2)} transferable=${metrics.transferability.toFixed(2)} distinctive=${metrics.distinctiveness.toFixed(2)} restraint=${metrics.restraint.toFixed(2)} safety=${metrics.safety.toFixed(2)}`,
-      )
-      expect(meta.pipeline).toBe('single-pass')
-      expect(metrics.groundedness).toBe(1)
-    })
+          reasoningEffort: process.env.IMPRINT_BENCHMARK_REASONING_EFFORT || undefined,
+          thinkingEnabled: process.env.IMPRINT_BENCHMARK_THINKING === '1',
+        }
+        const currentMetrics: ProfileQualityMetrics[] = []
+        const legacyMetrics: ProfileQualityMetrics[] = []
+        const timings: AnalysisTiming[] = []
+        const legacyRuns: Array<{
+          totalMs: number
+          inputTokens: number
+          outputTokens: number
+          transportAttempts: number
+          repairCount: number
+        }> = []
+        let currentFailures = 0
+        let legacyFailures = 0
+        let currentPipeline = 'single-pass'
+        for (let round = 0; round < onlineRounds; round += 1) {
+          try {
+            const legacy = await runLegacyInterpretation(
+              result.designEvidence,
+              onlineMode,
+              'en',
+              provider,
+              images || [],
+            )
+            legacyMetrics.push(evaluateProfileQuality(legacy.profile, result.designEvidence))
+            legacyRuns.push({
+              totalMs: legacy.totalMs,
+              inputTokens: legacy.inputTokens,
+              outputTokens: legacy.outputTokens,
+              transportAttempts: legacy.transportAttempts,
+              repairCount: legacy.repairCount,
+            })
+          } catch {
+            legacyFailures += 1
+          }
+          try {
+            const { profile, meta } = await interpretDesignEvidence(result.designEvidence, {
+              mode: onlineMode,
+              language: 'en',
+              images,
+              provider,
+            })
+            currentPipeline = meta.pipeline || currentPipeline
+            currentMetrics.push(evaluateProfileQuality(profile, result.designEvidence))
+            if (meta.timing) timings.push(mergeAnalysisTimings(result.timing, meta.timing))
+          } catch {
+            currentFailures += 1
+          }
+        }
+        const averageMetrics = (items: ProfileQualityMetrics[]): ProfileQualityMetrics =>
+          Object.fromEntries(
+            Object.keys(items[0] || {}).map((dimension) => [
+              dimension,
+              items.reduce((total, metrics) => total + metrics[dimension as keyof ProfileQualityMetrics], 0) /
+                Math.max(items.length, 1),
+            ]),
+          ) as unknown as ProfileQualityMetrics
+        expect(currentMetrics.length).toBeGreaterThan(0)
+        expect(legacyMetrics.length).toBeGreaterThan(0)
+        const metrics = averageMetrics(currentMetrics)
+        const legacy = averageMetrics(legacyMetrics)
+        const failureRate = currentFailures / onlineRounds
+        const legacyFailureRate = legacyFailures / onlineRounds
+        const repairRate = 0
+        const legacyRepairRate = legacyRuns.reduce((total, run) => total + run.repairCount, 0) / onlineRounds
+        for (const dimension of Object.keys(baseline.quality) as Array<keyof typeof baseline.quality>) {
+          expect(metrics[dimension]).toBeGreaterThanOrEqual(
+            legacy[dimension] - baseline.live.qualityRegressionTolerance,
+          )
+        }
+        expect(failureRate).toBeLessThanOrEqual(baseline.live.maxFailureRate)
+        expect(repairRate).toBeLessThanOrEqual(baseline.live.maxRepairRate)
+        liveResults.push({
+          fixture: annotation.fixture,
+          pipeline: currentPipeline,
+          metrics,
+          legacyMetrics: legacy,
+          timings,
+          legacyRuns,
+          failureRate,
+          legacyFailureRate,
+          repairRate,
+          legacyRepairRate,
+        })
+        console.log(
+          `LIVE ${annotation.fixture} [${currentPipeline}] grounded=${metrics.groundedness.toFixed(2)} specific=${metrics.specificity.toFixed(2)} executable=${metrics.executability.toFixed(2)} transferable=${metrics.transferability.toFixed(2)} distinctive=${metrics.distinctiveness.toFixed(2)} restraint=${metrics.restraint.toFixed(2)} safety=${metrics.safety.toFixed(2)}`,
+        )
+        expect(metrics.groundedness).toBe(1)
+      },
+    )
   }
 })

@@ -16,14 +16,15 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
 
     const visitRules = (rules: CSSRuleList) => {
       for (const rule of rules) {
-        if (rule instanceof CSSMediaRule) {
+        if (rule instanceof CSSMediaRule || rule.constructor.name === 'CSSContainerRule') {
+          const conditionText = 'conditionText' in rule ? String(rule.conditionText) : ''
           const patterns = [
             /(?:min|max)-width\s*:\s*(\d*\.?\d+)(px|r?em)/gi,
             /\bwidth\s*[<>]=?\s*(\d*\.?\d+)(px|r?em)/gi,
             /(\d*\.?\d+)(px|r?em)\s*[<>]=?\s*width\b/gi,
           ]
           for (const pattern of patterns) {
-            for (const match of rule.conditionText.matchAll(pattern)) {
+            for (const match of conditionText.matchAll(pattern)) {
               const value = Number.parseFloat(match[1])
               const pixels = match[2].toLowerCase() === 'px' ? value : value * rootFontSize
               if (Number.isFinite(pixels) && pixels > 0) breakpoints.add(Math.round(pixels))
@@ -41,6 +42,15 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
       } catch {
         // Cross-origin
       }
+    }
+
+    for (const element of [...document.querySelectorAll('main, section, article, [class*="grid" i]')].slice(0, 200)) {
+      const minimumWidth = getComputedStyle(element).minWidth
+      const match = minimumWidth.match(/^(\d*\.?\d+)(px|r?em)$/i)
+      if (!match) continue
+      const value = Number.parseFloat(match[1])
+      const pixels = match[2].toLowerCase() === 'px' ? value : value * rootFontSize
+      if (Number.isFinite(pixels) && pixels >= 320 && pixels <= 1920) breakpoints.add(Math.round(pixels))
     }
 
     return [...breakpoints].sort((a, b) => a - b)

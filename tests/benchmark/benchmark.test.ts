@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { mimeTypeForPath } from '../../src/core/ai/provider.js'
 import { analyze, findBrowser } from '../../src/core/analyzer/index.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
@@ -19,6 +20,19 @@ import type { AnalysisTiming, DesignProfile, ProfileQualityMetrics } from '../..
 import type { FixtureAnnotation } from './annotation-types.js'
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+const baseline = JSON.parse(
+  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'baseline.json'), 'utf8'),
+) as {
+  fixtureCount: number
+  programAnalysis: { p50Ms: number; p95Ms: number; allowedRegressionRatio: number }
+}
+const deterministicTimings: number[] = []
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((first, second) => first - second)
+  return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))]
+}
 
 const annotations: FixtureAnnotation[] = fs
   .readdirSync(fixturesDir)
@@ -62,6 +76,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((resolve) => server?.close(resolve))
+  if (deterministicTimings.length > 0) {
+    const p50Ms = percentile(deterministicTimings, 0.5)
+    const p95Ms = percentile(deterministicTimings, 0.95)
+    console.log(`PROGRAM timing fixtures=${deterministicTimings.length} p50=${p50Ms}ms p95=${p95Ms}ms`)
+    expect(p50Ms).toBeLessThanOrEqual(baseline.programAnalysis.p50Ms * baseline.programAnalysis.allowedRegressionRatio)
+    expect(p95Ms).toBeLessThanOrEqual(baseline.programAnalysis.p95Ms * baseline.programAnalysis.allowedRegressionRatio)
+  }
 })
 
 function referenceClaim(statement: string, evidenceIds: string[]) {
@@ -153,6 +174,7 @@ async function analyzeFixture(fixture: string, dataDir: string) {
 describe('Design benchmark corpus', () => {
   it.skipIf(!browserAvailable)('serves every fixture and annotation pair', () => {
     expect(annotations.length).toBeGreaterThanOrEqual(10)
+    expect(annotations.length).toBe(baseline.fixtureCount)
     for (const annotation of annotations) {
       expect(fs.existsSync(path.join(fixturesDir, `${annotation.fixture}.html`))).toBe(true)
     }
@@ -165,6 +187,7 @@ describe('Design benchmark corpus', () => {
       async () => {
         const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-benchmark-'))
         const result = await analyzeFixture(annotation.fixture, dataDir)
+        deterministicTimings.push(result.timing.totalMs)
         const evidence = result.designEvidence
 
         const actualRoles = new Set(evidence.sections.map((section) => section.role))
@@ -269,9 +292,39 @@ describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design b
     if (liveResults.length === 0) return
     const resultsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'results')
     fs.mkdirSync(resultsDir, { recursive: true })
+    const timingSummary = {
+      aiTotalP50Ms: percentile(
+        liveResults.flatMap((result) => (result.timing ? [result.timing.totalMs] : [])),
+        0.5,
+      ),
+      aiTotalP95Ms: percentile(
+        liveResults.flatMap((result) => (result.timing ? [result.timing.totalMs] : [])),
+        0.95,
+      ),
+      promptCharsP50: percentile(
+        liveResults.flatMap((result) => (result.timing?.promptChars ? [result.timing.promptChars] : [])),
+        0.5,
+      ),
+      inputTokensP50: percentile(
+        liveResults.flatMap((result) => (result.timing?.aiInputTokens ? [result.timing.aiInputTokens] : [])),
+        0.5,
+      ),
+      outputTokensP50: percentile(
+        liveResults.flatMap((result) => (result.timing?.aiOutputTokens ? [result.timing.aiOutputTokens] : [])),
+        0.5,
+      ),
+      imageCountP50: percentile(
+        liveResults.flatMap((result) => (result.timing ? [result.timing.imageCount] : [])),
+        0.5,
+      ),
+    }
     fs.writeFileSync(
       path.join(resultsDir, 'latest.json'),
-      JSON.stringify({ generatedAt: new Date().toISOString(), mode: onlineMode, results: liveResults }, null, 2),
+      JSON.stringify(
+        { generatedAt: new Date().toISOString(), mode: onlineMode, timingSummary, results: liveResults },
+        null,
+        2,
+      ),
     )
   })
 
@@ -279,9 +332,22 @@ describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design b
     it(`interprets and scores a live profile: ${annotation.fixture}`, { timeout: 240_000 }, async () => {
       const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-benchmark-live-'))
       const result = await analyzeFixture(annotation.fixture, dataDir)
+      const selectedPackage = selectEvidencePackage(result.designEvidence, onlineMode)
+      const images =
+        onlineMode === 'multimodal'
+          ? result.designEvidence.pages
+              .flatMap((page) => page.images)
+              .filter((image) => selectedPackage.imageIds.includes(image.id) && fs.existsSync(image.path))
+              .map((image) => ({
+                name: `${image.id}.${mimeTypeForPath(image.path).split('/')[1]}`,
+                mimeType: mimeTypeForPath(image.path),
+                base64: fs.readFileSync(image.path).toString('base64'),
+              }))
+          : undefined
       const { profile, meta } = await interpretDesignEvidence(result.designEvidence, {
         mode: onlineMode,
         language: 'en',
+        images,
         provider: {
           provider: onlineProvider,
           apiKey: onlineApiKey,

@@ -361,7 +361,7 @@ describe('Section observation pass', () => {
     expect(result.timing).toMatchObject({ aiInvokeMs: 25, aiInputTokens: 1200, aiOutputTokens: 800, imageCount: 0 })
   })
 
-  it('does not automatically repair invalid required claims', async () => {
+  it('keeps an evidence fallback without automatically repairing invalid required claims', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const invalid = rawProfile()
     invalid.visualLanguage.color.evidence = []
@@ -371,17 +371,19 @@ describe('Section observation pass', () => {
       return { text: JSON.stringify(invalid) }
     }
 
-    await expect(
-      runInterpretationPipeline(evidence, evidencePackage, {
-        mode: 'structural-only',
-        language: 'en',
-        invoke,
-      }),
-    ).rejects.toThrow('visualLanguage.color:missing-evidence; repair-attempted=false')
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke,
+    })
+    expect(result.status).toBe('partial')
+    expect(result.evidenceFallback).toBe(true)
+    expect(result.profile.signatureMoves[0].id).toBe('evidence-fallback')
+    expect(result.rejected).toContain('visualLanguage.color:missing-evidence')
     expect(calls).toBe(1)
   })
 
-  it('routes region crops to the observation pass and overviews to synthesis', () => {
+  it('keeps selected region crops in the single synthesis call', () => {
     const images: AiImageInput[] = [
       { name: 'image-a.png', mimeType: 'image/png', base64: 'AAA' },
       { name: 'image-b.png', mimeType: 'image/png', base64: 'BBB' },
@@ -389,7 +391,7 @@ describe('Section observation pass', () => {
     ]
     const split = splitImagesByPass(evidence, images)
     expect(split.observationImages.map((image) => image.name)).toEqual(['image-c.png'])
-    expect(split.synthesisImages.map((image) => image.name)).toEqual(['image-a.png', 'image-b.png'])
+    expect(split.synthesisImages.map((image) => image.name)).toEqual(['image-a.png', 'image-b.png', 'image-c.png'])
   })
 
   it('labels attached synthesis images with the digest short IDs', async () => {

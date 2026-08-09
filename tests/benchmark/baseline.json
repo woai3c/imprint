@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "fixtureCount": 15,
+  "programAnalysis": {
+    "p50Ms": 8000,
+    "p95Ms": 14000,
+    "allowedRegressionRatio": 1.75
+  },
+  "quality": {
+    "groundednessMinimum": 1,
+    "safetyMinimum": 1
+  }
+}

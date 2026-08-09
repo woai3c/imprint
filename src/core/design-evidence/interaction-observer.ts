@@ -136,11 +136,14 @@ async function restoreCandidate(
 export async function observeSafeInteractions(
   page: Page,
   snapshot: PageEvidenceSnapshot,
-  maxActions = 6,
+  maxActions = 4,
+  totalBudgetMs = 6_000,
 ): Promise<InteractionObservationSnapshot[]> {
   const observations: InteractionObservationSnapshot[] = []
+  const deadline = Date.now() + totalBudgetMs
 
   for (const candidate of snapshot.interactionCandidates.slice(0, maxActions)) {
+    if (Date.now() >= deadline) break
     const before = await readTargetState(page, candidate)
     if (!before) continue
     if (!(await clickCandidate(page, candidate))) continue
@@ -180,6 +183,7 @@ export async function observeSafeInteractions(
         .catch(() => false)
       if (!reloaded) break
     }
+    if (Date.now() >= deadline) break
   }
 
   return observations

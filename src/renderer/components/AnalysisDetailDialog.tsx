@@ -76,11 +76,11 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     }
   }, [analysisId])
 
-  const retryIntelligence = async () => {
+  const retryIntelligence = async (force = false) => {
     if (!result?.analysisId) return
     setIntelligenceRunning(true)
     try {
-      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, i18n.language, true)
+      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, i18n.language, force)
       summaryChanged.current = true
       setResult((current) => (current ? { ...current, ...response } : current))
     } finally {
@@ -154,7 +154,8 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                 result={result}
                 intelligenceRunning={intelligenceRunning}
                 intelligenceProgress={intelligenceProgress}
-                onRetryIntelligence={retryIntelligence}
+                onRetryIntelligence={() => retryIntelligence(false)}
+                onDeepReviewIntelligence={() => retryIntelligence(true)}
                 onCancelIntelligence={async () => {
                   if (!result.analysisId) return
                   await window.electronAPI.cancelDesignIntelligence(result.analysisId)

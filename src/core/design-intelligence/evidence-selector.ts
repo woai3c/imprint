@@ -167,6 +167,7 @@ export function restrictEvidencePackageImages(
   return {
     ...evidencePackage,
     imageIds,
+    imageSelection: evidencePackage.imageSelection.filter((selection) => available.has(selection.id)),
     evidence: {
       ...evidencePackage.evidence,
       pages: evidencePackage.evidence.pages.map((page) => ({
@@ -333,21 +334,122 @@ function selectRepresentativePages<T extends { url: string; viewport: string }>(
   return result
 }
 
+interface ImageSelection {
+  id: string
+  score: number
+  reason: string
+}
+
 function selectRepresentativeImages(
-  pages: { viewport: string; url: string; images: { id: string; kind: string; width: number }[] }[],
+  pages: {
+    id: string
+    viewport: string
+    url: string
+    role?: string
+    horizontalOverflow?: boolean
+    health?: { status: string }
+    images: { id: string; kind: string; width: number; height: number; sectionId?: string }[]
+  }[],
+  evidence: DesignEvidence,
   maxImages: number,
-): string[] {
-  const ids: string[] = []
-  const seenUrlViewport = new Set<string>()
-  for (const page of pages) {
-    const key = `${page.url}|${page.viewport}`
-    if (seenUrlViewport.has(key)) continue
-    seenUrlViewport.add(key)
-    const overview = page.images.find((img) => img.kind === 'overview')
-    if (overview) ids.push(overview.id)
-    if (ids.length >= maxImages) break
+): ImageSelection[] {
+  if (maxImages <= 0 || pages.length === 0) return []
+
+  const entryUrl = pages[0].url
+  const responsiveUrls = new Set(
+    evidence.responsiveObservations.flatMap((observation) => {
+      const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+      const page = section ? evidence.pages.find((candidate) => candidate.id === section.pageId) : undefined
+      return page ? [page.url] : []
+    }),
+  )
+  const sectionRoles = new Map(evidence.sections.map((section) => [section.id, section.role]))
+  const majorMediaSections = new Set(
+    evidence.mediaLayers.filter((media) => media.importance === 'major').map((media) => media.sectionId),
+  )
+  const candidates = pages
+    .filter((page) => page.health?.status !== 'unusable')
+    .flatMap((page, pageIndex) =>
+      page.images.map((image) => {
+        const isEntry = page.url === entryUrl
+        const isDesktop = page.viewport === 'desktop'
+        const isMobile = page.viewport === 'mobile'
+        const isLongOverview = image.kind === 'overview' && image.height / Math.max(image.width, 1) > 2.5
+        const sectionRole = image.sectionId ? sectionRoles.get(image.sectionId) : undefined
+        const isSalientRegion =
+          image.kind === 'region-crop' &&
+          !!image.sectionId &&
+          (majorMediaSections.has(image.sectionId) ||
+            ['hero', 'media', 'action', 'feature-group'].includes(sectionRole || ''))
+
+        let score = 0
+        let reason = 'representative page view'
+        if (image.kind === 'viewport-crop') {
+          score = isEntry && isDesktop ? 120 : isEntry && isMobile ? 104 : 82 - pageIndex
+          reason = isEntry
+            ? `${page.viewport} entry viewport overview`
+            : `${page.role || 'representative'} page viewport overview`
+        } else if (image.kind === 'region-crop') {
+          score = isSalientRegion ? 100 : 88
+          reason = isSalientRegion
+            ? `${sectionRole || 'major'} region adds component and media detail`
+            : 'representative region adds local detail'
+        } else {
+          score = (isEntry ? 76 : 62 - pageIndex) - (isLongOverview ? 35 : 0)
+          reason = isLongOverview
+            ? 'long page fallback overview; down-ranked to avoid unreadable visual tokens'
+            : `${page.role || 'representative'} page overview fallback`
+        }
+        if (page.horizontalOverflow && image.kind === 'viewport-crop') {
+          score += 45
+          reason = `${reason}; captures horizontal overflow evidence`
+        }
+        if (responsiveUrls.has(page.url) && isMobile && image.kind === 'viewport-crop') {
+          score += 20
+          reason = `${reason}; captures measured responsive differences`
+        }
+        if (majorMediaSections.has(image.sectionId || '')) score += 10
+
+        return { ...image, page, score, reason, isSalientRegion }
+      }),
+    )
+
+  if (candidates.length === 0) return []
+  const overviewCandidates = candidates.filter((candidate) => candidate.kind !== 'region-crop')
+  const first = [...(overviewCandidates.length > 0 ? overviewCandidates : candidates)].sort(
+    (a, b) => b.score - a.score || a.id.localeCompare(b.id),
+  )[0]
+  const selected = [first]
+
+  if (maxImages > 1) {
+    const second = candidates
+      .filter((candidate) => candidate.id !== first.id)
+      .map((candidate) => {
+        let informationGain = 0
+        if (candidate.kind === 'region-crop') informationGain += candidate.isSalientRegion ? 48 : 34
+        if (candidate.page.url !== first.page.url) informationGain += 24
+        if (candidate.page.viewport !== first.page.viewport) informationGain += 18
+        if (candidate.page.horizontalOverflow && candidate.kind === 'viewport-crop') informationGain += 45
+        if (
+          responsiveUrls.has(candidate.page.url) &&
+          candidate.page.viewport === 'mobile' &&
+          candidate.kind === 'viewport-crop'
+        ) {
+          informationGain += 26
+        }
+        return { ...candidate, informationGain, totalScore: candidate.score + informationGain }
+      })
+      .sort((a, b) => b.totalScore - a.totalScore || a.id.localeCompare(b.id))[0]
+    if (second) {
+      selected.push({
+        ...second,
+        score: second.totalScore,
+        reason: `${second.reason}; selected for ${second.informationGain} points of information gain`,
+      })
+    }
   }
-  return ids
+
+  return selected.slice(0, maxImages).map(({ id, score, reason }) => ({ id, score, reason }))
 }
 
 function deduplicateInteractionStyles(
@@ -418,7 +520,8 @@ export function selectEvidencePackage(
     .filter((media) => selectedSectionIds.includes(media.sectionId))
     .sort((a, b) => (mediaImportanceRank[a.importance] ?? 1) - (mediaImportanceRank[b.importance] ?? 1))
     .slice(0, limits.maxMediaLayers)
-  const imageIds = inputMode === 'multimodal' ? selectRepresentativeImages(pages, limits.maxImages) : []
+  const imageSelection = inputMode === 'multimodal' ? selectRepresentativeImages(pages, evidence, limits.maxImages) : []
+  const imageIds = imageSelection.map((selection) => selection.id)
 
   const omittedEvidence: EvidencePackage['omittedEvidence'] = []
   if (evidence.pages.length > pages.length) omittedEvidence.push({ kind: 'pages', reason: 'budget' })
@@ -471,6 +574,7 @@ export function selectEvidencePackage(
     selectedPageIds,
     selectedSectionIds,
     imageIds,
+    imageSelection,
     evidence: {
       ...evidence,
       tokens: {
@@ -488,6 +592,12 @@ export function selectEvidencePackage(
         contentWidth: page.contentWidth,
         contentHeight: page.contentHeight,
         horizontalOverflow: page.horizontalOverflow,
+        health: page.health
+          ? {
+              status: page.health.status,
+              issues: page.health.issues.map(({ code, severity }) => ({ code, severity })),
+            }
+          : undefined,
         imageIds: page.images.map((image) => image.id).filter((imageId) => imageIds.includes(imageId)),
       })),
       topology,

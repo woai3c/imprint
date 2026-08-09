@@ -5,6 +5,7 @@ import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeImage, net, shell } from 'electron'
 
 import { getDefaultBaseUrl } from '../core/ai/capabilities.js'
+import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
 import {
   listManagedSessions,
   migrateLegacyManagedSessions,
@@ -23,10 +24,13 @@ import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
+  buildAnalysisDigest,
   createEvidenceFingerprint,
+  createInterpretationCacheKey,
   createValidationRecipe,
   generateAgentContextBundle,
   generateReconstructionBrief,
+  selectEvidencePackage,
   validateRecipe,
 } from '../core/design-intelligence/index.js'
 import type { DesignIntelligenceMeta, DesignProfile } from '../core/design-intelligence/types.js'
@@ -85,6 +89,26 @@ function compactTokenSnapshot(serialized: string | null): string | null {
   } catch {
     return serialized
   }
+}
+
+function createIntelligenceCacheKey(
+  fingerprint: string,
+  route: { provider: string; model: string },
+  settings: ReturnType<typeof getSettings>,
+  language: 'en' | 'zh-CN',
+  accessMode: DesignEvidence['source']['accessMode'],
+): string {
+  return createInterpretationCacheKey({
+    fingerprint,
+    provider: route.provider,
+    model: route.model,
+    reasoningEffort: settings.reasoningEffort || getDefaultReasoningEffort(route.provider, route.model) || 'default',
+    thinkingEnabled: settings.thinkingEnabled === true,
+    language,
+    promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
+    schemaVersion: '1',
+    accessMode,
+  })
 }
 
 function readPerformanceNumber(value: unknown, minimum: number, maximum: number, digits = 1): number | null {
@@ -304,6 +328,7 @@ function buildStoredAnalysisResult(
     screenshots: pageScreenshots.map((screenshot) => screenshot.path),
     pageScreenshots,
     duration: Number(record.duration_ms) || 0,
+    analysisTiming: record.analysis_timing_json ? JSON.parse(record.analysis_timing_json as string) : undefined,
     url: record.url,
   }
 }
@@ -664,6 +689,7 @@ export function registerIpcHandlers() {
       finalUrl: record.final_url,
       pagesAnalyzed: record.pages_analyzed,
       durationMs: record.duration_ms,
+      analysisTiming: record.analysis_timing_json ? JSON.parse(record.analysis_timing_json as string) : undefined,
       createdAt: record.created_at,
       tokens,
       cssVariables: record.css_variables || '',
@@ -814,8 +840,8 @@ export function registerIpcHandlers() {
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
             design_evidence_json, evidence_coverage_json, design_intelligence_status,
-            design_intelligence_meta_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            design_intelligence_meta_json, analysis_timing_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           url,
@@ -840,6 +866,7 @@ export function registerIpcHandlers() {
           JSON.stringify(result.designEvidence.coverage),
           designIntelligenceStatus,
           JSON.stringify(designIntelligenceMeta),
+          JSON.stringify(result.timing),
         )
 
         analysisStartTimes.set(analysisId, analysisStartTime)
@@ -859,6 +886,7 @@ export function registerIpcHandlers() {
           screenshots: result.screenshots,
           pageScreenshots: result.pageScreenshots,
           duration: result.duration,
+          analysisTiming: result.timing,
           url,
           hasDarkMode: result.darkMode?.hasDarkMode ?? false,
           darkModeMethod: result.darkMode?.method ?? 'none',
@@ -920,6 +948,13 @@ export function registerIpcHandlers() {
       '1',
       outputLanguage,
     )
+    const cacheKey = createIntelligenceCacheKey(
+      expectedFingerprint,
+      route,
+      settings,
+      outputLanguage,
+      designEvidence.source.accessMode,
+    )
     if (
       !force &&
       record.design_profile_json &&
@@ -930,15 +965,67 @@ export function registerIpcHandlers() {
       existingMeta.promptVersion === DESIGN_PROFILE_PROMPT_VERSION
     ) {
       const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile
+      const cachedMeta = {
+        ...existingMeta,
+        timing: existingMeta.timing
+          ? { ...existingMeta.timing, cacheHit: true, totalMs: 0, aiInvokeMs: 0 }
+          : existingMeta.timing,
+      }
       const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
       return {
         ...buildStoredAnalysisResult(record, tokens),
         designEvidence,
         designProfile,
-        designIntelligence: existingMeta,
+        designIntelligence: cachedMeta,
         reconstructionBrief,
-        agentContext: createTaskContext('Create a new page or component', designEvidence, designProfile, existingMeta),
+        agentContext: createTaskContext('Create a new page or component', designEvidence, designProfile, cachedMeta),
         validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
+      }
+    }
+    if (!force) {
+      const persistentCache = db
+        .prepare('SELECT * FROM design_intelligence_cache WHERE cache_key = ?')
+        .get(cacheKey) as Record<string, unknown> | undefined
+      if (persistentCache) {
+        const cachedProfile = JSON.parse(persistentCache.profile_json as string) as DesignProfile
+        const storedMeta = JSON.parse(persistentCache.meta_json as string) as DesignIntelligenceMeta
+        const cachedMeta: DesignIntelligenceMeta = {
+          ...storedMeta,
+          inputFingerprint: expectedFingerprint,
+          timing: storedMeta.timing
+            ? { ...storedMeta.timing, cacheHit: true, totalMs: 0, aiInvokeMs: 0 }
+            : storedMeta.timing,
+        }
+        const cachedValidation = persistentCache.validation_report_json
+          ? JSON.parse(persistentCache.validation_report_json as string)
+          : null
+        db.prepare(
+          `UPDATE analyses
+           SET design_profile_json = ?, design_intelligence_status = ?, design_intelligence_meta_json = ?,
+               validation_report_json = ?
+           WHERE id = ?`,
+        ).run(
+          JSON.stringify(cachedProfile),
+          cachedMeta.status,
+          JSON.stringify(cachedMeta),
+          persistentCache.validation_report_json || null,
+          analysisId,
+        )
+        db.prepare('UPDATE design_intelligence_cache SET last_accessed_at = ? WHERE cache_key = ?').run(
+          new Date().toISOString(),
+          cacheKey,
+        )
+        const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens)
+        log.info('design-intelligence', `persistent cache hit: key=${cacheKey.slice(0, 12)}`)
+        return {
+          ...buildStoredAnalysisResult(record, tokens),
+          designEvidence,
+          designProfile: cachedProfile,
+          designIntelligence: cachedMeta,
+          reconstructionBrief,
+          agentContext: createTaskContext('Create a new page or component', designEvidence, cachedProfile, cachedMeta),
+          validationReport: cachedValidation,
+        }
       }
     }
     const pendingMeta = getInitialDesignIntelligenceMeta(settings, designEvidence)
@@ -952,7 +1039,7 @@ export function registerIpcHandlers() {
        WHERE id = ?`,
     ).run(pendingMeta.status, JSON.stringify(pendingMeta), analysisId)
     win?.webContents.send('design-intelligence:progress', {
-      step: 'progress.interpretingDesignLanguage',
+      step: 'progress.programAnalysisComplete',
       percent: 5,
     })
 
@@ -1061,6 +1148,49 @@ export function registerIpcHandlers() {
         analysisId,
       ],
     )
+    if (intelligence.profile && ['complete', 'partial'].includes(intelligence.meta.status)) {
+      const storedFingerprint = intelligence.meta.inputFingerprint || expectedFingerprint
+      const storedCacheKey = createIntelligenceCacheKey(
+        storedFingerprint,
+        route,
+        settings,
+        outputLanguage,
+        designEvidence.source.accessMode,
+      )
+      const digestJson = JSON.stringify(
+        buildAnalysisDigest(
+          designEvidence,
+          selectEvidencePackage(designEvidence, intelligence.meta.inputMode || route.mode),
+        ).digest,
+      )
+      const now = new Date().toISOString()
+      db.prepare(
+        `INSERT INTO design_intelligence_cache
+         (cache_key, input_fingerprint, digest_json, profile_json, meta_json, validation_report_json, created_at, last_accessed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(cache_key) DO UPDATE SET
+           digest_json = excluded.digest_json,
+           profile_json = excluded.profile_json,
+           meta_json = excluded.meta_json,
+           validation_report_json = excluded.validation_report_json,
+           last_accessed_at = excluded.last_accessed_at`,
+      ).run(
+        storedCacheKey,
+        storedFingerprint,
+        digestJson,
+        JSON.stringify(intelligence.profile),
+        JSON.stringify(intelligence.meta),
+        validationReport ? JSON.stringify(validationReport) : null,
+        now,
+        now,
+      )
+      db.prepare(
+        `DELETE FROM design_intelligence_cache
+         WHERE cache_key NOT IN (
+           SELECT cache_key FROM design_intelligence_cache ORDER BY last_accessed_at DESC LIMIT 100
+         )`,
+      ).run()
+    }
     const currentThemeLink = db.prepare('SELECT theme_id FROM analyses WHERE id = ?').get(analysisId) as
       { theme_id: string | null } | undefined
     if (typeof currentThemeLink?.theme_id === 'string') {

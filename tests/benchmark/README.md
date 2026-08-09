@@ -1,6 +1,6 @@
 # Design DNA Benchmark
 
-固定的质量考卷：14 个风格迥异的合成 fixture + 人工标注，用来回答两个问题——**证据提取是否完整**、**设计语言理解是否具体**。修改提取器、prompt 或校验器之后必须跑一遍，指标退化即视为回归。
+固定的质量考卷：15 个风格迥异的合成 fixture + 人工标注，用来回答两个问题——**证据提取是否完整**、**设计语言理解是否具体**。修改提取器、prompt 或校验器之后必须跑一遍，指标退化即视为回归。
 
 ## 运行
 
@@ -21,6 +21,7 @@ pnpm test:benchmark:live -- --provider deepseek --vision
 隔离说明：桌面应用的 AI key 保存在应用设置中，不读 `.env`；CLI/MCP 只读进程环境变量（Node 不自动加载 `.env`）；因此根目录 `.env` 只被本运行器使用，与产品配置不冲突。进程环境变量优先于 `.env` 同名变量。
 
 在线档输出每个 fixture 的九维质量分，并写入 `tests/benchmark/results/latest.json`（已 gitignore）。
+离线档同时汇总程序分析 P50/P95，并与 `baseline.json` 保存的预算比较；在线结果额外汇总 prompt 字符数、输入/输出 token、图片数和 AI 总耗时。
 
 ## 结构
 

@@ -257,4 +257,94 @@ describe('selectEvidencePackage packaging', () => {
 
     expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toHaveLength(2)
   })
+
+  test('selects a readable viewport overview and a salient region instead of a very long full-page image', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      { id: 'long-overview', kind: 'overview', path: 'long.png', width: 2_000, height: 8_000 },
+      { id: 'desktop-viewport', kind: 'viewport-crop', path: 'viewport.png', width: 1_440, height: 900 },
+      {
+        id: 'hero-region',
+        kind: 'region-crop',
+        path: 'hero.png',
+        width: 1_200,
+        height: 700,
+        sectionId: 'section-a',
+      },
+    ]
+    evidence.sections[0].role = 'hero'
+
+    const selected = selectEvidencePackage(evidence, 'multimodal')
+    expect(selected.imageIds).toEqual(['desktop-viewport', 'hero-region'])
+    expect(selected.imageSelection[1].reason).toContain('information gain')
+    expect(selected.imageIds).not.toContain('long-overview')
+  })
+
+  test('prioritizes an overflowing mobile viewport as the second visual summary', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      { id: 'desktop-viewport', kind: 'viewport-crop', path: 'desktop.png', width: 1_440, height: 900 },
+      {
+        id: 'hero-region',
+        kind: 'region-crop',
+        path: 'hero.png',
+        width: 1_200,
+        height: 700,
+        sectionId: 'section-a',
+      },
+    ]
+    evidence.pages.push({
+      id: 'page-mobile',
+      url: evidence.pages[0].url,
+      viewport: 'mobile',
+      role: 'landing',
+      viewportWidth: 375,
+      contentWidth: 720,
+      horizontalOverflow: true,
+      images: [{ id: 'mobile-overflow', kind: 'viewport-crop', path: 'mobile.png', width: 375, height: 812 }],
+    })
+    evidence.topology.pages.push({ pageId: 'page-mobile', role: 'landing', sectionIds: [] })
+
+    const selected = selectEvidencePackage(evidence, 'multimodal')
+    expect(selected.imageIds).toEqual(['mobile-overflow', 'hero-region'])
+    expect(selected.imageSelection[0].reason).toContain('horizontal overflow')
+  })
+
+  test('never selects images from a page that failed the health gate', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].health = {
+      status: 'unusable',
+      checkedAt: '2026-08-09T00:00:00.000Z',
+      recovered: false,
+      attempts: 2,
+      viewport: { width: 1_440, height: 900 },
+      content: { width: 1_440, height: 900 },
+      overlayAreaRatio: 0.8,
+      mutationCount: 0,
+      issues: [{ code: 'captcha', severity: 'error', recoverable: false }],
+    }
+    evidence.pages.push({
+      id: 'healthy-page',
+      url: 'https://example.com/pricing',
+      viewport: 'desktop',
+      role: 'pricing',
+      health: {
+        status: 'healthy',
+        checkedAt: '2026-08-09T00:00:00.000Z',
+        recovered: false,
+        attempts: 1,
+        viewport: { width: 1_440, height: 900 },
+        content: { width: 1_440, height: 900 },
+        overlayAreaRatio: 0,
+        mutationCount: 0,
+        issues: [],
+      },
+      images: [{ id: 'healthy-viewport', kind: 'viewport-crop', path: 'healthy.png', width: 1_440, height: 900 }],
+    })
+    evidence.topology.pages.push({ pageId: 'healthy-page', role: 'pricing', sectionIds: [] })
+
+    const selected = selectEvidencePackage(evidence, 'multimodal')
+    expect(selected.imageIds).toEqual(['healthy-viewport'])
+    expect(selected.imageIds).not.toContain('image-a')
+  })
 })

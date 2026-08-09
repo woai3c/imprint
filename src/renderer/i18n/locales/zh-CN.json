@@ -144,6 +144,12 @@
       "uncertainties": "不确定项",
       "retry": "重试设计解读",
       "reinterpret": "重新解读",
+      "deepReview": "深度复核",
+      "deepReviewConfirm": {
+        "title": "发起深度 AI 复核？",
+        "description": "这会跳过已保存的 AI 结果并再次调用模型，可能增加数分钟等待和供应商费用。浏览器程序分析不会重跑。",
+        "confirm": "开始深度复核"
+      },
       "interpretManaged": "开始 AI 解读",
       "managedNotice": "这是已登录页面的分析，内容可能包含你的账号信息。点击「开始 AI 解读」后才会把结构化数据发给你配置的 AI；截图默认不发送，可在设置中单独开启。",
       "cancel": "取消",
@@ -1041,6 +1047,8 @@
     }
   },
   "progress": {
+    "programAnalysisComplete": "浏览器程序分析已完成，正在准备 AI 解读...",
+    "preparingDigest": "正在准备紧凑证据摘要和视觉摘要...",
     "launchingBrowser": "正在启动浏览器...",
     "checkingAccess": "正在检查页面是否可公开访问...",
     "openingLoginBrowser": "正在打开独立浏览器用于登录...",

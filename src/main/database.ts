@@ -62,6 +62,17 @@ function runMigrations() {
       file_path TEXT,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS design_intelligence_cache (
+      cache_key TEXT PRIMARY KEY,
+      input_fingerprint TEXT NOT NULL,
+      digest_json TEXT NOT NULL,
+      profile_json TEXT NOT NULL,
+      meta_json TEXT NOT NULL,
+      validation_report_json TEXT,
+      created_at TEXT NOT NULL,
+      last_accessed_at TEXT NOT NULL
+    );
   `)
 
   // Analysis results are stored as text so history records can be reopened
@@ -89,6 +100,7 @@ function runMigrations() {
     ['design_intelligence_status', `TEXT NOT NULL DEFAULT 'not-requested'`],
     ['design_intelligence_meta_json', `TEXT`],
     ['validation_report_json', `TEXT`],
+    ['analysis_timing_json', `TEXT`],
   ]
   for (const [name, definition] of analysisResultColumns) {
     if (!analysisColumns.includes(name)) {
@@ -112,4 +124,7 @@ function runMigrations() {
   }
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_analyses_theme_id ON analyses(theme_id)')
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_design_intelligence_cache_access ON design_intelligence_cache(last_accessed_at)',
+  )
 }

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fieldnotes — resilient long-form workspace</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f8f6f1;
+        color: #24211c;
+        font-family: Georgia, serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        padding: 16px 5vw;
+        border-bottom: 1px solid #d8d1c4;
+        background: rgb(248 246 241 / 96%);
+      }
+      header strong {
+        font: 700 18px/1.2 system-ui;
+      }
+      nav {
+        display: flex;
+        gap: 20px;
+        flex: 1;
+      }
+      nav a {
+        color: #645f56;
+        font: 500 14px/1.2 system-ui;
+        text-decoration: none;
+      }
+      button {
+        border: 1px solid #38332c;
+        border-radius: 999px;
+        background: #38332c;
+        color: #fff;
+        padding: 10px 18px;
+        font: 600 14px/1 system-ui;
+      }
+      .hero {
+        min-height: 620px;
+        display: grid;
+        place-content: center;
+        padding: 100px 8vw;
+        background: linear-gradient(140deg, #eee6d7, #f8f6f1 58%);
+      }
+      .hero h1 {
+        max-width: 900px;
+        margin: 0;
+        font-size: clamp(48px, 8vw, 104px);
+        line-height: 0.94;
+        letter-spacing: -0.04em;
+      }
+      .hero p {
+        max-width: 620px;
+        margin: 28px 0;
+        color: #645f56;
+        font-size: 20px;
+        line-height: 1.6;
+      }
+      main > section:not(.hero) {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 88px 5vw;
+        border-bottom: 1px solid #ded8cc;
+      }
+      .chapter {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 72px;
+        min-height: 440px;
+      }
+      .chapter h2 {
+        margin: 0;
+        font-size: 32px;
+      }
+      .chapter p {
+        margin: 0;
+        color: #5f594f;
+        font-size: 18px;
+        line-height: 1.8;
+      }
+      .wide-demo {
+        min-width: 720px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-top: 36px;
+      }
+      .wide-demo article {
+        min-height: 140px;
+        padding: 22px;
+        border: 1px solid #cfc6b8;
+        border-radius: 18px;
+        background: #fffdf8;
+      }
+      .accordion {
+        margin-top: 36px;
+        border-top: 1px solid #cfc6b8;
+      }
+      .accordion button {
+        width: 100%;
+        border: 0;
+        border-bottom: 1px solid #cfc6b8;
+        border-radius: 0;
+        background: transparent;
+        color: #24211c;
+        text-align: left;
+      }
+      .answer {
+        padding: 20px;
+        color: #645f56;
+      }
+      .campaign {
+        position: fixed;
+        inset: auto 24px 24px auto;
+        z-index: 80;
+        width: min(420px, calc(100vw - 48px));
+        padding: 28px;
+        border-radius: 20px;
+        background: #24211c;
+        color: #fff;
+        box-shadow: 0 22px 60px rgb(36 33 28 / 34%);
+      }
+      .campaign button {
+        float: right;
+        border-color: #fff;
+      }
+      footer {
+        padding: 64px 5vw;
+        background: #24211c;
+        color: #f8f6f1;
+      }
+      @media (max-width: 640px) {
+        .chapter {
+          grid-template-columns: 1fr;
+          gap: 24px;
+        }
+        nav {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Fieldnotes</strong>
+      <nav><a href="#method">Method</a><a href="#archive">Archive</a></nav>
+      <button>Start a notebook</button>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Research that keeps its context.</h1>
+        <p>A long-form workspace for observations, sources, and decisions that should remain connected.</p>
+        <button>Open the field guide</button>
+      </section>
+      <section class="chapter" id="method">
+        <h2>01 / Observe</h2>
+        <p>
+          Record the environment before drawing conclusions. The generous reading column preserves continuity while
+          chapter markers keep a long document navigable.
+        </p>
+      </section>
+      <section class="chapter">
+        <h2>02 / Compare</h2>
+        <div>
+          <p>Place representative findings side by side and retain the original evidence for review.</p>
+          <div class="wide-demo">
+            <article>Source map</article>
+            <article>Pattern notes</article>
+            <article>Exceptions</article>
+            <article>Open questions</article>
+          </div>
+        </div>
+      </section>
+      <section class="chapter">
+        <h2>03 / Refine</h2>
+        <p>
+          Revise the explanation without erasing the observed facts. Every chapter uses the same quiet border, serif
+          heading, and warm paper surface.
+        </p>
+      </section>
+      <section class="chapter">
+        <h2>04 / Share</h2>
+        <p>
+          Package decisions as portable rules with explicit uncertainty and enough context for another team to continue
+          the work.
+        </p>
+      </section>
+      <section class="chapter">
+        <h2>05 / Revisit</h2>
+        <div>
+          <p>Return to assumptions when the evidence changes.</p>
+          <div class="accordion">
+            <button aria-expanded="false" aria-controls="answer">What remains unknown?</button>
+            <div id="answer" class="answer" hidden>
+              Mobile overflow is intentionally preserved as an observed limitation.
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="chapter" id="archive">
+        <h2>06 / Archive</h2>
+        <p>
+          Keep durable snapshots of the source, tokens, and interpretation so later reviews can distinguish facts from
+          inferences.
+        </p>
+      </section>
+    </main>
+    <footer>Fieldnotes archive · Evidence remains attached.</footer>
+    <script>
+      const trigger = document.querySelector('.accordion button')
+      const answer = document.querySelector('#answer')
+      trigger.addEventListener('click', () => {
+        const expanded = trigger.getAttribute('aria-expanded') === 'true'
+        trigger.setAttribute('aria-expanded', String(!expanded))
+        answer.hidden = expanded
+      })
+      setTimeout(() => {
+        const campaign = document.createElement('aside')
+        campaign.className = 'campaign activity-popup'
+        campaign.setAttribute('role', 'dialog')
+        campaign.innerHTML =
+          '<button aria-label="Close promotion">Close</button><h2>Summer research sessions</h2><p>Join a temporary event.</p>'
+        campaign.querySelector('button').addEventListener('click', () => campaign.remove())
+        document.body.append(campaign)
+      }, 450)
+    </script>
+  </body>
+</html>

@@ -1,8 +1,13 @@
 export { generateAgentContextBundle } from './agent-context.js'
 export { buildAnalysisDigest } from './analysis-digest.js'
 export type { AnalysisDigest, AnalysisDigestPackage, DigestTokenValue } from './analysis-digest.js'
+export { createInterpretationCacheKey } from './cache-key.js'
+export type { InterpretationCacheKeyInput } from './cache-key.js'
 export { dedupeProfileClaims } from './claim-dedupe.js'
 export type { ClaimDedupeResult } from './claim-dedupe.js'
+export { checkProfileContradictions } from './contradiction-checker.js'
+export type { ContradictionCheckResult } from './contradiction-checker.js'
+export { buildEvidenceFallbackProfile } from './evidence-fallback.js'
 export { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
 export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
 export type {

@@ -1,3 +1,4 @@
+import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
 
@@ -34,6 +35,7 @@ export interface EvidencePage {
   contentWidth?: number
   contentHeight?: number
   horizontalOverflow?: boolean
+  health?: PageHealthReport
   images: EvidenceImage[]
 }
 

@@ -1,0 +1,24 @@
+{
+  "fixture": "resilience-long-page",
+  "description": "Long editorial workspace with deliberate mobile overflow, a delayed promotional dialog, and a reversible disclosure.",
+  "expectedSectionRoles": ["header", "hero", "content", "footer"],
+  "minSections": 7,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type", "salience:primary-action-candidate"],
+  "minSectionCoverage": 0.3,
+  "referenceProfile": {
+    "thesis": "A warm editorial system uses oversized serif entry type and numbered chapters to keep an unusually long research document navigable.",
+    "signatureMoves": [
+      "Chapter numbers form a stable left rail on wide screens before reflowing above the text on mobile.",
+      "Warm paper surfaces and quiet rules preserve reading continuity across repeated long sections."
+    ],
+    "transferPreserve": [
+      "Keep the oversized serif entry point, numbered chapter rhythm, and restrained warm-neutral palette."
+    ],
+    "transferAvoid": ["Do not interpret the deliberately wide comparison board as proven responsive reflow."]
+  }
+}

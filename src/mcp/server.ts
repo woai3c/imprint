@@ -26,10 +26,12 @@ import { generateDesignProfileJson } from '../core/design-intelligence/profile-e
 import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
 import {
   buildDarkModeExportData,
+  generateComponentSpecsJson,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
   generateDtcgJson,
+  generateLocalVisualQa,
   generateTailwindTheme,
 } from '../core/export/index.js'
 
@@ -65,7 +67,7 @@ const TOOLS = [
         url: { type: 'string', description: 'The URL to analyze' },
         format: {
           type: 'string',
-          enum: ['tokens', 'evidence', 'css', 'tailwind', 'markdown', 'all'],
+          enum: ['tokens', 'evidence', 'component-specs', 'visual-qa', 'css', 'tailwind', 'markdown', 'all'],
           description: 'Output format (default: tokens)',
         },
         viewport: {
@@ -237,6 +239,12 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
         }
       case 'evidence':
         return { content: [{ type: 'text', text: generateDesignEvidenceJson(result.designEvidence) }] }
+      case 'component-specs':
+        return { content: [{ type: 'text', text: generateComponentSpecsJson(result.designEvidence) }] }
+      case 'visual-qa':
+        return {
+          content: [{ type: 'text', text: JSON.stringify(generateLocalVisualQa(result.designEvidence), null, 2) }],
+        }
       case 'all':
         return {
           content: [
@@ -249,6 +257,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                   featureTags,
                   pageCoverage: result.pageCoverage,
                   extractionIssues: result.extractionIssues,
+                  analysisTiming: result.timing,
                   css: generateCssVariables(tokens, darkMode, result.breakpoints),
                   tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
                   evidence: result.designEvidence,
@@ -283,6 +292,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                   featureTags,
                   pageCoverage: result.pageCoverage,
                   extractionIssues: result.extractionIssues,
+                  analysisTiming: result.timing,
                 },
                 null,
                 2,

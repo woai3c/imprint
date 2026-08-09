@@ -318,13 +318,16 @@ async function waitForDomQuiet(page: Page, maximumMs = 1_800, quietMs = 250): Pr
  * Prepare a loaded page for deterministic extraction without accepting consent
  * or otherwise persisting changes to the target website.
  */
-export async function preparePageForExtraction(page: Page): Promise<PagePreparationResult> {
+export async function preparePageForExtraction(
+  page: Page,
+  options: { recovery?: boolean } = {},
+): Promise<PagePreparationResult> {
   const issues: PagePreparationIssue[] = []
   let dismissedObstructions = 0
   let hiddenObstructions = 0
 
   try {
-    await waitForFonts(page, 5_000)
+    await waitForFonts(page, options.recovery ? 1_500 : 5_000)
   } catch (error) {
     issues.push({ stage: 'fonts', reason: reasonFrom(error) })
   }
@@ -335,7 +338,7 @@ export async function preparePageForExtraction(page: Page): Promise<PagePreparat
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }
   try {
-    await triggerLazyContent(page)
+    if (!options.recovery) await triggerLazyContent(page)
   } catch (error) {
     issues.push({ stage: 'lazy-content', reason: reasonFrom(error) })
   }
@@ -346,7 +349,7 @@ export async function preparePageForExtraction(page: Page): Promise<PagePreparat
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }
   try {
-    await waitForDomQuiet(page, 1_800, 500)
+    await waitForDomQuiet(page, options.recovery ? 1_000 : 1_800, options.recovery ? 250 : 500)
   } catch (error) {
     issues.push({ stage: 'settle', reason: reasonFrom(error) })
   }

@@ -144,6 +144,12 @@
       "uncertainties": "Uncertainties",
       "retry": "Retry interpretation",
       "reinterpret": "Re-interpret",
+      "deepReview": "Deep review",
+      "deepReviewConfirm": {
+        "title": "Run a deep AI review?",
+        "description": "This bypasses the saved AI result and makes another model call. It may take several minutes and may add provider charges. Browser extraction will not run again.",
+        "confirm": "Run deep review"
+      },
       "interpretManaged": "Start AI interpretation",
       "managedNotice": "This signed-in analysis may contain your account information. Nothing is sent to the configured AI until you choose \"Start AI interpretation\"; screenshots are not sent unless you enable that separately in Settings.",
       "cancel": "Cancel",
@@ -1087,6 +1093,8 @@
     }
   },
   "progress": {
+    "programAnalysisComplete": "Browser analysis complete; preparing AI interpretation...",
+    "preparingDigest": "Preparing the compact evidence digest and visual summaries...",
     "launchingBrowser": "Launching browser...",
     "checkingAccess": "Checking whether the page is publicly accessible...",
     "openingLoginBrowser": "Opening an isolated browser for sign-in...",

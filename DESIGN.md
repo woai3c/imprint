@@ -193,8 +193,9 @@ runs out, the tab strip scrolls horizontally instead.
   inside a captured region crop, the crop opens directly with the rectangle remapped into crop-local coordinates.
   Evidence that has no genuine screenshot region (topology layers, cross-page patterns, token-level references) opens a
   compact evidence detail instead — never a fabricated full-frame highlight.
-- A completed or partial interpretation offers "Re-interpret" alongside the failure retry; both rerun only
-  the AI layer on the stored evidence, never the browser.
+- A completed or partial interpretation offers "Re-interpret", which may reuse the persistent result cache, and a
+  separate "Deep review" action. Deep review explicitly bypasses the final AI cache, warns that it adds another paid,
+  potentially multi-minute model call, and reruns only the AI layer on stored evidence—never the browser.
 - Structural-only interpretation must never be styled or worded as full visual analysis. Screenshot input requires a
   vision-capable model plus the settings consent, which defaults to on for new installations because it materially
   improves interpretation; existing installs keep their saved choice, and the toggle stays one click away in Settings.

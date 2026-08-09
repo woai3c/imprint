@@ -282,7 +282,7 @@ test('switches themes in the current validation scenario', async () => {
   await page.locator('a[href="#/"]').click()
 })
 
-test('extracts a local design system without LLM credentials and persists it', { timeout: 180_000 }, async (t) => {
+test('extracts a local design system without LLM credentials and persists it', { timeout: 300_000 }, async (t) => {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
@@ -305,7 +305,12 @@ test('extracts a local design system without LLM credentials and persists it', {
     })
     await page.locator('a[href="#/"]').click()
     await page.locator('a[href="#/settings"]').click()
-    await page.getByTestId('agent-cli-clear').click()
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'Local CLI · Codex')
+    await page.evaluate(async () => {
+      await window.electronAPI.saveSettings({ agentCli: '' })
+    })
+    await page.locator('a[href="#/"]').click()
+    await page.locator('a[href="#/settings"]').click()
     assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
     assert.equal(
       await page.evaluate(async () => (await window.electronAPI.getSettings()).agentCli),
@@ -335,7 +340,8 @@ test('extracts a local design system without LLM credentials and persists it', {
 
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 4)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 5)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 2)
     await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
     assert.match(
       (await page.getByTestId('analysis-evidence-coverage').textContent()) || '',
@@ -409,14 +415,8 @@ test('extracts a local design system without LLM credentials and persists it', {
       )
       .waitFor({ state: 'visible' })
     await page.getByTestId('artifact-tab-preview').click()
-    await page.getByTestId('example-generation').waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('example-generation').count(), 0)
     assert.equal(await page.getByTestId('example-components').count(), 0)
-    await page.getByTestId('generate-examples').click()
-    await page.getByTestId('example-components').waitFor({ state: 'visible' })
-    assert.equal(await page.getByTestId('example-component-frame').count(), 1)
-    const aiExampleFrame = page.getByTestId('example-component-frame')
-    assert.match(await aiExampleFrame.evaluate((frame) => frame.contentDocument?.body.textContent || ''), /Card/)
-    assert.match((await aiExampleFrame.getAttribute('srcdoc')) || '', /--color-primary/)
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-evidence-link').first().click()
     await page.getByTestId('analysis-evidence-highlight').waitFor({ state: 'visible' })
@@ -671,7 +671,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.getByTestId('validation-scenario-pricing').getAttribute('aria-pressed'), 'true')
   } catch (error) {
     await fs.mkdir(resultDir, { recursive: true })
-    await page?.screenshot({ fullPage: true, path: failureScreenshotPath })
+    await page?.screenshot({ fullPage: false, path: failureScreenshotPath, timeout: 5_000 }).catch(() => {})
     throw error
   }
 })

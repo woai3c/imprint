@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
+  checkProfileContradictions,
   compareDesignProfiles,
   createEvidenceFingerprint,
+  createInterpretationCacheKey,
   createStructuralFingerprint,
   createValidationRecipe,
   evaluateProfileQuality,
@@ -472,6 +474,22 @@ describe('Design intelligence', () => {
     expect(validation.profile?.patterns?.[0].tokenRefs).toEqual(['color.primary'])
   })
 
+  it('downgrades deterministic numeric and overflow contradictions without another AI call', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.visualLanguage.typography.statement = 'Typography uses font-weight 900 and a 19px body size.'
+    profile.visualLanguage.typography.implementation = 'Set body text to 19px with font-weight 900.'
+    profile.transferRules.adapt[0].statement = 'The overflowing layout stacks cleanly on mobile.'
+    profile.transferRules.adapt[0].implementation = 'Hide the wide content at the mobile breakpoint.'
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.pages[1].horizontalOverflow = true
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+    expect(checked.profile.visualLanguage.typography.confidence).toBe('low')
+    expect(checked.rejected.some((reason) => reason.includes('font-weight-not-in-token-set'))).toBe(true)
+    expect(checked.rejected.some((reason) => reason.includes('numeric-value-not-in-token-set'))).toBe(true)
+    expect(checked.profile.uncertainties.some((item) => item.topic === 'Deterministic contradiction check')).toBe(true)
+  })
+
   it('resolves misplaced token citations back to selected DOM evidence', () => {
     const raw = rawProfile()
     raw.composition.densityAndWhitespace = {
@@ -764,6 +782,35 @@ describe('Design intelligence', () => {
     expect(createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'zh-CN')).not.toBe(
       createStructuralFingerprint(evidence, 'structural-only', 'openai', 'gpt-4o', [], '1', 'en'),
     )
+  })
+
+  it('invalidates the persistent interpretation cache for every material input', () => {
+    const input = {
+      fingerprint: 'evidence-and-visual-summary-hash',
+      provider: 'openai',
+      model: 'gpt-5',
+      reasoningEffort: 'low',
+      thinkingEnabled: false,
+      language: 'en' as const,
+      promptVersion: '1',
+      schemaVersion: '1',
+      accessMode: 'anonymous' as const,
+    }
+    const key = createInterpretationCacheKey(input)
+    for (const change of [
+      { fingerprint: 'changed-evidence' },
+      { provider: 'anthropic' },
+      { model: 'gpt-5.1' },
+      { reasoningEffort: 'high' },
+      { thinkingEnabled: true },
+      { language: 'zh-CN' as const },
+      { promptVersion: '2' },
+      { schemaVersion: '2' },
+      { accessMode: 'managed' as const },
+    ]) {
+      expect(createInterpretationCacheKey({ ...input, ...change })).not.toBe(key)
+    }
+    expect(createInterpretationCacheKey(input)).toBe(key)
   })
 
   it('requires observed target state differences when interaction evidence exists', () => {

@@ -9,6 +9,7 @@ import type { DesignToken } from '../../../core/analyzer/types'
 import type { DesignClaim, DesignIntelligenceMeta, ValidationReport } from '../../../core/design-intelligence/types'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 import { useFeedbackStore } from '../../stores/feedback-store'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { DesignEvidencePanel } from './DesignEvidencePanel'
 import { ValidationReportPanel } from './ValidationReportPanel'
 
@@ -17,6 +18,7 @@ interface DesignDnaPanelProps {
   intelligenceRunning?: boolean
   intelligenceProgress?: { step: string; percent: number } | null
   onRetry?: () => void
+  onDeepReview?: () => void
   onCancel?: () => void
   onSkip?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
@@ -204,6 +206,7 @@ function StatusCard({
   running,
   progress,
   onRetry,
+  onDeepReview,
   onCancel,
   managedEvidence,
   claimsTotal,
@@ -212,6 +215,7 @@ function StatusCard({
   running?: boolean
   progress?: { step: string; percent: number } | null
   onRetry?: () => void
+  onDeepReview?: () => void
   onCancel?: () => void
   managedEvidence?: boolean
   claimsTotal?: number
@@ -308,16 +312,30 @@ function StatusCard({
             {t('analyze.designDna.retry')}
           </button>
         )}
-        {successful && onRetry && (
-          <button
-            type="button"
-            data-testid="design-intelligence-reinterpret"
-            onClick={onRetry}
-            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <RefreshCw size={12} />
-            {t('analyze.designDna.reinterpret')}
-          </button>
+        {successful && (onRetry || onDeepReview) && (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {onRetry && (
+              <button
+                type="button"
+                data-testid="design-intelligence-reinterpret"
+                onClick={onRetry}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <RefreshCw size={12} />
+                {t('analyze.designDna.reinterpret')}
+              </button>
+            )}
+            {onDeepReview && (
+              <button
+                type="button"
+                data-testid="design-intelligence-deep-review"
+                onClick={onDeepReview}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('analyze.designDna.deepReview')}
+              </button>
+            )}
+          </div>
         )}
         {status === 'skipped' && onRetry && (
           <button
@@ -359,6 +377,7 @@ export function DesignDnaPanel({
   intelligenceRunning,
   intelligenceProgress,
   onRetry,
+  onDeepReview,
   onCancel,
   onSkip,
   onResultUpdate,
@@ -368,6 +387,7 @@ export function DesignDnaPanel({
   const notify = useFeedbackStore((state) => state.show)
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(result.validationReport || null)
   const [validating, setValidating] = useState(false)
+  const [confirmingDeepReview, setConfirmingDeepReview] = useState(false)
   const profile = result.designProfile
   const evidence = result.designEvidence
   const meta = result.designIntelligence
@@ -447,10 +467,25 @@ export function DesignDnaPanel({
         running={intelligenceRunning}
         progress={intelligenceProgress}
         onRetry={onRetry}
+        onDeepReview={onDeepReview ? () => setConfirmingDeepReview(true) : undefined}
         onCancel={onCancel}
         managedEvidence={evidence?.source.accessMode === 'managed'}
         claimsTotal={profile ? countProfileClaims(profile) : undefined}
       />
+
+      {confirmingDeepReview && onDeepReview && (
+        <ConfirmDialog
+          title={t('analyze.designDna.deepReviewConfirm.title')}
+          description={t('analyze.designDna.deepReviewConfirm.description')}
+          confirmLabel={t('analyze.designDna.deepReviewConfirm.confirm')}
+          cancelLabel={t('common.cancel')}
+          onConfirm={() => {
+            setConfirmingDeepReview(false)
+            onDeepReview()
+          }}
+          onCancel={() => setConfirmingDeepReview(false)}
+        />
+      )}
 
       {!intelligenceRunning && meta?.pendingChoice === 'model-no-vision' && meta.status === 'not-requested' && (
         <VisionChoiceCard onStructural={onRetry} onSkip={onSkip} />

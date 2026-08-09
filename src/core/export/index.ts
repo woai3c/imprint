@@ -15,6 +15,10 @@ import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../des
 import type { DesignProfile } from '../design-intelligence/types.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
+export { buildComponentSpecs, generateComponentSpecsJson } from './component-specs.js'
+export type { ComponentSpec } from './component-specs.js'
+export { comparePixelBuffers, generateLocalVisualQa } from './visual-qa.js'
+export type { VisualQaCheck, VisualQaReport, VisualQaStatus } from './visual-qa.js'
 
 export const FONT_SIZE_NAMES = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl']
 export const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']

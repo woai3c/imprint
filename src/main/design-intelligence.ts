@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 
 import { nativeImage, net } from 'electron'
 
@@ -142,58 +144,141 @@ function selectAvailableImages(evidence: DesignEvidence, imageIds: string[]) {
   return selected
 }
 
-const IMAGE_MAX_DIMENSION = 2048
-const IMAGE_TARGET_BYTES = 3.75 * 1024 * 1024
+const IMAGE_MAX_WIDTH = 1600
+const IMAGE_MAX_HEIGHT = 1600
+const IMAGE_TARGET_BYTES = 250 * 1024
+const IMAGE_MIN_MAX_DIMENSION = 96
 
-function compressImage(filePath: string): { base64: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' } {
+interface PreparedAiImage {
+  buffer: Buffer
+  mimeType: 'image/jpeg'
+  width: number
+  height: number
+  sourcePath: string
+}
+
+function isUsefulVisualSummary(image: Electron.NativeImage): boolean {
+  const bitmap = image.toBitmap()
+  if (bitmap.length < 4) return false
+  const pixelCount = Math.floor(bitmap.length / 4)
+  const stride = Math.max(1, Math.floor(pixelCount / 4_096))
+  let minimum = 255
+  let maximum = 0
+  let total = 0
+  let samples = 0
+  for (let pixel = 0; pixel < pixelCount; pixel += stride) {
+    const offset = pixel * 4
+    const luminance = (bitmap[offset] + bitmap[offset + 1] + bitmap[offset + 2]) / 3
+    minimum = Math.min(minimum, luminance)
+    maximum = Math.max(maximum, luminance)
+    total += luminance
+    samples += 1
+  }
+  const average = total / Math.max(samples, 1)
+  return !(maximum - minimum < 3 && (average < 5 || average > 250))
+}
+
+function prepareAiImage(filePath: string): PreparedAiImage | null {
   const raw = fs.readFileSync(filePath)
-  const img = nativeImage.createFromBuffer(raw)
-  if (img.isEmpty()) {
-    return { base64: raw.toString('base64'), mimeType: mimeTypeForPath(filePath) }
-  }
-  const { width, height } = img.getSize()
-  let resized = img
-  if (width > IMAGE_MAX_DIMENSION || height > IMAGE_MAX_DIMENSION) {
-    const scale = Math.min(IMAGE_MAX_DIMENSION / width, IMAGE_MAX_DIMENSION / height)
-    resized = img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'better' })
-  }
-  for (const quality of [80, 60, 40, 20]) {
-    const jpeg = resized.toJPEG(quality)
-    if (jpeg.length <= IMAGE_TARGET_BYTES || quality === 20) {
-      log.info(
-        'design-intelligence',
-        `image compressed: ${filePath} ${width}x${height} ${raw.length}→${jpeg.length} q=${quality}`,
-      )
-      return { base64: jpeg.toString('base64'), mimeType: 'image/jpeg' }
+  const sourceHash = createHash('sha256').update(raw).digest('hex').slice(0, 16)
+  const sourcePath = path.join(path.dirname(filePath), `${path.parse(filePath).name}.ai-${sourceHash}.jpeg`)
+  if (fs.existsSync(sourcePath)) {
+    const cached = fs.readFileSync(sourcePath)
+    const cachedImage = nativeImage.createFromBuffer(cached)
+    const size = cachedImage.getSize()
+    if (
+      !cachedImage.isEmpty() &&
+      cached.length <= IMAGE_TARGET_BYTES &&
+      size.width <= IMAGE_MAX_WIDTH &&
+      size.height <= IMAGE_MAX_HEIGHT &&
+      isUsefulVisualSummary(cachedImage)
+    ) {
+      log.info('design-intelligence', `AI image cache hit: ${sourcePath} ${size.width}x${size.height} ${cached.length}`)
+      return { buffer: cached, mimeType: 'image/jpeg', width: size.width, height: size.height, sourcePath }
     }
   }
-  const smallScale = Math.min(1000 / width, 1000 / height, 1)
-  const small = img.resize({
-    width: Math.round(width * smallScale),
-    height: Math.round(height * smallScale),
-    quality: 'better',
-  })
-  const jpeg = small.toJPEG(20)
-  log.info(
-    'design-intelligence',
-    `image ultra-compressed: ${filePath} ${width}x${height} ${raw.length}→${jpeg.length} q=20@1000`,
-  )
-  return { base64: jpeg.toString('base64'), mimeType: 'image/jpeg' }
+  const img = nativeImage.createFromBuffer(raw)
+  if (img.isEmpty()) return null
+  const { width, height } = img.getSize()
+  let summary = img
+  let summaryWidth = width
+  let summaryHeight = height
+
+  // A whole 2000×8000 page becomes illegible when merely scaled down. Keep a readable
+  // page-level top summary; the selector uses its second slot for responsive or region detail.
+  if (height / Math.max(width, 1) > 2.5) {
+    summaryHeight = Math.min(height, Math.round(width * 1.5))
+    summary = img.crop({ x: 0, y: 0, width, height: summaryHeight })
+    log.info('design-intelligence', `long image cropped for AI summary: ${width}x${height}→${width}x${summaryHeight}`)
+  }
+  if (summaryWidth > IMAGE_MAX_WIDTH || summaryHeight > IMAGE_MAX_HEIGHT) {
+    const scale = Math.min(IMAGE_MAX_WIDTH / summaryWidth, IMAGE_MAX_HEIGHT / summaryHeight)
+    summaryWidth = Math.max(1, Math.round(summaryWidth * scale))
+    summaryHeight = Math.max(1, Math.round(summaryHeight * scale))
+    summary = summary.resize({ width: summaryWidth, height: summaryHeight, quality: 'better' })
+  }
+  if (!isUsefulVisualSummary(summary)) {
+    log.warn('design-intelligence', `AI image rejected as blank: ${filePath}`)
+    return null
+  }
+
+  const persist = (buffer: Buffer): PreparedAiImage => {
+    fs.writeFileSync(sourcePath, buffer)
+    return { buffer, mimeType: 'image/jpeg', width: summaryWidth, height: summaryHeight, sourcePath }
+  }
+
+  for (const quality of [78, 64, 50, 36, 24]) {
+    const jpeg = summary.toJPEG(quality)
+    if (jpeg.length <= IMAGE_TARGET_BYTES) {
+      log.info(
+        'design-intelligence',
+        `AI image prepared: ${filePath} ${width}x${height}→${summaryWidth}x${summaryHeight} ${raw.length}→${jpeg.length} q=${quality}`,
+      )
+      return persist(jpeg)
+    }
+  }
+
+  // No selected image may exceed the outbound byte budget. Reduce dimensions
+  // deterministically until even high-detail/noisy captures fit, otherwise omit it.
+  while (Math.max(summaryWidth, summaryHeight) > IMAGE_MIN_MAX_DIMENSION) {
+    const scale = Math.min(0.8, 1000 / Math.max(summaryWidth, summaryHeight))
+    summaryWidth = Math.max(1, Math.round(summaryWidth * scale))
+    summaryHeight = Math.max(1, Math.round(summaryHeight * scale))
+    summary = summary.resize({ width: summaryWidth, height: summaryHeight, quality: 'better' })
+    const jpeg = summary.toJPEG(20)
+    if (jpeg.length <= IMAGE_TARGET_BYTES) {
+      log.info(
+        'design-intelligence',
+        `AI image fallback: ${filePath} ${width}x${height}→${summaryWidth}x${summaryHeight} ${raw.length}→${jpeg.length}`,
+      )
+      return persist(jpeg)
+    }
+  }
+  log.warn('design-intelligence', `AI image rejected after compression budget: ${filePath}`)
+  return null
 }
 
 function loadSelectedImages(evidence: DesignEvidence, imageIds: string[]): AiImageInput[] {
-  return selectAvailableImages(evidence, imageIds).map((image) => {
-    const compressed = compressImage(image.path)
-    return {
-      name: image.name.replace(/\.[^.]+$/, '.jpeg'),
-      mimeType: compressed.mimeType,
-      base64: compressed.base64,
-    }
+  return selectAvailableImages(evidence, imageIds).flatMap((image) => {
+    const prepared = prepareAiImage(image.path)
+    return prepared
+      ? [
+          {
+            name: image.name.replace(/\.[^.]+$/, '.jpeg'),
+            mimeType: prepared.mimeType,
+            base64: prepared.buffer.toString('base64'),
+          },
+        ]
+      : []
   })
 }
 
 function collectSelectedImageFiles(evidence: DesignEvidence, imageIds: string[]): AgentCliImageInput[] {
-  return selectAvailableImages(evidence, imageIds).map((image) => ({ name: image.name, sourcePath: image.path }))
+  return selectAvailableImages(evidence, imageIds).flatMap((image) => {
+    const prepared = prepareAiImage(image.path)
+    if (!prepared) return []
+    return [{ name: image.name.replace(/\.[^.]+$/, '.jpeg'), sourcePath: prepared.sourcePath }]
+  })
 }
 
 function failureCode(error: unknown, timedOut = false): string {
@@ -322,9 +407,16 @@ export async function runDesignIntelligence(
   }
 
   const isAgentCli = settings.aiMode === 'agentCli'
+  onProgress?.('progress.preparingDigest', 10)
   const imageStartedAt = Date.now()
   let route = chooseDesignIntelligenceRoute(settings, evidence)
   let evidencePackage = selectEvidencePackage(evidence, route.mode)
+  evidencePackage.imageSelection.forEach((selection, index) => {
+    log.info(
+      'design-intelligence',
+      `visual summary #${index + 1}: id=${selection.id} score=${selection.score} reason=${selection.reason}`,
+    )
+  })
   let images = route.mode === 'multimodal' && !isAgentCli ? loadSelectedImages(evidence, evidencePackage.imageIds) : []
   let cliImages =
     route.mode === 'multimodal' && isAgentCli
@@ -373,7 +465,7 @@ export async function runDesignIntelligence(
     inputFingerprint: fingerprint,
     inputImageCount: evidencePackage.imageIds.length,
   }
-  const timeoutSignal = AbortSignal.timeout(900_000)
+  const timeoutSignal = AbortSignal.timeout(300_000)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
   const accumulatedUsage = { input: 0, output: 0, calls: 0 }
   const accumulatedCallDetails: CallDetail[] = []
@@ -454,7 +546,11 @@ export async function runDesignIntelligence(
       })
       return result
     }
-    const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
+    const cliStubs: AiImageInput[] = cliImages.map((image) => ({
+      name: image.name,
+      mimeType: 'image/jpeg',
+      base64: '',
+    }))
     const { synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
     const synthesisImageIds = synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, ''))
 
@@ -479,7 +575,11 @@ export async function runDesignIntelligence(
 
     onProgress?.('progress.validatingProfile', 85)
     const effectiveMode = result.profile.inputMode
-    const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
+    const capabilityLevel = result.evidenceFallback
+      ? 'evidence-fallback'
+      : effectiveMode === 'multimodal'
+        ? 'multimodal-ai'
+        : 'structural-ai'
 
     onProgress?.('progress.validatingProfile', 90)
     const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)

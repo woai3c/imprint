@@ -109,7 +109,7 @@ export function AnalyzePage() {
 
   const runDesignIntelligence = async (analysisId: string, force = false) => {
     store.setIntelligenceRunning(true)
-    store.setIntelligenceProgress({ step: 'progress.interpretingDesignLanguage', percent: 8 })
+    store.setIntelligenceProgress({ step: 'progress.programAnalysisComplete', percent: 5 })
     try {
       const response: DesignIntelligenceResponse = await window.electronAPI.startDesignIntelligence(
         analysisId,
@@ -484,7 +484,8 @@ export function AnalyzePage() {
             result={result}
             intelligenceRunning={store.intelligenceRunning}
             intelligenceProgress={store.intelligenceProgress}
-            onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
+            onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId)}
+            onDeepReviewIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
             onCancelIntelligence={handleCancelIntelligence}
             onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}
             onResultUpdate={store.mergeResult}

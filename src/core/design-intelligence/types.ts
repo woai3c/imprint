@@ -1,5 +1,5 @@
 import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
-import type { DesignToken } from '../analyzer/types.js'
+import type { AnalysisTiming, DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
@@ -8,25 +8,7 @@ export type AnalysisCapabilityLevel = 'evidence-only' | 'structural-ai' | 'multi
 export type DesignIntelligenceStatus =
   'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'skipped' | 'unsupported'
 
-export interface AnalysisTiming {
-  browserMs?: number
-  preparationMs?: number
-  extractionMs?: number
-  healthGateMs?: number
-  digestMs: number
-  imageSummaryMs: number
-  aiQueueMs?: number
-  aiInvokeMs: number
-  validationMs: number
-  totalMs: number
-  aiInputTokens?: number
-  aiOutputTokens?: number
-  imageCount: number
-  cacheHit: boolean
-  digestChars?: number
-  promptChars?: number
-  budgetExceeded?: string[]
-}
+export type { AnalysisTiming } from '../analyzer/types.js'
 
 export interface AiModelCapabilities {
   text: boolean
@@ -204,6 +186,10 @@ export type AiSafeDesignEvidence = Omit<
     contentWidth?: number
     contentHeight?: number
     horizontalOverflow?: boolean
+    health?: {
+      status: string
+      issues: Array<{ code: string; severity: string }>
+    }
     imageIds: string[]
   }>
   sections: Array<
@@ -261,6 +247,11 @@ export interface EvidencePackage {
   selectedPageIds: string[]
   selectedSectionIds: string[]
   imageIds: string[]
+  imageSelection: Array<{
+    id: string
+    score: number
+    reason: string
+  }>
   evidence: AiSafeDesignEvidence
   omittedEvidence: Array<{
     kind: string

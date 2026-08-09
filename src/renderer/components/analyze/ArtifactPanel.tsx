@@ -23,6 +23,7 @@ interface ArtifactPanelProps {
   intelligenceRunning?: boolean
   intelligenceProgress?: { step: string; percent: number } | null
   onRetryIntelligence?: () => void
+  onDeepReviewIntelligence?: () => void
   onCancelIntelligence?: () => void
   onSkipIntelligence?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
@@ -34,6 +35,7 @@ export function ArtifactPanel({
   intelligenceRunning,
   intelligenceProgress,
   onRetryIntelligence,
+  onDeepReviewIntelligence,
   onCancelIntelligence,
   onSkipIntelligence,
   onResultUpdate,
@@ -187,6 +189,7 @@ export function ArtifactPanel({
               intelligenceRunning={intelligenceRunning}
               intelligenceProgress={intelligenceProgress}
               onRetry={onRetryIntelligence}
+              onDeepReview={onDeepReviewIntelligence}
               onCancel={onCancelIntelligence}
               onSkip={onSkipIntelligence}
               onResultUpdate={onResultUpdate}

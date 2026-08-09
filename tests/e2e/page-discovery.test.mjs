@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
 import { after, before, test } from 'node:test'
 
 import { chromium } from 'playwright-core'
 
 import { findHeadlessBrowser } from '../../dist/core/analyzer/browser-finder.js'
+import { analyze } from '../../dist/core/analyzer/index.js'
 import { discoverPages } from '../../dist/core/analyzer/page-discovery.js'
 
 let browser
@@ -29,6 +33,15 @@ before(async () => {
         <url><loc>${origin}/about</loc></url>
         <url><loc>${origin}/privacy</loc></url>
       </urlset>`)
+      return
+    }
+    if (request.url === '/pricing') {
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;color:#172033} header,main,footer{padding:32px}
+        .plans{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:20px;min-width:820px}
+        article{padding:24px;border:1px solid #ccd4e0;border-radius:16px}
+        @media(max-width:640px){header{padding:20px}.plans{grid-template-columns:repeat(3,260px)}}
+      </style><header><nav><a href="/">Home</a></nav></header><main><h1>Pricing plans</h1><p>Choose a plan for a growing team.</p><section class="plans"><article>Starter</article><article>Team</article><article>Scale</article></section></main><footer>Pricing help</footer>`)
       return
     }
     response.end(`<!doctype html><nav><a href="/pricing">Pricing</a></nav>
@@ -87,6 +100,23 @@ test('supports link-only discovery without reading sitemap routes', async () => 
   )
   assert.equal(
     result.pages.some(({ url }) => new URL(url).pathname === '/pricing'),
+    true,
+  )
+})
+
+test('adaptively captures one mobile view for a structurally distinct sub-page', { timeout: 120_000 }, async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-adaptive-e2e-'))
+  const result = await analyze(origin, {
+    viewports: ['desktop'],
+    maxPages: 2,
+    useSession: false,
+    pageDiscovery: 'links',
+    dataDir,
+  })
+  const pricingCaptures = result.designEvidence.pages.filter((item) => new URL(item.url).pathname === '/pricing')
+  assert.deepEqual(new Set(pricingCaptures.map((item) => item.viewport)), new Set(['desktop', 'mobile']))
+  assert.equal(
+    pricingCaptures.some((item) => item.horizontalOverflow),
     true,
   )
 })

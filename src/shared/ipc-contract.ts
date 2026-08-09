@@ -1,6 +1,6 @@
 import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
-import type { AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
+import type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import type {
   AgentContextBundle,
@@ -10,7 +10,7 @@ import type {
 } from '../core/design-intelligence/types.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
-export type { AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
+export type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
 export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 export type {
   AgentContextBundle,
@@ -155,6 +155,7 @@ export interface AnalysisResultData {
   screenshots: string[]
   pageScreenshots?: PageScreenshotData[]
   duration: number
+  analysisTiming?: AnalysisTiming
   url: string
   hasDarkMode?: boolean
   darkModeMethod?: string
@@ -182,6 +183,7 @@ export interface AnalysisDetailData {
   finalUrl: string | null
   pagesAnalyzed: number
   durationMs: number | null
+  analysisTiming?: AnalysisTiming
   createdAt: string
   tokens: Record<string, unknown>
   cssVariables: string

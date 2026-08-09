@@ -64,6 +64,26 @@ export interface ExtractionIssue {
   reason: string
 }
 
+export interface AnalysisTiming {
+  browserMs?: number
+  preparationMs?: number
+  extractionMs?: number
+  healthGateMs?: number
+  digestMs: number
+  imageSummaryMs: number
+  aiQueueMs?: number
+  aiInvokeMs: number
+  validationMs: number
+  totalMs: number
+  aiInputTokens?: number
+  aiOutputTokens?: number
+  imageCount: number
+  cacheHit: boolean
+  digestChars?: number
+  promptChars?: number
+  budgetExceeded?: string[]
+}
+
 export type TokenConfidence = 'high' | 'medium' | 'low'
 
 export interface TokenEvidence {
@@ -135,6 +155,7 @@ export interface AnalysisResult {
   breakpoints: ResponsiveBreakpoint[]
   motion: MotionToken[]
   duration: number
+  timing: AnalysisTiming
   accessMode: 'anonymous' | 'managed'
   authWallDetected: boolean
   finalUrl: string

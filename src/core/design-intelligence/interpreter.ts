@@ -5,6 +5,8 @@ import type { DesignEvidence } from '../design-evidence/types.js'
 import { buildAnalysisDigest } from './analysis-digest.js'
 import { dedupeProfileClaims } from './claim-dedupe.js'
 import { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
+import { checkProfileContradictions } from './contradiction-checker.js'
+import { buildEvidenceFallbackProfile } from './evidence-fallback.js'
 import {
   createEvidenceFingerprint,
   listEvidencePackageIds,
@@ -105,6 +107,7 @@ export interface InterpretationPipelineResult {
   timing: AnalysisTiming
   promptChars: number
   digestChars: number
+  evidenceFallback?: boolean
 }
 
 export function splitImagesByPass(
@@ -115,7 +118,9 @@ export function splitImagesByPass(
   const idOf = (image: AiImageInput) => image.name.replace(/\.[^.]+$/, '')
   return {
     observationImages: images.filter((image) => kindById.get(idOf(image)) === 'region-crop'),
-    synthesisImages: images.filter((image) => kindById.get(idOf(image)) !== 'region-crop'),
+    // The observation pass no longer runs. Region crops selected for information gain
+    // must therefore stay attached to the single synthesis call.
+    synthesisImages: images,
   }
 }
 
@@ -164,13 +169,17 @@ export async function runInterpretationPipeline(
     listEvidencePackageIds(evidencePackage),
     options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
   )
-  if (!validation.profile) {
-    throw new Error(
-      `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`,
-    )
-  }
-  validation.profile.tokenAliases = validateColorRenames(evidence.tokens, expanded.aliases).accepted
-  const deduped = dedupeProfileClaims(validation.profile)
+  const evidenceFallback = !validation.profile
+  const fallbackReason = `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`
+  const validatedProfile =
+    validation.profile || buildEvidenceFallbackProfile(evidence, options.language, 'structural-only', fallbackReason)
+  validatedProfile.tokenAliases = validation.profile
+    ? validateColorRenames(evidence.tokens, expanded.aliases).accepted
+    : []
+  const contradictionCheck = checkProfileContradictions(validatedProfile, evidence)
+  const deduped = evidenceFallback
+    ? { profile: contradictionCheck.profile, removed: 0 }
+    : dedupeProfileClaims(contradictionCheck.profile)
   const validationMs = Date.now() - validationStartedAt
   const budgetExceeded: string[] = []
   if ((response.usage?.input || 0) > 16_000) budgetExceeded.push('ai-input-tokens')
@@ -178,16 +187,23 @@ export async function runInterpretationPipeline(
 
   return {
     profile: deduped.profile,
-    status: validation.status === 'complete' ? 'complete' : 'partial',
+    status:
+      !evidenceFallback && validation.status === 'complete' && contradictionCheck.rejected.length === 0
+        ? 'complete'
+        : 'partial',
     pipeline: 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
-    rejected: validation.rejected.length > 0 ? validation.rejected : undefined,
+    rejected:
+      validation.rejected.length + contradictionCheck.rejected.length > 0
+        ? [...validation.rejected, ...contradictionCheck.rejected]
+        : undefined,
     dedupedClaims: deduped.removed > 0 ? deduped.removed : undefined,
     model: response.model,
     usage: response.usage,
     callDetails,
     promptChars: prompt.length,
     digestChars,
+    evidenceFallback: evidenceFallback || undefined,
     timing: {
       digestMs,
       imageSummaryMs: 0,
@@ -251,7 +267,11 @@ export async function interpretDesignEvidence(
       options.mode === 'multimodal' ? synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, '')) : undefined,
   })
   const effectiveMode = result.profile.inputMode
-  const capabilityLevel: AnalysisCapabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
+  const capabilityLevel: AnalysisCapabilityLevel = result.evidenceFallback
+    ? 'evidence-fallback'
+    : effectiveMode === 'multimodal'
+      ? 'multimodal-ai'
+      : 'structural-ai'
   return {
     profile: result.profile,
     meta: {

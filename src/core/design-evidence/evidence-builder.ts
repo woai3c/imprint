@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 
+import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { PageScreenshot } from '../analyzer/types.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
@@ -22,6 +23,7 @@ export interface CapturedPageEvidence {
   snapshot: PageEvidenceSnapshot
   interactionStyles?: InteractionStyles
   interactionObservations?: InteractionObservationSnapshot[]
+  health?: PageHealthReport
   supplementalImages?: Array<Omit<EvidenceImage, 'id' | 'sectionId'> & { sectionKey?: string }>
 }
 
@@ -38,6 +40,7 @@ export interface BuildDesignEvidenceInput {
   breakpoints: ResponsiveBreakpoint[]
   motion: MotionToken[]
   captures: CapturedPageEvidence[]
+  limitations?: string[]
   techStack?: import('./types.js').TechStackInfo
 }
 
@@ -272,6 +275,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       contentWidth: capture.snapshot.width,
       contentHeight: capture.snapshot.height,
       horizontalOverflow: capture.snapshot.horizontalOverflow,
+      health: capture.health,
       images: [
         {
           id: imageId,
@@ -488,9 +492,13 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const uniqueUrls = new Set(pages.map((page) => page.url))
   const viewportCoverage = [...new Set(pages.map((page) => page.viewport))]
   const limitations: string[] = []
+  limitations.push(...(input.limitations || []))
   if (uniqueUrls.size < input.expectedPageCount) limitations.push('fewer-pages-than-requested')
   if (viewportCoverage.length < 2) limitations.push('single-viewport')
   if (pages.some((page) => page.horizontalOverflow)) limitations.push('horizontal-overflow-observed')
+  for (const page of pages) {
+    for (const issue of page.health?.issues || []) limitations.push(`page-health:${issue.code}@${page.id}`)
+  }
   if (sections.length === 0) limitations.push('no-sections-detected')
   const interactionCandidateCount = input.captures.reduce(
     (sum, capture) => sum + capture.snapshot.interactionCandidates.length,

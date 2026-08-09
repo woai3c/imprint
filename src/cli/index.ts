@@ -15,10 +15,12 @@ import { generateReconstructionBrief } from '../core/design-intelligence/reconst
 import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
 import {
   buildDarkModeExportData,
+  generateComponentSpecsJson,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
   generateDtcgJson,
+  generateLocalVisualQa,
   generatePdfHtml,
   generateScssVariables,
   generateTailwindTheme,
@@ -291,6 +293,14 @@ async function main() {
         filename = 'design-profile.json'
         content = generateDesignProfileJson(profile)
         break
+      case 'components':
+        filename = 'component-specs.json'
+        content = generateComponentSpecsJson(result.designEvidence)
+        break
+      case 'visual-qa':
+        filename = 'visual-qa.json'
+        content = JSON.stringify(generateLocalVisualQa(result.designEvidence), null, 2)
+        break
       case 'pdf':
         filename = 'style-guide.html'
         content = generatePdfHtml(result.tokens, url, result.featureTags, darkModeExport)
@@ -306,6 +316,10 @@ async function main() {
   }
 
   log(`\n  Done in ${(result.duration / 1000).toFixed(1)}s\n`, options.quiet)
+  log(
+    `  Timing: browser=${result.timing.browserMs || 0}ms preparation=${result.timing.preparationMs || 0}ms health=${result.timing.healthGateMs || 0}ms extraction=${result.timing.extractionMs || 0}ms screenshots=${result.timing.imageSummaryMs || 0}ms`,
+    options.quiet,
+  )
 }
 
 function printUsage() {
@@ -316,7 +330,7 @@ function printUsage() {
     imprint extract <url> [options]
 
   Options:
-    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | pdf | all (default: all)
+    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme

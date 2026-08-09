@@ -278,7 +278,7 @@ function ThemePaletteMark({ colors }: { colors: string[] }) {
       {colors.slice(0, 3).map((color, index) => (
         <span
           key={`${color}-${index}`}
-          className="size-2.5 rounded-full border border-black/10"
+          className="size-[10px] shrink-0 rounded-full border border-black/10"
           style={{ backgroundColor: color }}
         />
       ))}

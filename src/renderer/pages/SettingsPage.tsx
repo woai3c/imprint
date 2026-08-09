@@ -170,9 +170,9 @@ export function SettingsPage() {
   }
 
   const handleCliSelect = (command: string) => {
-    const nextCommand = selectedCli === command ? '' : command
-    setSelectedCli(nextCommand)
-    save({ agentCli: nextCommand })
+    if (selectedCli === command) return
+    setSelectedCli(command)
+    save({ agentCli: command })
   }
 
   const handleTestConnection = async () => {
@@ -677,17 +677,7 @@ export function SettingsPage() {
                     <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.detectHint')}</p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {selectedCli && (
-                      <button
-                        data-testid="agent-cli-clear"
-                        type="button"
-                        onClick={() => handleCliSelect(selectedCli)}
-                        className="h-8 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {t('settings.ai.clearCli')}
-                      </button>
-                    )}
+                  <div className="shrink-0">
                     <IconButton
                       icon={RefreshCw}
                       label={t('settings.ai.redetect')}
@@ -715,9 +705,7 @@ export function SettingsPage() {
                       data-testid={`agent-cli-option-${cli.command}`}
                       type="button"
                       aria-pressed={selectedCli === cli.command}
-                      aria-label={t(selectedCli === cli.command ? 'settings.ai.deselectCli' : 'settings.ai.selectCli', {
-                        name: cli.name,
-                      })}
+                      aria-label={t('settings.ai.selectCli', { name: cli.name })}
                       onClick={() => handleCliSelect(cli.command)}
                       disabled={!cli.available}
                       className={`flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${

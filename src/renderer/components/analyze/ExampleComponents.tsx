@@ -1,5 +1,3 @@
-import { Loader2, Sparkles } from 'lucide-react'
-
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -33,48 +31,16 @@ interface ExampleComponentsProps {
   designDoc: string
   cssVariables: string
   generation?: DesignIntelligenceMeta['exampleGeneration']
-  generating?: boolean
-  canGenerate?: boolean
-  onGenerate?: () => void
 }
 
-export function ExampleComponents({
-  designDoc,
-  cssVariables,
-  generation,
-  generating,
-  canGenerate,
-  onGenerate,
-}: ExampleComponentsProps) {
+export function ExampleComponents({ designDoc, cssVariables, generation }: ExampleComponentsProps) {
   const { t } = useTranslation()
   const examples = useMemo(
     () => (generation?.status === 'complete' ? parseExampleComponents(designDoc) : []),
     [designDoc, generation?.status],
   )
 
-  if (examples.length === 0) {
-    if (!canGenerate) return null
-    const failed = generation?.status === 'failed'
-    const failureKey = generation?.failureCode || 'validation-failed'
-    return (
-      <section data-testid="example-generation" className="rounded-xl border border-border/60 bg-card/50 p-6">
-        <h3 className="text-base font-semibold text-foreground">{t('preview.exampleGeneration.title')}</h3>
-        <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-          {failed ? t(`preview.exampleGeneration.failures.${failureKey}`) : t('preview.exampleGeneration.description')}
-        </p>
-        <button
-          type="button"
-          data-testid="generate-examples"
-          onClick={onGenerate}
-          disabled={generating}
-          className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {t(generating ? 'preview.exampleGeneration.generating' : 'preview.exampleGeneration.action')}
-        </button>
-      </section>
-    )
-  }
+  if (examples.length === 0) return null
 
   return (
     <section data-testid="example-components" className="rounded-xl border border-border/60 bg-card/50 p-6">

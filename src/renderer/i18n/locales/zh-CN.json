@@ -161,7 +161,7 @@
         "pending": "正在解读设计语言",
         "cancelled": "AI 解读已取消",
         "complete": "AI 解读完成",
-        "partial": "AI 解读完成（部分主张被移除）",
+        "partial": "AI 解读完成",
         "failed": "AI 解读失败",
         "timeout": "AI 解读超时",
         "skipped": "已跳过 AI 解读",
@@ -1021,9 +1021,7 @@
       "detectDescription": "系统中检测到的 AI CLI",
       "redetect": "重新检测",
       "detectHint": "首次打开此方式时执行检测，并在本次应用会话中复用结果。检测不会自动选择 CLI；新安装 CLI 后可点击刷新。",
-      "clearCli": "取消选择",
       "selectCli": "选择 {{name}}",
-      "deselectCli": "取消选择 {{name}}",
       "noCli": "未检测到支持的 AI CLI"
     },
     "network": {
@@ -1093,19 +1091,6 @@
     "copyValue": "复制 {{value}}",
     "exampleComponents": "示例组件",
     "exampleComponentsHint": "由已配置的 AI 根据提取的设计令牌、设计规则与组件模式生成；用于验证样式组合，不代表原站源码",
-    "exampleGeneration": {
-      "title": "可选生成示例",
-      "description": "需要额外验证界面时，可单独生成使用设计令牌的中立组件。该步骤不会阻塞首次 AI 设计解读。",
-      "action": "生成示例",
-      "generating": "正在生成示例...",
-      "complete": "已生成并通过校验的示例",
-      "failed": "示例未生成",
-      "failures": {
-        "not-configured": "尚未配置可用于生成示例的 AI 引擎。",
-        "provider-error": "当前 AI 引擎未能完成示例生成，请稍后重试。",
-        "validation-failed": "生成内容未通过来源身份或设计令牌安全校验，已停止输出；你可以重试。"
-      }
-    },
     "colorGroups": {
       "surface": "表面",
       "text": "文字",

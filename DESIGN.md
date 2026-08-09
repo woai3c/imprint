@@ -183,7 +183,8 @@ runs out, the tab strip scrolls horizontally instead.
 - AI design insights run after deterministic extraction and never block the first usable result. The status card
   distinguishes pending, complete, partial, failed, skipped, and not-configured states; retry reruns only
   interpretation, never the browser. Status icons are reserved for running, success, and failure — neutral states use
-  text alone, and the UI never decorates status lines with capability tags.
+  text alone, and the UI never decorates status lines with capability tags. Complete and partial results share the
+  same concise completion label; validation details remain in the supporting status text below it.
 - When the configured model cannot see screenshots, analysis does not silently degrade: the status card offers an
   explicit three-way choice — generate a structural interpretation, switch to a vision-capable model in Settings, or
   skip AI interpretation. Skipping is persisted and reversible from the status card.
@@ -311,7 +312,8 @@ runs out, the tab strip scrolls horizontally instead.
 - Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
   explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
 - Treat Agent CLI detection and selection as separate actions. Detection only reports candidates; it never selects one
-  or changes the active AI method. Agent CLI selection remains optional and directly reversible.
+  or changes the active AI method. Selecting another CLI replaces the saved selection; the global AI switch disables
+  AI without clearing connection settings, so the CLI list does not expose a separate deselection action.
 - Present API Key and Agent CLI as two mutually exclusive connection methods while preserving each method's saved
   configuration. A persistent status summary must state which fully configured method is active, or that AI enhancement
   is not enabled when the selected method is incomplete.
@@ -336,13 +338,11 @@ Every export action must name the artifact it will create. Theme-library prefere
 the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
 design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
 
-When AI enhancement is configured and returns validated example HTML, the Preview tab renders each example live in a
-sandboxed iframe with the extracted CSS variables applied. Without AI, after AI failure, or when its output is invalid,
-Imprint omits the example section from both the preview and generated DESIGN.md so deterministic extraction stays
-compact. AI examples are validation surfaces rather than reconstructions of source markup. Rendering never executes
-scripts. Example generation is an explicit, optional Preview action after AI design insights complete; it never blocks
-the first interpretation result. While it runs, the action shows a busy state. Validation and provider failures remain
-separate, localized states, and invalid HTML is never persisted or rendered.
+When a saved analysis already contains validated example HTML, the Preview tab renders each example live in a sandboxed
+iframe with the extracted CSS variables applied. Without validated examples, Imprint omits the example section from
+both the preview and generated DESIGN.md so deterministic extraction stays compact. AI examples are validation surfaces
+rather than reconstructions of source markup, and rendering never executes scripts. New validation work belongs in the
+dedicated Theme Library validation scenarios instead of an optional generation prompt at the bottom of Preview.
 
 ## Anti-slop guardrails
 

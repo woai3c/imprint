@@ -50,14 +50,23 @@ test('translates Aurora Glass materials for the host desktop platform', async ()
 
       const rootStyle = getComputedStyle(document.documentElement)
       const probeStyle = getComputedStyle(probe)
+      const previewElement = document.querySelector('.theme-card-preview-glassmorphism')
+      if (!(previewElement instanceof HTMLElement)) throw new Error('Aurora theme preview was not found')
+      const previewStyle = getComputedStyle(previewElement)
+      const previewLayerStyle = getComputedStyle(previewElement, '::after')
       const result = {
         platform: document.documentElement.dataset.platform,
         bodyFont: getComputedStyle(document.body).fontFamily,
         sidebarFilter: getComputedStyle(document.querySelector('.app-sidebar')).backdropFilter,
         topbarFilter: getComputedStyle(document.querySelector('.app-topbar')).backdropFilter,
         artCardBorder: rootStyle.getPropertyValue('--art-card-border').trim(),
+        artPrimaryShadow: rootStyle.getPropertyValue('--art-primary-shadow').trim(),
         cardBackground: probeStyle.backgroundColor,
+        cardBackgroundImage: probeStyle.backgroundImage,
         cardBorder: probeStyle.borderTopColor,
+        previewBackgroundImage: previewStyle.backgroundImage,
+        previewLayerFilter: previewLayerStyle.backdropFilter,
+        previewLayerShadow: previewLayerStyle.boxShadow,
       }
       probe.remove()
       return result
@@ -68,19 +77,35 @@ test('translates Aurora Glass materials for the host desktop platform', async ()
       assert.match(styles.bodyFont, /Segoe UI/)
       assert.equal(styles.sidebarFilter, 'none')
       assert.equal(styles.topbarFilter, 'none')
-      assert.match(styles.artCardBorder, /76%.*24%/)
+      assert.match(styles.artCardBorder, /82 92 112/)
+      assert.doesNotMatch(styles.artCardBorder, /primary/)
+      assert.equal(styles.artPrimaryShadow, 'none')
+      assert.equal(styles.cardBackgroundImage, 'none')
+      assert.doesNotMatch(styles.previewBackgroundImage, /255, 105, 184|118, 91, 255/)
+      assert.equal(styles.previewLayerFilter, 'none')
+      assert.equal(styles.previewLayerShadow, 'none')
     } else if (process.platform === 'darwin') {
       assert.equal(styles.platform, 'macos')
       assert.match(styles.bodyFont, /apple-system|BlinkMacSystemFont/)
       assert.match(styles.sidebarFilter, /blur\(30px\)/)
       assert.match(styles.topbarFilter, /blur\(26px\)/)
       assert.match(styles.artCardBorder, /255 255 255/)
+      assert.match(styles.previewBackgroundImage, /255, 105, 184|118, 91, 255/)
+      assert.match(styles.previewLayerFilter, /blur\(8px\)/)
     }
 
     assert.notEqual(styles.cardBackground, 'rgba(0, 0, 0, 0)')
     assert.notEqual(styles.cardBorder, 'rgba(0, 0, 0, 0)')
 
     await fs.mkdir(resultDir, { recursive: true })
+    await preview.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(resultDir, `aurora-option-${styles.platform}.png`) })
+
+    await page.evaluate(() => {
+      window.location.hash = '/templates'
+    })
+    await page.getByTestId('theme-calibration-strip').waitFor()
+
     await page.screenshot({ path: path.join(resultDir, `aurora-${styles.platform}.png`) })
   } finally {
     await electronApp.close()

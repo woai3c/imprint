@@ -411,6 +411,8 @@ Visual novelty must remain accountable to the product's extraction and validatio
 - Windows fixed chrome favors stable tinted surfaces and defined edges. Avoid large live `backdrop-filter` regions in the
   persistent sidebar, toolbar, and reading cards; preserve Acrylic-like depth with restrained tint, texture, and short
   shadows. Verify borders at 100%, 125%, and 150% display scale.
+- On Windows, Aurora Glass uses one coherent cyan-violet light field behind neutral reading surfaces. Keep chromatic
+  outlines and directional sheen off repeated cards; reserve violet for selected, primary, and focus states.
 - macOS may retain softer translucent chrome where the high-density rendering path keeps text and hairlines legible.
   Keep reading cards laminated rather than multiplying live blur across scrolling content.
 - Platform typography must resolve deliberately: Segoe UI Variable and Microsoft YaHei UI on Windows; the macOS system

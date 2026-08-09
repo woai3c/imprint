@@ -29,6 +29,11 @@ export interface EvidencePage {
   url: string
   viewport: string
   role?: PageRole
+  viewportWidth?: number
+  viewportHeight?: number
+  contentWidth?: number
+  contentHeight?: number
+  horizontalOverflow?: boolean
   images: EvidenceImage[]
 }
 

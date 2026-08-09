@@ -57,6 +57,13 @@ export function generateDesignEvidenceBrief(
   for (const topologyPage of evidence.topology.pages) {
     const page = evidence.pages.find((candidate) => candidate.id === topologyPage.pageId)
     if (!page) continue
+    if (page.horizontalOverflow && page.viewportWidth && page.contentWidth) {
+      lines.push(
+        zh
+          ? `- \`${page.viewport}\` ${page.url}：检测到横向溢出（内容 ${page.contentWidth}px > 视口 ${page.viewportWidth}px）；视口外内容不能视为已隐藏或已重排`
+          : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
+      )
+    }
     const roles = topologyPage.sectionIds
       .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
       .filter((r) => Boolean(r) && r !== 'unknown')
@@ -166,6 +173,10 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
   'single-viewport': {
     en: 'Only a single viewport size was captured',
     zh: '仅捕获了单一视口尺寸',
+  },
+  'horizontal-overflow-observed': {
+    en: 'At least one viewport has horizontal overflow; off-screen content may be clipped rather than responsively reflowed',
+    zh: '至少一个视口存在横向溢出；视口外内容可能只是被裁切，并非已完成响应式重排',
   },
   'no-sections-detected': {
     en: 'No page sections were detected',

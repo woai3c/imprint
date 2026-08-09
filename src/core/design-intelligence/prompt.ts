@@ -1,7 +1,7 @@
 import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence-selector.js'
 import type { EvidencePackage, SectionObservation } from './types.js'
 
-export const DESIGN_PROFILE_PROMPT_VERSION = '9'
+export const DESIGN_PROFILE_PROMPT_VERSION = '10'
 
 function allowedEvidenceIds(evidencePackage: EvidencePackage): string {
   return [...listEvidencePackageIds(evidencePackage)].sort().join(', ')
@@ -96,6 +96,7 @@ Security and evidence rules:
 - The input mode is ${evidencePackage.inputMode}. In structural-only mode, do not make high-confidence claims about photography, material nuance, or visual focus that requires screenshots.
 - In structural-only mode, describe attention only as a geometry- or DOM-implied reading order. Do not claim what viewers notice first.
 - A site-wide thesis, signature move, continuity rule, or preserve rule must recur across at least two distinct page URLs when multiple URLs are present. Treat one-page structures as local adaptations.
+- Never say "all", "every", or an exact number of analyzed pages unless the cited evidence covers every selected page URL and the described structure actually recurs on each one.
 - Do not let contact, about, legal, community, or support-page structures define the product's main content grammar unless the same pattern recurs on another page.
 - Footer, legal/filing, consent, and small fixed utility regions are local chrome. They may only support page-local claims — never a site-wide signature move, preserve rule, or high-confidence global claim. A signature move needs support from primary content sections on at least two distinct page URLs when several exist.
 - Passive CSS pseudo-class and ARIA evidence proves declared states, not that a click, expansion, or transition was actively executed.
@@ -103,7 +104,10 @@ ${hasUnexercisedSwitch ? '- The evidence contains an ARIA switch (aria-checked) 
 - sectionGrammar role must be one of the observed section roles: ${observedSectionRoles.join(', ')}. Do not invent or assume any other role; omit roles that were not observed.
 - Page screenshots (image-* IDs) are page-level evidence: a sectionGrammar claim must also cite at least one section, component, layout, interaction, responsive, or media ID that belongs to that role's sections.
 - Section approxBounds are coarse fractions of the page. Describe sizes with those rough proportions ("about a third of the width", "thin strip at the top"); never state precise percentages or pixel offsets.
+- Page records distinguish viewportWidth from contentWidth. When horizontalOverflow is true, describe clipping, minimum-width layout, or horizontal overflow; never infer that off-screen sidebars were hidden, collapsed, or responsively reflowed without separate structural evidence.
+- The access restriction "auth-wall-resolved-by-managed-access" means the captured evidence is authenticated; do not describe that evidence as an unauthenticated or logged-out view.
 - Interaction observations include concrete from/to value changes. Interaction claims must cite those values (for example color #fff -> #b39aff, 0.25s) instead of only saying an element "changes color".
+- Do not state numeric token ranges (such as maximum font weight) unless the cited token refs support the boundary, and do not describe a token's color role from its name alone when its value contradicts that role.
 - Avoid generic-only descriptions such as modern, clean, premium, professional, friendly, or high-tech.
 - Keep the entire response under 12,000 characters. Never quote or restate evidence text, and do not repeat the same idea across multiple claims. Each claim must add information not stated elsewhere: a structure already covered by a signature move, composition rule, or thesis must not reappear as a pattern, section grammar, or component grammar entry.
 

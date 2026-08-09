@@ -267,6 +267,11 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       url: capture.snapshot.url,
       viewport: capture.snapshot.viewport,
       role: capture.snapshot.role,
+      viewportWidth: capture.snapshot.viewportWidth,
+      viewportHeight: capture.snapshot.viewportHeight,
+      contentWidth: capture.snapshot.width,
+      contentHeight: capture.snapshot.height,
+      horizontalOverflow: capture.snapshot.horizontalOverflow,
       images: [
         {
           id: imageId,
@@ -485,6 +490,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const limitations: string[] = []
   if (uniqueUrls.size < input.expectedPageCount) limitations.push('fewer-pages-than-requested')
   if (viewportCoverage.length < 2) limitations.push('single-viewport')
+  if (pages.some((page) => page.horizontalOverflow)) limitations.push('horizontal-overflow-observed')
   if (sections.length === 0) limitations.push('no-sections-detected')
   const interactionCandidateCount = input.captures.reduce(
     (sum, capture) => sum + capture.snapshot.interactionCandidates.length,
@@ -572,7 +578,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     },
     accessRestrictions: [
       ...(input.accessMode === 'managed' ? ['managed-access'] : []),
-      ...(input.authWallDetected ? ['auth-wall-detected'] : []),
+      ...(input.authWallDetected
+        ? [input.accessMode === 'managed' ? 'auth-wall-resolved-by-managed-access' : 'auth-wall-detected']
+        : []),
     ],
     limitations,
   }

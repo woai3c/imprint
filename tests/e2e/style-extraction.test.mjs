@@ -64,6 +64,13 @@ test('prepares dynamic pages and extracts modern tokens plus computed interactio
           color: white;
           background: rgb(255, 0, 0);
         }
+        #activity-modal {
+          display: none;
+          position: fixed;
+          inset: 80px 120px;
+          z-index: 9998;
+          background: rgb(255, 0, 255);
+        }
         @keyframes pulse { from { opacity: .4; } to { opacity: 1; } }
         .animated { animation: pulse 2s infinite; }
       }
@@ -76,16 +83,25 @@ test('prepares dynamic pages and extracts modern tokens plus computed interactio
       <section id="lazy-card">Lazy content</section>
     </main>
     <aside id="cookie-banner" role="dialog">We use cookies. Manage preferences.</aside>
+    <aside id="activity-modal" class="campaign-modal" role="dialog" aria-modal="true">
+      <button aria-label="Close promotion" onclick="this.parentElement.style.display = 'none'">×</button>
+      Limited-time campaign
+    </aside>
     <script>
       addEventListener('scroll', () => {
-        if (scrollY > 300) document.querySelector('#lazy-card').style.display = 'block'
+        if (scrollY > 300) {
+          document.querySelector('#lazy-card').style.display = 'block'
+          document.querySelector('#activity-modal').style.display = 'block'
+        }
       })
     </script>`)
 
   const preparation = await preparePageForExtraction(page)
   assert.equal(preparation.issues.length, 0)
   assert.equal(preparation.hiddenObstructions, 1)
+  assert.equal(preparation.dismissedObstructions, 1)
   assert.equal(await page.locator('#cookie-banner').evaluate((element) => getComputedStyle(element).display), 'none')
+  assert.equal(await page.locator('#activity-modal').evaluate((element) => getComputedStyle(element).display), 'none')
   assert.equal(await page.locator('#lazy-card').evaluate((element) => getComputedStyle(element).display), 'block')
 
   assert.equal(await freezePageAnimations(page), null)
@@ -110,6 +126,7 @@ test('prepares dynamic pages and extracts modern tokens plus computed interactio
   })
   assert.ok(styles.usageCount[`bgColor:${lazyBackground}`] > 0)
   assert.equal(styles.usageCount['bgColor:rgb(255, 0, 0)'], undefined)
+  assert.equal(styles.usageCount['bgColor:rgb(255, 0, 255)'], undefined)
 
   const clustered = clusterColors(styles.colors, styles.usageCount, styles.usageCount)
   const brandColor = Object.keys(styles.usageCount)
@@ -123,6 +140,40 @@ test('prepares dynamic pages and extracts modern tokens plus computed interactio
   assert.ok(interactions.focus.some((state) => state['outline-color']?.startsWith('rgb(')))
   assert.ok((interactions.disabled?.length || 0) > 0)
   assert.equal(await page.evaluate(() => window.scrollY), 0)
+})
+
+test('dismisses transient dialogs inside iframe shadow roots without clicking page-content decoys', async () => {
+  await page.setContent(`<!doctype html>
+    <style>.campaign-card { width: 240px; height: 120px; }</style>
+    <section class="campaign-card"><button class="close" onclick="window.decoyClicked = true">×</button></section>
+    <aside class="login-modal" role="dialog" style="position:fixed;inset:80px">
+      <button aria-label="Close" onclick="window.authClicked = true">×</button>
+      Sign in
+    </aside>
+    <iframe title="promotion"></iframe>
+    <script>window.decoyClicked = false; window.authClicked = false</script>`)
+  const frame = page.frames().find((candidate) => candidate !== page.mainFrame())
+  assert.ok(frame)
+  await frame.setContent(`<!doctype html><promo-dialog></promo-dialog><script>
+    customElements.define('promo-dialog', class extends HTMLElement {
+      connectedCallback() {
+        const root = this.attachShadow({ mode: 'open' })
+        root.innerHTML = '<div role="dialog" aria-modal="true" style="position:fixed;inset:40px;background:#f0f"><button aria-label="Close promotion">×</button></div>'
+        root.querySelector('button').onclick = () => root.querySelector('[role=dialog]').remove()
+      }
+    })
+  </script>`)
+
+  const preparation = await preparePageForExtraction(page)
+
+  assert.equal(preparation.issues.length, 0)
+  assert.equal(preparation.dismissedObstructions, 1)
+  assert.equal(await page.evaluate(() => window.decoyClicked), false)
+  assert.equal(await page.evaluate(() => window.authClicked), false)
+  assert.equal(
+    await frame.locator('promo-dialog').evaluate((host) => host.shadowRoot.querySelector('[role=dialog]')),
+    null,
+  )
 })
 
 test('does not mistake generic Emotion classes for MUI', async () => {

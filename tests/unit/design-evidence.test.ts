@@ -33,13 +33,17 @@ const tokens: DesignToken = {
 }
 
 function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number): PageEvidenceSnapshot {
+  const viewportWidth = { desktop: 1440, tablet: 768, mobile: 375 }[viewport]
   return {
     url: 'https://example.com/',
     viewport,
     language: 'en',
     role: 'landing',
+    viewportWidth,
+    viewportHeight: viewport === 'mobile' ? 812 : 900,
     width,
     height: 1600,
+    horizontalOverflow: width > viewportWidth + 4,
     sections: [
       {
         key: 'navigation:0',
@@ -229,6 +233,38 @@ describe('Design Evidence', () => {
     expect(evidence.coverage.viewportCoverage).toEqual(['desktop', 'tablet', 'mobile'])
   })
 
+  it('records horizontal overflow instead of treating off-screen mobile content as responsive hiding', () => {
+    const snapshot = createSnapshot('mobile', 1032)
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-overflow',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\mobile.png', viewport: 'mobile' },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.pages[0]).toMatchObject({
+      viewportWidth: 375,
+      contentWidth: 1032,
+      horizontalOverflow: true,
+    })
+    expect(evidence.limitations).toContain('horizontal-overflow-observed')
+    expect(generateDesignEvidenceBrief(evidence)).toContain(
+      'horizontal overflow observed (content 1032px > viewport 375px)',
+    )
+  })
+
   it('keeps responsive media attributes and links region crops to sections', () => {
     const snapshot = createSnapshot('desktop', 1440)
     snapshot.mediaLayers = [
@@ -326,7 +362,7 @@ describe('Design Evidence', () => {
     expect(evidence.limitations).toEqual(
       expect.arrayContaining([expect.stringContaining('skipped-interaction:tab@tab:0')]),
     )
-    expect(evidence.coverage.accessRestrictions).toEqual(['managed-access', 'auth-wall-detected'])
+    expect(evidence.coverage.accessRestrictions).toEqual(['managed-access', 'auth-wall-resolved-by-managed-access'])
     const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
     expect(brief).toContain('被动状态观察：2 条（未执行用户操作，与概览口径一致）')
     expect(brief).toContain('2 条被动状态观察（未执行用户操作）')

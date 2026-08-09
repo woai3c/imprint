@@ -251,11 +251,14 @@ function validateInteractionClaim(
   }
   const hasActiveEvidence = claim.evidence.some((reference) => activeInteractionIds.has(reference.evidenceId))
   if (!hasActiveEvidence) {
+    const assertsUniversalBehavior = /\b(?:all|every|always|uniformly)\b|所有|全部|一律|均会|始终/i.test(
+      `${claim.statement} ${claim.implementation}`,
+    )
     const assertsExecutedBehavior =
       /\b(?:click|clicked|expand|expanded|toggle|toggled|open|opened|close|closed|navigate|navigates)\b|点击|展开|切换|打开|关闭|跳转/i.test(
         `${claim.statement} ${claim.implementation}`,
       )
-    if (assertsExecutedBehavior) return { ...claim, confidence: 'low' }
+    if (assertsExecutedBehavior || assertsUniversalBehavior) return { ...claim, confidence: 'low' }
     if (claim.confidence === 'high') return { ...claim, confidence: 'medium' }
   }
   return claim
@@ -400,11 +403,19 @@ function capSinglePageGlobalClaim<T extends DesignClaim>(
   scope: EvidenceScope,
   availablePageCount: number,
 ): T {
+  const referencedPages = referencedPageUrls(claim, scope).size
+  const assertsUniversalCoverage =
+    /\b(?:all|every|across all|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|每页|两个页面|三页|四页|均采用|均使用/i.test(
+      `${claim.statement} ${claim.implementation}`,
+    )
+  if (assertsUniversalCoverage && availablePageCount > 1 && referencedPages < availablePageCount) {
+    return { ...claim, confidence: 'low' } as T
+  }
   if (claim.confidence !== 'high') return claim
   const utilityOnly =
     claim.evidence.length > 0 && claim.evidence.every((reference) => scope.utilityEvidenceIds.has(reference.evidenceId))
   if (utilityOnly) return { ...claim, confidence: 'medium' } as T
-  if (availablePageCount <= 1 || referencedPageUrls(claim, scope).size >= 2) {
+  if (availablePageCount <= 1 || referencedPages >= 2) {
     return claim
   }
   return { ...claim, confidence: 'medium' } as T
@@ -484,6 +495,9 @@ export function validateDesignProfile(
   const coverage = evidence.coverage
   const noClassifiedMedia = coverage.mediaCoverage.classifiedRegions === 0
   const singleViewport = coverage.viewportCoverage.length < 2
+  const horizontalOverflowPageUrls = new Set(
+    evidence.pages.filter((page) => page.horizontalOverflow).map((page) => canonicalPageUrl(page.url)),
+  )
   const allEvidenceIds = listEvidenceIds(evidence)
   const validIds = allowedEvidenceIds
     ? new Set([...allowedEvidenceIds].filter((evidenceId) => allEvidenceIds.has(evidenceId)))
@@ -842,6 +856,23 @@ export function validateDesignProfile(
             if (rule.confidence === 'high') rule.confidence = 'medium'
           }
         }
+        if (horizontalOverflowPageUrls.size > 0) {
+          for (const rule of responsiveRules) {
+            const appliesToOverflowPage = [...referencedPageUrls(rule, evidenceScope)].some((url) =>
+              horizontalOverflowPageUrls.has(url),
+            )
+            const text = `${rule.statement} ${rule.implementation}`
+            const claimsSuccessfulReflow =
+              /\b(?:reflows?|stacks?|hides?|hidden|collapses?|fits?|adapts?|responsiv\w*)\b|重排|堆叠|隐藏|收起|适配|响应式/i.test(
+                text,
+              )
+            const acknowledgesOverflow =
+              /\b(?:horizontal overflow|overflow|clipp|off-screen|min(?:imum)?-width)\b|横向溢出|横向滚动|裁切|超出视口|最小宽度/i.test(
+                text,
+              )
+            if (appliesToOverflowPage && claimsSuccessfulReflow && !acknowledgesOverflow) rule.confidence = 'low'
+          }
+        }
         return [
           {
             id: item.id.slice(0, 80),
@@ -914,6 +945,13 @@ export function validateDesignProfile(
     'single-viewport': {
       en: ['Responsive behavior', 'Only one viewport was available for structural comparison.'],
       zh: ['响应式行为', '只有一个视口可用于结构比较。'],
+    },
+    'horizontal-overflow-observed': {
+      en: [
+        'Responsive behavior',
+        'At least one capture overflowed horizontally, so off-screen content may be clipped rather than reflowed.',
+      ],
+      zh: ['响应式行为', '至少一个视口存在横向溢出，视口外内容可能只是被裁切，并非已经重排。'],
     },
     'some-safe-interactions-skipped': {
       en: ['Interaction states', 'Some interaction candidates were skipped by the safe-action policy or budget.'],

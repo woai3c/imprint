@@ -82,8 +82,11 @@ export interface PageEvidenceSnapshot {
   viewport: string
   language?: string
   role: PageRole
+  viewportWidth: number
+  viewportHeight: number
   width: number
   height: number
+  horizontalOverflow: boolean
   sections: PageSectionSnapshot[]
   components: PageComponentSnapshot[]
   layoutNodes: PageLayoutNodeSnapshot[]
@@ -148,8 +151,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
 
     const documentElement = document.documentElement
     const body = document.body
-    const width = Math.max(documentElement.scrollWidth, body?.scrollWidth || 0, window.innerWidth, 1)
-    const height = Math.max(documentElement.scrollHeight, body?.scrollHeight || 0, window.innerHeight, 1)
+    const viewportWidth = Math.max(window.innerWidth, 1)
+    const viewportHeight = Math.max(window.innerHeight, 1)
+    const width = Math.max(documentElement.scrollWidth, body?.scrollWidth || 0, viewportWidth)
+    const height = Math.max(documentElement.scrollHeight, body?.scrollHeight || 0, viewportHeight)
     const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
     const areaOf = (element: Element): number => {
       const rect = element.getBoundingClientRect()
@@ -759,8 +764,11 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       viewport: viewportName,
       language: document.documentElement.lang || undefined,
       role: pageRole(),
+      viewportWidth,
+      viewportHeight,
       width,
       height,
+      horizontalOverflow: width > viewportWidth + 4,
       sections: sectionEntries.map((entry) => entry.snapshot),
       components,
       layoutNodes,

@@ -28,8 +28,11 @@ function createSnapshot(url: string): PageEvidenceSnapshot {
     url,
     viewport: 'desktop',
     role: 'landing',
+    viewportWidth: 1440,
+    viewportHeight: 900,
     width: 1440,
     height: 1600,
+    horizontalOverflow: false,
     sections: [
       {
         key: 'main:0',

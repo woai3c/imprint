@@ -70,6 +70,34 @@ describe('dark mode export data', () => {
     expect(restoredLegacy?.darkTokens?.colors).toEqual(fullDarkTokens.colors)
   })
 
+  test('does not treat independently clustered dark palette indexes as base token overrides', () => {
+    const restored = restoreDarkModeExportData(
+      {
+        ...baseTokens,
+        colors: { background: '#16171d', 'palette-3': '#0084ff' },
+        evidence: {
+          'colors.palette-3': {
+            value: '#0084ff',
+            confidence: 'high',
+            observationCount: 8,
+            pageCount: 1,
+            captureCount: 1,
+            pages: [],
+            sources: ['usage:bgColor'],
+            reasons: [],
+          },
+        },
+      },
+      baseTokens,
+      'media-query',
+    )
+
+    expect(restored?.darkTokens?.colors['palette-3']).toBeUndefined()
+    expect(restored?.darkTokens?.colors['dark-palette-3']).toBe('#0084ff')
+    expect(restored?.darkTokens?.evidence?.['colors.palette-3']).toBeUndefined()
+    expect(restored?.darkTokens?.evidence?.['colors.dark-palette-3']?.value).toBe('#0084ff')
+  })
+
   test('includes the dark variant in DTCG JSON without changing the base token paths', () => {
     const darkTokens = { ...baseTokens, colors: { background: '#16171d', foreground: '#f5f5f5' } }
     const dtcg = JSON.parse(generateDtcgJson(baseTokens, { hasDarkMode: true, darkTokens, method: 'media-query' })) as {

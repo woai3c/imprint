@@ -40,13 +40,29 @@ export interface DarkModeExportData {
   selector?: string
 }
 
+function namespaceDarkPaletteTokens(tokens: DesignToken): DesignToken {
+  const rename = (name: string): string => (/^palette-\d+$/.test(name) ? `dark-${name}` : name)
+  const colors = Object.fromEntries(Object.entries(tokens.colors).map(([name, value]) => [rename(name), value]))
+  const evidence = tokens.evidence
+    ? Object.fromEntries(
+        Object.entries(tokens.evidence).map(([key, value]) => {
+          const match = /^colors\.(palette-\d+)$/.exec(key)
+          return [match ? `colors.${rename(match[1])}` : key, value]
+        }),
+      )
+    : undefined
+  return { ...tokens, colors, ...(evidence ? { evidence } : {}) }
+}
+
 export function buildDarkModeExportData(darkMode: DarkModeResult | null | undefined): DarkModeExportData | undefined {
   if (!darkMode?.hasDarkMode || !darkMode.darkStyles) return undefined
 
   const clusteredColors = clusterColors(darkMode.darkStyles.colors, darkMode.darkStyles.usageCount)
   return {
     hasDarkMode: true,
-    darkTokens: buildDesignTokens(darkMode.darkStyles, clusteredColors),
+    // Residual palette indexes are local to each independently clustered snapshot. Keeping
+    // the same palette-N key would falsely imply a semantic light/dark override relationship.
+    darkTokens: namespaceDarkPaletteTokens(buildDesignTokens(darkMode.darkStyles, clusteredColors)),
     method: darkMode.method,
     selector: darkMode.selector,
   }
@@ -80,10 +96,11 @@ export function restoreDarkModeExportData(
 ): DarkModeExportData | undefined {
   if (!storedDarkTokens || typeof storedDarkTokens !== 'object' || Array.isArray(storedDarkTokens)) return undefined
 
-  const darkTokens = isDesignToken(storedDarkTokens)
+  const restoredDarkTokens = isDesignToken(storedDarkTokens)
     ? storedDarkTokens
     : { ...baseTokens, colors: storedDarkTokens as Record<string, string> }
-  if (Object.keys(darkTokens.colors).length === 0) return undefined
+  if (Object.keys(restoredDarkTokens.colors).length === 0) return undefined
+  const darkTokens = namespaceDarkPaletteTokens(restoredDarkTokens)
   const normalizedMethod = method === 'media-query' || method === 'class-toggle' ? method : 'media-query'
 
   return {

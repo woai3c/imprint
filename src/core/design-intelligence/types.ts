@@ -178,6 +178,11 @@ export type AiSafeDesignEvidence = Omit<
     url: string
     viewport: string
     role?: string
+    viewportWidth?: number
+    viewportHeight?: number
+    contentWidth?: number
+    contentHeight?: number
+    horizontalOverflow?: boolean
     imageIds: string[]
   }>
   sections: Array<

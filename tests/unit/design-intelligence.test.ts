@@ -376,9 +376,29 @@ describe('Design intelligence', () => {
   })
 
   it('keeps structural evidence packages path-free and image-free', () => {
-    const selected = selectEvidencePackage(evidence, 'structural-only')
+    const evidenceWithDimensions: DesignEvidence = {
+      ...evidence,
+      pages: evidence.pages.map((page) =>
+        page.id === 'page-b'
+          ? {
+              ...page,
+              viewportWidth: 375,
+              viewportHeight: 812,
+              contentWidth: 1032,
+              contentHeight: 1600,
+              horizontalOverflow: true,
+            }
+          : page,
+      ),
+    }
+    const selected = selectEvidencePackage(evidenceWithDimensions, 'structural-only')
     expect(selected.imageIds).toEqual([])
     expect(selected.evidence.pages.every((page) => page.imageIds.length === 0)).toBe(true)
+    expect(selected.evidence.pages.find((page) => page.id === 'page-b')).toMatchObject({
+      viewportWidth: 375,
+      contentWidth: 1032,
+      horizontalOverflow: true,
+    })
     expect(JSON.stringify(selected)).not.toContain('C:\\private')
   })
 
@@ -692,6 +712,30 @@ describe('Design intelligence', () => {
 
     const continuity = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en')
     expect(continuity.profile?.interactionLanguage.continuityRules[0].confidence).toBe('low')
+  })
+
+  it('downgrades responsive reflow claims when the captured mobile page actually overflows', () => {
+    const overflowEvidence: DesignEvidence = {
+      ...evidence,
+      pages: evidence.pages.map((page) =>
+        page.id === 'page-b' ? { ...page, viewportWidth: 375, contentWidth: 1032, horizontalOverflow: true } : page,
+      ),
+      limitations: ['horizontal-overflow-observed'],
+    }
+    const raw = rawProfile()
+    raw.patterns[0].responsiveRules = [
+      {
+        ...claim('The mobile layout hides the sidebar and responsively reflows the main column'),
+        evidence: [{ evidenceId: 'responsive-a', note: 'Desktop-to-mobile bounds differ' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, overflowEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.patterns?.[0].responsiveRules[0].confidence).toBe('low')
+    expect(validation.profile?.uncertainties).toEqual(
+      expect.arrayContaining([expect.objectContaining({ topic: 'Responsive behavior' })]),
+    )
   })
 
   it('records coverage gaps as uncertainties instead of silent conclusions', () => {

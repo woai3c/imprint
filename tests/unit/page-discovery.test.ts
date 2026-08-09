@@ -27,6 +27,16 @@ describe('page discovery scoring', () => {
     expect(page?.kind).toBe('product')
   })
 
+  test('keeps GitHub repository discovery inside the repository path scope', () => {
+    const repository = 'https://github.com/woai3c/x-code-cli'
+
+    expect(scorePageUrl('/pricing', repository, 24)).toBeNull()
+    expect(scorePageUrl('/enterprise', repository, 24)).toBeNull()
+    expect(scorePageUrl('/woai3c/x-code-cli/issues', repository, 12)?.url).toBe(
+      'https://github.com/woai3c/x-code-cli/issues',
+    )
+  })
+
   test('recognizes content-platform routes and demotes footer-only utility pages', () => {
     const question = scorePageUrl('/question/123456/answer/987654', baseUrl, 12)
     const contact = scorePageUrl('/contact', baseUrl, -20)

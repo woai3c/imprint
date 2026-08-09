@@ -5,7 +5,11 @@ import path from 'node:path'
 
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
-import { prepareEvidenceImageSummaries } from '../ai/image-summary.js'
+import {
+  AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT,
+  prepareEvidenceImageFingerprints,
+  prepareEvidenceImageSummaries,
+} from '../ai/image-summary.js'
 import {
   type CapturedPageEvidence,
   buildDesignEvidence,
@@ -409,6 +413,8 @@ export async function analyze(
     preparationMs: 0,
     extractionMs: 0,
     healthGateMs: 0,
+    screenshotCaptureMs: 0,
+    imageFingerprintMs: 0,
     digestMs: 0,
     imageSummaryMs: 0,
     aiQueueMs: 0,
@@ -422,7 +428,7 @@ export async function analyze(
     budgetExceeded: [],
   }
   const measure = async <T>(
-    key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'imageSummaryMs',
+    key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs' | 'imageSummaryMs',
     run: () => Promise<T>,
   ) => {
     const startedAt = Date.now()
@@ -747,7 +753,7 @@ export async function analyze(
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
         const viewportPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-viewport.png`)
-        await measure('imageSummaryMs', () => page.screenshot({ path: viewportPath, fullPage: false }))
+        await measure('screenshotCaptureMs', () => page.screenshot({ path: viewportPath, fullPage: false }))
         recordScreenshotDimensionIssue(
           extractionIssues,
           `${stagePrefix}:screenshot:viewport`,
@@ -777,18 +783,43 @@ export async function analyze(
               second.rect.width * second.rect.height - first.rect.width * first.rect.height
             )
           })
+          .filter((section) => {
+            const sectionTop = section.rect.y * evidenceSnapshot.height
+            const sectionHeight = section.rect.height * evidenceSnapshot.height
+            return sectionTop >= viewport.height * 0.5 || sectionHeight <= viewport.height * 1.25
+          })
           .slice(0, 2)
         for (let sectionIndex = 0; sectionIndex < representativeSections.length; sectionIndex += 1) {
           const section = representativeSections[sectionIndex]
+          const sectionX = Math.min(viewport.width - 1, Math.max(0, section.rect.x * evidenceSnapshot.width))
+          const sectionY = Math.max(0, section.rect.y * evidenceSnapshot.height)
+          const scrollY = Math.min(
+            Math.max(0, evidenceSnapshot.height - viewport.height),
+            Math.max(0, Math.floor(sectionY)),
+          )
+          await page.evaluate((targetY) => window.scrollTo(0, targetY), scrollY)
+          await page.waitForTimeout(50)
           const clip = {
-            x: Math.max(0, section.rect.x * evidenceSnapshot.width),
-            y: Math.max(0, section.rect.y * evidenceSnapshot.height),
-            width: Math.max(1, section.rect.width * evidenceSnapshot.width),
-            height: Math.max(1, section.rect.height * evidenceSnapshot.height),
+            x: sectionX,
+            y: Math.max(0, sectionY - scrollY),
+            width: Math.max(1, Math.min(section.rect.width * evidenceSnapshot.width, viewport.width - sectionX)),
+            height: Math.max(
+              1,
+              Math.min(
+                section.rect.height * evidenceSnapshot.height,
+                viewport.height - Math.max(0, sectionY - scrollY),
+              ),
+            ),
+          }
+          const sourceRect = {
+            x: clip.x / Math.max(evidenceSnapshot.width, 1),
+            y: (scrollY + clip.y) / Math.max(evidenceSnapshot.height, 1),
+            width: clip.width / Math.max(evidenceSnapshot.width, 1),
+            height: clip.height / Math.max(evidenceSnapshot.height, 1),
           }
           const regionPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-region-${sectionIndex + 1}.png`)
           try {
-            await measure('imageSummaryMs', () => page.screenshot({ path: regionPath, clip }))
+            await measure('screenshotCaptureMs', () => page.screenshot({ path: regionPath, clip }))
             recordScreenshotDimensionIssue(
               extractionIssues,
               `${stagePrefix}:screenshot:region`,
@@ -801,15 +832,16 @@ export async function analyze(
               path: regionPath,
               width: Math.round(clip.width),
               height: Math.round(clip.height),
-              sourceRect: section.rect,
+              sourceRect,
               sectionKey: section.key,
             })
           } catch {
             // Full-page evidence remains available when a dynamic region cannot be clipped reliably.
           }
         }
+        await page.evaluate(() => window.scrollTo(0, 0))
       }
-      await measure('imageSummaryMs', () => page.screenshot({ path: screenshotPath, fullPage: true }))
+      await measure('screenshotCaptureMs', () => page.screenshot({ path: screenshotPath, fullPage: true }))
       recordScreenshotDimensionIssue(
         extractionIssues,
         `${stagePrefix}:screenshot:overview`,
@@ -966,7 +998,7 @@ export async function analyze(
                 )
               : []
           const viewportPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}-viewport.png`)
-          await measure('imageSummaryMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
+          await measure('screenshotCaptureMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
           recordScreenshotDimensionIssue(
             extractionIssues,
             `${stagePrefix}:screenshot:viewport`,
@@ -974,7 +1006,7 @@ export async function analyze(
             mainViewport.width,
             mainViewport.height,
           )
-          await measure('imageSummaryMs', () => subPage.screenshot({ path: screenshotPath, fullPage: true }))
+          await measure('screenshotCaptureMs', () => subPage.screenshot({ path: screenshotPath, fullPage: true }))
           recordScreenshotDimensionIssue(
             extractionIssues,
             `${stagePrefix}:screenshot:overview`,
@@ -1098,7 +1130,7 @@ export async function analyze(
                 screenshotDir,
                 `${Date.now()}-page-${i + 2}-mobile-adaptive-viewport.png`,
               )
-              await measure('imageSummaryMs', () =>
+              await measure('screenshotCaptureMs', () =>
                 runWithinDeadline(adaptiveDeadline, () =>
                   subPage.screenshot({
                     path: mobileViewportPath,
@@ -1108,7 +1140,7 @@ export async function analyze(
                 ),
               )
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
-              await measure('imageSummaryMs', () =>
+              await measure('screenshotCaptureMs', () =>
                 runWithinDeadline(adaptiveDeadline, () =>
                   subPage.screenshot({
                     path: mobileOverviewPath,
@@ -1209,6 +1241,9 @@ export async function analyze(
       evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, aiEligibleStyleCaptures)
     }
     const featureTags = generateFeatureTags(tokens, mergedStyles)
+    if (extractionIssues.length > 0 && !analysisLimitations.includes('extraction-stage-degraded')) {
+      analysisLimitations.push('extraction-stage-degraded')
+    }
     const designEvidence = buildDesignEvidence({
       analysisId,
       requestedUrl: url,
@@ -1226,6 +1261,18 @@ export async function analyze(
       techStack,
     })
     timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - tokenStartedAt)
+    onProgress?.('progress.selectingImageEvidence', 97)
+    const fingerprintStartedAt = Date.now()
+    const fingerprintPackage = selectEvidencePackage(designEvidence, 'multimodal', {
+      maxImages: AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT,
+      maxVisualTokens: Number.MAX_SAFE_INTEGER,
+    })
+    await prepareEvidenceImageFingerprints(runtime.context, designEvidence, fingerprintPackage.imageIds).catch(
+      (error) => {
+        extractionIssues.push({ stage: 'ai-image-fingerprint', reason: extractionReason(error) })
+      },
+    )
+    timing.imageFingerprintMs = Date.now() - fingerprintStartedAt
     const summaryStartedAt = Date.now()
     const summaryPackage = selectEvidencePackage(designEvidence, 'multimodal')
     const preparedImageIds = await prepareEvidenceImageSummaries(
@@ -1237,12 +1284,14 @@ export async function analyze(
       designEvidence.limitations.push('ai-image-summary-unavailable')
       return []
     })
-    timing.imageSummaryMs = (timing.imageSummaryMs || 0) + (Date.now() - summaryStartedAt)
+    timing.imageSummaryMs = Date.now() - summaryStartedAt
     timing.imageCount = preparedImageIds.length
     timing.totalMs = Date.now() - startTime
     timing.programTotalMs = timing.totalMs
     if ((timing.preparationMs || 0) > 100_000) timing.budgetExceeded?.push('preparation')
     if ((timing.healthGateMs || 0) > 20_000) timing.budgetExceeded?.push('health-gate')
+    if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
+    if ((timing.imageFingerprintMs || 0) > 5_000) timing.budgetExceeded?.push('image-fingerprint')
     if ((timing.imageSummaryMs || 0) > 15_000) timing.budgetExceeded?.push('image-summary')
     if (timing.totalMs > 120_000) timing.budgetExceeded?.push('program-analysis')
 

@@ -71,6 +71,8 @@ export interface AnalysisTiming {
   preparationMs?: number
   extractionMs?: number
   healthGateMs?: number
+  screenshotCaptureMs?: number
+  imageFingerprintMs?: number
   digestMs: number
   imageSummaryMs: number
   aiQueueMs?: number

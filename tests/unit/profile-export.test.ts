@@ -139,6 +139,25 @@ describe('generateDesignProfileMarkdown', () => {
 
     expect(generateDesignProfileMarkdown(profile)).toContain('`color.primary`')
   })
+
+  test('labels deterministic evidence fallback separately from the attempted input mode', () => {
+    const profile = makeProfile()
+    profile.inputMode = 'multimodal'
+    profile.signatureMoves = [
+      {
+        ...claim('Only structural evidence remains', 'low'),
+        id: 'evidence-fallback',
+        name: 'Structural fallback',
+        distinctiveness: 'No validated model synthesis is available.',
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('`multimodal`')
+    expect(markdown).toContain('`evidence-fallback`')
+    expect(markdown).toContain('确定性证据兜底')
+  })
 })
 
 describe('generateReconstructionBrief', () => {

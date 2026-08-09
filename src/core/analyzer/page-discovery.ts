@@ -33,6 +33,33 @@ const EXCLUDED_PATHS = [
 
 const TRACKING_PARAMETERS = /^(?:fbclid|gclid|mc_cid|mc_eid|ref|source|utm_.+)$/i
 const MIN_REPRESENTATIVE_SCORE = 90
+const GITHUB_GLOBAL_PATHS = new Set([
+  'apps',
+  'collections',
+  'enterprise',
+  'features',
+  'marketplace',
+  'open-source',
+  'organizations',
+  'orgs',
+  'pricing',
+  'resources',
+  'search',
+  'settings',
+  'solutions',
+  'sponsors',
+  'topics',
+  'trending',
+])
+
+function scopedPathPrefix(base: URL): string | null {
+  const hostname = base.hostname.toLowerCase().replace(/^www\./, '')
+  const segments = base.pathname.split('/').filter(Boolean)
+  if (hostname === 'github.com' && segments.length >= 2 && !GITHUB_GLOBAL_PATHS.has(segments[0].toLowerCase())) {
+    return `/${segments[0]}/${segments[1]}`
+  }
+  return null
+}
 
 function normalizedUrl(candidate: string, baseUrl: string): URL | null {
   try {
@@ -73,6 +100,8 @@ export function scorePageUrl(candidate: string, baseUrl: string, locationScore =
   const base = new URL(baseUrl)
   const basePath = base.pathname.replace(/\/$/, '') || '/'
   if (url.pathname === basePath) return null
+  const pathScope = scopedPathPrefix(base)
+  if (pathScope && url.pathname !== pathScope && !url.pathname.startsWith(`${pathScope}/`)) return null
 
   const segments = url.pathname.split('/').filter(Boolean)
   const kind = classifyPageKind(url.pathname)

@@ -8,6 +8,8 @@ export function mergeAnalysisTimings(program: AnalysisTiming, ai?: AnalysisTimin
     preparationMs: program.preparationMs,
     extractionMs: program.extractionMs,
     healthGateMs: program.healthGateMs,
+    screenshotCaptureMs: program.screenshotCaptureMs,
+    imageFingerprintMs: program.imageFingerprintMs,
     digestMs: ai.digestMs,
     imageSummaryMs: (program.imageSummaryMs || 0) + (ai.imageSummaryMs || 0),
     aiQueueMs: ai.aiQueueMs,

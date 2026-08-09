@@ -789,7 +789,27 @@ export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
         c,
       ),
     ).length
-    if (utilityCount > 20) cssApproach.push('Tailwind CSS')
+    const hasTailwindAsset = Boolean(
+      document.querySelector(
+        'script[src*="tailwind" i], link[href*="tailwind" i], style[id*="tailwind" i], [data-tailwind]',
+      ),
+    )
+    const hasTailwindVariantClasses =
+      classArr.filter((c) => /(?:^|:)(?:sm|md|lg|xl|2xl|hover|focus):/.test(c)).length >= 3
+    let hasTailwindVariables = false
+    for (const element of [document.documentElement, document.body, ...[...sampleEls].slice(0, 40)]) {
+      const styles = getComputedStyle(element)
+      for (let index = 0; index < styles.length; index += 1) {
+        if (styles[index].startsWith('--tw-')) {
+          hasTailwindVariables = true
+          break
+        }
+      }
+      if (hasTailwindVariables) break
+    }
+    if (utilityCount > 20 && (hasTailwindAsset || hasTailwindVariantClasses || hasTailwindVariables)) {
+      cssApproach.push('Tailwind CSS')
+    }
 
     const hasBootstrapClasses = classArr.some((c) =>
       /^(btn-|col-|row|container-fluid|navbar-|modal-|card-body)$/.test(c),
@@ -823,7 +843,6 @@ export async function detectTechStack(page: Page): Promise<DetectedTechStack> {
       else if (src.includes('.vite/') || src.includes('/@vite/')) bundler = 'Vite'
     })
     if (!bundler && w.__vite_plugin_react_preamble_installed__) bundler = 'Vite'
-    if (!bundler && document.querySelector('script[type="module"][src*="assets/"]')) bundler = 'Vite'
 
     const iconLinks = document.querySelectorAll('link[href*="font-awesome"], link[href*="fontawesome"]')
     if (iconLinks.length > 0) icons = 'Font Awesome'

@@ -176,7 +176,7 @@ export async function runInterpretationPipeline(
   const evidenceFallback = !validation.profile
   const fallbackReason = `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`
   const validatedProfile =
-    validation.profile || buildEvidenceFallbackProfile(evidence, options.language, 'structural-only', fallbackReason)
+    validation.profile || buildEvidenceFallbackProfile(evidence, options.language, options.mode, fallbackReason)
   validatedProfile.tokenAliases = validation.profile
     ? validateColorRenames(evidence.tokens, expanded.aliases).accepted
     : []
@@ -191,10 +191,7 @@ export async function runInterpretationPipeline(
 
   return {
     profile: deduped.profile,
-    status:
-      !evidenceFallback && validation.status === 'complete' && contradictionCheck.rejected.length === 0
-        ? 'complete'
-        : 'partial',
+    status: !evidenceFallback && validation.status === 'complete' ? 'complete' : 'partial',
     pipeline: 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
     rejected:

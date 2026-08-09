@@ -202,3 +202,22 @@ test('reports generic css-* hashes without naming a specific styling library', a
   assert.ok(styledComponents.cssApproach.includes('styled-components'))
   assert.equal(styledComponents.cssApproach.includes('CSS-in-JS or generated class names observed'), false)
 })
+
+test('requires framework-specific evidence before naming Tailwind or Vite', async () => {
+  const genericUtilities = Array.from(
+    { length: 24 },
+    (_, index) => `<div class="flex grid hidden border rounded shadow p-${index} text-${index}">Item</div>`,
+  ).join('')
+  await page.setContent(
+    `<!doctype html><main>${genericUtilities}</main><script type="module" src="/assets/app.js"></script>`,
+  )
+  const generic = await detectTechStack(page)
+  assert.equal(generic.cssApproach.includes('Tailwind CSS'), false)
+  assert.equal(generic.bundler, undefined)
+
+  await page.setContent(
+    `<!doctype html><style>:root { --tw-ring-color: #000; }</style><main class="flex grid hidden block inline relative absolute fixed sticky overflow-hidden items-center justify-center gap-2 px-2 py-2 mt-2 mb-2 w-full h-full min-w-0 max-w-full text-sm font-bold bg-white border rounded shadow opacity-90 transition transform z-10 ring-1">Tailwind</main>`,
+  )
+  const tailwind = await detectTechStack(page)
+  assert.ok(tailwind.cssApproach.includes('Tailwind CSS'))
+})

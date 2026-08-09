@@ -317,6 +317,66 @@ interface ImageSelection {
   reason: string
 }
 
+interface ComparableImage {
+  kind: string
+  contentHash?: string
+  visualHash?: string
+  sourceRect?: NormalizedRect
+  page: { url: string; viewport: string }
+}
+
+const NIBBLE_BITS = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4]
+const MAX_REPRESENTATIVE_IMAGE_SIMILARITY = 0.8
+
+function perceptualSimilarity(first: string, second: string): number | null {
+  if (/^v1:[0-9a-f]{576}$/i.test(first) && /^v1:[0-9a-f]{576}$/i.test(second)) {
+    let distance = 0
+    for (let index = 3; index < first.length; index += 1) {
+      distance += Math.abs(Number.parseInt(first[index], 16) - Number.parseInt(second[index], 16))
+    }
+    return 1 - distance / ((first.length - 3) * 15)
+  }
+  if (!/^[0-9a-f]{22}$/i.test(first) || !/^[0-9a-f]{22}$/i.test(second)) return null
+  let differentBits = 0
+  for (let index = 0; index < 16; index += 1) {
+    differentBits += NIBBLE_BITS[Number.parseInt(first[index], 16) ^ Number.parseInt(second[index], 16)]
+  }
+  const firstColor = [16, 18, 20].map((offset) => Number.parseInt(first.slice(offset, offset + 2), 16))
+  const secondColor = [16, 18, 20].map((offset) => Number.parseInt(second.slice(offset, offset + 2), 16))
+  const colorDistance = Math.sqrt(
+    firstColor.reduce((total, channel, index) => total + (channel - secondColor[index]) ** 2, 0),
+  )
+  const structureSimilarity = 1 - differentBits / 64
+  const colorSimilarity = 1 - colorDistance / Math.sqrt(3 * 255 ** 2)
+  return structureSimilarity * 0.8 + colorSimilarity * 0.2
+}
+
+function rectOverlap(first?: NormalizedRect, second?: NormalizedRect): number {
+  if (!first || !second) return 0
+  const width = Math.max(0, Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x))
+  const height = Math.max(0, Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y))
+  const smallerArea = Math.min(first.width * first.height, second.width * second.height)
+  return smallerArea > 0 ? (width * height) / smallerArea : 0
+}
+
+function imageSimilarity(first: ComparableImage, second: ComparableImage): number {
+  if (first.contentHash && first.contentHash === second.contentHash) return 1
+  const perceptual = perceptualSimilarity(first.visualHash || '', second.visualHash || '')
+  let similarity =
+    first.page.url !== second.page.url
+      ? 0.08
+      : first.page.viewport !== second.page.viewport
+        ? 0.32
+        : first.kind === second.kind
+          ? 0.82
+          : 0.42
+  if (perceptual !== null) similarity = Math.max(similarity, perceptual)
+  if (first.page.url === second.page.url && first.page.viewport === second.page.viewport) {
+    similarity = Math.max(similarity, rectOverlap(first.sourceRect, second.sourceRect) * 0.96)
+  }
+  return Math.min(1, Math.max(0, similarity))
+}
+
 function selectRepresentativeImages(
   pages: {
     id: string
@@ -331,6 +391,9 @@ function selectRepresentativeImages(
       width: number
       height: number
       sectionId?: string
+      contentHash?: string
+      visualHash?: string
+      sourceRect?: NormalizedRect
       aiSummary?: { width: number; height: number }
     }>
   }[],
@@ -409,20 +472,34 @@ function selectRepresentativeImages(
     )
 
   if (candidates.length === 0) return []
-  const overviewCandidates = candidates.filter((candidate) => candidate.kind !== 'region-crop')
-  const first = [...(overviewCandidates.length > 0 ? overviewCandidates : candidates)].sort(
+  const fingerprintedCandidates = candidates.filter((candidate) =>
+    /^(?:v1:[0-9a-f]{576}|[0-9a-f]{22})$/i.test(candidate.visualHash || ''),
+  )
+  const candidatePool = fingerprintedCandidates.length >= Math.min(2, maxImages) ? fingerprintedCandidates : candidates
+  const overviewCandidates = candidatePool.filter((candidate) => candidate.kind !== 'region-crop')
+  const first = [...(overviewCandidates.length > 0 ? overviewCandidates : candidatePool)].sort(
     (a, b) => b.score - a.score || a.id.localeCompare(b.id),
   )[0]
   const selected = [first]
 
-  if (maxImages > 1) {
-    const second = candidates
-      .filter((candidate) => candidate.id !== first.id)
+  while (selected.length < maxImages) {
+    const selectedIds = new Set(selected.map((candidate) => candidate.id))
+    const usedVisualTokens = selected.reduce((total, candidate) => total + candidate.visualTokens, 0)
+    const next = candidatePool
+      .filter((candidate) => !selectedIds.has(candidate.id))
+      .filter((candidate) => usedVisualTokens + candidate.visualTokens <= maxVisualTokens)
       .map((candidate) => {
         let informationGain = 0
-        if (candidate.kind === 'region-crop') informationGain += candidate.isSalientRegion ? 48 : 34
-        if (candidate.page.url !== first.page.url) informationGain += 24
-        if (candidate.page.viewport !== first.page.viewport) informationGain += 18
+        if (
+          candidate.kind === 'region-crop' &&
+          !selected.some((selectedImage) => selectedImage.sectionId === candidate.sectionId)
+        ) {
+          informationGain += candidate.isSalientRegion ? 48 : 34
+        }
+        if (selected.every((selectedImage) => candidate.page.url !== selectedImage.page.url)) informationGain += 24
+        if (selected.every((selectedImage) => candidate.page.viewport !== selectedImage.page.viewport)) {
+          informationGain += 18
+        }
         if (candidate.page.horizontalOverflow && candidate.kind === 'viewport-crop') informationGain += 45
         if (
           responsiveUrls.has(candidate.page.url) &&
@@ -431,16 +508,28 @@ function selectRepresentativeImages(
         ) {
           informationGain += 26
         }
-        return { ...candidate, informationGain, totalScore: candidate.score + informationGain }
+        const maximumSimilarity = Math.max(
+          ...selected.map((selectedImage) => imageSimilarity(candidate, selectedImage)),
+        )
+        const diversityGain = Math.round((1 - maximumSimilarity) * 42)
+        const similarityPenalty =
+          maximumSimilarity > MAX_REPRESENTATIVE_IMAGE_SIMILARITY ? 160 : Math.round(maximumSimilarity * 48)
+        informationGain += diversityGain - similarityPenalty
+        return {
+          ...candidate,
+          informationGain,
+          maximumSimilarity,
+          totalScore: candidate.score + informationGain,
+        }
       })
       .sort((a, b) => b.totalScore - a.totalScore || a.id.localeCompare(b.id))[0]
-    if (second && second.informationGain >= 24 && first.visualTokens + second.visualTokens <= maxVisualTokens) {
+    if (next && next.informationGain >= 24) {
       selected.push({
-        ...second,
-        score: second.totalScore,
-        reason: `${second.reason}; selected for ${second.informationGain} points of information gain`,
+        ...next,
+        score: next.totalScore,
+        reason: `${next.reason}; ${Math.round((1 - next.maximumSimilarity) * 100)}% visual difference; selected for ${next.informationGain} points of information gain`,
       })
-    }
+    } else break
   }
 
   return selected.slice(0, maxImages).map(({ id, score, reason }) => ({ id, score, reason }))

@@ -13,6 +13,7 @@ export const AI_IMAGE_MAX_WIDTH = 1600
 export const AI_IMAGE_MAX_HEIGHT = 1600
 export const AI_IMAGE_MAX_BYTES = 250 * 1024
 export const AI_IMAGE_MAX_COUNT = 2
+export const AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT = 6
 export const AI_VISUAL_TOKEN_BUDGET = 4_000
 
 interface EncodedSummary {
@@ -116,6 +117,68 @@ async function encodeSummary(page: Page, source: Buffer, mimeType: string): Prom
       maxBytes: AI_IMAGE_MAX_BYTES,
     },
   )
+}
+
+async function computeVisualHash(page: Page, source: Buffer, mimeType: string): Promise<string | null> {
+  return page.evaluate(
+    async ({ base64, mimeType: inputMimeType }) => {
+      const binary = atob(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: inputMimeType }))
+      const sourceHeight =
+        bitmap.height / Math.max(bitmap.width, 1) > 2.5
+          ? Math.min(bitmap.height, Math.round(bitmap.width * 1.5))
+          : bitmap.height
+      const canvas = new OffscreenCanvas(16, 12)
+      const context = canvas.getContext('2d', { alpha: false, willReadFrequently: true })
+      if (!context) return null
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, 16, 12)
+      context.drawImage(bitmap, 0, 0, bitmap.width, sourceHeight, 0, 0, 16, 12)
+      const pixels = context.getImageData(0, 0, 16, 12).data
+      let fingerprint = 'v1:'
+      for (let index = 0; index < pixels.length; index += 4) {
+        fingerprint += Math.round(pixels[index] / 17).toString(16)
+        fingerprint += Math.round(pixels[index + 1] / 17).toString(16)
+        fingerprint += Math.round(pixels[index + 2] / 17).toString(16)
+      }
+      return fingerprint
+    },
+    { base64: source.toString('base64'), mimeType },
+  )
+}
+
+export async function prepareEvidenceImageFingerprints(
+  context: BrowserContext,
+  evidence: DesignEvidence,
+  imageIds: readonly string[],
+): Promise<string[]> {
+  const selected = new Set(imageIds.slice(0, AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT))
+  const images = evidence.pages.flatMap((page) => page.images).filter((image) => selected.has(image.id))
+  const prepared: string[] = []
+  let page: Page | null = null
+  try {
+    for (const image of images) {
+      if (/^v1:[0-9a-f]{576}$/i.test(image.visualHash || '')) {
+        prepared.push(image.id)
+        continue
+      }
+      if (!fs.existsSync(image.path)) continue
+      if (!page) {
+        page = await context.newPage()
+        await page.setContent('<!doctype html><html><body></body></html>')
+      }
+      const source = fs.readFileSync(image.path)
+      const visualHash = await computeVisualHash(page, source, mimeTypeForPath(image.path))
+      if (!visualHash) continue
+      image.visualHash = visualHash
+      prepared.push(image.id)
+    }
+  } finally {
+    await page?.close().catch(() => {})
+  }
+  return prepared
 }
 
 export async function prepareEvidenceImageSummaries(

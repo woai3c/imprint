@@ -21,6 +21,7 @@ export interface EvidenceImage {
   width: number
   height: number
   contentHash?: string
+  visualHash?: string
   aiSummary?: {
     version: string
     path: string

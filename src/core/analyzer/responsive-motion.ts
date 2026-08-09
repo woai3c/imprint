@@ -11,13 +11,14 @@ export interface ResponsiveBreakpoint {
  */
 export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoint[]> {
   const rawBreakpoints = await page.evaluate(() => {
-    const breakpoints = new Set<number>()
+    const breakpoints = new Map<number, number>()
     const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
 
     const visitRules = (rules: CSSRuleList) => {
       for (const rule of rules) {
         if (rule instanceof CSSMediaRule || rule.constructor.name === 'CSSContainerRule') {
           const conditionText = 'conditionText' in rule ? String(rule.conditionText) : ''
+          const ruleBreakpoints = new Set<number>()
           const patterns = [
             /(?:min|max)-width\s*:\s*(\d*\.?\d+)(px|r?em)/gi,
             /\bwidth\s*[<>]=?\s*(\d*\.?\d+)(px|r?em)/gi,
@@ -27,9 +28,10 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
             for (const match of conditionText.matchAll(pattern)) {
               const value = Number.parseFloat(match[1])
               const pixels = match[2].toLowerCase() === 'px' ? value : value * rootFontSize
-              if (Number.isFinite(pixels) && pixels > 0) breakpoints.add(Math.round(pixels))
+              if (Number.isFinite(pixels) && pixels > 0) ruleBreakpoints.add(Math.round(pixels))
             }
           }
+          for (const width of ruleBreakpoints) breakpoints.set(width, (breakpoints.get(width) || 0) + 1)
         }
         const nestedRules = 'cssRules' in rule ? (rule as CSSGroupingRule).cssRules : null
         if (nestedRules) visitRules(nestedRules)
@@ -44,23 +46,67 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
       }
     }
 
-    for (const element of [...document.querySelectorAll('main, section, article, [class*="grid" i]')].slice(0, 200)) {
-      const minimumWidth = getComputedStyle(element).minWidth
-      const match = minimumWidth.match(/^(\d*\.?\d+)(px|r?em)$/i)
-      if (!match) continue
-      const value = Number.parseFloat(match[1])
-      const pixels = match[2].toLowerCase() === 'px' ? value : value * rootFontSize
-      if (Number.isFinite(pixels) && pixels >= 320 && pixels <= 1920) breakpoints.add(Math.round(pixels))
-    }
-
-    return [...breakpoints].sort((a, b) => a - b)
+    return [...breakpoints].map(([width, count]) => ({ width, count })).sort((a, b) => a.width - b.width)
   })
 
-  return labelBreakpointWidths(rawBreakpoints).map(({ width, label }) => ({
+  return labelBreakpointWidths(selectRepresentativeBreakpointWidths(rawBreakpoints)).map(({ width, label }) => ({
     width,
     label,
     layoutChanges: [],
   }))
+}
+
+function breakpointCanonicality(width: number): number {
+  if (width % 16 === 0) return 3
+  if (width % 8 === 0) return 2
+  if (width % 4 === 0) return 1
+  return 0
+}
+
+export function selectRepresentativeBreakpointWidths(
+  breakpoints: readonly { width: number; count: number }[],
+  maximum = 10,
+): number[] {
+  if (maximum <= 0) return []
+  const clusters: Array<Array<{ width: number; count: number }>> = []
+  for (const breakpoint of [...breakpoints].sort((first, second) => first.width - second.width)) {
+    const cluster = clusters[clusters.length - 1]
+    if (cluster && breakpoint.width - cluster[cluster.length - 1].width <= 2) cluster.push(breakpoint)
+    else clusters.push([breakpoint])
+  }
+  const representatives = clusters.map((cluster) => {
+    const representative = [...cluster].sort(
+      (first, second) =>
+        second.count - first.count ||
+        breakpointCanonicality(second.width) - breakpointCanonicality(first.width) ||
+        first.width - second.width,
+    )[0]
+    return {
+      width: representative.width,
+      count: cluster.reduce((total, item) => total + item.count, 0),
+      category: categorizeBreakpoint(representative.width),
+    }
+  })
+  const byCategory = new Map<string, typeof representatives>()
+  for (const breakpoint of representatives) {
+    const group = byCategory.get(breakpoint.category) || []
+    group.push(breakpoint)
+    byCategory.set(breakpoint.category, group)
+  }
+  const selected = [...byCategory.values()].flatMap((group) =>
+    [...group]
+      .sort(
+        (first, second) =>
+          second.count - first.count ||
+          breakpointCanonicality(second.width) - breakpointCanonicality(first.width) ||
+          first.width - second.width,
+      )
+      .slice(0, 2),
+  )
+  return selected
+    .sort((first, second) => first.width - second.width)
+    .slice(0, maximum)
+    .map((breakpoint) => breakpoint.width)
 }
 
 function categorizeBreakpoint(width: number): string {
@@ -83,14 +129,21 @@ export function labelBreakpointWidths(widths: readonly number[]): Array<{ width:
 
 export function mergeResponsiveBreakpoints(breakpointGroups: ResponsiveBreakpoint[][]): ResponsiveBreakpoint[] {
   const changesByWidth = new Map<number, Set<string>>()
+  const countsByWidth = new Map<number, number>()
   for (const breakpoint of breakpointGroups.flat()) {
     const changes = changesByWidth.get(breakpoint.width) || new Set<string>()
     breakpoint.layoutChanges.forEach((change) => changes.add(change))
     changesByWidth.set(breakpoint.width, changes)
+    countsByWidth.set(breakpoint.width, (countsByWidth.get(breakpoint.width) || 0) + 1)
   }
-  return labelBreakpointWidths([...changesByWidth.keys()].sort((first, second) => first - second)).map(
-    ({ width, label }) => ({ width, label, layoutChanges: [...(changesByWidth.get(width) || [])] }),
+  const representativeWidths = selectRepresentativeBreakpointWidths(
+    [...countsByWidth].map(([width, count]) => ({ width, count })),
   )
+  return labelBreakpointWidths(representativeWidths).map(({ width, label }) => ({
+    width,
+    label,
+    layoutChanges: [...(changesByWidth.get(width) || [])],
+  }))
 }
 
 /**

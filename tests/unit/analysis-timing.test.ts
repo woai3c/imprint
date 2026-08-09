@@ -24,6 +24,8 @@ describe('analysis timing aggregation', () => {
         browserMs: 20_000,
         preparationMs: 8_000,
         extractionMs: 40_000,
+        screenshotCaptureMs: 18_000,
+        imageFingerprintMs: 800,
         imageSummaryMs: 2_000,
         budgetExceeded: ['adaptive-mobile'],
       }),
@@ -46,6 +48,9 @@ describe('analysis timing aggregation', () => {
     expect(merged.totalMs).toBe(250_000)
     expect(merged.aiNetworkMs).toBe(170_000)
     expect(merged.aiTransportAttempts).toBe(2)
+    expect(merged.screenshotCaptureMs).toBe(18_000)
+    expect(merged.imageFingerprintMs).toBe(800)
+    expect(merged.imageSummaryMs).toBe(2_000)
     expect(merged.budgetExceeded).toEqual(['adaptive-mobile'])
 
     const rerun = mergeAnalysisTimings(merged, timing({ totalMs: 10_000, aiTotalMs: 10_000 }))

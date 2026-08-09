@@ -107,14 +107,13 @@ export function AnalyzePage() {
     return t(step, { defaultValue: step })
   }
 
-  const runDesignIntelligence = async (analysisId: string, force = false) => {
+  const runDesignIntelligence = async (analysisId: string) => {
     store.setIntelligenceRunning(true)
     store.setIntelligenceProgress({ step: 'progress.programAnalysisComplete', percent: 5 })
     try {
       const response: DesignIntelligenceResponse = await window.electronAPI.startDesignIntelligence(
         analysisId,
         i18n.language,
-        force,
       )
       if (response.error) {
         notify(t('analyze.designDna.fallbackNotice'), 'error')
@@ -485,7 +484,6 @@ export function AnalyzePage() {
             intelligenceRunning={store.intelligenceRunning}
             intelligenceProgress={store.intelligenceProgress}
             onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId)}
-            onDeepReviewIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId, true)}
             onCancelIntelligence={handleCancelIntelligence}
             onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}
             onResultUpdate={store.mergeResult}

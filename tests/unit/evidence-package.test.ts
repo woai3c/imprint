@@ -344,6 +344,77 @@ describe('selectEvidencePackage packaging', () => {
     expect(selected.imageSelection[0].reason).toContain('horizontal overflow')
   })
 
+  test('uses deterministic perceptual hashes to reject a visually redundant second screenshot', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      {
+        id: 'viewport-a',
+        kind: 'viewport-crop',
+        path: 'a.png',
+        width: 1_440,
+        height: 900,
+        visualHash: `v1:${'f'.repeat(576)}`,
+      },
+      {
+        id: 'distinct-region',
+        kind: 'region-crop',
+        path: 'distinct.png',
+        width: 1_200,
+        height: 700,
+        sectionId: 'section-a',
+        visualHash: `v1:${'0'.repeat(576)}`,
+      },
+    ]
+    evidence.pages.push({
+      id: 'page-similar',
+      url: 'https://example.com/pricing',
+      viewport: 'desktop',
+      role: 'pricing',
+      images: [
+        {
+          id: 'similar-viewport',
+          kind: 'viewport-crop',
+          path: 'similar.png',
+          width: 1_440,
+          height: 900,
+          visualHash: `v1:${'f'.repeat(576)}`,
+        },
+      ],
+    })
+    evidence.sections[0].role = 'hero'
+    evidence.topology.pages.push({ pageId: 'page-similar', role: 'pricing', sectionIds: [] })
+
+    const selected = selectEvidencePackage(evidence, 'multimodal')
+    expect(selected.imageIds).toEqual(['viewport-a', 'distinct-region'])
+    expect(selected.imageSelection[1].reason).toContain('visual difference')
+  })
+
+  test('sends one image instead of spending the second slot on a perceptually similar view', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      {
+        id: 'viewport-a',
+        kind: 'viewport-crop',
+        path: 'a.png',
+        width: 1_440,
+        height: 900,
+        visualHash: `v1:${'f'.repeat(576)}`,
+      },
+      {
+        id: 'similar-region',
+        kind: 'region-crop',
+        path: 'similar.png',
+        width: 1_440,
+        height: 900,
+        sectionId: 'section-a',
+        visualHash: `v1:${'e'.repeat(576)}`,
+      },
+    ]
+    evidence.sections[0].role = 'hero'
+
+    expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toEqual(['viewport-a'])
+  })
+
   test('never selects images from a page that failed the health gate', () => {
     const evidence = makeEvidence()
     evidence.pages[0].health = {

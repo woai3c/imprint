@@ -93,8 +93,8 @@ export function buildEvidenceFallbackProfile(
         reason: reason.slice(0, 360),
         neededEvidence:
           language === 'zh-CN'
-            ? '可手动发起深度复核；默认流程不会自动再次调用 AI。'
-            : 'A deep review can be requested manually; the default path will not call AI again.',
+            ? '请检查本次提取证据或更换模型后重新运行网站分析。'
+            : 'Inspect the extracted evidence or rerun the website analysis with a different model.',
       },
     ],
   }

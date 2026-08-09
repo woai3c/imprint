@@ -546,7 +546,7 @@ describe('Design intelligence', () => {
     expect(validation.profile?.visualLanguage.color.evidence[0].evidenceId).toBe('component-a')
   })
 
-  it('does not allow token refs to replace an observed citation', () => {
+  it('uses a low-confidence evidence fallback when token refs lack an observed citation', () => {
     const raw = rawProfile()
     raw.visualLanguage.color = {
       ...claim('A restrained primary accent separates actions from neutral surfaces'),
@@ -555,7 +555,10 @@ describe('Design intelligence', () => {
     }
 
     const validation = validateDesignProfile(raw, evidence, 'structural-only', 'en')
-    expect(validation.profile).toBeNull()
+    expect(validation.profile).not.toBeNull()
+    expect(validation.status).toBe('partial')
+    expect(validation.profile?.visualLanguage.color.confidence).toBe('low')
+    expect(validation.profile?.visualLanguage.color.evidence.length).toBeGreaterThan(0)
     expect(validation.rejected).toContain('visualLanguage.color:missing-evidence')
   })
 
@@ -665,7 +668,8 @@ describe('Design intelligence', () => {
       },
     ]
     const signatureResult = validateDesignProfile(utilitySignature, utilityEvidence, 'structural-only', 'en')
-    expect(signatureResult.profile).toBeNull()
+    expect(signatureResult.status).toBe('partial')
+    expect(signatureResult.profile?.signatureMoves[0].id).toBe('evidence-fallback')
     expect(signatureResult.rejected).toContain('signatureMoves.0:utility-only-evidence')
 
     // A signature move seen on only one of several pages is not site-wide.
@@ -711,28 +715,33 @@ describe('Design intelligence', () => {
     expect(contentSignature.profile?.signatureMoves).toHaveLength(1)
   })
 
-  it('partially accepts optional claims but rejects malicious required claims', () => {
+  it('filters invalid optional claims and safely fills invalid required claims', () => {
     const partial = rawProfile()
     partial.attention.visualSequence.push(claim('<script>alert(1)</script>'))
     const partialResult = validateDesignProfile(partial, evidence, 'structural-only', 'en')
-    expect(partialResult.status).toBe('partial')
+    expect(partialResult.status).toBe('complete')
     expect(partialResult.profile?.attention.visualSequence).toHaveLength(1)
 
     const malicious = rawProfile()
     malicious.thesis = claim('Use javascript:https://evil.example to reproduce the original page')
-    expect(validateDesignProfile(malicious, evidence, 'structural-only', 'en').profile).toBeNull()
+    const maliciousResult = validateDesignProfile(malicious, evidence, 'structural-only', 'en')
+    expect(maliciousResult.status).toBe('partial')
+    expect(maliciousResult.profile?.thesis.statement).not.toContain('javascript:')
+    expect(maliciousResult.profile?.thesis.confidence).toBe('low')
   })
 
-  it('rejects claims that introduce token values not present in evidence', () => {
+  it('sanitizes unsupported token values without discarding the surrounding claim', () => {
     const withNewColor = rawProfile()
     withNewColor.attention.visualSequence.push({
       ...claim('Accent panels highlight secondary metrics'),
       implementation: 'Apply #ff3366 panels behind secondary metrics to keep them grouped.',
     })
     const rejected = validateDesignProfile(withNewColor, evidence, 'structural-only', 'en')
-    expect(rejected.status).toBe('partial')
-    expect(rejected.profile?.attention.visualSequence).toHaveLength(1)
-    expect(rejected.rejected).toEqual(expect.arrayContaining([expect.stringContaining('token-value-not-in-evidence')]))
+    expect(rejected.status).toBe('complete')
+    expect(rejected.profile?.attention.visualSequence).toHaveLength(2)
+    expect(rejected.profile?.attention.visualSequence[1].implementation).not.toContain('#ff3366')
+    expect(rejected.profile?.attention.visualSequence[1].confidence).toBe('low')
+    expect(rejected.rejected).toEqual(expect.arrayContaining([expect.stringContaining('token-value-sanitized')]))
 
     const withKnownColor = rawProfile()
     withKnownColor.attention.visualSequence.push({
@@ -743,11 +752,30 @@ describe('Design intelligence', () => {
     expect(accepted.profile?.attention.visualSequence).toHaveLength(2)
   })
 
+  it('repairs unsupported color values in required claims instead of falling back the whole profile', () => {
+    const requiredValues = rawProfile()
+    requiredValues.attention.contrastStrategy = {
+      ...claim('Contrast separates primary actions from surrounding surfaces'),
+      implementation: 'Use #ff3366 on primary actions and keep secondary actions quiet.',
+    }
+    requiredValues.visualLanguage.surfaces = {
+      ...claim('Layered surfaces separate navigation from content'),
+      implementation: 'Use #00ffaa for raised surfaces and preserve the observed border treatment.',
+    }
+
+    const result = validateDesignProfile(requiredValues, evidence, 'structural-only', 'en')
+
+    expect(result.profile).not.toBeNull()
+    expect(result.status).toBe('complete')
+    expect(result.profile?.attention.contrastStrategy.implementation).not.toContain('#ff3366')
+    expect(result.profile?.visualLanguage.surfaces.implementation).not.toContain('#00ffaa')
+  })
+
   it('flags model-returned token values without failing valid profiles', () => {
     const raw = { ...rawProfile(), tokens: { colors: { primary: '#ff0000' } } }
     const result = validateDesignProfile(raw, evidence, 'structural-only', 'en')
     expect(result.profile).not.toBeNull()
-    expect(result.status).toBe('partial')
+    expect(result.status).toBe('complete')
     expect(result.rejected).toContain('root:unexpected-token-values')
   })
 

@@ -361,7 +361,7 @@ describe('Section observation pass', () => {
     expect(result.timing).toMatchObject({ aiInvokeMs: 25, aiInputTokens: 1200, aiOutputTokens: 800, imageCount: 0 })
   })
 
-  it('keeps an evidence fallback without automatically repairing invalid required claims', async () => {
+  it('fills an invalid required claim without discarding valid AI conclusions', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const invalid = rawProfile()
     invalid.visualLanguage.color.evidence = []
@@ -377,10 +377,27 @@ describe('Section observation pass', () => {
       invoke,
     })
     expect(result.status).toBe('partial')
-    expect(result.evidenceFallback).toBe(true)
-    expect(result.profile.signatureMoves[0].id).toBe('evidence-fallback')
+    expect(result.evidenceFallback).toBeUndefined()
+    expect(result.profile.signatureMoves[0].id).toBe('move-focused-opening')
+    expect(result.profile.visualLanguage.color.confidence).toBe('low')
     expect(result.rejected).toContain('visualLanguage.color:missing-evidence')
     expect(calls).toBe(1)
+  })
+
+  it('preserves multimodal mode when a required claim uses deterministic evidence', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'multimodal')
+    const invalid = rawProfile('multimodal')
+    invalid.visualLanguage.color.evidence = []
+
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'multimodal',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(invalid) }),
+    })
+
+    expect(result.evidenceFallback).toBeUndefined()
+    expect(result.status).toBe('partial')
+    expect(result.profile.inputMode).toBe('multimodal')
   })
 
   it('keeps selected region crops in the single synthesis call', () => {

@@ -885,6 +885,19 @@ export function registerIpcHandlers() {
           'analysis',
           `done: url=${url} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${result.extractionIssues.length}`,
         )
+        log.info(
+          'analysis',
+          `timing: total=${result.timing.totalMs}ms screenshots=${result.timing.screenshotCaptureMs || 0}ms ` +
+            `fingerprints=${result.timing.imageFingerprintMs || 0}ms summaries=${result.timing.imageSummaryMs}ms ` +
+            `images=${result.timing.imageCount}`,
+        )
+        result.extractionIssues.slice(0, 8).forEach((issue, index) => {
+          const reason = issue.reason.replace(/\s+/g, ' ').slice(0, 360)
+          log.warn('analysis', `degraded #${index + 1}: stage=${issue.stage} reason=${reason}`)
+        })
+        if (result.extractionIssues.length > 8) {
+          log.warn('analysis', `degraded: ${result.extractionIssues.length - 8} additional issues omitted`)
+        }
 
         return {
           analysisId,
@@ -932,7 +945,7 @@ export function registerIpcHandlers() {
     },
   )
 
-  ipcMain.handle('design-intelligence:start', async (event, analysisId: string, language?: string, force = false) => {
+  ipcMain.handle('design-intelligence:start', async (event, analysisId: string, language?: string) => {
     const db = getDb()
     const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(analysisId) as
       Record<string, unknown> | undefined
@@ -972,7 +985,6 @@ export function registerIpcHandlers() {
       designEvidence.source.accessMode,
     )
     if (
-      !force &&
       record.design_profile_json &&
       existingMeta &&
       (existingMeta.status === 'complete' || existingMeta.status === 'partial') &&
@@ -1010,7 +1022,7 @@ export function registerIpcHandlers() {
         validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
       }
     }
-    if (!force) {
+    {
       const persistentCache = db
         .prepare('SELECT * FROM design_intelligence_cache WHERE cache_key = ?')
         .get(cacheKey) as Record<string, unknown> | undefined

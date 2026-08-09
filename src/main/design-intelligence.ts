@@ -610,6 +610,12 @@ export async function runDesignIntelligence(
       'design-intelligence',
       `compact synthesis: digestChars=${result.digestChars} promptChars=${result.promptChars} calls=${result.callDetails.length}`,
     )
+    if (result.rejected?.length) {
+      log.info(
+        'design-intelligence',
+        `validation adjustments: status=${result.status} ${result.rejected.slice(0, 12).join('; ')}`,
+      )
+    }
     log.info(
       'design-intelligence',
       `timing: images=${imageSummaryMs}ms digest=${result.timing.digestMs}ms ai=${result.timing.aiInvokeMs}ms ` +

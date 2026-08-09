@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next'
 import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 
 import { useState } from 'react'
@@ -9,7 +8,6 @@ import type { DesignToken } from '../../../core/analyzer/types'
 import type { DesignClaim, DesignIntelligenceMeta, ValidationReport } from '../../../core/design-intelligence/types'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 import { useFeedbackStore } from '../../stores/feedback-store'
-import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { DesignEvidencePanel } from './DesignEvidencePanel'
 import { ValidationReportPanel } from './ValidationReportPanel'
 
@@ -18,7 +16,6 @@ interface DesignDnaPanelProps {
   intelligenceRunning?: boolean
   intelligenceProgress?: { step: string; percent: number } | null
   onRetry?: () => void
-  onDeepReview?: () => void
   onCancel?: () => void
   onSkip?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
@@ -38,26 +35,6 @@ function EvidenceLink({ evidenceId, onOpen }: { evidenceId: string; onOpen?: (ev
       {onOpen && <ExternalLink size={9} className="shrink-0" />}
     </button>
   )
-}
-
-function countProfileClaims(value: unknown): number {
-  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countProfileClaims(item), 0)
-  if (!value || typeof value !== 'object') return 0
-  const record = value as Record<string, unknown>
-  const isClaim = typeof record.statement === 'string' && Array.isArray(record.evidence)
-  return (isClaim ? 1 : 0) + Object.values(record).reduce<number>((sum, item) => sum + countProfileClaims(item), 0)
-}
-
-// Validator rejections are machine strings like `sectionGrammar.0.transitionToNext:mismatched-section-role`;
-// render them as "区块语法 · 引用的证据不属于该区块" so a single rejection reads as a detail, not a failure.
-function formatRejectedClaim(item: string, t: TFunction): string {
-  const separator = item.lastIndexOf(':')
-  if (separator <= 0) return item
-  const field = item.slice(0, separator).split('.')[0]
-  const reason = item.slice(separator + 1)
-  const fieldLabel = t(`analyze.designDna.rejectedField.${field}`, { defaultValue: field })
-  const reasonLabel = t(`analyze.designDna.rejectedReason.${reason}`, { defaultValue: reason })
-  return `${fieldLabel} · ${reasonLabel}`
 }
 
 function ClaimCard({
@@ -206,19 +183,15 @@ function StatusCard({
   running,
   progress,
   onRetry,
-  onDeepReview,
   onCancel,
   managedEvidence,
-  claimsTotal,
 }: {
   meta?: DesignIntelligenceMeta
   running?: boolean
   progress?: { step: string; percent: number } | null
   onRetry?: () => void
-  onDeepReview?: () => void
   onCancel?: () => void
   managedEvidence?: boolean
-  claimsTotal?: number
 }) {
   const { t } = useTranslation()
   const status = running
@@ -259,26 +232,6 @@ function StatusCard({
           {failed && meta?.failureReason && (
             <p className="mt-1 break-all text-[10px] leading-4 text-destructive/80">{meta.failureReason}</p>
           )}
-          {successful && Boolean(claimsTotal) && (
-            <p className="mt-1 text-[10px] leading-4 text-muted-foreground/70">
-              {meta?.rejected?.length
-                ? t('analyze.designDna.claimsSummary', {
-                    total: (claimsTotal || 0) + meta.rejected.length,
-                    rejected: meta.rejected.length,
-                  })
-                : t('analyze.designDna.claimsSummaryComplete', { total: claimsTotal })}
-            </p>
-          )}
-          {status === 'partial' && meta?.rejected && meta.rejected.length > 0 && (
-            <p className="mt-1 text-[10px] leading-4 text-muted-foreground/70">
-              {t('analyze.designDna.incompleteFields')}:{' '}
-              {meta.rejected
-                .slice(0, 3)
-                .map((item) => formatRejectedClaim(item, t))
-                .join('；')}
-              {meta.rejected.length > 3 ? ` +${meta.rejected.length - 3}` : ''}
-            </p>
-          )}
           {meta?.provider && (
             <p className="mt-1 truncate text-[10px] text-muted-foreground">
               {meta.provider}
@@ -311,31 +264,6 @@ function StatusCard({
             <RefreshCw size={12} />
             {t('analyze.designDna.retry')}
           </button>
-        )}
-        {successful && (onRetry || onDeepReview) && (
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            {onRetry && (
-              <button
-                type="button"
-                data-testid="design-intelligence-reinterpret"
-                onClick={onRetry}
-                className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <RefreshCw size={12} />
-                {t('analyze.designDna.reinterpret')}
-              </button>
-            )}
-            {onDeepReview && (
-              <button
-                type="button"
-                data-testid="design-intelligence-deep-review"
-                onClick={onDeepReview}
-                className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {t('analyze.designDna.deepReview')}
-              </button>
-            )}
-          </div>
         )}
         {status === 'skipped' && onRetry && (
           <button
@@ -377,7 +305,6 @@ export function DesignDnaPanel({
   intelligenceRunning,
   intelligenceProgress,
   onRetry,
-  onDeepReview,
   onCancel,
   onSkip,
   onResultUpdate,
@@ -387,7 +314,6 @@ export function DesignDnaPanel({
   const notify = useFeedbackStore((state) => state.show)
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(result.validationReport || null)
   const [validating, setValidating] = useState(false)
-  const [confirmingDeepReview, setConfirmingDeepReview] = useState(false)
   const profile = result.designProfile
   const evidence = result.designEvidence
   const meta = result.designIntelligence
@@ -467,25 +393,9 @@ export function DesignDnaPanel({
         running={intelligenceRunning}
         progress={intelligenceProgress}
         onRetry={onRetry}
-        onDeepReview={onDeepReview ? () => setConfirmingDeepReview(true) : undefined}
         onCancel={onCancel}
         managedEvidence={evidence?.source.accessMode === 'managed'}
-        claimsTotal={profile ? countProfileClaims(profile) : undefined}
       />
-
-      {confirmingDeepReview && onDeepReview && (
-        <ConfirmDialog
-          title={t('analyze.designDna.deepReviewConfirm.title')}
-          description={t('analyze.designDna.deepReviewConfirm.description')}
-          confirmLabel={t('analyze.designDna.deepReviewConfirm.confirm')}
-          cancelLabel={t('common.cancel')}
-          onConfirm={() => {
-            setConfirmingDeepReview(false)
-            onDeepReview()
-          }}
-          onCancel={() => setConfirmingDeepReview(false)}
-        />
-      )}
 
       {!intelligenceRunning && meta?.pendingChoice === 'model-no-vision' && meta.status === 'not-requested' && (
         <VisionChoiceCard onStructural={onRetry} onSkip={onSkip} />

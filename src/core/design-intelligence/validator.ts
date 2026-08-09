@@ -1,6 +1,7 @@
 import { isRecord } from '../../shared/type-guards.js'
 import { parseJsonObjects } from '../ai/json-payload.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { buildEvidenceFallbackProfile } from './evidence-fallback.js'
 import { listEvidenceIds } from './evidence-selector.js'
 import type {
   Confidence,
@@ -28,11 +29,26 @@ function collectTokenColorValues(evidence: DesignEvidence): Set<string> {
   )
 }
 
-function introducesNewTokenValues(text: string, knownColors: Set<string>): boolean {
-  for (const match of text.matchAll(COLOR_LITERAL)) {
-    if (!knownColors.has(match[0].trim().toLowerCase())) return true
-  }
-  return false
+function sanitizeUnsupportedColorLiterals(
+  text: string,
+  knownColors: Set<string>,
+  tokenRefs: unknown,
+): { text: string; changed: boolean } {
+  let changed = false
+  const firstTokenRef = Array.isArray(tokenRefs)
+    ? tokenRefs.find((tokenRef): tokenRef is string => typeof tokenRef === 'string' && tokenRef.startsWith('color.'))
+    : undefined
+  const replacement = firstTokenRef
+    ? `token ${firstTokenRef}`
+    : /[\u3400-\u9fff]/.test(text)
+      ? '已观察的颜色令牌'
+      : 'an observed color token'
+  const sanitized = text.replace(COLOR_LITERAL, (literal) => {
+    if (knownColors.has(literal.trim().toLowerCase())) return literal
+    changed = true
+    return replacement
+  })
+  return { text: sanitized, changed }
 }
 
 export interface ProfileValidationResult {
@@ -155,34 +171,39 @@ function validateClaim(
     rejected.push(`${path}:not-an-object`)
     return null
   }
+  if (typeof value.statement !== 'string' || typeof value.implementation !== 'string') {
+    rejected.push(`${path}:invalid-text`)
+    return null
+  }
+  let statement = value.statement
+  let implementation = value.implementation
   if (
-    typeof value.statement !== 'string' ||
-    !value.statement.trim() ||
-    value.statement.length > 240 ||
-    GENERIC_ONLY.test(value.statement.trim()) ||
-    UNPROVABLE_INTENT.test(value.statement) ||
-    HTML_OR_URL.test(value.statement)
+    !statement.trim() ||
+    statement.length > 240 ||
+    GENERIC_ONLY.test(statement.trim()) ||
+    UNPROVABLE_INTENT.test(statement) ||
+    HTML_OR_URL.test(statement)
   ) {
     rejected.push(`${path}:invalid-statement`)
     return null
   }
   if (
-    typeof value.implementation !== 'string' ||
-    !value.implementation.trim() ||
-    value.implementation.length > 360 ||
-    UNPROVABLE_INTENT.test(value.implementation) ||
-    HTML_OR_URL.test(value.implementation)
+    !implementation.trim() ||
+    implementation.length > 360 ||
+    UNPROVABLE_INTENT.test(implementation) ||
+    HTML_OR_URL.test(implementation)
   ) {
     rejected.push(`${path}:invalid-implementation`)
     return null
   }
-  if (
-    knownColors &&
-    (introducesNewTokenValues(value.statement, knownColors) ||
-      introducesNewTokenValues(value.implementation, knownColors))
-  ) {
-    rejected.push(`${path}:token-value-not-in-evidence`)
-    return null
+  let sanitizedTokenValue = false
+  if (knownColors) {
+    const sanitizedStatement = sanitizeUnsupportedColorLiterals(statement, knownColors, value.tokenRefs)
+    const sanitizedImplementation = sanitizeUnsupportedColorLiterals(implementation, knownColors, value.tokenRefs)
+    statement = sanitizedStatement.text
+    implementation = sanitizedImplementation.text
+    sanitizedTokenValue = sanitizedStatement.changed || sanitizedImplementation.changed
+    if (sanitizedTokenValue) rejected.push(`${path}:token-value-sanitized`)
   }
   if (typeof value.confidence !== 'string' || !CONFIDENCES.has(value.confidence as Confidence)) {
     rejected.push(`${path}:invalid-confidence`)
@@ -199,9 +220,10 @@ function validateClaim(
   )
   if (confidence === 'high' && (evidence.length < 2 || !hasVisualOrLayoutEvidence)) confidence = 'medium'
   if (inputMode === 'structural-only' && visualOnly && confidence !== 'low') confidence = 'low'
+  if (sanitizedTokenValue) confidence = 'low'
   return {
-    statement: value.statement.trim(),
-    implementation: value.implementation.trim(),
+    statement: statement.trim(),
+    implementation: implementation.trim(),
     confidence,
     evidence,
     ...(Array.isArray(value.tokenRefs) && value.tokenRefs.length > 0
@@ -502,6 +524,9 @@ export function validateDesignProfile(
   const validIds = allowedEvidenceIds
     ? new Set([...allowedEvidenceIds].filter((evidenceId) => allEvidenceIds.has(evidenceId)))
     : allEvidenceIds
+  if (validIds.size === 0) {
+    return { profile: null, status: 'failed', rejected: [...rejected, 'root:no-valid-evidence'] }
+  }
   normalizeClaimTokenCitations(value, buildTokenEvidenceOwners(evidence, validIds))
   const evidenceScope = buildEvidenceScope(evidence)
   const availablePageCount = new Set(
@@ -523,11 +548,42 @@ export function validateDesignProfile(
       .map((observation) => observation.id)
       .filter((evidenceId) => validIds.has(evidenceId)),
   )
-  const thesis = validateClaim(value.thesis, validIds, 'thesis', rejected, claimMode, false, knownColors)
-  if (!thesis || !Array.isArray(value.signatureMoves)) {
-    return { profile: null, status: 'failed', rejected }
+  const fallbackProfile = buildEvidenceFallbackProfile(evidence, language, claimMode, 'Required AI claim was unusable')
+  let requiredFallbackUsed = false
+  const fallbackClaim = (claim: DesignClaim, preferredEvidence?: RegExp): DesignClaim => {
+    const preferred = [...validIds].filter((evidenceId) => preferredEvidence?.test(evidenceId))
+    const evidenceIds = preferred.length > 0 ? preferred : [...validIds]
+    return {
+      ...claim,
+      confidence: 'low',
+      evidence: evidenceIds.slice(0, 2).map((evidenceId) => ({
+        evidenceId,
+        note: language === 'zh-CN' ? '程序提取的页面证据' : 'Programmatically extracted page evidence',
+      })),
+    }
   }
-  const signatureMoves = value.signatureMoves.slice(0, 3).flatMap((candidate, index): SignatureMove[] => {
+  const resolveRequiredClaim = (
+    parent: Record<string, unknown>,
+    key: string,
+    path: string,
+    fallback: DesignClaim,
+    visualOnly = false,
+    preferredEvidence?: RegExp,
+  ): DesignClaim => {
+    const candidate = requiredClaim(parent, key, validIds, path, rejected, claimMode, visualOnly, knownColors)
+    const validated = preferredEvidence
+      ? requireEvidenceKind(candidate, preferredEvidence, `${path}.${key}`, rejected)
+      : candidate
+    if (validated) return validated
+    requiredFallbackUsed = true
+    return fallbackClaim(fallback, preferredEvidence)
+  }
+  const thesisCandidate = validateClaim(value.thesis, validIds, 'thesis', rejected, claimMode, false, knownColors)
+  const thesis = thesisCandidate || fallbackClaim(fallbackProfile.thesis)
+  if (!thesisCandidate) requiredFallbackUsed = true
+  const signatureMoveInput = Array.isArray(value.signatureMoves) ? value.signatureMoves : []
+  if (!Array.isArray(value.signatureMoves)) rejected.push('signatureMoves:not-an-array')
+  let signatureMoves = signatureMoveInput.slice(0, 3).flatMap((candidate, index): SignatureMove[] => {
     if (!isRecord(candidate) || !isSafeText(candidate.id, 80) || !isSafeText(candidate.name, 100)) {
       rejected.push(`signatureMoves.${index}:invalid-identity`)
       return []
@@ -553,8 +609,16 @@ export function validateDesignProfile(
       },
     ]
   })
-  if (signatureMoves.length === 0) return { profile: null, status: 'failed', rejected }
+  if (signatureMoves.length === 0) {
+    requiredFallbackUsed = true
+    signatureMoves = fallbackProfile.signatureMoves.map((move) => ({ ...move, ...fallbackClaim(move) }))
+  }
 
+  const compositionInput = isRecord(value.composition) ? value.composition : {}
+  const attentionInput = isRecord(value.attention) ? value.attention : {}
+  const visualLanguageInput = isRecord(value.visualLanguage) ? value.visualLanguage : {}
+  const interactionLanguageInput = isRecord(value.interactionLanguage) ? value.interactionLanguage : {}
+  const transferRulesInput = isRecord(value.transferRules) ? value.transferRules : {}
   if (
     !isRecord(value.composition) ||
     !isRecord(value.attention) ||
@@ -562,74 +626,52 @@ export function validateDesignProfile(
     !isRecord(value.interactionLanguage) ||
     !isRecord(value.transferRules)
   ) {
-    return { profile: null, status: 'failed', rejected: [...rejected, 'root:missing-required-groups'] }
+    rejected.push('root:missing-required-groups')
   }
   const composition = {
-    containerStrategy: requireEvidenceKind(
-      requiredClaim(
-        value.composition,
-        'containerStrategy',
-        validIds,
-        'composition',
-        rejected,
-        claimMode,
-        false,
-        knownColors,
-      ),
+    containerStrategy: resolveRequiredClaim(
+      compositionInput,
+      'containerStrategy',
+      'composition',
+      fallbackProfile.composition.containerStrategy,
+      false,
       /^(?:image|section|layout)-/,
-      'composition.containerStrategy',
-      rejected,
     ),
-    alignmentStrategy: requireEvidenceKind(
-      requiredClaim(
-        value.composition,
-        'alignmentStrategy',
-        validIds,
-        'composition',
-        rejected,
-        claimMode,
-        false,
-        knownColors,
-      ),
+    alignmentStrategy: resolveRequiredClaim(
+      compositionInput,
+      'alignmentStrategy',
+      'composition',
+      fallbackProfile.composition.alignmentStrategy,
+      false,
       /^(?:image|section|layout)-/,
-      'composition.alignmentStrategy',
-      rejected,
     ),
-    densityAndWhitespace: requireEvidenceKind(
-      requiredClaim(
-        value.composition,
-        'densityAndWhitespace',
-        validIds,
-        'composition',
-        rejected,
-        claimMode,
-        false,
-        knownColors,
-      ),
+    densityAndWhitespace: resolveRequiredClaim(
+      compositionInput,
+      'densityAndWhitespace',
+      'composition',
+      fallbackProfile.composition.densityAndWhitespace,
+      false,
       /^(?:image|section|layout)-/,
-      'composition.densityAndWhitespace',
-      rejected,
     ),
-    rhythm: requireEvidenceKind(
-      requiredClaim(value.composition, 'rhythm', validIds, 'composition', rejected, claimMode, false, knownColors),
+    rhythm: resolveRequiredClaim(
+      compositionInput,
+      'rhythm',
+      'composition',
+      fallbackProfile.composition.rhythm,
+      false,
       /^(?:image|section|layout)-/,
-      'composition.rhythm',
-      rejected,
     ),
   }
   const attention = {
-    entryPoint: requiredClaim(
-      value.attention,
+    entryPoint: resolveRequiredClaim(
+      attentionInput,
       'entryPoint',
-      validIds,
       'attention',
-      rejected,
-      claimMode,
+      fallbackProfile.attention.entryPoint,
       true,
-      knownColors,
     ),
     visualSequence: validateClaims(
-      value.attention.visualSequence,
+      attentionInput.visualSequence,
       validIds,
       'attention.visualSequence',
       rejected,
@@ -638,30 +680,22 @@ export function validateDesignProfile(
       true,
       knownColors,
     ),
-    actionHierarchy: requiredClaim(
-      value.attention,
+    actionHierarchy: resolveRequiredClaim(
+      attentionInput,
       'actionHierarchy',
-      validIds,
       'attention',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
+      fallbackProfile.attention.actionHierarchy,
     ),
-    contrastStrategy: requiredClaim(
-      value.attention,
+    contrastStrategy: resolveRequiredClaim(
+      attentionInput,
       'contrastStrategy',
-      validIds,
       'attention',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
+      fallbackProfile.attention.contrastStrategy,
     ),
   }
-  const imagery = value.visualLanguage.imagery
+  const imagery = visualLanguageInput.imagery
     ? validateClaim(
-        value.visualLanguage.imagery,
+        visualLanguageInput.imagery,
         validIds,
         'visualLanguage.imagery',
         rejected,
@@ -672,50 +706,24 @@ export function validateDesignProfile(
     : undefined
   if (imagery && noClassifiedMedia && imagery.confidence === 'high') imagery.confidence = 'medium'
   const visualLanguage = {
-    color: requiredClaim(
-      value.visualLanguage,
-      'color',
-      validIds,
-      'visualLanguage',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
-    ),
-    typography: requiredClaim(
-      value.visualLanguage,
+    color: resolveRequiredClaim(visualLanguageInput, 'color', 'visualLanguage', fallbackProfile.visualLanguage.color),
+    typography: resolveRequiredClaim(
+      visualLanguageInput,
       'typography',
-      validIds,
       'visualLanguage',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
+      fallbackProfile.visualLanguage.typography,
     ),
-    shape: requiredClaim(
-      value.visualLanguage,
-      'shape',
-      validIds,
-      'visualLanguage',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
-    ),
-    surfaces: requiredClaim(
-      value.visualLanguage,
+    shape: resolveRequiredClaim(visualLanguageInput, 'shape', 'visualLanguage', fallbackProfile.visualLanguage.shape),
+    surfaces: resolveRequiredClaim(
+      visualLanguageInput,
       'surfaces',
-      validIds,
       'visualLanguage',
-      rejected,
-      claimMode,
-      false,
-      knownColors,
+      fallbackProfile.visualLanguage.surfaces,
     ),
     imagery,
-    motion: value.visualLanguage.motion
+    motion: visualLanguageInput.motion
       ? validateClaim(
-          value.visualLanguage.motion,
+          visualLanguageInput.motion,
           validIds,
           'visualLanguage.motion',
           rejected,
@@ -725,17 +733,6 @@ export function validateDesignProfile(
         )
       : undefined,
   }
-  const required = [
-    ...Object.values(composition),
-    attention.entryPoint,
-    attention.actionHierarchy,
-    attention.contrastStrategy,
-    visualLanguage.color,
-    visualLanguage.typography,
-    visualLanguage.shape,
-    visualLanguage.surfaces,
-  ]
-  if (required.some((claim) => claim === null)) return { profile: null, status: 'failed', rejected }
 
   const sectionGrammar = Array.isArray(value.sectionGrammar)
     ? value.sectionGrammar.slice(0, 12).flatMap((item, index) => {
@@ -769,7 +766,7 @@ export function validateDesignProfile(
       })
     : []
   const feedbackStyle = validateInteractionClaim(
-    value.interactionLanguage.feedbackStyle,
+    interactionLanguageInput.feedbackStyle,
     validIds,
     interactionIds,
     activeInteractionIds,
@@ -779,7 +776,7 @@ export function validateDesignProfile(
     knownColors,
   )
   const stateChangeAmplitude = validateInteractionClaim(
-    value.interactionLanguage.stateChangeAmplitude,
+    interactionLanguageInput.stateChangeAmplitude,
     validIds,
     interactionIds,
     activeInteractionIds,
@@ -788,7 +785,10 @@ export function validateDesignProfile(
     claimMode,
     knownColors,
   )
-  if (!feedbackStyle || !stateChangeAmplitude) return { profile: null, status: 'failed', rejected }
+  const resolvedFeedbackStyle = feedbackStyle || fallbackClaim(fallbackProfile.interactionLanguage.feedbackStyle)
+  const resolvedStateChangeAmplitude =
+    stateChangeAmplitude || fallbackClaim(fallbackProfile.interactionLanguage.stateChangeAmplitude)
+  if (!feedbackStyle || !stateChangeAmplitude) requiredFallbackUsed = true
 
   const componentGrammar = Array.isArray(value.componentGrammar)
     ? value.componentGrammar.slice(0, 16).flatMap((item, index) => {
@@ -998,7 +998,7 @@ export function validateDesignProfile(
     sectionGrammar,
     interactionLanguage: {
       primaryDrivers: validateInteractionClaims(
-        value.interactionLanguage.primaryDrivers,
+        interactionLanguageInput.primaryDrivers,
         validIds,
         interactionIds,
         activeInteractionIds,
@@ -1008,13 +1008,13 @@ export function validateDesignProfile(
         5,
         knownColors,
       ),
-      feedbackStyle,
-      stateChangeAmplitude,
-      ...(value.interactionLanguage.scrollNarrative
+      feedbackStyle: resolvedFeedbackStyle,
+      stateChangeAmplitude: resolvedStateChangeAmplitude,
+      ...(interactionLanguageInput.scrollNarrative
         ? {
             scrollNarrative:
               validateInteractionClaim(
-                value.interactionLanguage.scrollNarrative,
+                interactionLanguageInput.scrollNarrative,
                 validIds,
                 interactionIds,
                 activeInteractionIds,
@@ -1026,7 +1026,7 @@ export function validateDesignProfile(
           }
         : {}),
       continuityRules: validateInteractionClaims(
-        value.interactionLanguage.continuityRules,
+        interactionLanguageInput.continuityRules,
         validIds,
         interactionIds,
         activeInteractionIds,
@@ -1041,7 +1041,7 @@ export function validateDesignProfile(
     ...(patterns.length > 0 ? { patterns } : {}),
     transferRules: {
       preserve: validateClaims(
-        value.transferRules.preserve,
+        transferRulesInput.preserve,
         validIds,
         'transferRules.preserve',
         rejected,
@@ -1051,7 +1051,7 @@ export function validateDesignProfile(
         knownColors,
       ),
       adapt: validateClaims(
-        value.transferRules.adapt,
+        transferRulesInput.adapt,
         validIds,
         'transferRules.adapt',
         rejected,
@@ -1061,7 +1061,7 @@ export function validateDesignProfile(
         knownColors,
       ),
       avoid: validateClaims(
-        value.transferRules.avoid,
+        transferRulesInput.avoid,
         validIds,
         'transferRules.avoid',
         rejected,
@@ -1131,5 +1131,10 @@ export function validateDesignProfile(
   for (const kind of ['preserve', 'adapt', 'avoid'] as const) {
     if (profile.transferRules[kind].length === 0) rejected.push(`transferRules.${kind}:empty`)
   }
-  return { profile, status: rejected.length > 0 ? 'partial' : 'complete', rejected, imageObservationsValid }
+  return {
+    profile,
+    status: requiredFallbackUsed || imageObservationsValid === false ? 'partial' : 'complete',
+    rejected,
+    imageObservationsValid,
+  }
 }

@@ -71,6 +71,7 @@ function claimLines(
 
 export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: DesignToken): string {
   const zh = profile.language === 'zh-CN'
+  const evidenceFallback = profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
   const labels = {
     confidence: zh ? '置信度' : 'Confidence',
     evidence: zh ? '证据' : 'Evidence',
@@ -97,6 +98,14 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
     '',
     `**${zh ? '输入模式' : 'Input mode'}:** \`${profile.inputMode}\``,
     '',
+    ...(evidenceFallback
+      ? [
+          zh
+            ? '> 状态：`evidence-fallback`。AI 输出未通过校验；下列解读是确定性证据兜底，不是有效的 AI 视觉综合。'
+            : '> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.',
+          '',
+        ]
+      : []),
     ...claimLines(zh ? '设计主张' : 'Design Thesis', [profile.thesis], labels, lowBucket, {
       keepLow: true,
       formatRef,

@@ -2,7 +2,8 @@ import type { AnalysisDigest, AnalysisDigestPackage } from './analysis-digest.js
 import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence-selector.js'
 import type { EvidencePackage, SectionObservation } from './types.js'
 
-export const DESIGN_PROFILE_PROMPT_VERSION = '11'
+// Versions the complete model-output contract, including deterministic validation and fallback behavior.
+export const DESIGN_PROFILE_PROMPT_VERSION = '12'
 export const DESIGN_PROFILE_PROMPT_CHAR_LIMIT = 28_000
 const DIGEST_CHAR_LIMIT = 18_000
 

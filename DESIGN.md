@@ -184,7 +184,10 @@ runs out, the tab strip scrolls horizontally instead.
   distinguishes pending, complete, partial, failed, skipped, and not-configured states; retry reruns only
   interpretation, never the browser. Status icons are reserved for running, success, and failure — neutral states use
   text alone, and the UI never decorates status lines with capability tags. Complete and partial results share the
-  same concise completion label; validation details remain in the supporting status text below it.
+  same concise completion label. Filtered model-output diagnostics stay in logs instead of appearing as repeated
+  "removed claim" or "missing field" notices in the result UI. A valid final profile is complete even when unsafe or
+  unsupported optional model text was filtered; partial is reserved for required conclusions filled from deterministic
+  page evidence or for a failed screenshot self-check.
 - When the configured model cannot see screenshots, analysis does not silently degrade: the status card offers an
   explicit three-way choice — generate a structural interpretation, switch to a vision-capable model in Settings, or
   skip AI interpretation. Skipping is persisted and reversible from the status card.
@@ -193,9 +196,8 @@ runs out, the tab strip scrolls horizontally instead.
   inside a captured region crop, the crop opens directly with the rectangle remapped into crop-local coordinates.
   Evidence that has no genuine screenshot region (topology layers, cross-page patterns, token-level references) opens a
   compact evidence detail instead — never a fabricated full-frame highlight.
-- A completed or partial interpretation offers "Re-interpret", which may reuse the persistent result cache, and a
-  separate "Deep review" action. Deep review explicitly bypasses the final AI cache, warns that it adds another paid,
-  potentially multi-minute model call, and reruns only the AI layer on stored evidence—never the browser.
+- Completed AI interpretations are immutable for their captured evidence. The product does not expose a second-pass,
+  cache-bypass, or "deep review" action; users rerun the website analysis when they need fresh evidence.
 - Structural-only interpretation must never be styled or worded as full visual analysis. Screenshot input requires a
   vision-capable model plus the settings consent, which defaults to on for new installations because it materially
   improves interpretation; existing installs keep their saved choice, and the toggle stays one click away in Settings.

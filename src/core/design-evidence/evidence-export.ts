@@ -198,6 +198,10 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
     en: 'Media regions were found but could not be classified',
     zh: '发现了媒体区域但未能分类',
   },
+  'extraction-stage-degraded': {
+    en: 'At least one extraction stage degraded; inspect the application log for the exact stage and reason',
+    zh: '至少一个提取阶段发生降级；请在应用日志中查看具体阶段和原因',
+  },
 }
 
 function humanizeLimitation(key: string, zh: boolean): string | null {

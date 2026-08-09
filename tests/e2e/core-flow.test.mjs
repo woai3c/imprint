@@ -462,6 +462,8 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.locator('html').getAttribute('data-app-theme'), appThemeBeforeWebsitePreview)
 
     await page.locator('a[href="#/themes"]').click()
+    await page.locator('.theme-card-preview-glassmorphism').locator('..').click()
+    assert.equal(await page.locator('html').getAttribute('data-app-theme'), 'glassmorphism')
     await page.getByRole('button', { name: /^Website Themes \(1\)$/ }).click()
     await page.getByText(fixtureUrl, { exact: true }).waitFor()
 
@@ -469,21 +471,59 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
     assert.equal(await page.getByTestId('history-preview-image').count(), 2)
+    const historyThumbnailSize = await page
+      .getByTestId('history-preview-image')
+      .first()
+      .evaluate(async (image) => {
+        await image.decode()
+        return { width: image.naturalWidth, height: image.naturalHeight }
+      })
+    assert.ok(historyThumbnailSize.width <= 192)
+    assert.ok(historyThumbnailSize.height <= 128)
+    const selectAllStyle = await page.getByTestId('history-select-all').evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        appearance: style.appearance,
+        borderTopWidth: style.borderTopWidth,
+        borderTopColor: style.borderTopColor,
+      }
+    })
+    assert.equal(selectAllStyle.appearance, 'none')
+    assert.equal(selectAllStyle.borderTopWidth, '1px')
+    assert.notEqual(selectAllStyle.borderTopColor, 'rgba(0, 0, 0, 0)')
     const analysisListPayloads = await page.evaluate(async () => {
       const summaries = await window.electronAPI.getAnalysisSummaries()
+      const firstPage = await window.electronAPI.getAnalysisSummariesPage({ page: 1, pageSize: 1 })
+      const secondPage = await window.electronAPI.getAnalysisSummariesPage({ page: 2, pageSize: 1 })
       const fullRecords = await window.electronAPI.getAnalyses()
       return {
         summaryKeys: Object.keys(summaries[0] || {}),
         summaryHasScreenshot: typeof summaries[0]?.screenshot_path === 'string',
+        pageTotals: [firstPage.total, firstPage.matchingIds.length],
+        pageSizes: [firstPage.records.length, secondPage.records.length],
+        pageNumbers: [firstPage.page, secondPage.page],
         fullRecordHasTokens: Object.hasOwn(fullRecords[0] || {}, 'tokens_json'),
       }
     })
     assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
     assert.equal(analysisListPayloads.summaryKeys.includes('design_doc'), false)
     assert.equal(analysisListPayloads.summaryHasScreenshot, true)
+    assert.deepEqual(analysisListPayloads.pageTotals, [2, 2])
+    assert.deepEqual(analysisListPayloads.pageSizes, [1, 1])
+    assert.deepEqual(analysisListPayloads.pageNumbers, [1, 2])
     assert.equal(analysisListPayloads.fullRecordHasTokens, true)
-    await page.getByTestId('history-record').first().click()
+    const firstHistoryRecord = await page.getByTestId('history-record').first().elementHandle()
+    await firstHistoryRecord.click()
     await page.getByTestId('analysis-detail-dialog').waitFor({ state: 'visible' })
+    const detailThumbnailSize = await page
+      .getByTestId('analysis-page-screenshot-image')
+      .first()
+      .evaluate(async (image) => {
+        await image.decode()
+        return { width: image.naturalWidth, height: image.naturalHeight }
+      })
+    assert.ok(detailThumbnailSize.width <= 192)
+    assert.ok(detailThumbnailSize.height <= 128)
     const historyArtifactScroller = page.getByTestId('artifact-scroll-container')
     const historyScrollMetrics = await historyArtifactScroller.evaluate((element) => ({
       clientHeight: element.clientHeight,
@@ -496,7 +536,12 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.ok((await historyArtifactScroller.evaluate((element) => element.scrollTop)) > 0)
     await page.getByTestId('analysis-detail-backdrop').click({ position: { x: 4, y: 4 } })
     await page.getByTestId('analysis-detail-dialog').waitFor({ state: 'detached' })
+    assert.equal(await firstHistoryRecord.evaluate((element) => element.isConnected), true)
+    await firstHistoryRecord.dispose()
 
+    await page.locator('a[href="#/themes"]').click()
+    await page.locator('.theme-card-preview-default').locator('..').click()
+    assert.equal(await page.locator('html').getAttribute('data-app-theme'), 'default')
     await page.locator('a[href="#/templates"]').click()
     await page.getByTestId('validation-scenario-grid').waitFor({ state: 'visible' })
     assert.equal(await page.locator('button[data-testid^="validation-scenario-"]').count(), 12)

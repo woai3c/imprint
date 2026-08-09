@@ -124,10 +124,25 @@ export interface AnalysisRecord {
   ai_token_usage?: { input?: number; output?: number }
 }
 
+export interface AnalysisSummaryPage {
+  records: AnalysisRecord[]
+  matchingIds: string[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+export interface AnalysisSummaryPageQuery {
+  page?: number
+  pageSize?: number
+  search?: string
+}
+
 export interface PageScreenshotData {
   url: string
   path: string
   viewport: string
+  thumbnailPath?: string
 }
 
 export interface AnalysisResultData {
@@ -283,6 +298,7 @@ export interface ElectronAPI {
   testApiKey: (provider: string, apiKey: string, baseUrl?: string) => Promise<{ success: boolean; message: string }>
   getAnalyses: () => Promise<AnalysisRecord[]>
   getAnalysisSummaries: () => Promise<AnalysisRecord[]>
+  getAnalysisSummariesPage: (query?: AnalysisSummaryPageQuery) => Promise<AnalysisSummaryPage>
   getAnalysis: (id: string) => Promise<AnalysisDetailData | null>
   deleteAnalysis: (id: string) => Promise<{ success: boolean }>
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>

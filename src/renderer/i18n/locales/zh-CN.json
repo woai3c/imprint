@@ -954,6 +954,10 @@
     "selectedCount": "已选 {{count}} 条",
     "deleteSelected": "删除所选",
     "clearSelection": "清除选择",
+    "paginationLabel": "历史记录分页",
+    "paginationSummary": "第 {{page}} / {{totalPages}} 页 · 共 {{total}} 条",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
     "confirmDeleteSelected": "确定删除选中的 {{count}} 条历史记录吗？此操作不可撤销。",
     "noResults": "暂无分析记录",
     "noResultsTip": "前往「分析」页面开始提取设计风格"

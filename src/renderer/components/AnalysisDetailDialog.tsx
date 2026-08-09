@@ -1,7 +1,7 @@
 import i18n from 'i18next'
 import { Loader2, X } from 'lucide-react'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { AnalysisResultData } from '../stores/analysis-store'
@@ -11,7 +11,7 @@ import { ResultOverview } from './analyze/ResultOverview'
 
 interface AnalysisDetailDialogProps {
   analysisId: string
-  onClose: () => void
+  onClose: (changed: boolean) => void
 }
 
 export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDialogProps) {
@@ -21,15 +21,17 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [error, setError] = useState(false)
   const [intelligenceRunning, setIntelligenceRunning] = useState(false)
   const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
+  const summaryChanged = useRef(false)
   const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
+  const closeDialog = useCallback(() => onClose(summaryChanged.current), [onClose])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && evidenceViewer.lightboxIndex === null) onClose()
+      if (event.key === 'Escape' && evidenceViewer.lightboxIndex === null) closeDialog()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [evidenceViewer.lightboxIndex, onClose])
+  }, [closeDialog, evidenceViewer.lightboxIndex])
 
   useEffect(() => {
     const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(setIntelligenceProgress)
@@ -79,6 +81,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     setIntelligenceRunning(true)
     try {
       const response = await window.electronAPI.startDesignIntelligence(result.analysisId, i18n.language, true)
+      summaryChanged.current = true
       setResult((current) => (current ? { ...current, ...response } : current))
     } finally {
       setIntelligenceRunning(false)
@@ -91,6 +94,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     try {
       const response = await window.electronAPI.skipDesignIntelligence(result.analysisId)
       if (response.error || !response.designIntelligence) throw new Error('Skip failed')
+      summaryChanged.current = true
       setResult((current) => (current ? { ...current, designIntelligence: response.designIntelligence } : current))
     } catch {
       /* keep the current record state when skipping fails */
@@ -101,9 +105,9 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
     <div
       data-testid="analysis-detail-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget) closeDialog()
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
     >
       <div
         data-testid="analysis-detail-dialog"
@@ -118,7 +122,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeDialog}
             aria-label={t('common.close')}
             className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
@@ -158,7 +162,10 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                   setIntelligenceProgress(null)
                 }}
                 onSkipIntelligence={skipIntelligence}
-                onResultUpdate={(update) => setResult((current) => (current ? { ...current, ...update } : current))}
+                onResultUpdate={(update) => {
+                  summaryChanged.current = true
+                  setResult((current) => (current ? { ...current, ...update } : current))
+                }}
                 onOpenEvidence={evidenceViewer.openEvidence}
               />
             </div>

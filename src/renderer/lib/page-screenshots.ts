@@ -4,6 +4,7 @@ export interface PageScreenshot {
   url: string
   path: string
   viewport: string
+  thumbnailPath?: string
 }
 
 export function getPageScreenshots(result: AnalysisResultData): PageScreenshot[] {

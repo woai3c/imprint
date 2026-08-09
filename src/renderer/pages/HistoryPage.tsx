@@ -1,4 +1,4 @@
-import { ExternalLink, ImageIcon, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, ImageIcon, Trash2, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -12,6 +12,8 @@ import { IconButton } from '../components/ui/IconButton'
 import { getScreenshotUrl } from '../lib/page-screenshots'
 import { useFeedbackStore } from '../stores/feedback-store'
 
+const PAGE_SIZE = 10
+
 export function HistoryPage() {
   const { t, i18n } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
@@ -23,19 +25,35 @@ export function HistoryPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
+  const [matchingIds, setMatchingIds] = useState<string[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      try {
-        const data = await window.electronAPI.getAnalysisSummaries()
-        setRecords(data)
-      } finally {
-        setLoading(false)
-      }
+    let cancelled = false
+    const timer = window.setTimeout(
+      async () => {
+        setLoading(true)
+        try {
+          const data = await window.electronAPI.getAnalysisSummariesPage({ page, pageSize: PAGE_SIZE, search })
+          if (cancelled) return
+          setRecords(data.records)
+          setMatchingIds(data.matchingIds)
+          setPage(data.page)
+          setTotal(data.total)
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
+      },
+      search ? 150 : 0,
+    )
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
-    load()
-  }, [])
+  }, [page, refreshKey, search])
 
   const handleDelete = async () => {
     if (!pendingDeleteId) return
@@ -51,6 +69,7 @@ export function HistoryPage() {
       })
       notify(t('feedback.historyDeleted'))
       setPendingDeleteId(null)
+      setRefreshKey((current) => current + 1)
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     } finally {
@@ -69,6 +88,7 @@ export function HistoryPage() {
       setSelectedIds(new Set())
       notify(t('feedback.historyDeleted'))
       setPendingBatchDelete(false)
+      setRefreshKey((current) => current + 1)
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     } finally {
@@ -76,24 +96,18 @@ export function HistoryPage() {
     }
   }
 
-  const filtered = records.filter(
-    (record) =>
-      record.url.toLowerCase().includes(search.toLowerCase()) ||
-      record.theme_name?.toLowerCase().includes(search.toLowerCase()),
-  )
-
-  const filteredIds = filtered.map((record) => record.id)
-  const selectedFilteredCount = filteredIds.filter((id) => selectedIds.has(id)).length
-  const allFilteredSelected = filtered.length > 0 && selectedFilteredCount === filtered.length
+  const selectedFilteredCount = matchingIds.filter((id) => selectedIds.has(id)).length
+  const allFilteredSelected = matchingIds.length > 0 && selectedFilteredCount === matchingIds.length
   const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   const toggleSelectAll = () => {
     setSelectedIds((current) => {
       const next = new Set(current)
       if (allFilteredSelected) {
-        for (const id of filteredIds) next.delete(id)
+        for (const id of matchingIds) next.delete(id)
       } else {
-        for (const id of filteredIds) next.add(id)
+        for (const id of matchingIds) next.add(id)
       }
       return next
     })
@@ -116,14 +130,17 @@ export function HistoryPage() {
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value)
+            setPage(1)
+          }}
           placeholder={t('history.search')}
           className="w-80 h-9 px-3 rounded-md border border-input bg-background text-sm
                      placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
-      {!loading && filtered.length > 0 && (
+      {!loading && records.length > 0 && (
         <div className="mb-2 flex items-center gap-3 px-8">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
             <input
@@ -135,7 +152,7 @@ export function HistoryPage() {
               }}
               onChange={toggleSelectAll}
               aria-label={t('history.selectAll')}
-              className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+              className="app-checkbox size-4 cursor-pointer rounded"
             />
             {t('history.selectAll')}
           </label>
@@ -173,82 +190,112 @@ export function HistoryPage() {
               {t('history.loading')}
             </p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : records.length === 0 ? (
           <EmptyState title={t('history.noResults')} description={t('history.noResultsTip')} className="h-64" />
         ) : (
-          <div className="ui-enter space-y-2">
-            {filtered.map((record) => (
-              <div
-                key={record.id}
-                data-testid="history-record"
-                role="button"
-                tabIndex={0}
-                onClick={() => setDetailId(record.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    setDetailId(record.id)
-                  }
-                }}
-                aria-label={t('history.viewRecord', { url: record.url })}
-                className={`flex cursor-pointer items-center gap-4 rounded-lg border p-4 transition-colors hover:border-primary/30 hover:bg-secondary/30 ${
-                  selectedIds.has(record.id) ? 'border-primary/50 bg-secondary/40' : 'border-border'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  data-testid="history-select-record"
-                  checked={selectedIds.has(record.id)}
-                  onChange={() => toggleSelected(record.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                  aria-label={t('history.selectRecord', { url: record.url })}
-                  className="h-4 w-4 shrink-0 cursor-pointer rounded border-input accent-primary"
-                />
-                <HistoryThumbnail path={record.screenshot_path} url={record.url} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm truncate">{record.url}</span>
-                    {record.duration_ms != null && record.duration_ms > 0 && (
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {record.duration_ms >= 60000
-                          ? t('history.durationMin', { minutes: (record.duration_ms / 60000).toFixed(1) })
-                          : t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
-                      </span>
-                    )}
+          <div className="ui-enter">
+            <div className="space-y-2">
+              {records.map((record) => (
+                <div
+                  key={record.id}
+                  data-testid="history-record"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetailId(record.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setDetailId(record.id)
+                    }
+                  }}
+                  aria-label={t('history.viewRecord', { url: record.url })}
+                  className={`flex cursor-pointer items-center gap-4 rounded-lg border p-4 transition-colors hover:border-primary/30 hover:bg-secondary/30 ${
+                    selectedIds.has(record.id) ? 'border-primary/50 bg-secondary/40' : 'border-border'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    data-testid="history-select-record"
+                    checked={selectedIds.has(record.id)}
+                    onChange={() => toggleSelected(record.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    aria-label={t('history.selectRecord', { url: record.url })}
+                    className="app-checkbox size-4 shrink-0 cursor-pointer rounded"
+                  />
+                  <HistoryThumbnail path={record.screenshot_path} url={record.url} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm truncate">{record.url}</span>
+                      {record.duration_ms != null && record.duration_ms > 0 && (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {record.duration_ms >= 60000
+                            ? t('history.durationMin', { minutes: (record.duration_ms / 60000).toFixed(1) })
+                            : t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
+                      {record.theme_name && <span>· {record.theme_name}</span>}
+                      <AiStatusBadge status={record.design_intelligence_status} />
+                      {record.ai_token_usage && (record.ai_token_usage.input || record.ai_token_usage.output) && (
+                        <span className="text-[10px]">
+                          {formatTokenCount(record.ai_token_usage.input)} /{' '}
+                          {formatTokenCount(record.ai_token_usage.output)}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                    <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
-                    {record.theme_name && <span>· {record.theme_name}</span>}
-                    <AiStatusBadge status={record.design_intelligence_status} />
-                    {record.ai_token_usage && (record.ai_token_usage.input || record.ai_token_usage.output) && (
-                      <span className="text-[10px]">
-                        {formatTokenCount(record.ai_token_usage.input)} /{' '}
-                        {formatTokenCount(record.ai_token_usage.output)}
-                      </span>
-                    )}
+
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(record.created_at).toLocaleDateString(i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US')}
+                  </span>
+
+                  <div className="flex gap-1" onClick={(event) => event.stopPropagation()}>
+                    <IconButton
+                      icon={ExternalLink}
+                      label={t('history.openSource')}
+                      onClick={() => window.electronAPI.openExternal(record.url)}
+                    />
+                    <IconButton
+                      icon={Trash2}
+                      label={t('history.deleteRecord')}
+                      onClick={() => setPendingDeleteId(record.id)}
+                      className="hover:bg-destructive/10 hover:text-destructive"
+                    />
                   </div>
                 </div>
+              ))}
+            </div>
 
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {new Date(record.created_at).toLocaleDateString(i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US')}
+            {totalPages > 1 && (
+              <nav aria-label={t('history.paginationLabel')} className="mt-4 flex items-center justify-between gap-4">
+                <span className="text-xs text-muted-foreground">
+                  {t('history.paginationSummary', { page, totalPages, total })}
                 </span>
-
-                <div className="flex gap-1" onClick={(event) => event.stopPropagation()}>
-                  <IconButton
-                    icon={ExternalLink}
-                    label={t('history.openSource')}
-                    onClick={() => window.electronAPI.openExternal(record.url)}
-                  />
-                  <IconButton
-                    icon={Trash2}
-                    label={t('history.deleteRecord')}
-                    onClick={() => setPendingDeleteId(record.id)}
-                    className="hover:bg-destructive/10 hover:text-destructive"
-                  />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    disabled={page <= 1 || loading}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronLeft size={14} aria-hidden="true" />
+                    {t('history.previousPage')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    disabled={page >= totalPages || loading}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('history.nextPage')}
+                    <ChevronRight size={14} aria-hidden="true" />
+                  </button>
                 </div>
-              </div>
-            ))}
+              </nav>
+            )}
           </div>
         )}
       </div>
@@ -278,9 +325,9 @@ export function HistoryPage() {
       {detailId && (
         <AnalysisDetailDialog
           analysisId={detailId}
-          onClose={() => {
+          onClose={(changed) => {
             setDetailId(null)
-            void window.electronAPI.getAnalysisSummaries().then(setRecords)
+            if (changed) setRefreshKey((current) => current + 1)
           }}
         />
       )}

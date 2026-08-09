@@ -170,8 +170,11 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
                     </span>
                   </figcaption>
                   <img
-                    src={getScreenshotUrl(screenshot.path)}
+                    data-testid="analysis-page-screenshot-image"
+                    src={getScreenshotUrl(screenshot.thumbnailPath || screenshot.path)}
                     alt={t('analyze.evidence.screenshotAlt', { url: screenshot.url })}
+                    loading="lazy"
+                    decoding="async"
                     className="max-h-44 w-full cursor-zoom-in object-cover object-top"
                     onClick={() => onOpenLightbox(index)}
                   />

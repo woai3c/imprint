@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { BrowserWindow, app, dialog, ipcMain, net, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, nativeImage, net, shell } from 'electron'
 
 import { getDefaultBaseUrl } from '../core/ai/capabilities.js'
 import {
@@ -165,6 +165,109 @@ function readFirstScreenshotPath(serialized: unknown): string | null {
   } catch {
     return null
   }
+}
+
+const HISTORY_THUMBNAIL_SIZE = { width: 192, height: 128 }
+const historyThumbnailJobs = new Map<string, Promise<string>>()
+
+function findHistoryThumbnailSource(evidence: DesignEvidence | null, screenshot: PageScreenshotData): string {
+  if (!evidence) return screenshot.path
+  const page =
+    evidence.pages.find(
+      (candidate) => candidate.url === screenshot.url && candidate.viewport === screenshot.viewport,
+    ) ||
+    evidence.pages.find((candidate) => candidate.url === screenshot.url) ||
+    evidence.pages[0]
+  const viewportCrop = page?.images.find((image) => image.kind === 'viewport-crop')
+  return viewportCrop?.path || screenshot.path
+}
+
+function readDesignEvidence(serialized: unknown): DesignEvidence | null {
+  if (typeof serialized !== 'string') return null
+  try {
+    return JSON.parse(serialized) as DesignEvidence
+  } catch {
+    return null
+  }
+}
+
+async function createHistoryThumbnail(sourcePath: string): Promise<string> {
+  if (!fs.existsSync(sourcePath)) return sourcePath
+
+  const stats = fs.statSync(sourcePath)
+  const cacheKey = createHash('sha256').update(`${sourcePath}:${stats.size}:${stats.mtimeMs}`).digest('hex')
+  const thumbnailDir = path.join(app.getPath('userData'), 'history-thumbnails')
+  const thumbnailPath = path.join(thumbnailDir, `${cacheKey}.jpg`)
+  if (fs.existsSync(thumbnailPath) && fs.statSync(thumbnailPath).size > 0) return thumbnailPath
+
+  const existingJob = historyThumbnailJobs.get(cacheKey)
+  if (existingJob) return existingJob
+
+  const job = (async () => {
+    try {
+      fs.mkdirSync(thumbnailDir, { recursive: true })
+      const image = await nativeImage.createThumbnailFromPath(sourcePath, HISTORY_THUMBNAIL_SIZE)
+      if (image.isEmpty()) return sourcePath
+      fs.writeFileSync(thumbnailPath, image.toJPEG(78))
+      return thumbnailPath
+    } catch {
+      return sourcePath
+    } finally {
+      historyThumbnailJobs.delete(cacheKey)
+    }
+  })()
+  historyThumbnailJobs.set(cacheKey, job)
+  return job
+}
+
+async function addHistoryThumbnailPaths(
+  pageScreenshots: PageScreenshotData[],
+  evidence: DesignEvidence | null,
+): Promise<PageScreenshotData[]> {
+  const enriched: PageScreenshotData[] = []
+  for (const screenshot of pageScreenshots) {
+    enriched.push({
+      ...screenshot,
+      thumbnailPath: await createHistoryThumbnail(findHistoryThumbnailSource(evidence, screenshot)),
+    })
+  }
+  return enriched
+}
+
+function toAnalysisSummary(
+  {
+    page_screenshots_json: screenshots,
+    design_evidence_json: _designEvidenceJson,
+    design_intelligence_meta_json: metaJson,
+    ...record
+  }: Record<string, unknown>,
+  screenshotPath?: string | null,
+) {
+  let aiTokenUsage: { input?: number; output?: number } | undefined
+  if (typeof metaJson === 'string') {
+    try {
+      const meta = JSON.parse(metaJson) as Record<string, unknown>
+      if (meta.tokenUsage && typeof meta.tokenUsage === 'object') {
+        aiTokenUsage = meta.tokenUsage as { input?: number; output?: number }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    ...record,
+    screenshot_path: screenshotPath === undefined ? readFirstScreenshotPath(screenshots) : screenshotPath,
+    ai_token_usage: aiTokenUsage,
+  }
+}
+
+async function toAnalysisSummaryWithThumbnail(record: Record<string, unknown>) {
+  const screenshot = readPageScreenshots(record.page_screenshots_json)[0]
+  if (!screenshot) return toAnalysisSummary(record, null)
+  const evidence = readDesignEvidence(record.design_evidence_json)
+  const thumbnailPath = await createHistoryThumbnail(findHistoryThumbnailSource(evidence, screenshot))
+  return toAnalysisSummary(record, thumbnailPath)
 }
 
 function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
@@ -449,25 +552,58 @@ export function registerIpcHandlers() {
       )
       .all() as Array<Record<string, unknown>>
 
-    return records.map(({ page_screenshots_json: screenshots, design_intelligence_meta_json: metaJson, ...record }) => {
-      let aiTokenUsage: { input?: number; output?: number } | undefined
-      if (typeof metaJson === 'string') {
-        try {
-          const meta = JSON.parse(metaJson) as Record<string, unknown>
-          if (meta.tokenUsage && typeof meta.tokenUsage === 'object') {
-            aiTokenUsage = meta.tokenUsage as { input?: number; output?: number }
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      return {
-        ...record,
-        screenshot_path: readFirstScreenshotPath(screenshots),
-        ai_token_usage: aiTokenUsage,
-      }
-    })
+    return records.map((record) => toAnalysisSummary(record))
   })
+
+  ipcMain.handle(
+    'analyses:listSummariesPage',
+    async (_event, query?: { page?: number; pageSize?: number; search?: string }) => {
+      const db = getDb()
+      const requestedPage = Number.isFinite(query?.page) ? Math.max(1, Math.floor(query?.page || 1)) : 1
+      const pageSize = Number.isFinite(query?.pageSize)
+        ? Math.min(100, Math.max(1, Math.floor(query?.pageSize || 10)))
+        : 10
+      const search = typeof query?.search === 'string' ? query.search.trim().slice(0, 500) : ''
+      const where = search ? "WHERE a.url LIKE @search OR COALESCE(t.name, '') LIKE @search" : ''
+      const searchParams = search ? { search: `%${search}%` } : {}
+      const matchingIds = (
+        db
+          .prepare(
+            `SELECT a.id
+             FROM analyses a
+             LEFT JOIN themes t ON t.id = a.theme_id
+             ${where}
+             ORDER BY a.created_at DESC`,
+          )
+          .all(searchParams) as Array<{ id: string }>
+      ).map((record) => record.id)
+      const total = matchingIds.length
+      const page = Math.min(requestedPage, Math.max(1, Math.ceil(total / pageSize)))
+      const records = db
+        .prepare(
+          `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
+                  a.token_usage, a.created_at, a.page_screenshots_json,
+                  a.design_evidence_json, a.design_intelligence_status, a.design_intelligence_meta_json
+           FROM analyses a
+           LEFT JOIN themes t ON t.id = a.theme_id
+           ${where}
+           ORDER BY a.created_at DESC
+           LIMIT @limit OFFSET @offset`,
+        )
+        .all({ ...searchParams, limit: pageSize, offset: (page - 1) * pageSize }) as Array<Record<string, unknown>>
+
+      const summaries: Awaited<ReturnType<typeof toAnalysisSummaryWithThumbnail>>[] = []
+      for (const record of records) summaries.push(await toAnalysisSummaryWithThumbnail(record))
+
+      return {
+        records: summaries,
+        matchingIds,
+        page,
+        pageSize,
+        total,
+      }
+    },
+  )
 
   ipcMain.handle('analyses:delete', (_event, id: string) => {
     const db = getDb()
@@ -484,7 +620,7 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
-  ipcMain.handle('analyses:get', (_event, id: string) => {
+  ipcMain.handle('analyses:get', async (_event, id: string) => {
     const db = getDb()
     const record = db
       .prepare(
@@ -516,6 +652,10 @@ export function registerIpcHandlers() {
         : designEvidence
           ? createTaskContext('Use the observed design evidence', designEvidence, null, designIntelligence)
           : null
+    const pageScreenshots = await addHistoryThumbnailPaths(
+      readPageScreenshots(record.page_screenshots_json),
+      designEvidence,
+    )
 
     return {
       id: record.id,
@@ -529,7 +669,7 @@ export function registerIpcHandlers() {
       cssVariables: record.css_variables || '',
       tailwindTheme: record.tailwind_theme || '',
       designDoc: record.design_doc || '',
-      pageScreenshots: readPageScreenshots(record.page_screenshots_json),
+      pageScreenshots,
       featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
       darkTokens:
         readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)

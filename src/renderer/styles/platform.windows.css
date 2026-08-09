@@ -1,0 +1,107 @@
+/* Windows keeps the same theme identity as macOS, but translates the material
+   for 1x/1.25x desktop displays and the DWM/Chromium composition path. Fixed
+   chrome uses opaque tinted layers instead of large live backdrop filters. */
+
+html[data-platform='windows'] body {
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  -webkit-font-smoothing: auto;
+}
+
+html[data-platform='windows']:where([data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom'])) {
+  --art-sidebar-filter: none;
+  --art-nav-active-filter: none;
+  --art-topbar-filter: none;
+  --art-sidebar-border: color-mix(in oklab, var(--color-border) 86%, var(--color-foreground) 14%);
+  --art-topbar-border: color-mix(in oklab, var(--color-border) 88%, var(--color-foreground) 12%);
+  --art-card-border: color-mix(in oklab, var(--color-border) 88%, var(--color-foreground) 12%);
+  --art-input-border: color-mix(in oklab, var(--color-border) 84%, var(--color-foreground) 16%);
+  --art-border-color: color-mix(in oklab, var(--color-border) 88%, var(--color-foreground) 12%);
+}
+
+html[data-platform='windows'][data-app-theme='chinese-landscape'] body,
+html[data-platform='windows'][data-app-theme='dunhuang'] body {
+  font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+}
+
+html[data-platform='windows'][data-app-theme='chinese-landscape'] :is(h1, h2),
+html[data-platform='windows'][data-app-theme='dunhuang'] :is(h1, h2) {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', STZhongsong, SimSun, serif;
+}
+
+html[data-platform='windows'][data-app-theme='cyberpunk'] :is(h1, h2),
+html[data-platform='windows'][data-app-theme='blueprint'] body,
+html[data-platform='windows'][data-app-theme='blueprint'] :is(h1, h2) {
+  font-family: 'Cascadia Code', Consolas, 'Microsoft YaHei UI', monospace;
+}
+
+/* Aurora Glass on Windows is a laminated interpretation: the aurora remains
+   visible, while reading surfaces use stable tint, defined edges, and shorter
+   shadows. This avoids the milky blur and vanishing white hairlines seen at 1x. */
+html[data-platform='windows'][data-app-theme='glassmorphism'] {
+  --art-backdrop:
+    radial-gradient(circle at 16% 16%, rgb(116 95 255 / 34%), transparent 27%),
+    radial-gradient(circle at 82% 18%, rgb(54 218 224 / 31%), transparent 27%),
+    radial-gradient(circle at 68% 82%, rgb(255 116 190 / 22%), transparent 29%),
+    radial-gradient(circle at 20% 82%, rgb(255 196 100 / 18%), transparent 26%),
+    linear-gradient(135deg, #eef0ff, #e9f7f7 54%, #f5ebf8);
+  --art-overlay: linear-gradient(135deg, rgb(255 255 255 / 18%), transparent 42%);
+  --art-sidebar-bg: color-mix(in oklab, var(--color-card) 90%, var(--color-background));
+  --art-sidebar-border: color-mix(in oklab, var(--color-border) 82%, var(--color-primary) 18%);
+  --art-sidebar-shadow: 8px 0 24px rgb(65 62 108 / 9%), inset -1px 0 rgb(255 255 255 / 72%);
+  --art-nav-active-bg: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-card) 90%, var(--color-accent)),
+    color-mix(in oklab, var(--color-card) 82%, var(--color-background))
+  );
+  --art-nav-active-shadow: 0 4px 14px rgb(68 56 128 / 9%), inset 0 0 0 1px rgb(111 92 182 / 18%);
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 90%, var(--color-card));
+  --art-topbar-border: color-mix(in oklab, var(--color-border) 84%, var(--color-primary) 16%);
+  --art-content-bg: linear-gradient(135deg, rgb(255 255 255 / 5%), rgb(255 255 255 / 12%));
+  --art-card-bg: color-mix(in oklab, var(--color-card) 94%, var(--color-background));
+  --art-card-border: color-mix(in oklab, var(--color-border) 76%, var(--color-primary) 24%);
+  --art-card-shadow: 0 7px 22px rgb(67 62 110 / 10%), inset 0 1px rgb(255 255 255 / 86%);
+  --art-secondary-bg: color-mix(in oklab, var(--color-secondary) 90%, var(--color-card));
+  --art-input-bg: color-mix(in oklab, var(--color-card) 94%, var(--color-background));
+  --art-input-border: color-mix(in oklab, var(--color-border) 72%, var(--color-primary) 28%);
+  --art-input-shadow: 0 3px 12px rgb(71 62 122 / 7%), inset 0 1px rgb(255 255 255 / 80%);
+  --art-primary-shadow:
+    0 6px 18px color-mix(in oklab, var(--color-primary) 18%, transparent), inset 0 1px rgb(255 255 255 / 25%);
+  --art-border-color: color-mix(in oklab, var(--color-border) 78%, var(--color-primary) 22%);
+}
+
+html[data-platform='windows'][data-app-theme='glassmorphism'] :is(.bg-card, .bg-background) {
+  background-image: linear-gradient(145deg, rgb(255 255 255 / 38%), transparent 40%, rgb(111 91 206 / 4%));
+}
+
+html[data-platform='windows'][data-app-theme='glassmorphism'] :is(h1, h2) {
+  font-family: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', sans-serif;
+  letter-spacing: -0.012em;
+}
+
+/* Narrative themes carry more of their identity through artwork than through
+   transparency. Opaque reading layers keep that artwork from muddying text. */
+html[data-platform='windows'][data-app-theme='chinese-landscape'] {
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 97%, var(--color-background));
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 96%, var(--color-card));
+  --art-card-bg: color-mix(in oklab, var(--color-card) 96%, var(--color-background));
+}
+
+html[data-platform='windows'][data-app-theme='dunhuang'] {
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 97%, var(--color-background));
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 96%, var(--color-card));
+  --art-card-bg: color-mix(in oklab, var(--color-card) 95%, var(--color-background));
+}
+
+html[data-platform='windows'][data-app-theme='nordic'] {
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 98%, var(--color-background));
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 97%, var(--color-card));
+  --art-card-bg: color-mix(in oklab, var(--color-card) 98%, var(--color-background));
+  --art-card-shadow: 0 5px 16px rgb(58 72 75 / 7%);
+}
+
+html[data-platform='windows'][data-app-theme='cyberpunk'],
+html[data-platform='windows'][data-app-theme='blueprint'] {
+  --art-sidebar-bg: color-mix(in oklab, var(--color-sidebar) 97%, var(--color-background));
+  --art-topbar-bg: color-mix(in oklab, var(--color-background) 96%, var(--color-card));
+  --art-card-bg: color-mix(in oklab, var(--color-card) 96%, var(--color-background));
+}

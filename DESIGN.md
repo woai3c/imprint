@@ -283,11 +283,15 @@ runs out, the tab strip scrolls horizontally instead.
 - The history-detail shell stays fixed within the desktop window while its active artifact scrolls inside the dialog.
   Long token previews and documents must never extend beyond an unscrollable clipped surface. Escape, the visible close
   action, and a direct click on the surrounding backdrop all dismiss the dialog; interaction inside it never does.
+- History and detail preview images use cached small thumbnails; full-resolution screenshots load only when the user
+  opens the lightbox. The detail backdrop uses an opaque scrim without live blur to keep opening and closing responsive.
 - Deleting a history record is destructive and requires explicit confirmation; deleting a record never removes a
   theme that was already saved to the library.
 - History rows support multi-select through always-visible checkboxes, including a select-all checkbox that applies to
   the current search filter. A selection toolbar reports the selected count and offers batch deletion behind the same
   explicit confirmation as single deletion, plus a way to clear the selection.
+- Load history summaries from SQLite in pages of 10 and create thumbnail elements only for the current page. Search and
+  select-all still apply to the complete filtered result set while pagination limits the rows and images rendered.
 
 ## Persistent preferences
 
@@ -398,6 +402,21 @@ Visual novelty must remain accountable to the product's extraction and validatio
   move, scale, gain a ring, or rise above neighboring cards.
 - Theme preview swatches use a fixed circular shape, share one vertical centerline, and reserve consistent space for
   descriptions and state labels across every card.
+
+### Platform material translation
+
+- A built-in theme has one semantic identity and one shared structural CSS layer. Platform override sheets translate its
+  material, typography, edge contrast, and elevation for Windows and macOS; they must not fork component structure or
+  semantic color roles into two independent themes.
+- Windows fixed chrome favors stable tinted surfaces and defined edges. Avoid large live `backdrop-filter` regions in the
+  persistent sidebar, toolbar, and reading cards; preserve Acrylic-like depth with restrained tint, texture, and short
+  shadows. Verify borders at 100%, 125%, and 150% display scale.
+- macOS may retain softer translucent chrome where the high-density rendering path keeps text and hairlines legible.
+  Keep reading cards laminated rather than multiplying live blur across scrolling content.
+- Platform typography must resolve deliberately: Segoe UI Variable and Microsoft YaHei UI on Windows; the macOS system
+  font and PingFang SC on macOS; platform monospace and CJK serif fallbacks preserve each theme's typographic role.
+- Platform screenshot review is part of complete-theme acceptance. A theme is incomplete if it is only calibrated on one
+  operating system, display density, or color mode.
 
 ## Complete-theme checklist
 

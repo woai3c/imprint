@@ -1,0 +1,36 @@
+/* macOS uses the same semantic tokens with platform-native font families and
+   retains softer translucent chrome on high-density displays. */
+
+html[data-platform='macos'] body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-platform='macos'][data-app-theme='chinese-landscape'] body,
+html[data-platform='macos'][data-app-theme='dunhuang'] body {
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif;
+}
+
+html[data-platform='macos'][data-app-theme='chinese-landscape'] :is(h1, h2),
+html[data-platform='macos'][data-app-theme='dunhuang'] :is(h1, h2) {
+  font-family: 'Songti SC', STSong, 'Noto Serif SC', serif;
+}
+
+html[data-platform='macos'][data-app-theme='cyberpunk'] :is(h1, h2),
+html[data-platform='macos'][data-app-theme='blueprint'] body,
+html[data-platform='macos'][data-app-theme='blueprint'] :is(h1, h2) {
+  font-family: 'SFMono-Regular', Menlo, Monaco, monospace;
+}
+
+html[data-platform='macos'][data-app-theme='glassmorphism'] {
+  --art-sidebar-bg: color-mix(in oklab, var(--color-card) 52%, transparent);
+  --art-sidebar-filter: blur(30px) saturate(1.45);
+  --art-nav-active-filter: blur(18px) saturate(1.4);
+  --art-topbar-filter: blur(26px) saturate(1.35);
+  --art-card-border: rgb(255 255 255 / 66%);
+  --art-card-shadow: 0 16px 38px rgb(67 62 110 / 9%), inset 0 1px rgb(255 255 255 / 62%);
+}
+
+html[data-platform='macos'][data-app-theme='glassmorphism'] :is(h1, h2) {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+}

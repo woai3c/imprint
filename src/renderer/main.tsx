@@ -1,13 +1,17 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 
+import { getDesktopPlatformFamily } from '../shared/platform'
 import { App } from './App'
 import './i18n'
 import { startRendererPerformanceMonitor } from './lib/performance-monitor'
 import { initThemePreference } from './lib/theme-preference'
 import { initColorMode, preloadThemeBackdrops } from './stores/skin-store'
 import './styles/globals.css'
+import './styles/platform.macos.css'
+import './styles/platform.windows.css'
 
+document.documentElement.dataset.platform = getDesktopPlatformFamily(window.electronAPI.platform)
 initColorMode()
 initThemePreference()
 preloadThemeBackdrops()

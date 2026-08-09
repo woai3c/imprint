@@ -9,3 +9,12 @@ export function isWindows(platform: string): boolean {
 export function isLinux(platform: string): boolean {
   return platform === 'linux'
 }
+
+export type DesktopPlatformFamily = 'macos' | 'windows' | 'linux' | 'other'
+
+export function getDesktopPlatformFamily(platform: string): DesktopPlatformFamily {
+  if (isMacOS(platform)) return 'macos'
+  if (isWindows(platform)) return 'windows'
+  if (isLinux(platform)) return 'linux'
+  return 'other'
+}

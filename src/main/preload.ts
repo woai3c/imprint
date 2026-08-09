@@ -60,6 +60,7 @@ const api = {
   // History
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
   getAnalysisSummaries: () => ipcRenderer.invoke('analyses:listSummaries'),
+  getAnalysisSummariesPage: (query = {}) => ipcRenderer.invoke('analyses:listSummariesPage', query),
   getAnalysis: (id: string) => ipcRenderer.invoke('analyses:get', id),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
   deleteAnalyses: (ids: string[]) => ipcRenderer.invoke('analyses:deleteMany', ids),

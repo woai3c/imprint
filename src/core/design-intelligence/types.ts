@@ -8,6 +8,26 @@ export type AnalysisCapabilityLevel = 'evidence-only' | 'structural-ai' | 'multi
 export type DesignIntelligenceStatus =
   'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'skipped' | 'unsupported'
 
+export interface AnalysisTiming {
+  browserMs?: number
+  preparationMs?: number
+  extractionMs?: number
+  healthGateMs?: number
+  digestMs: number
+  imageSummaryMs: number
+  aiQueueMs?: number
+  aiInvokeMs: number
+  validationMs: number
+  totalMs: number
+  aiInputTokens?: number
+  aiOutputTokens?: number
+  imageCount: number
+  cacheHit: boolean
+  digestChars?: number
+  promptChars?: number
+  budgetExceeded?: string[]
+}
+
 export interface AiModelCapabilities {
   text: boolean
   vision: boolean
@@ -43,6 +63,7 @@ export interface DesignIntelligenceMeta {
   rejected?: string[]
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
+  timing?: AnalysisTiming
   exampleGeneration?: {
     status: 'not-requested' | 'pending' | 'complete' | 'failed'
     failureCode?: 'not-configured' | 'provider-error' | 'validation-failed'
@@ -226,6 +247,7 @@ export type AiSafeDesignEvidence = Omit<
   mediaLayers: Array<{
     id: string
     sectionId: string
+    kind: string
     role: string
     importance?: string
     layoutMode?: string

@@ -10,6 +10,7 @@ export interface AiProviderConfig {
   reasoningEffort?: string
   thinkingEnabled?: boolean
   maxOutputTokens?: number
+  allowThinkingFallback?: boolean
 }
 
 export interface AiImageInput {
@@ -393,7 +394,11 @@ export async function callAiProvider(
 ): Promise<AiResponse> {
   validateRequestBudget(prompt, images)
   const response = await callAiProviderWithHttpRetry(config, prompt, images)
-  if (config.thinkingEnabled && (!response.text || response.finishReason === 'length')) {
+  if (
+    config.thinkingEnabled &&
+    config.allowThinkingFallback !== false &&
+    (!response.text || response.finishReason === 'length')
+  ) {
     // An empty answer or a length-truncated one with thinking on almost always means
     // reasoning tokens consumed the completion budget. Degrade to a non-thinking call
     // instead of failing the entire run and discarding the tokens already spent.

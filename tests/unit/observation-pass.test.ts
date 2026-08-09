@@ -5,7 +5,6 @@ import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   type InterpretationInvoke,
-  type SectionObservation,
   buildDesignInterpretationPrompt,
   buildSectionObservationPrompt,
   extractObservationCandidate,
@@ -235,6 +234,31 @@ function observationEntry(sectionId: string, evidenceIds: string[] = ['section-a
   }
 }
 
+function compactProfile() {
+  const claims = Array.from({ length: 25 }, (_, index) => ({
+    id: `q${index + 1}`,
+    s: `Observed design rule ${index + 1} uses a specific hierarchy and measured grouping`,
+    i: `Use the observed grouping strategy ${index + 1} while adapting content for the new page.`,
+    c: 'medium',
+    e: ['s1'],
+    t: [],
+  }))
+  return {
+    claims,
+    thesis: 'q1',
+    signatureMoves: [{ q: 'q25', n: 'Measured grouping', d: 'Hierarchy and grouping recur as one move.' }],
+    composition: { container: 'q2', alignment: 'q3', density: 'q4', rhythm: 'q5' },
+    attention: { entry: 'q6', sequence: ['q7'], action: 'q8', contrast: 'q9' },
+    visual: { color: 'q10', typography: 'q11', shape: 'q12', surfaces: 'q13' },
+    sections: [{ role: 'hero', composition: ['q14'], rhythm: ['q15'], transition: ['q16'] }],
+    interaction: { drivers: ['q17'], feedback: 'q18', amplitude: 'q19', continuity: ['q20'] },
+    components: [{ component: 'button', role: 'primary action', rules: ['q21'] }],
+    transfer: { preserve: ['q22'], adapt: ['q23'], avoid: ['q24'] },
+    uncertainties: [],
+    aliases: [],
+  }
+}
+
 describe('Section observation pass', () => {
   it('validates observations with entry-level partial acceptance', () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
@@ -268,18 +292,11 @@ describe('Section observation pass', () => {
     expect(prompt).toContain('"observations"')
   })
 
-  it('runs the observation pass before synthesis and feeds notes into the synthesis prompt', async () => {
+  it('runs exactly one compact synthesis call', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const calls: string[] = []
     const invoke: InterpretationInvoke = async (prompt) => {
       calls.push(prompt)
-      if (prompt.includes('section observer')) {
-        return {
-          text: JSON.stringify({
-            observations: [observationEntry('section-a'), observationEntry('section-b', ['image-b'])],
-          }),
-        }
-      }
       return { text: JSON.stringify(rawProfile()) }
     }
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
@@ -287,125 +304,70 @@ describe('Section observation pass', () => {
       language: 'en',
       invoke,
     })
-    expect(result.pipeline).toBe('two-pass')
+    expect(result.pipeline).toBe('single-pass')
     expect(result.profile.thesis.statement).toContain('centered hero')
-    expect(calls).toHaveLength(2)
-    expect(calls[0]).toContain('section observer')
-    expect(calls[1]).toContain('SECTION_OBSERVATIONS')
-    expect(calls[1]).toContain('section-a')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain('UNTRUSTED_ANALYSIS_DIGEST')
+    expect(calls[0]).not.toContain('SECTION_OBSERVATIONS')
+    expect(result.callDetails.map((detail) => detail.pass)).toEqual(['synthesis'])
   })
 
-  it('reuses cached structural observations without a new observation call', async () => {
+  it('expands the compact claim pool into the existing DesignProfile schema', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const observationCache = new Map<string, SectionObservation[]>()
-    let observationCalls = 0
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(compactProfile()) }),
+    })
+
+    expect(result.profile.thesis.statement).toContain('design rule 1')
+    expect(result.profile.thesis.evidence[0].evidenceId).toBe('section-a')
+    expect(result.profile.componentGrammar[0].component).toBe('button')
+    expect(result.pipeline).toBe('single-pass')
+  })
+
+  it('does not run an automatic observation or repair call', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    let calls = 0
     const invoke: InterpretationInvoke = async (prompt) => {
-      if (prompt.includes('section observer')) {
-        observationCalls += 1
-        return {
-          text: JSON.stringify({
-            observations: [observationEntry('section-a'), observationEntry('section-b', ['image-b'])],
-          }),
-        }
-      }
+      calls += 1
+      expect(prompt).not.toContain('section observer')
+      expect(prompt).not.toContain('repairing the citation fields')
       return { text: JSON.stringify(rawProfile()) }
     }
-    const options = {
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only' as const,
       language: 'en' as const,
       invoke,
-      observationCache,
-      observationCacheKey: 'structure-fingerprint-v1',
-    }
-
-    const first = await runInterpretationPipeline(evidence, evidencePackage, options)
-    expect(first.pipeline).toBe('two-pass')
-    expect(observationCalls).toBe(1)
-
-    const second = await runInterpretationPipeline(evidence, evidencePackage, options)
-    expect(second.pipeline).toBe('two-pass')
-    expect(observationCalls).toBe(1)
-    expect(second.callDetails).toEqual(
-      expect.arrayContaining([expect.objectContaining({ pass: 'observation', cached: true })]),
-    )
-  })
-
-  it('degrades to single-pass when observation output is invalid', async () => {
-    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const observationPrompts: string[] = []
-    const invoke: InterpretationInvoke = async (prompt) => {
-      if (prompt.includes('section observer')) {
-        observationPrompts.push(prompt)
-        return { text: 'not json at all' }
-      }
-      return { text: JSON.stringify(rawProfile()) }
-    }
-    const result = await runInterpretationPipeline(evidence, evidencePackage, {
-      mode: 'structural-only',
-      language: 'en',
-      invoke,
     })
     expect(result.pipeline).toBe('single-pass')
-    expect(observationPrompts).toHaveLength(1)
+    expect(calls).toBe(1)
   })
 
-  it('degrades to single-pass synthesis when the observation pass fails', async () => {
+  it('records compact prompt and timing budgets', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const calls: string[] = []
-    const invoke: InterpretationInvoke = async (prompt) => {
-      calls.push(prompt)
-      if (prompt.includes('section observer')) throw new Error('provider down')
-      return { text: JSON.stringify(rawProfile()) }
-    }
+    const invoke: InterpretationInvoke = async () => ({
+      text: JSON.stringify(rawProfile()),
+      durationMs: 25,
+      usage: { input: 1200, output: 800 },
+    })
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
       language: 'en',
       invoke,
     })
-    expect(result.pipeline).toBe('single-pass')
-    expect(result.profile.thesis).toBeDefined()
-    const synthesisPrompt = calls.find((prompt) => prompt.includes('design-language interpreter'))
-    expect(synthesisPrompt).toBeDefined()
-    expect(synthesisPrompt).not.toContain('SECTION_OBSERVATIONS')
+    expect(result.promptChars).toBeLessThanOrEqual(28_000)
+    expect(result.digestChars).toBeGreaterThan(0)
+    expect(result.timing).toMatchObject({ aiInvokeMs: 25, aiInputTokens: 1200, aiOutputTokens: 800, imageCount: 0 })
   })
 
-  it('repairs citation-only validation failures once and revalidates the complete profile', async () => {
-    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const calls: string[] = []
-    const invalid = rawProfile()
-    invalid.composition.densityAndWhitespace.evidence = []
-    invalid.attention.contrastStrategy.evidence = []
-    invalid.visualLanguage.color.evidence = []
-    invalid.visualLanguage.typography.evidence = []
-    const invoke: InterpretationInvoke = async (prompt) => {
-      calls.push(prompt)
-      if (prompt.includes('section observer')) return { text: 'invalid observations' }
-      if (prompt.includes('repairing the citation fields')) return { text: JSON.stringify(rawProfile()) }
-      return { text: JSON.stringify(invalid) }
-    }
-
-    const result = await runInterpretationPipeline(evidence, evidencePackage, {
-      mode: 'structural-only',
-      language: 'en',
-      invoke,
-    })
-
-    expect(result.profile.visualLanguage.color).toBeDefined()
-    expect(result.callDetails.map((detail) => detail.pass)).toEqual(['observation', 'synthesis', 'synthesis-repair'])
-    expect(calls).toHaveLength(3)
-    expect(calls[2]).toContain('composition.densityAndWhitespace:missing-evidence')
-    expect(calls[2]).toContain('Allowed evidence IDs')
-    expect(calls[2]).toContain('Allowed token refs')
-  })
-
-  it('stops after one failed repair and reports citation shapes without claim content', async () => {
+  it('does not automatically repair invalid required claims', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const invalid = rawProfile()
     invalid.visualLanguage.color.evidence = []
     let calls = 0
-    const invoke: InterpretationInvoke = async (prompt) => {
+    const invoke: InterpretationInvoke = async () => {
       calls += 1
-      if (prompt.includes('section observer')) return { text: 'invalid observations' }
       return { text: JSON.stringify(invalid) }
     }
 
@@ -415,10 +377,8 @@ describe('Section observation pass', () => {
         language: 'en',
         invoke,
       }),
-    ).rejects.toThrow(
-      'repair-attempted=true; citation-shapes=visualLanguage.color[citations=0,ids=0,valid=0,tokenRefs=0]',
-    )
-    expect(calls).toBe(3)
+    ).rejects.toThrow('visualLanguage.color:missing-evidence; repair-attempted=false')
+    expect(calls).toBe(1)
   })
 
   it('routes region crops to the observation pass and overviews to synthesis', () => {
@@ -430,6 +390,25 @@ describe('Section observation pass', () => {
     const split = splitImagesByPass(evidence, images)
     expect(split.observationImages.map((image) => image.name)).toEqual(['image-c.png'])
     expect(split.synthesisImages.map((image) => image.name)).toEqual(['image-a.png', 'image-b.png'])
+  })
+
+  it('labels attached synthesis images with the digest short IDs', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'multimodal')
+    let receivedPrompt = ''
+    let receivedImages: AiImageInput[] = []
+    await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'multimodal',
+      language: 'en',
+      synthesisImages: [{ name: 'image-a.png', mimeType: 'image/png', base64: 'AAA' }],
+      invoke: async (prompt, images) => {
+        receivedPrompt = prompt
+        receivedImages = images
+        return { text: JSON.stringify(rawProfile('multimodal')) }
+      },
+    })
+
+    expect(receivedImages.map((image) => image.name)).toEqual(['i1.png'])
+    expect(receivedPrompt).toContain('Attached images, in order: i1')
   })
 
   it('keeps the synthesis prompt free of observation blocks when no notes exist', () => {

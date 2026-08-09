@@ -1,6 +1,9 @@
 export { generateAgentContextBundle } from './agent-context.js'
+export { buildAnalysisDigest } from './analysis-digest.js'
+export type { AnalysisDigest, AnalysisDigestPackage, DigestTokenValue } from './analysis-digest.js'
 export { dedupeProfileClaims } from './claim-dedupe.js'
 export type { ClaimDedupeResult } from './claim-dedupe.js'
+export { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
 export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
 export type {
   CallDetail,
@@ -27,9 +30,12 @@ export {
 } from './evidence-selector.js'
 export {
   DESIGN_PROFILE_PROMPT_VERSION,
+  DESIGN_PROFILE_PROMPT_CHAR_LIMIT,
+  buildCompactDesignInterpretationPrompt,
   buildDesignInterpretationPrompt,
   buildDesignProfileRepairPrompt,
   buildSectionObservationPrompt,
+  prepareAnalysisDigestPackageForPrompt,
 } from './prompt.js'
 export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'
 export { compareDesignProfiles } from './profile-compare.js'

@@ -15,7 +15,7 @@ import {
   selectEvidencePackage,
   validateDesignProfile,
 } from '../../src/core/design-intelligence/index.js'
-import type { DesignProfile, ProfileQualityMetrics } from '../../src/core/design-intelligence/index.js'
+import type { AnalysisTiming, DesignProfile, ProfileQualityMetrics } from '../../src/core/design-intelligence/index.js'
 import type { FixtureAnnotation } from './annotation-types.js'
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -258,7 +258,12 @@ const onlineApiKey = process.env.IMPRINT_BENCHMARK_API_KEY || ''
 const onlineMode = process.env.IMPRINT_BENCHMARK_VISION === '1' ? 'multimodal' : 'structural-only'
 
 describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design benchmark live interpretation', () => {
-  const liveResults: Array<{ fixture: string; pipeline?: string; metrics: ProfileQualityMetrics }> = []
+  const liveResults: Array<{
+    fixture: string
+    pipeline?: string
+    metrics: ProfileQualityMetrics
+    timing?: AnalysisTiming
+  }> = []
 
   afterAll(() => {
     if (liveResults.length === 0) return
@@ -285,11 +290,11 @@ describe.skipIf(!browserAvailable || !onlineProvider || !onlineApiKey)('Design b
         },
       })
       const metrics = evaluateProfileQuality(profile, result.designEvidence)
-      liveResults.push({ fixture: annotation.fixture, pipeline: meta.pipeline, metrics })
+      liveResults.push({ fixture: annotation.fixture, pipeline: meta.pipeline, metrics, timing: meta.timing })
       console.log(
         `LIVE ${annotation.fixture} [${meta.pipeline ?? 'unknown'}] grounded=${metrics.groundedness.toFixed(2)} specific=${metrics.specificity.toFixed(2)} executable=${metrics.executability.toFixed(2)} transferable=${metrics.transferability.toFixed(2)} distinctive=${metrics.distinctiveness.toFixed(2)} restraint=${metrics.restraint.toFixed(2)} safety=${metrics.safety.toFixed(2)}`,
       )
-      expect(meta.pipeline).toBe('two-pass')
+      expect(meta.pipeline).toBe('single-pass')
       expect(metrics.groundedness).toBe(1)
     })
   }

@@ -12,17 +12,13 @@ import {
   generateExamplesWithLlm,
 } from '../core/analyzer/example-generator.js'
 import type { ExampleGenerationResult } from '../core/analyzer/example-generator.js'
-import { enhanceSemanticNaming } from '../core/analyzer/semantic-enhancer.js'
-import { validateColorRenames } from '../core/analyzer/token-renamer.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   type CallDetail,
   DESIGN_PROFILE_PROMPT_VERSION,
   type InterpretationInvoke,
-  type ObservationCache,
   createEvidenceFingerprint,
-  createStructuralFingerprint,
   createValidationRecipe,
   generateAgentContextBundle,
   generateReconstructionBrief,
@@ -36,16 +32,10 @@ import type {
   DesignIntelligenceMeta,
   DesignProfile,
   IntelligenceInputMode,
-  SectionObservation,
   ValidationReport,
 } from '../core/design-intelligence/types.js'
 import type { AppSettings } from '../shared/ipc-contract.js'
-import {
-  type AgentCliImageInput,
-  enhanceWithAgentCli,
-  executeAgentPrompt,
-  resolveAgentCliCapabilities,
-} from './agent-enhancer.js'
+import { type AgentCliImageInput, executeAgentPrompt, resolveAgentCliCapabilities } from './agent-enhancer.js'
 import { log } from './logger.js'
 
 export interface IntelligenceRunResult {
@@ -218,22 +208,6 @@ function failureCode(error: unknown, timedOut = false): string {
 
 export type ProgressCallback = (step: string, percent: number) => void
 
-// Session-level observation cache: rerunning interpretation for the same structural
-// evidence (for example after token-only changes or a failed synthesis) reuses the
-// structural observation pass instead of paying for it again.
-const observationCacheStore = new Map<string, SectionObservation[]>()
-const OBSERVATION_CACHE_LIMIT = 8
-const observationCache: ObservationCache = {
-  get: (key) => observationCacheStore.get(key),
-  set: (key, observations) => {
-    if (observationCacheStore.size >= OBSERVATION_CACHE_LIMIT) {
-      const oldest = observationCacheStore.keys().next().value
-      if (oldest !== undefined) observationCacheStore.delete(oldest)
-    }
-    observationCacheStore.set(key, observations)
-  },
-}
-
 export async function runExampleGeneration(
   evidence: DesignEvidence,
   tokens: DesignToken,
@@ -336,6 +310,7 @@ export async function runDesignIntelligence(
   signal?: AbortSignal,
   onProgress?: ProgressCallback,
 ): Promise<IntelligenceRunResult> {
+  const runStartedAt = Date.now()
   if (!hasDesignIntelligenceConfiguration(settings)) {
     return {
       tokens,
@@ -347,6 +322,7 @@ export async function runDesignIntelligence(
   }
 
   const isAgentCli = settings.aiMode === 'agentCli'
+  const imageStartedAt = Date.now()
   let route = chooseDesignIntelligenceRoute(settings, evidence)
   let evidencePackage = selectEvidencePackage(evidence, route.mode)
   let images = route.mode === 'multimodal' && !isAgentCli ? loadSelectedImages(evidence, evidencePackage.imageIds) : []
@@ -364,6 +340,7 @@ export async function runDesignIntelligence(
       cliImages = []
     }
   }
+  const imageSummaryMs = Date.now() - imageStartedAt
   {
     const ep = evidencePackage.evidence
     const epJson = JSON.stringify(evidencePackage)
@@ -402,12 +379,6 @@ export async function runDesignIntelligence(
   const accumulatedCallDetails: CallDetail[] = []
 
   try {
-    const enhancementContext = {
-      featureTags: evidence.featureTags,
-      components: [] as never[],
-      language,
-      techStack: evidence.techStack,
-    }
     const providerConfig = {
       provider: settings.provider,
       apiKey: settings.apiKey,
@@ -419,20 +390,24 @@ export async function runDesignIntelligence(
         settings.reasoningEffort ||
         getDefaultReasoningEffort(settings.provider, resolveEffectiveModel(settings.provider, settings.model)),
       thinkingEnabled: settings.thinkingEnabled === true,
+      allowThinkingFallback: false,
     }
-    // Phase 1: semantic naming + design interpretation (parallel)
-    onProgress?.('progress.semanticNaming', 10)
+    // A single compact synthesis replaces the former semantic naming, observation,
+    // synthesis, and automatic repair calls.
+    onProgress?.('progress.synthesisPass', 20)
     const cliImageByName = new Map(cliImages.map((image) => [image.name, image]))
+    const cliImageByStableId = new Map(cliImages.map((image) => [image.name.replace(/\.[^.]+$/, ''), image]))
+    const cliImageByShortId = new Map<string, AgentCliImageInput>(
+      evidencePackage.imageIds.flatMap((imageId, index) => {
+        const image = cliImageByStableId.get(imageId)
+        return image ? [[`i${index + 1}`, image] as const] : []
+      }),
+    )
     let invokeCount = 0
     const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
       invokeCount++
-      const pass = taskPrompt.includes('section observer')
-        ? 'observation'
-        : taskPrompt.includes('repairing the citation fields')
-          ? 'synthesis-repair'
-          : 'synthesis'
-      const passLabel = pass === 'observation' ? 'progress.observationPass' : 'progress.synthesisPass'
-      onProgress?.(passLabel, Math.min(25 + invokeCount * 15, 80))
+      const pass = 'synthesis'
+      onProgress?.('progress.synthesisPass', 40)
       log.info(
         'design-intelligence',
         `invoke #${invokeCount}: images=${passImages.length} promptLen=${taskPrompt.length}`,
@@ -440,20 +415,20 @@ export async function runDesignIntelligence(
       let result: Awaited<ReturnType<InterpretationInvoke>>
       const invokeStart = Date.now()
       if (settings.aiMode === 'apiKey') {
-        // Thinking models share the completion budget between reasoning tokens and
-        // the visible answer, so passes need extra headroom when thinking is on.
         const thinking = settings.thinkingEnabled === true
         result = await callAiProvider(
           {
             ...providerConfig,
-            maxOutputTokens: pass === 'observation' ? (thinking ? 12288 : 4096) : thinking ? 24576 : 8192,
+            maxOutputTokens: thinking ? 8192 : 4096,
           },
           taskPrompt,
           passImages,
         )
       } else {
         const passCliImages = passImages.flatMap((image) => {
-          const cliImage = cliImageByName.get(image.name)
+          const imageId = image.name.replace(/\.[^.]+$/, '')
+          const cliImage =
+            cliImageByName.get(image.name) || cliImageByStableId.get(imageId) || cliImageByShortId.get(imageId)
           return cliImage ? [cliImage] : []
         })
         const cliText = await executeAgentPrompt(settings.agentCli, taskPrompt, runSignal, passCliImages, language)
@@ -480,44 +455,29 @@ export async function runDesignIntelligence(
       return result
     }
     const cliStubs: AiImageInput[] = cliImages.map((image) => ({ name: image.name, mimeType: 'image/png', base64: '' }))
-    const { observationImages, synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
+    const { synthesisImages } = splitImagesByPass(evidence, isAgentCli ? cliStubs : images)
     const synthesisImageIds = synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, ''))
 
-    const renamePromise =
-      settings.aiMode === 'apiKey'
-        ? enhanceSemanticNaming(tokens, evidence.source.requestedUrl, providerConfig, enhancementContext)
-        : enhanceWithAgentCli(
-            tokens,
-            evidence.source.requestedUrl,
-            settings.agentCli,
-            enhancementContext,
-            runSignal,
-          ).then((enhancement) => enhancement.renames)
-
-    const interpretationPromise = runInterpretationPipeline(evidence, evidencePackage, {
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: route.mode,
       language,
       invoke,
-      observationImages,
       synthesisImages,
-      requireImageObservations: isAgentCli && route.mode === 'multimodal' ? synthesisImageIds : undefined,
-      observationCache,
-      observationCacheKey: createStructuralFingerprint(
-        evidence,
-        route.mode,
-        route.provider,
-        route.model,
-        evidencePackage.imageIds,
-        DESIGN_PROFILE_PROMPT_VERSION,
-        language,
-      ),
+      requireImageObservations: route.mode === 'multimodal' ? synthesisImageIds : undefined,
     })
 
-    const [renameProposals, result] = await Promise.all([renamePromise, interpretationPromise])
+    log.info(
+      'design-intelligence',
+      `compact synthesis: digestChars=${result.digestChars} promptChars=${result.promptChars} calls=${result.callDetails.length}`,
+    )
+    log.info(
+      'design-intelligence',
+      `timing: images=${imageSummaryMs}ms digest=${result.timing.digestMs}ms ai=${result.timing.aiInvokeMs}ms ` +
+        `validation=${result.timing.validationMs}ms total=${Date.now() - runStartedAt}ms ` +
+        `tokens=${result.usage?.input || 0}+${result.usage?.output || 0} imageCount=${result.timing.imageCount}`,
+    )
 
     onProgress?.('progress.validatingProfile', 85)
-    const renameValidation = validateColorRenames(tokens, renameProposals || [])
-    result.profile.tokenAliases = renameValidation.accepted
     const effectiveMode = result.profile.inputMode
     const capabilityLevel = effectiveMode === 'multimodal' ? 'multimodal-ai' : 'structural-ai'
 
@@ -540,6 +500,11 @@ export async function runDesignIntelligence(
         inputImageCount: isAgentCli ? cliImages.length : images.length,
         tokenUsage: result.usage,
         callDetails: result.callDetails,
+        timing: {
+          ...result.timing,
+          imageSummaryMs,
+          totalMs: Date.now() - runStartedAt,
+        },
         rejected: result.rejected,
         exampleGeneration: { status: 'not-requested' },
       },
@@ -574,6 +539,17 @@ export async function runDesignIntelligence(
         tokenUsage:
           accumulatedUsage.calls > 0 ? { input: accumulatedUsage.input, output: accumulatedUsage.output } : undefined,
         callDetails: accumulatedCallDetails.length > 0 ? accumulatedCallDetails : undefined,
+        timing: {
+          digestMs: 0,
+          imageSummaryMs,
+          aiInvokeMs: accumulatedCallDetails.reduce((sum, detail) => sum + (detail.durationMs || 0), 0),
+          validationMs: 0,
+          totalMs: Date.now() - runStartedAt,
+          aiInputTokens: accumulatedUsage.input || undefined,
+          aiOutputTokens: accumulatedUsage.output || undefined,
+          imageCount: isAgentCli ? cliImages.length : images.length,
+          cacheHit: false,
+        },
       },
     }
   }

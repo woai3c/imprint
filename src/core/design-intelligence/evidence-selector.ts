@@ -28,7 +28,7 @@ const DEFAULT_BUDGET: EvidenceSelectionBudget = {
   maxInteractions: 24,
   maxResponsiveObservations: 24,
   maxMediaLayers: 24,
-  maxImages: 4,
+  maxImages: 2,
 }
 
 export function createEvidenceFingerprint(

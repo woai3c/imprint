@@ -224,4 +224,27 @@ describe('AI provider output budgets', () => {
     expect(response.text).toBe('')
     expect(response.retriedWithoutThinking).toBeUndefined()
   })
+
+  it('allows latency-sensitive callers to disable the automatic thinking fallback', async () => {
+    let calls = 0
+    const response = await callAiProvider(
+      {
+        provider: 'deepseek',
+        apiKey: 'test-key',
+        baseUrl: 'https://provider.example/v1',
+        model: 'deepseek-v4-flash',
+        thinkingEnabled: true,
+        allowThinkingFallback: false,
+        fetchFn: async () => {
+          calls++
+          return sseResponse([{ content: '', finishReason: 'length' }])
+        },
+      },
+      'Return JSON',
+    )
+
+    expect(calls).toBe(1)
+    expect(response.text).toBe('')
+    expect(response.retriedWithoutThinking).toBeUndefined()
+  })
 })

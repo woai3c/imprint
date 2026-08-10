@@ -190,7 +190,7 @@ html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom
 html[data-app-theme]:not([data-app-theme='default']):not([data-app-theme='custom']) .app-shell::before {
   position: absolute;
   z-index: -2;
-  inset: 0;
+  inset: var(--art-backdrop-inset, 0);
   background: var(--art-backdrop, none);
   background-size: var(--art-backdrop-size, auto);
   content: '';

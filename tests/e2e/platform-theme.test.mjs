@@ -48,15 +48,31 @@ test('translates Aurora Glass materials for the host desktop platform', async ()
       probe.style.pointerEvents = 'none'
       document.body.append(probe)
 
+      const detailProbe = document.createElement('div')
+      detailProbe.dataset.testid = 'analysis-detail-backdrop'
+      detailProbe.innerHTML = `
+        <div data-testid="analysis-detail-dialog" class="bg-background">
+          <div class="analysis-artifact-content bg-card">
+            <article class="design-claim-card bg-background"></article>
+          </div>
+        </div>
+      `
+      document.body.append(detailProbe)
+
       const rootStyle = getComputedStyle(document.documentElement)
       const probeStyle = getComputedStyle(probe)
+      const detailDialogStyle = getComputedStyle(detailProbe.firstElementChild)
+      const artifactContentStyle = getComputedStyle(detailProbe.querySelector('.analysis-artifact-content'))
+      const claimCardStyle = getComputedStyle(detailProbe.querySelector('.design-claim-card'))
       const previewElement = document.querySelector('.theme-card-preview-glassmorphism')
       if (!(previewElement instanceof HTMLElement)) throw new Error('Aurora theme preview was not found')
       const previewStyle = getComputedStyle(previewElement)
       const previewLayerStyle = getComputedStyle(previewElement, '::after')
+      const backdropStyle = getComputedStyle(document.querySelector('.app-shell'), '::before')
       const result = {
         platform: document.documentElement.dataset.platform,
         bodyFont: getComputedStyle(document.body).fontFamily,
+        shellFont: getComputedStyle(document.querySelector('.app-shell')).fontFamily,
         sidebarFilter: getComputedStyle(document.querySelector('.app-sidebar')).backdropFilter,
         topbarFilter: getComputedStyle(document.querySelector('.app-topbar')).backdropFilter,
         artCardBorder: rootStyle.getPropertyValue('--art-card-border').trim(),
@@ -64,11 +80,19 @@ test('translates Aurora Glass materials for the host desktop platform', async ()
         cardBackground: probeStyle.backgroundColor,
         cardBackgroundImage: probeStyle.backgroundImage,
         cardBorder: probeStyle.borderTopColor,
+        cardFilter: probeStyle.backdropFilter,
+        backdropAnimation: backdropStyle.animationName,
+        backdropTop: backdropStyle.top,
+        reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        detailDialogFilter: detailDialogStyle.backdropFilter,
+        detailContentBackgroundImage: artifactContentStyle.backgroundImage,
+        detailClaimFilter: claimCardStyle.backdropFilter,
         previewBackgroundImage: previewStyle.backgroundImage,
         previewLayerFilter: previewLayerStyle.backdropFilter,
         previewLayerShadow: previewLayerStyle.boxShadow,
       }
       probe.remove()
+      detailProbe.remove()
       return result
     })
 
@@ -86,10 +110,17 @@ test('translates Aurora Glass materials for the host desktop platform', async ()
       assert.equal(styles.previewLayerShadow, 'none')
     } else if (process.platform === 'darwin') {
       assert.equal(styles.platform, 'macos')
-      assert.match(styles.bodyFont, /apple-system|BlinkMacSystemFont/)
-      assert.match(styles.sidebarFilter, /blur\(30px\)/)
-      assert.match(styles.topbarFilter, /blur\(26px\)/)
+      assert.match(styles.shellFont, /apple-system|BlinkMacSystemFont/)
+      assert.match(styles.sidebarFilter, /blur\(28px\)/)
+      assert.match(styles.topbarFilter, /blur\(24px\)/)
       assert.match(styles.artCardBorder, /255 255 255/)
+      assert.equal(styles.cardBackgroundImage, 'none')
+      assert.match(styles.cardFilter, /blur\(18px\)/)
+      assert.equal(styles.backdropAnimation, styles.reducedMotion ? 'none' : 'macos-aurora-drift')
+      assert.notEqual(styles.backdropTop, '0px')
+      assert.match(styles.detailDialogFilter, /blur\(32px\)/)
+      assert.equal(styles.detailContentBackgroundImage, 'none')
+      assert.equal(styles.detailClaimFilter, 'none')
       assert.match(styles.previewBackgroundImage, /255, 105, 184|118, 91, 255/)
       assert.match(styles.previewLayerFilter, /blur\(8px\)/)
     }

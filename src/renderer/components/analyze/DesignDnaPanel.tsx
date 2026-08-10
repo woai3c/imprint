@@ -48,10 +48,10 @@ function ClaimCard({
 }) {
   const { t } = useTranslation()
   return (
-    <article className="rounded-lg border border-border/60 bg-background p-3">
+    <article className="design-claim-card rounded-lg border border-border/60 bg-background p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {title && <p className="mb-1 text-xs font-semibold">{title}</p>}
+          {title && <p className="design-claim-title mb-1 text-xs font-semibold">{title}</p>}
           <p className="text-sm leading-5 text-foreground">{claim.statement}</p>
         </div>
         <span
@@ -66,7 +66,7 @@ function ClaimCard({
           {t(`analyze.designDna.confidence.${claim.confidence}`)}
         </span>
       </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{claim.implementation}</p>
+      <p className="design-claim-implementation mt-2 text-xs leading-5 text-muted-foreground">{claim.implementation}</p>
       <div className="mt-2 flex flex-wrap gap-1">
         {claim.evidence.map((reference) => (
           <EvidenceLink key={reference.evidenceId} evidenceId={reference.evidenceId} onOpen={onOpenEvidence} />
@@ -206,7 +206,7 @@ function StatusCard({
   return (
     <section
       data-testid={`design-intelligence-status-${status}`}
-      className={`rounded-xl border p-4 ${
+      className={`design-status-card rounded-xl border p-4 ${
         successful
           ? 'border-success/30 bg-success/5'
           : failed

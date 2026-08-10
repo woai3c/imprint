@@ -116,7 +116,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
         aria-labelledby="analysis-detail-title"
         className="ui-enter flex h-[82vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl"
       >
-        <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+        <header className="analysis-detail-header flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
           <h2 id="analysis-detail-title" className="min-w-0 flex-1 truncate text-sm font-semibold">
             {result?.url || t('history.title')}
           </h2>
@@ -140,8 +140,8 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
             {t('feedback.actionFailed')}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 gap-4 p-4">
-            <div className="w-[340px] shrink-0 overflow-auto scrollbar-hidden">
+          <div className="analysis-detail-body flex min-h-0 flex-1 gap-4 p-4">
+            <div className="analysis-detail-sidebar w-[340px] shrink-0 overflow-auto scrollbar-hidden">
               <ResultOverview
                 result={result}
                 analyzing={false}
@@ -149,7 +149,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
                 onOpenLightbox={evidenceViewer.openLightbox}
               />
             </div>
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="analysis-detail-main flex min-w-0 flex-1 flex-col">
               <ArtifactPanel
                 result={result}
                 intelligenceRunning={intelligenceRunning}

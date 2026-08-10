@@ -13,7 +13,7 @@ interface TabsProps {
 
 export function Tabs({ tabs, activeTab, onChange, testIdPrefix, trailing }: TabsProps) {
   return (
-    <div className="flex items-center border-b border-border/60 bg-muted/40 px-3">
+    <div className="app-tabs flex items-center border-b border-border/60 bg-muted/40 px-3">
       <div role="tablist" className="scrollbar-hidden flex min-w-0 items-center overflow-x-auto">
         {tabs.map((tab) => (
           <button

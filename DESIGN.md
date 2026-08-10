@@ -357,8 +357,11 @@ Visual novelty must remain accountable to the product's extraction and validatio
   light field counts as one composition; do not scatter unrelated decorative blobs. A grid, paper, or mural texture may
   add one structural material layer when it carries the theme metaphor. Live blur belongs only where transparency
   communicates a fixed functional layer. Repeated reading cards stay stable: they may use a translucent laminated fill,
-  sheen, and defined edge over a soft backdrop, but never a per-card live backdrop filter.
+  sheen, and defined edge over a soft backdrop. The sole exception is Aurora Glass on macOS, where the original live
+  refraction is an explicit platform material and must remain reduced-motion-aware and independently performance-tested.
 - Do not run decorative ambient animation. Motion must explain a user action, a state change, or content continuity.
+  Aurora Glass on macOS is the one intentional exception: its single background light field may drift slowly when
+  reduced motion is not requested, preserving the original refractive material without animating content or controls.
 - Choose a defined edge or elevation for a surface instead of stacking a hairline border, wide shadow, and glow.
 - Every theme value or design-pattern claim must point to an observable token, component rule, or interaction behavior.
   Poetic language may set context, but it cannot substitute for implementation evidence.
@@ -417,7 +420,8 @@ Visual novelty must remain accountable to the product's extraction and validatio
 - On Windows, Aurora Glass uses one coherent cyan-violet light field behind neutral reading surfaces. Keep chromatic
   outlines and directional sheen off repeated cards; reserve violet for selected, primary, and focus states.
 - macOS may retain softer translucent chrome where the high-density rendering path keeps text and hairlines legible.
-  Keep reading cards laminated rather than multiplying live blur across scrolling content.
+  Aurora Glass restores its original live refraction on reading cards and inputs, plus a slow reduced-motion-aware
+  background drift; other themes keep repeated reading cards stable and avoid multiplying live blur across content.
 - Platform typography must resolve deliberately: Segoe UI Variable and Microsoft YaHei UI on Windows; the macOS system
   font and PingFang SC on macOS; platform monospace and CJK serif fallbacks preserve each theme's typographic role.
 - Platform screenshot review is part of complete-theme acceptance. A theme is incomplete if it is only calibrated on one

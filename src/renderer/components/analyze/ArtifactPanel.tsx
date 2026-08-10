@@ -120,7 +120,7 @@ export function ArtifactPanel({
 
   return (
     <>
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60">
+      <div className="analysis-artifact-panel flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60">
         <Tabs
           tabs={tabs}
           activeTab={activeTab}
@@ -180,7 +180,11 @@ export function ArtifactPanel({
           }
         />
 
-        <div key={activeTab} data-testid="artifact-scroll-container" className="ui-enter flex-1 overflow-auto bg-card">
+        <div
+          key={activeTab}
+          data-testid="artifact-scroll-container"
+          className="analysis-artifact-content ui-enter flex-1 overflow-auto bg-card"
+        >
           {activeTab === 'overview' && (
             <DesignDnaPanel
               result={result}

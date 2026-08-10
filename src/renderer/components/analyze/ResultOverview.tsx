@@ -59,7 +59,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
         )}
 
         {/* Website identity */}
-        <div className="rounded-xl border border-border/60 bg-card/50 p-5">
+        <div className="analysis-source-card rounded-xl border border-border/60 bg-card/50 p-5">
           <h3 data-testid="analysis-source" className="text-base font-semibold">
             {hostname}
           </h3>
@@ -156,7 +156,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
                 <figure
                   key={`${screenshot.path}-${index}`}
                   data-testid="analysis-page-screenshot"
-                  className="overflow-hidden rounded-xl border border-border/60 bg-card/50"
+                  className="analysis-evidence-card overflow-hidden rounded-xl border border-border/60 bg-card/50"
                 >
                   <figcaption className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-xs">
                     <span className="shrink-0 font-medium text-foreground">{index + 1}</span>

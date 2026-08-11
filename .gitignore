@@ -39,3 +39,5 @@ Thumbs.db
 
 # X-Code CLI project-local state (sessions, history, plans, memory, and local settings)
 .x-code
+
+tmp/

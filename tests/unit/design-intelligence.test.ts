@@ -18,7 +18,12 @@ import {
   validateDesignProfile,
   validateRecipe,
 } from '../../src/core/design-intelligence/index.js'
-import { chooseDesignIntelligenceRoute, getInitialDesignIntelligenceMeta } from '../../src/main/design-intelligence.js'
+import type { DesignProfile } from '../../src/core/design-intelligence/types.js'
+import {
+  chooseDesignIntelligenceRoute,
+  designIntelligenceTimeoutMs,
+  getInitialDesignIntelligenceMeta,
+} from '../../src/main/design-intelligence.js'
 import type { AppSettings } from '../../src/shared/ipc-contract.js'
 
 const tokens: DesignToken = {
@@ -260,6 +265,12 @@ function multiUrlEvidence(): DesignEvidence {
 }
 
 describe('Design intelligence', () => {
+  it('does not let the outer pipeline cut off a thinking request at five minutes', () => {
+    expect(designIntelligenceTimeoutMs({ aiMode: 'apiKey', thinkingEnabled: false })).toBe(330_000)
+    expect(designIntelligenceTimeoutMs({ aiMode: 'apiKey', thinkingEnabled: true })).toBe(630_000)
+    expect(designIntelligenceTimeoutMs({ aiMode: 'agentCli', thinkingEnabled: false })).toBe(630_000)
+  })
+
   it('routes screenshot input only with public-page consent and model capability', () => {
     const settings: AppSettings = {
       aiMode: 'apiKey',
@@ -516,6 +527,178 @@ describe('Design intelligence', () => {
     expect(new Set(checked.profile.uncertainties.map((item) => item.reason)).size).toBe(
       checked.profile.uncertainties.length,
     )
+  })
+
+  it('removes mobile reflow wording that is supported only by desktop evidence', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.composition.containerStrategy = {
+      ...claim('The desktop layout uses a centered two-column container.'),
+      implementation: 'Keep the main and aside columns centered; narrow screens collapse to a single column.',
+      evidence: [
+        { evidenceId: 'section-a', note: 'Desktop section' },
+        { evidenceId: 'image-a', note: 'Desktop screenshot' },
+      ],
+    }
+    const overflowEvidence = structuredClone(evidence)
+    overflowEvidence.pages[1] = {
+      ...overflowEvidence.pages[1],
+      viewportWidth: 375,
+      contentWidth: 1032,
+      horizontalOverflow: true,
+    }
+
+    const checked = checkProfileContradictions(profile, overflowEvidence)
+
+    expect(checked.profile.composition.containerStrategy.statement).toContain('desktop')
+    expect(checked.profile.composition.containerStrategy.implementation).not.toContain('single column')
+    expect(checked.profile.composition.containerStrategy.confidence).toBe('medium')
+    expect(checked.rejected).toContain(
+      'composition.containerStrategy:responsive-wording-without-mobile-evidence-sanitized',
+    )
+  })
+
+  it('rejects primary-button rules grounded only in icon-button evidence', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.attention.actionHierarchy = {
+      ...claim('The primary button is a solid brand-colored text CTA.'),
+      implementation: 'Use the solid control for the main text action.',
+      evidence: [{ evidenceId: 'component-a', note: 'Observed solid control' }],
+    }
+    const iconEvidence = structuredClone(evidence)
+    iconEvidence.pages[0] = {
+      ...iconEvidence.pages[0],
+      viewportWidth: 1440,
+      contentWidth: 1440,
+      contentHeight: 1000,
+    }
+    iconEvidence.components[0] = {
+      ...iconEvidence.components[0],
+      rect: { x: 0.2, y: 0.3, width: 32 / 1440, height: 32 / 1000 },
+      styles: {
+        backgroundColor: '#2563eb',
+        color: '#ffffff',
+        borderRadius: '9999px',
+        padding: '0px',
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, iconEvidence)
+
+    expect(checked.profile.attention.actionHierarchy.confidence).toBe('low')
+    expect(checked.profile.attention.actionHierarchy.statement).toBe(
+      'The exact boundary of this rule is not supported by deterministic evidence.',
+    )
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('attention.actionHierarchy:component-variant-contradiction(primary!=icon)'),
+      ]),
+    )
+  })
+
+  it('recognizes Chinese primary-action wording and rejects a tinted secondary button citation', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.attention.actionHierarchy = {
+      ...claim('主要行动采用蓝色按钮。'),
+      implementation: '一级 CTA 使用蓝色填充。',
+      evidence: [{ evidenceId: 'component-a', note: '观察到的蓝色控件' }],
+    }
+    const secondaryEvidence = structuredClone(evidence)
+    secondaryEvidence.components[0] = {
+      ...secondaryEvidence.components[0],
+      styles: {
+        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+        color: '#2563eb',
+        border: '0px none #2563eb',
+        borderRadius: '999px',
+        padding: '0px 18px',
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, secondaryEvidence)
+
+    expect(checked.profile.attention.actionHierarchy.confidence).toBe('low')
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('attention.actionHierarchy:component-variant-contradiction(primary!=secondary)'),
+      ]),
+    )
+  })
+
+  it('rejects an outlined-button rule when the cited control has no visible border', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.attention.actionHierarchy = {
+      ...claim('Outlined buttons mark supporting actions.'),
+      implementation: 'Use the observed outline for secondary controls.',
+      evidence: [{ evidenceId: 'component-a', note: 'Observed secondary control' }],
+    }
+    const borderlessEvidence = structuredClone(evidence)
+    borderlessEvidence.components[0] = {
+      ...borderlessEvidence.components[0],
+      styles: {
+        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+        color: '#2563eb',
+        border: '0px none #2563eb',
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, borderlessEvidence)
+
+    expect(checked.profile.attention.actionHierarchy.confidence).toBe('low')
+    expect(checked.rejected).toContain('attention.actionHierarchy:button-outline-contradiction')
+  })
+
+  it('repairs universal button radius and shadow claims when observed variants contradict them', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.visualLanguage.shape = {
+      ...claim('形状语言以紧凑表面为主。'),
+      implementation: '卡片、按钮、输入框统一小圆角。',
+    }
+    profile.visualLanguage.surfaces = {
+      ...claim('按钮默认无阴影，仅浮层卡片使用浅阴影。'),
+      implementation: '按钮与导航一律 boxShadow:none。',
+    }
+    profile.transferRules.preserve[0] = {
+      ...claim('保留小圆角与无阴影按钮的扁平表面语言。'),
+      implementation: '按钮与输入框维持小圆角、boxShadow:none。',
+    }
+    const variantEvidence = structuredClone(evidence)
+    variantEvidence.components = [
+      {
+        ...variantEvidence.components[0],
+        styles: {
+          backgroundColor: '#2563eb',
+          borderRadius: '9999px',
+          boxShadow: 'none',
+          padding: '0px 16px',
+        },
+      },
+      {
+        ...variantEvidence.components[0],
+        id: 'component-shadow',
+        styles: {
+          backgroundColor: '#ffffff',
+          borderRadius: '4px',
+          boxShadow: 'rgba(0, 0, 0, 0.1) 0px 1px 3px 0px',
+        },
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, variantEvidence)
+
+    expect(checked.profile.visualLanguage.shape.implementation).toContain('胶囊形变体')
+    expect(checked.profile.visualLanguage.surfaces.statement).toContain('少量浮动工具按钮使用浅阴影')
+    expect(checked.profile.transferRules.preserve[0].statement).toContain('胶囊按钮及少量浅阴影按钮变体')
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        'visualLanguage.shape:button-radius-variants-sanitized',
+        'visualLanguage.surfaces:button-shadow-universal-sanitized',
+        'transferRules.preserve.0:button-radius-variants-sanitized',
+        'transferRules.preserve.0:button-shadow-universal-sanitized',
+      ]),
+    )
+    expect(checked.profile.uncertainties).toEqual([])
   })
 
   it('replaces unsupported generated lengths with grounded token refs instead of discarding the claim', () => {
@@ -1301,7 +1484,7 @@ describe('Design intelligence', () => {
 
     const rawMeasurementChanged = structuredClone(evidence)
     rawMeasurementChanged.components[0].styles.borderRadius = '9999px'
-    expect(structuralFingerprint(rawMeasurementChanged)).toBe(base)
+    expect(structuralFingerprint(rawMeasurementChanged)).not.toBe(base)
 
     const layoutChanged = structuredClone(evidence)
     layoutChanged.layoutNodes = [

@@ -263,7 +263,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (element === document.body) return 'body'
       const parts: string[] = []
       let current: Element | null = element
-      while (current && current !== document.body && parts.length < 8) {
+      // Keep the complete ancestry. Truncating deep paths made repeated card/list
+      // subtrees share the same key, so distinct evidence instances received the
+      // same stable ID and citations could resolve to multiple components.
+      while (current && current !== document.body) {
         const parent: Element | null = current.parentElement
         if (!parent) break
         const tag = current.tagName.toLowerCase()

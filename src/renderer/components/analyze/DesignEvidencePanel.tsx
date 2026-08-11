@@ -2,20 +2,10 @@ import { useTranslation } from 'react-i18next'
 
 import { computeInteractionStateMetrics } from '../../../core/design-evidence/interaction-metrics'
 import type { DesignEvidence } from '../../../core/design-evidence/types'
+import { summarizeEvidenceLimitations } from './evidence-limitations'
 
 interface DesignEvidencePanelProps {
   evidence?: DesignEvidence
-}
-
-const LIMITATION_KEYS: Record<string, string> = {
-  'fewer-pages-than-requested': 'fewerPages',
-  'single-viewport': 'singleViewport',
-  'no-sections-detected': 'noSections',
-  'safe-active-interactions-not-observed': 'noActiveInteractions',
-  'some-safe-interactions-skipped': 'noActiveInteractions',
-  'no-interaction-states-observed': 'noInteractionStates',
-  'no-major-media-detected': 'noMedia',
-  'no-classified-media-regions': 'noMediaClassification',
 }
 
 export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
@@ -66,7 +56,7 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
       ? { text: t('analyze.overview.statesResponsive', { count: responsiveCount }), tooltip: undefined }
       : null,
   ].filter((fact): fact is { text: string; tooltip?: string } => Boolean(fact))
-  const visibleLimitations = evidence.limitations.filter((limitation) => !limitation.startsWith('skipped-interaction:'))
+  const visibleLimitations = summarizeEvidenceLimitations(evidence.limitations)
 
   return (
     <div data-testid="design-evidence-overview" className="space-y-5 p-6">
@@ -208,9 +198,9 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
           <section className="rounded-xl border border-border/60 bg-background p-5">
             <h3 className="text-sm font-semibold">{t('analyze.overview.limitationsTitle')}</h3>
             <ul className="mt-3 space-y-2 text-sm leading-5 text-muted-foreground">
-              {visibleLimitations.map((limitation) => (
-                <li key={limitation}>
-                  {t(`analyze.overview.limitations.${LIMITATION_KEYS[limitation] || 'unknown'}`, {
+              {visibleLimitations.map(({ limitation, translationKey }) => (
+                <li key={translationKey}>
+                  {t(`analyze.overview.limitations.${translationKey}`, {
                     limitation,
                     pages: pageCount,
                   })}

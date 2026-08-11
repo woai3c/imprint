@@ -1,4 +1,6 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
+import { classifyComponentVariant } from '../analyzer/component-detect.js'
+import type { ComponentType, ComponentVariant } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { distillInteractionChanges } from './evidence-selector.js'
 import type { EvidencePackage, IntelligenceInputMode, InteractionChange } from './types.js'
@@ -48,8 +50,10 @@ export interface AnalysisDigest {
   componentPatterns: Array<{
     type: string
     role?: string
+    variant?: ComponentVariant
     count: number
     pages: string[]
+    sampleSize?: { width: number; height: number; shape: 'square' | 'wide' | 'tall' }
     exactStyles: Record<string, string>
     tokenRefs: string[]
     stateChanges: InteractionChange[]
@@ -384,10 +388,35 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
   const originalComponents = evidence.components.filter(
     (component) => selectedPageIds.has(component.pageId) && selectedSectionIds.has(component.sectionId),
   )
+  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
+  const componentSize = (component: (typeof originalComponents)[number]) => {
+    const page = pageById.get(component.pageId)
+    const pageWidth = page?.contentWidth || page?.viewportWidth
+    const pageHeight = page?.contentHeight || page?.viewportHeight
+    if (!pageWidth || !pageHeight) return undefined
+    const width = Math.round(component.rect.width * pageWidth)
+    const height = Math.round(component.rect.height * pageHeight)
+    if (width <= 0 || height <= 0) return undefined
+    const ratio = width / height
+    return {
+      width,
+      height,
+      shape: ratio >= 1.5 ? ('wide' as const) : ratio <= 0.67 ? ('tall' as const) : ('square' as const),
+    }
+  }
+  const componentVariant = (component: (typeof originalComponents)[number]) => {
+    const size = componentSize(component)
+    return classifyComponentVariant(component.type as ComponentType, component.styles, {
+      tokenRefs: component.tokenRefs,
+      primaryColor: evidence.tokens.colors.primary,
+      role: component.role,
+      ...(size ? { widthPx: size.width, heightPx: size.height } : {}),
+    })
+  }
   const componentGroups = new Map<string, typeof originalComponents>()
   for (const component of originalComponents) {
     const styles = safeExactStyles(component.styles)
-    const key = `${component.type}|${component.role || ''}|${JSON.stringify(styles)}`
+    const key = `${component.type}|${componentVariant(component) || ''}|${component.role || ''}|${JSON.stringify(styles)}`
     const group = componentGroups.get(key) || []
     group.push(component)
     componentGroups.set(key, group)
@@ -397,6 +426,9 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       const componentIds = new Set(group.map((component) => component.id))
       const samples = group.filter((component) => selectedComponentIds.has(component.id)).slice(0, 2)
       if (samples.length === 0) return []
+      const sample = samples[0]
+      const variant = componentVariant(sample)
+      const sampleSize = componentSize(sample)
       const relatedInteractions = evidence.interactionObservations.filter(
         (observation) =>
           componentIds.has(observation.targetId) ||
@@ -406,11 +438,13 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
         {
           type: group[0].type,
           ...(group[0].role ? { role: group[0].role } : {}),
+          ...(variant ? { variant } : {}),
           count: group.length,
           pages: stableUnique(
             group.map((component) => pageShortId(component.pageId)),
             4,
           ),
+          ...(sampleSize ? { sampleSize } : {}),
           exactStyles: promptSafeStyles(
             group[0].styles,
             group.flatMap((component) => component.tokenRefs),

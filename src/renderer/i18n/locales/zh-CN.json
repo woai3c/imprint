@@ -319,11 +319,13 @@
       "limitations": {
         "fewerPages": "目标网站可分析的页面少于所选数量（实际分析 {{pages}} 页）。",
         "singleViewport": "本次只截取了一种屏幕尺寸，无法比较不同尺寸下的布局变化。",
+        "horizontalOverflow": "至少一个视口存在横向溢出；视口外内容可能只是被裁切，并非已完成响应式重排。",
         "noSections": "没有识别出明确的页面区块。",
         "noActiveInteractions": "部分交互因安全限制未被触发观察。",
         "noInteractionStates": "未捕获到交互状态变化（如悬停、聚焦效果）。",
         "noMedia": "页面中没有识别到主要的图片或视频区域。",
         "noMediaClassification": "媒体区域的用途无法确定。",
+        "extractionDegraded": "至少一个数据提取阶段发生降级，结果可能不完整。",
         "unknown": "部分数据采集受限。"
       }
     },

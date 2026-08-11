@@ -1,5 +1,7 @@
 import type { Page } from 'playwright-core'
 
+import { normalizeColorValue } from './color-cluster.js'
+
 export type ComponentType = 'button' | 'card' | 'navigation' | 'input' | 'table' | 'modal' | 'list'
 
 export interface ComponentCandidate {
@@ -18,6 +20,23 @@ export interface ComponentPattern {
   evidence: string[]
 }
 
+export type ComponentVariant = 'primary' | 'secondary' | 'text' | 'icon'
+
+export interface ComponentVariantContext {
+  tokenRefs?: readonly string[]
+  primaryColor?: string
+  role?: string
+  widthPx?: number
+  heightPx?: number
+}
+
+export interface ComponentVariantCandidate extends ComponentCandidate, ComponentVariantContext {}
+
+export interface ComponentVariantPattern extends ComponentPattern {
+  name: string
+  variant?: ComponentVariant
+}
+
 const COMPONENT_ORDER: ComponentType[] = ['button', 'card', 'navigation', 'input', 'table', 'modal', 'list']
 
 const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
@@ -30,8 +49,141 @@ const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
   list: ['ul', 'ol', '[role="list"]'],
 }
 
-function selectRepresentativeStyles(candidates: ComponentCandidate[]): Record<string, string> {
-  const groups = new Map<string, { count: number; candidate: ComponentCandidate }>()
+function numericDimensions(value: string | undefined): number[] {
+  if (!value) return []
+  return [...value.matchAll(/-?\d+(?:\.\d+)?/g)].map((match) => Number.parseFloat(match[0]))
+}
+
+function colorAlpha(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim().toLowerCase()
+  if (trimmed === 'transparent') return 0
+  const rgba = trimmed.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)$/)
+  if (rgba) return Number.parseFloat(rgba[1])
+  const modern = trimmed.match(/\/\s*([\d.]+)%?\s*\)$/)
+  if (modern) {
+    const alpha = Number.parseFloat(modern[1])
+    return modern[0].includes('%') ? alpha / 100 : alpha
+  }
+  const hex = trimmed.match(/^#[\da-f]{8}$/)
+  if (hex) return Number.parseInt(trimmed.slice(7, 9), 16) / 255
+  return normalizeColorValue(trimmed) ? 1 : undefined
+}
+
+export function isTransparentColor(value: string | undefined): boolean {
+  const alpha = colorAlpha(value)
+  return alpha !== undefined && alpha <= 0.001
+}
+
+export function isContextDependentColor(value: string | undefined): boolean {
+  const alpha = colorAlpha(value)
+  return alpha !== undefined && alpha < 0.999
+}
+
+function borderColor(value: string): string | undefined {
+  return value.match(/(transparent|(?:rgba?|hsla?|oklch|oklab|hsl|lab|lch)\([^)]+\)|#[\da-f]{3,8})\s*$/i)?.[1]
+}
+
+export function hasVisibleBorder(value: string | undefined): boolean {
+  if (!value || /\b(?:none|hidden)\b/i.test(value)) return false
+  const [width = 0] = numericDimensions(value)
+  if (width <= 0) return false
+  const color = borderColor(value)
+  return !color || !isTransparentColor(color)
+}
+
+function hasNonzeroDimension(value: string | undefined): boolean {
+  return numericDimensions(value).some((dimension) => Math.abs(dimension) > 0.01)
+}
+
+export function hasVisibleShadow(value: string | undefined): boolean {
+  return Boolean(value && value !== 'none' && !/^rgba\([^)]*,\s*0\)\s+0px(?:\s+0px){2,}/i.test(value))
+}
+
+export function isPillRadius(
+  styles: Readonly<Record<string, string>>,
+  context: Pick<ComponentVariantContext, 'heightPx'> = {},
+): boolean {
+  const radius = styles.borderRadius || ''
+  const dimensions = numericDimensions(radius)
+  const maximumRadius = dimensions.length > 0 ? Math.max(...dimensions) : 0
+  if (/%/.test(radius) || maximumRadius >= 999 || maximumRadius >= 64) return true
+  return Boolean(context.heightPx && context.heightPx > 0 && maximumRadius >= Math.max(12, context.heightPx / 2 - 1))
+}
+
+export function isOutlinedButton(styles: Readonly<Record<string, string>>): boolean {
+  const background = styles.backgroundColor
+  return hasVisibleBorder(styles.border) && (!background || isContextDependentColor(background))
+}
+
+function isIconSized(styles: Record<string, string>, context: ComponentVariantContext): boolean {
+  const { widthPx, heightPx } = context
+  const hasKnownGeometry = widthPx !== undefined && heightPx !== undefined && widthPx > 0 && heightPx > 0
+  const hasSquareGeometry =
+    hasKnownGeometry && Math.max(widthPx, heightPx) <= 64 && widthPx / heightPx >= 0.75 && widthPx / heightPx <= 1.33
+  const fullyRounded = isPillRadius(styles, context)
+  const hasHorizontalPadding = (() => {
+    const values = numericDimensions(styles.padding)
+    if (values.length === 0) return false
+    if (values.length === 1) return values[0] > 0
+    return (values[1] || 0) > 0 || (values[3] || values[1] || 0) > 0
+  })()
+  return (
+    (hasSquareGeometry && (fullyRounded || !hasHorizontalPadding)) ||
+    (!hasKnownGeometry && fullyRounded && !hasHorizontalPadding)
+  )
+}
+
+export function classifyComponentVariant(
+  type: ComponentType,
+  styles: Record<string, string>,
+  context: ComponentVariantContext = {},
+): ComponentVariant | undefined {
+  if (type !== 'button') return undefined
+  if (isIconSized(styles, context)) return 'icon'
+
+  const background = styles.backgroundColor
+  const transparent = !background || isTransparentColor(background)
+  if (transparent) return hasVisibleBorder(styles.border) ? 'secondary' : 'text'
+
+  const alpha = colorAlpha(background)
+  if (alpha !== undefined && alpha < 0.5) return 'secondary'
+  const normalizedBackground = normalizeColorValue(background)
+  const normalizedPrimary = context.primaryColor ? normalizeColorValue(context.primaryColor) : null
+  const referencesPrimary =
+    context.tokenRefs?.includes('color.primary') ||
+    /\b(?:primary|main|cta)\b|(?:主操作|主要操作|主按钮)/i.test(context.role || '') ||
+    Boolean(normalizedBackground && normalizedPrimary && normalizedBackground === normalizedPrimary)
+  return referencesPrimary || (!context.primaryColor && !context.tokenRefs) ? 'primary' : 'secondary'
+}
+
+function representativeStyleRank(type: ComponentType, styles: Record<string, string>): number {
+  const variant = classifyComponentVariant(type, styles)
+  if (type === 'button') return { primary: 4, secondary: 3, icon: 2, text: 1 }[variant || 'text']
+  return [
+    styles.backgroundColor && !isTransparentColor(styles.backgroundColor),
+    hasVisibleBorder(styles.border),
+    hasNonzeroDimension(styles.borderRadius),
+    hasNonzeroDimension(styles.padding),
+    hasVisibleShadow(styles.boxShadow),
+  ].filter(Boolean).length
+}
+
+function representativeDetailScore(styles: Record<string, string>): number {
+  let score = 0
+  if (styles.fontSize) score += 1
+  if (styles.fontWeight && !/^(?:400|normal)$/.test(styles.fontWeight)) score += 1
+  if (/^(?:flex|inline-flex|grid|inline-grid)$/.test(styles.display || '')) score += 1
+  if (styles.gap && styles.gap !== 'normal' && hasNonzeroDimension(styles.gap)) score += 1
+  return score
+}
+
+function selectRepresentativeStyles(
+  type: ComponentType,
+  candidates: ComponentCandidate[],
+  prioritizeSemanticRank = true,
+): Record<string, string> {
+  const groups = new Map<string, { count: number; candidate: ComponentCandidate; rank: number; detail: number }>()
 
   for (const candidate of candidates) {
     const key = JSON.stringify(candidate.styles)
@@ -40,12 +192,22 @@ function selectRepresentativeStyles(candidates: ComponentCandidate[]): Record<st
       existing.count += 1
       if (candidate.confidence > existing.candidate.confidence) existing.candidate = candidate
     } else {
-      groups.set(key, { count: 1, candidate })
+      groups.set(key, {
+        count: 1,
+        candidate,
+        rank: prioritizeSemanticRank ? representativeStyleRank(type, candidate.styles) : 0,
+        detail: representativeDetailScore(candidate.styles),
+      })
     }
   }
 
   const representative = [...groups.values()].sort(
-    (a, b) => b.count - a.count || b.candidate.confidence - a.candidate.confidence,
+    (a, b) =>
+      b.rank - a.rank ||
+      b.count - a.count ||
+      b.detail - a.detail ||
+      b.candidate.confidence - a.candidate.confidence ||
+      JSON.stringify(a.candidate.styles).localeCompare(JSON.stringify(b.candidate.styles)),
   )[0]
   return representative?.candidate.styles || {}
 }
@@ -62,7 +224,7 @@ export function summarizeComponentCandidates(candidates: ComponentCandidate[]): 
       type,
       count: matches.length,
       selectors: COMPONENT_SELECTORS[type],
-      styles: selectRepresentativeStyles(matches),
+      styles: selectRepresentativeStyles(type, matches),
       confidence: Math.round(confidence * 100) / 100,
       evidence: [...new Set(matches.flatMap((candidate) => candidate.evidence))].sort(),
     })
@@ -71,13 +233,65 @@ export function summarizeComponentCandidates(candidates: ComponentCandidate[]): 
   return patterns
 }
 
+const COMPONENT_VARIANT_ORDER: ReadonlyArray<ComponentVariant | undefined> = [
+  'primary',
+  'secondary',
+  'text',
+  'icon',
+  undefined,
+]
+
+export function summarizeComponentVariants(candidates: ComponentVariantCandidate[]): ComponentVariantPattern[] {
+  const groups = new Map<
+    string,
+    { type: ComponentType; variant?: ComponentVariant; candidates: ComponentCandidate[] }
+  >()
+  for (const candidate of candidates) {
+    const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
+    const key = `${candidate.type}|${variant || ''}`
+    const group = groups.get(key) || { type: candidate.type, variant, candidates: [] }
+    group.candidates.push(candidate)
+    groups.set(key, group)
+  }
+
+  return [...groups.values()]
+    .flatMap((group) => {
+      if (group.candidates.length === 0) return []
+      const confidence =
+        group.candidates.reduce((sum, candidate) => sum + candidate.confidence, 0) / group.candidates.length
+      return [
+        {
+          type: group.type,
+          count: group.candidates.length,
+          selectors: COMPONENT_SELECTORS[group.type],
+          styles: selectRepresentativeStyles(group.type, group.candidates, group.variant === undefined),
+          confidence: Math.round(confidence * 100) / 100,
+          evidence: [...new Set(group.candidates.flatMap((candidate) => candidate.evidence))].sort(),
+          name: group.variant ? `${group.type}-${group.variant}` : group.type,
+          ...(group.variant ? { variant: group.variant } : {}),
+        },
+      ]
+    })
+    .sort(
+      (first, second) =>
+        COMPONENT_ORDER.indexOf(first.type) - COMPONENT_ORDER.indexOf(second.type) ||
+        COMPONENT_VARIANT_ORDER.indexOf(first.variant) - COMPONENT_VARIANT_ORDER.indexOf(second.variant) ||
+        first.name.localeCompare(second.name),
+    )
+}
+
 export function mergeComponentPatterns(patternGroups: ComponentPattern[][]): ComponentPattern[] {
   return COMPONENT_ORDER.flatMap((type) => {
     const patterns = patternGroups.flat().filter((pattern) => pattern.type === type)
     if (patterns.length === 0) return []
     const count = patterns.reduce((sum, pattern) => sum + pattern.count, 0)
     const representative = [...patterns].sort(
-      (first, second) => second.count - first.count || second.confidence - first.confidence,
+      (first, second) =>
+        representativeStyleRank(type, second.styles) - representativeStyleRank(type, first.styles) ||
+        second.count - first.count ||
+        representativeDetailScore(second.styles) - representativeDetailScore(first.styles) ||
+        second.confidence - first.confidence ||
+        JSON.stringify(first.styles).localeCompare(JSON.stringify(second.styles)),
     )[0]
     const confidence = patterns.reduce((sum, pattern) => sum + pattern.confidence * pattern.count, 0) / count
     return [

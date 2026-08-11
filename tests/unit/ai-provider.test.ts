@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
-import { callAiProvider } from '../../src/core/ai/provider.js'
+import { aiPipelineTimeoutMs, aiRequestTimeoutMs, callAiProvider } from '../../src/core/ai/provider.js'
 
 function sseResponse(
-  chunks: Array<{ content?: string; finishReason?: string; usage?: Record<string, unknown> }>,
+  chunks: Array<{
+    content?: string
+    reasoningContent?: string
+    finishReason?: string
+    usage?: Record<string, unknown>
+  }>,
 ): Response {
   const lines = chunks.map((chunk) => {
     const payload: Record<string, unknown> = {
-      choices: [{ delta: { content: chunk.content || '' }, finish_reason: chunk.finishReason || null }],
+      choices: [
+        {
+          delta: {
+            content: chunk.content || '',
+            ...(chunk.reasoningContent ? { reasoning_content: chunk.reasoningContent } : {}),
+          },
+          finish_reason: chunk.finishReason || null,
+        },
+      ],
     }
     if (chunk.usage) payload.usage = chunk.usage
     return `data: ${JSON.stringify(payload)}\n\n`
@@ -19,6 +32,13 @@ function sseResponse(
 }
 
 describe('AI provider output budgets', () => {
+  it('gives thinking requests a full ten-minute request budget plus pipeline grace', () => {
+    expect(aiRequestTimeoutMs(false)).toBe(300_000)
+    expect(aiPipelineTimeoutMs(false)).toBe(330_000)
+    expect(aiRequestTimeoutMs(true)).toBe(600_000)
+    expect(aiPipelineTimeoutMs(true)).toBe(630_000)
+  })
+
   it('reports the real HTTP attempt count when a retry succeeds', async () => {
     let calls = 0
     const response = await callAiProvider(
@@ -169,6 +189,27 @@ describe('AI provider output budgets', () => {
     expect(response.text).toBe('{"ok":true}')
     expect(response.finishReason).toBe('stop')
     expect(response.usage).toEqual({ input: 100, output: 192, reasoning: 8000 })
+  })
+
+  it('reports streaming progress without exposing reasoning or response content', async () => {
+    const progress: Array<{ eventCount: number; contentChars: number; reasoningChars: number }> = []
+    await callAiProvider(
+      {
+        provider: 'moonshotai',
+        apiKey: 'test-key',
+        baseUrl: 'https://provider.example/v1',
+        model: 'kimi-k3',
+        thinkingEnabled: true,
+        onStreamProgress: (item) => progress.push(item),
+        fetchFn: async () =>
+          sseResponse([{ reasoningContent: 'private reasoning' }, { content: '{"ok":true}', finishReason: 'stop' }]),
+      },
+      'Return JSON',
+    )
+
+    expect(progress.at(-1)).toEqual({ eventCount: 2, reasoningChars: 17, contentChars: 11 })
+    expect(progress.at(-1)).not.toHaveProperty('content')
+    expect(progress.at(-1)).not.toHaveProperty('reasoningContent')
   })
 
   it('retries with thinking disabled when a thinking call returns empty content', async () => {

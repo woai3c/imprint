@@ -200,6 +200,7 @@ describe('selectEvidencePackage packaging', () => {
       borderRadius: digestPackage.tokenShortIdMap.get('radius.1'),
       fontSize: digestPackage.tokenShortIdMap.get('typography.font-size.1'),
     })
+    expect(digestPackage.digest.componentPatterns[0].variant).toBe('primary')
     expect(digestPackage.digest.tokenFacts.colors[0]).toMatchObject({
       name: 'palette-1',
       roles: ['action'],

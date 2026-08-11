@@ -3,7 +3,7 @@ import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence
 import type { EvidencePackage, SectionObservation } from './types.js'
 
 // Versions the complete model-output contract, including deterministic validation and fallback behavior.
-export const DESIGN_PROFILE_PROMPT_VERSION = '23'
+export const DESIGN_PROFILE_PROMPT_VERSION = '25'
 export const DESIGN_PROFILE_PROMPT_CHAR_LIMIT = 28_000
 const DIGEST_CHAR_LIMIT = 18_000
 
@@ -149,6 +149,7 @@ Security and grounding:
 - A global claim needs evidence from two distinct urlGroup values when more than one exists. Otherwise describe it as local or reduce confidence.
 - Passive state facts prove declared styles, not an executed press, click, expansion, navigation, or toggle. Describe passive active-state evidence as a declared style, never as confirmation after a real press.
 - If a page reports overflow, describe clipping/minimum-width overflow; do not claim responsive hiding or reflow without an r* fact. Cite the overflow source's section ID when source.section is present; otherwise cite that overflow page's p* ID.
+- Any claim about mobile, narrow-screen, single-column, hiding, stacking, or reflow must cite an r* fact or a non-overflowing mobile p*/i* fact. Desktop screenshots cannot prove mobile behavior.
 - Before adding an uncertainty about missing overflow sources, mobile screenshots, or section sequences, recount the supplied pageFacts and topologyFacts; do not deny evidence that is present in the digest.
 - authenticated-managed-capture is authenticated evidence, never a logged-out page.
 - Exact numeric bounds must match tokenFacts. Do not invent or repeat raw colors, sizes, weights, spacing, radii, or state values; put their t* IDs only in claim.t.
@@ -172,6 +173,9 @@ Compact output contract:
 - components: at most 6 objects {"component":"observed type","role":"purpose","rules":[SCOPED_CLAIM]}. Use at most two scoped rules. component must exactly match one of these literal observed type values; never invent a role-specific variant: ${observedComponentTypes.join(', ') || '(none)'}.
 - Component evidence binding (type -> allowed c* IDs): ${JSON.stringify(componentEvidenceByType)}. Every scoped component rule must cite at least one listed ID for that exact type; never reuse a q ID whose evidence belongs to another type. Put the purpose in role instead of changing component.
 - Component exactStyles contain semantic CSS keywords or t* token IDs only. Put those t* IDs in claim.t; never turn omitted raw DOM measurements into rules.
+- Component variant and sampleSize are deterministic observations. A small square button marked variant icon is an icon control, not evidence of a text primary CTA; cite a primary variant for primary-button rules.
+- Call a button outlined only when its exactStyles show a visible non-transparent border. A translucent background with no border is a tinted secondary button, not an outlined button.
+- Do not generalize one radius or shadow treatment to every button when component patterns show pill, circular, flat, or lightly shadowed variants; describe the variants separately.
 - interaction.drivers, interaction.feedback, interaction.amplitude, and interaction.continuity must cite the relevant a* interactionFacts ID whenever interactionFacts are available. Never reuse a global q claim as an interaction claim.
 - When a claim describes an observed state change, use the exact changedProperties spelling from the digest (for example border-bottom-color must not be generalized to border-color).
 - transfer: {"preserve":[SCOPED_CLAIM],"adapt":[SCOPED_CLAIM],"avoid":[SCOPED_CLAIM]}; each list must contain at least one local scoped claim. Cite the exact section, component, interaction, or responsive evidence that makes the rule transferable; never reuse a global q claim.
@@ -301,6 +305,8 @@ ${hasUnexercisedSwitch ? '- The evidence contains an ARIA switch (aria-checked) 
 - The access restriction "auth-wall-resolved-by-managed-access" means the captured evidence is authenticated; do not describe that evidence as an unauthenticated or logged-out view.
 - Interaction observations include concrete from/to value changes. Interaction claims must cite those values (for example color #fff -> #b39aff, 0.25s) instead of only saying an element "changes color".
 - Do not state numeric token ranges (such as maximum font weight) unless the cited token refs support the boundary, and do not describe a token's color role from its name alone when its value contradicts that role.
+- Call a button outlined only when its observed styles include a visible non-transparent border; a translucent borderless fill is a tinted secondary button.
+- Do not claim that all buttons share small radii or no shadow when observed components include pill, circular, or lightly shadowed button variants.
 - Avoid generic-only descriptions such as modern, clean, premium, professional, friendly, or high-tech.
 - Keep the entire response under 12,000 characters. Never quote or restate evidence text, and do not repeat the same idea across multiple claims. Each claim must add information not stated elsewhere: a structure already covered by a signature move, composition rule, or thesis must not reappear as a pattern, section grammar, or component grammar entry.
 

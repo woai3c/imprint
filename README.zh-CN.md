@@ -57,7 +57,7 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 | Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                     |
 | 截图分析       | 从 UI 截图中提取设计规律                                          |
 | 设计系统生成   | 提取颜色、字体、间距、圆角、阴影和组件风格                        |
-| AI 友好文档    | 导出 DESIGN.md，可直接作为 AI Coding 上下文                       |
+| AI 友好文档    | 导出 Google DESIGN.md alpha，并保留可追溯的 Imprint 扩展          |
 | 代码导出       | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens     |
 | 本地 AI Agent  | 支持 Claude Code、Codex、Kimi、Gemini CLI、OpenCode 和 x-code-cli |
 | 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                           |
@@ -85,6 +85,8 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 | 审计来源页面的实际观察范围         | **Design Evidence JSON** | 对应页面截图         |
 
 如果只给 AI 一个导出文件，请选择 **DESIGN.md**。
+
+Imprint 生成的 `DESIGN.md` 遵循 [Google Labs DESIGN.md alpha 规范](https://github.com/google-labs-code/design.md)：先构建类型化文档模型，再按规范 YAML 分组和固定章节顺序渲染。紧凑的 `x-imprint` 扩展只保留来源、覆盖率、分析摘要、响应式元数据和 alpha 规范暂未覆盖的令牌；完整令牌溯源保留在 Tokens JSON 与 `design-evidence.json` 中。
 
 ## Design Evidence 与 Design DNA
 

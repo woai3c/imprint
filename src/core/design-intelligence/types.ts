@@ -33,6 +33,7 @@ export interface DesignIntelligenceMeta {
   tokenUsage?: {
     input?: number
     output?: number
+    reasoning?: number
   }
   callDetails?: Array<{
     pass: string

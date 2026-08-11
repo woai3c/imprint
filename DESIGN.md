@@ -178,8 +178,9 @@ runs out, the tab strip scrolls horizontally instead.
   instead of fabricated topology.
 - Page structure is a compact ordered map, not a decorative site diagram. Use localized section roles and preserve the
   source URL and viewport beside every sequence.
-- Limitations belong beside coverage. Each recorded limitation maps to a plain-language explanation; internal debug
-  entries (such as per-candidate skip records) never reach the UI.
+- Limitations belong beside coverage. Each user-relevant limitation maps to one plain-language explanation; limitations
+  that resolve to the same explanation are shown once. Internal diagnostics such as page-health details, extraction
+  issue payloads, and per-candidate skip records remain in evidence or logs and never become duplicate generic UI rows.
 - AI design insights run after deterministic extraction and never block the first usable result. The status card
   distinguishes pending, complete, partial, failed, skipped, and not-configured states; retry reruns only
   interpretation, never the browser. Status icons are reserved for running, success, and failure — neutral states use
@@ -188,6 +189,10 @@ runs out, the tab strip scrolls horizontally instead.
   "removed claim" or "missing field" notices in the result UI. A valid final profile is complete even when unsafe or
   unsupported optional model text was filtered; partial is reserved for required conclusions filled from deterministic
   page evidence or for a failed screenshot self-check.
+- AI pipeline deadlines must never be shorter than the provider request they contain. Standard API requests receive a
+  five-minute request budget; Thinking requests and Agent CLI runs receive ten minutes, with a short outer grace period
+  for parsing and validation. Streaming telemetry records only elapsed time and aggregate event/reasoning/content
+  character counts—never response text, reasoning text, prompts, credentials, or page content.
 - When the configured model cannot see screenshots, analysis does not silently degrade: the status card offers an
   explicit three-way choice — generate a structural interpretation, switch to a vision-capable model in Settings, or
   skip AI interpretation. Skipping is persisted and reversible from the status card.
@@ -335,6 +340,11 @@ Export choices describe different jobs and must never be presented as interchang
 
 - **DESIGN.md** is the recommended single artifact for an AI that must revise an existing UI. It explains design intent,
   rules, evidence, and reusable values. Users should provide it together with the current UI screenshot or source code.
+  Generated documents are built as a typed document model and rendered with the Google Labs DESIGN.md alpha token schema
+  and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact
+  `x-imprint` extension retains source, coverage and analysis summaries, responsive metadata, and token groups not covered
+  by the alpha schema; full token provenance and component evidence belong in Tokens JSON, `design-evidence.json`, and
+  `component-specs.json` instead of being duplicated into the front matter.
 - **CSS variables** are recommended for framework-agnostic web and CSS projects.
 - **Tailwind v4 `@theme`** is recommended when the target project already uses Tailwind v4.
 - **Tokens JSON** is recommended for design-token tooling, automation, and agents that need machine-readable values.

@@ -11,6 +11,13 @@ export interface AiProviderConfig {
   thinkingEnabled?: boolean
   maxOutputTokens?: number
   allowThinkingFallback?: boolean
+  onStreamProgress?: (progress: AiStreamProgress) => void
+}
+
+export interface AiStreamProgress {
+  eventCount: number
+  contentChars: number
+  reasoningChars: number
 }
 
 export interface AiImageInput {
@@ -49,6 +56,17 @@ const MAX_PROMPT_CHARS = 2_000_000
 const MAX_IMAGES = 6
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024
+const STANDARD_REQUEST_TIMEOUT_MS = 300_000
+const THINKING_REQUEST_TIMEOUT_MS = 600_000
+const PIPELINE_TIMEOUT_GRACE_MS = 30_000
+
+export function aiRequestTimeoutMs(thinkingEnabled = false): number {
+  return thinkingEnabled ? THINKING_REQUEST_TIMEOUT_MS : STANDARD_REQUEST_TIMEOUT_MS
+}
+
+export function aiPipelineTimeoutMs(thinkingEnabled = false): number {
+  return aiRequestTimeoutMs(thinkingEnabled) + PIPELINE_TIMEOUT_GRACE_MS
+}
 
 function outputTokenLimit(config: AiProviderConfig, fallback: number): number {
   // Thinking models charge reasoning tokens against the same completion budget, so the
@@ -86,7 +104,7 @@ function imageLabel(image: AiImageInput): string {
 function requestSignal(config: AiProviderConfig): AbortSignal {
   // Thinking models generate reasoning tokens before the visible answer and can take
   // several minutes on large prompts, so they get a longer per-request budget.
-  const timeout = AbortSignal.timeout(config.thinkingEnabled ? 600_000 : 300_000)
+  const timeout = AbortSignal.timeout(aiRequestTimeoutMs(config.thinkingEnabled))
   return config.signal ? AbortSignal.any([config.signal, timeout]) : timeout
 }
 
@@ -126,15 +144,21 @@ function supportsStreaming(provider: string): boolean {
   return provider === 'deepseek' || provider === 'moonshotai'
 }
 
-async function readOpenAiStream(response: Response): Promise<StreamedCompletion> {
+async function readOpenAiStream(
+  response: Response,
+  onProgress?: (progress: AiStreamProgress) => void,
+): Promise<StreamedCompletion> {
   const body = response.body
   if (!body) throw new Error('AI provider response had no body')
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let text = ''
+  let eventCount = 0
+  let reasoningChars = 0
   let finishReason: string | undefined
   let usage: StreamedCompletion['usage']
+  onProgress?.({ eventCount, contentChars: 0, reasoningChars })
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -149,13 +173,19 @@ async function readOpenAiStream(response: Response): Promise<StreamedCompletion>
       if (!payload || payload === '[DONE]') continue
       try {
         const chunk = JSON.parse(payload) as {
-          choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>
+          choices?: Array<{
+            delta?: { content?: string; reasoning_content?: string }
+            finish_reason?: string | null
+          }>
           usage?: StreamedCompletion['usage']
         }
         const choice = chunk.choices?.[0]
+        eventCount += 1
         if (choice?.delta?.content) text += choice.delta.content
+        if (choice?.delta?.reasoning_content) reasoningChars += choice.delta.reasoning_content.length
         if (choice?.finish_reason) finishReason = choice.finish_reason
         if (chunk.usage) usage = chunk.usage
+        onProgress?.({ eventCount, contentChars: text.length, reasoningChars })
       } catch {
         // Ignore malformed keep-alive chunks.
       }
@@ -319,7 +349,7 @@ async function callOpenAiCompatible(
     signal: requestSignal(config),
   })
   if (useStream && response.ok) {
-    const streamed = await readOpenAiStream(response)
+    const streamed = await readOpenAiStream(response, config.onStreamProgress)
     const reasoning = streamed.usage?.completion_tokens_details?.reasoning_tokens || 0
     const completion = streamed.usage?.completion_tokens
     return {
@@ -381,6 +411,15 @@ function withTransportMetadata(error: unknown, transportAttempts: number, transp
   return result
 }
 
+function normalizeProviderAbort(error: unknown, config: AiProviderConfig, elapsedMs: number): unknown {
+  if (!(error instanceof Error) || config.signal?.aborted || !/abort/i.test(error.message)) return error
+  const timeoutMs = aiRequestTimeoutMs(config.thinkingEnabled)
+  if (elapsedMs < timeoutMs - 1_000) return error
+  const timeout = new Error(`AI provider request timed out after ${timeoutMs}ms`)
+  timeout.name = 'TimeoutError'
+  return timeout
+}
+
 async function callAiProviderWithHttpRetry(
   config: AiProviderConfig,
   prompt: string,
@@ -393,6 +432,8 @@ async function callAiProviderWithHttpRetry(
     const startedAt = Date.now()
     try {
       return await callAiProviderOnce(config, prompt, images)
+    } catch (error) {
+      throw normalizeProviderAbort(error, config, Date.now() - startedAt)
     } finally {
       transportMs += Date.now() - startedAt
     }

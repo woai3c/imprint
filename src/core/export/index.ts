@@ -1,3 +1,5 @@
+import { stringify } from 'yaml'
+
 import {
   generateAgentGuide,
   generateDesignPrinciples,
@@ -6,8 +8,16 @@ import {
 } from '../analyzer/agent-guide.js'
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
-import type { ComponentPattern } from '../analyzer/component-detect.js'
+import {
+  classifyComponentVariant,
+  isContextDependentColor,
+  isPillRadius,
+  isTransparentColor,
+  summarizeComponentVariants,
+} from '../analyzer/component-detect.js'
+import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
 import { buildDesignTokens } from '../analyzer/token-builder.js'
+import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
 import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
@@ -127,66 +137,438 @@ function observedColorGroups(tokens: DesignToken): Array<{ label: string; names:
   )
 }
 
-function appendDesignDocFrontMatter(
-  lines: string[],
-  language: DocLanguage,
-  url: string | undefined,
-  evidence: DesignEvidence | undefined,
-  profile: DesignProfile | null | undefined,
-  status: DesignIntelligenceStatus | undefined,
-  meta: DesignIntelligenceMeta | undefined,
-): void {
-  const source = url || evidence?.source.finalUrl
+function isDesignMdDimension(value: string): boolean {
+  return /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem)$/i.test(value.trim())
+}
+
+function designMdScaleValue(value: string): string | number | undefined {
+  const trimmed = value.trim()
+  if (isDesignMdDimension(trimmed)) return trimmed
+  const numeric = Number(trimmed)
+  return Number.isFinite(numeric) ? numeric : undefined
+}
+
+function designSystemName(source: string | undefined): string {
+  if (!source) return 'Extracted Design System'
+  try {
+    const hostname = new URL(source).hostname.replace(/^www\./, '')
+    return hostname ? `${hostname} Design System` : 'Extracted Design System'
+  } catch {
+    return 'Extracted Design System'
+  }
+}
+
+function stableColorValueSlug(normalized: string): string {
+  if (/^#[\da-f]{6}$/i.test(normalized)) return normalized.slice(1).toLowerCase()
+  const rgba = normalized.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/i)
+  if (rgba) {
+    const rgb = rgba
+      .slice(1, 4)
+      .map((channel) => Number(channel).toString(16).padStart(2, '0'))
+      .join('')
+    const alpha = Math.round(Number(rgba[4]) * 255)
+      .toString(16)
+      .padStart(2, '0')
+    return `${rgb}-${alpha}`
+  }
+  return normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function stableDesignMdColorName(
+  currentName: string,
+  normalizedValue: string,
+  aliasesByName: ReadonlyMap<string, string>,
+  fallbackPrefix: string,
+): string {
+  const sourceName = aliasesByName.get(currentName) || currentName
+  return /^(?:dark-)?palette-\d+$/.test(sourceName)
+    ? `${fallbackPrefix}-${stableColorValueSlug(normalizedValue)}`
+    : sourceName
+}
+
+export function buildDesignMdColorTokens(
+  tokens: DesignToken,
+  aliases: readonly ColorRenameProposal[] = [],
+  fallbackPrefix = 'observed',
+): Record<string, string> {
+  const aliasesByName = new Map(aliases.map((alias) => [alias.name, alias.tokenId]))
+  return Object.fromEntries(
+    Object.entries(tokens.colors).flatMap(([name, value]) => {
+      const normalized = normalizeColorValue(value)
+      return normalized ? [[stableDesignMdColorName(name, normalized, aliasesByName, fallbackPrefix), normalized]] : []
+    }),
+  )
+}
+
+function designMdTypographyTokens(tokens: DesignToken): Record<string, Record<string, string | number>> {
+  const typography: Record<string, Record<string, string | number>> = {}
+  const fontFamilies = [tokens.typography.fontStacks?.[0], ...tokens.typography.fontFamilies].filter(
+    (value, index, values): value is string => !!value && values.indexOf(value) === index,
+  )
+  fontFamilies.forEach((fontFamily, index) => {
+    typography[`font-family-${index + 1}`] = { fontFamily }
+  })
+  tokens.typography.fontSizes.forEach((fontSize, index) => {
+    if (isDesignMdDimension(fontSize)) typography[`size-${FONT_SIZE_NAMES[index] || index + 1}`] = { fontSize }
+  })
+  tokens.typography.fontWeights.forEach((fontWeight, index) => {
+    const numeric = Number(fontWeight)
+    if (Number.isFinite(numeric)) {
+      typography[`weight-${tailwindFontWeightName(fontWeight, index)}`] = { fontWeight: numeric }
+    }
+  })
+  tokens.typography.lineHeights.forEach((lineHeight, index) => {
+    const value = designMdScaleValue(lineHeight)
+    if (value !== undefined) typography[`line-height-${LINE_HEIGHT_NAMES[index] || index + 1}`] = { lineHeight: value }
+  })
+  tokens.typography.letterSpacings.forEach((letterSpacing, index) => {
+    if (isDesignMdDimension(letterSpacing)) {
+      typography[`letter-spacing-${LETTER_SPACING_NAMES[index] || index + 1}`] = { letterSpacing }
+    }
+  })
+  return typography
+}
+
+function findTokenReference(
+  group: string,
+  entries: ReadonlyArray<readonly [string, string]>,
+  value: string,
+  normalize: (candidate: string) => string | null = (candidate) => candidate.trim().toLowerCase(),
+): string | undefined {
+  const normalized = normalize(value)
+  if (!normalized) return undefined
+  const match = entries.find(([name, candidate]) => /^[\w-]+$/.test(name) && normalize(candidate) === normalized)
+  return match ? `{${group}.${match[0]}}` : undefined
+}
+
+function singleDimensionFromShorthand(value: string): string | undefined {
+  const dimensions = value.trim().split(/\s+/)
+  if (dimensions.length === 0 || dimensions.some((dimension) => !isDesignMdDimension(dimension))) return undefined
+  return dimensions.every((dimension) => dimension === dimensions[0]) ? dimensions[0] : undefined
+}
+
+function isZeroDimension(value: string): boolean {
+  return Math.abs(Number.parseFloat(value)) <= 0.001
+}
+
+function observedPillRadius(components: readonly ComponentVariantPattern[]): string | undefined {
+  return components.flatMap((component) => {
+    if (component.type !== 'button' || !isPillRadius(component.styles)) return []
+    const radius = component.styles.borderRadius
+    if (!radius) return []
+    const dimension = singleDimensionFromShorthand(radius)
+    return dimension && !isZeroDimension(dimension) ? [dimension] : []
+  })[0]
+}
+
+function designMdComponentTokens(
+  components: readonly ComponentVariantPattern[],
+  colors: Readonly<Record<string, string>>,
+  typography: Readonly<Record<string, Record<string, string | number>>>,
+  rounded: Readonly<Record<string, string>>,
+): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {}
+  const colorEntries = Object.entries(colors)
+  const roundedEntries = Object.entries(rounded)
+  const typographyEntries = Object.entries(typography).flatMap(([name, value]) =>
+    typeof value.fontSize === 'string' ? ([[name, value.fontSize]] as const) : [],
+  )
+
+  components.forEach((component) => {
+    const properties: Record<string, string> = {}
+    const backgroundColor = component.styles.backgroundColor
+    if (backgroundColor && !isContextDependentColor(backgroundColor)) {
+      properties.backgroundColor =
+        findTokenReference('colors', colorEntries, backgroundColor, normalizeColorValue) ||
+        normalizeColorValue(backgroundColor) ||
+        ''
+    }
+    const textColor = component.styles.color
+    if (textColor && !isTransparentColor(textColor)) {
+      properties.textColor =
+        findTokenReference('colors', colorEntries, textColor, normalizeColorValue) ||
+        normalizeColorValue(textColor) ||
+        ''
+    }
+    const borderRadius = component.styles.borderRadius
+    if (borderRadius) {
+      const dimension = singleDimensionFromShorthand(borderRadius)
+      if (dimension && !isZeroDimension(dimension)) {
+        properties.rounded = findTokenReference('rounded', roundedEntries, dimension) || dimension
+      }
+    }
+    const padding = component.styles.padding ? singleDimensionFromShorthand(component.styles.padding) : undefined
+    if (padding && !isZeroDimension(padding)) properties.padding = padding
+    const fontSize = component.styles.fontSize
+    if (fontSize) {
+      const typographyRef = findTokenReference('typography', typographyEntries, fontSize)
+      if (typographyRef) properties.typography = typographyRef
+    }
+    const usableProperties = Object.fromEntries(Object.entries(properties).filter(([, value]) => value !== ''))
+    if (Object.keys(usableProperties).length > 0) result[component.name] = usableProperties
+  })
+  return result
+}
+
+interface DesignDocFrontMatterInput {
+  tokens: DesignToken
+  language: DocLanguage
+  url?: string
+  featureTags?: string[]
+  darkMode?: DarkModeExportData
+  breakpoints?: Array<{ width: number; label: string }>
+  components?: ComponentVariantPattern[]
+  evidence?: DesignEvidence
+  profile?: DesignProfile | null
+  status?: DesignIntelligenceStatus
+  meta?: DesignIntelligenceMeta
+}
+
+interface GoogleDesignMdFrontMatter {
+  version: 'alpha'
+  name: string
+  description: string
+  omitted?: Array<{ section: string; reason: string }>
+  colors?: Record<string, string>
+  typography?: Record<string, Record<string, string | number>>
+  rounded?: Record<string, string>
+  spacing?: Record<string, string | number>
+  components?: Record<string, Record<string, string>>
+  'x-imprint': [Record<string, unknown>]
+}
+
+const DESIGN_MD_COMPONENT_TYPES = new Set<ComponentType>([
+  'button',
+  'card',
+  'navigation',
+  'input',
+  'table',
+  'modal',
+  'list',
+])
+
+function resolveDesignDocComponents(
+  detectedComponents: readonly ComponentPattern[],
+  tokens: DesignToken,
+  evidence?: DesignEvidence,
+): ComponentVariantPattern[] {
+  if (!evidence?.components.length) {
+    return detectedComponents.map((component) => {
+      const variant = classifyComponentVariant(component.type, component.styles, {
+        primaryColor: tokens.colors.primary,
+      })
+      return {
+        ...component,
+        name: variant ? `${component.type}-${variant}` : component.type,
+        ...(variant ? { variant } : {}),
+      }
+    })
+  }
+
+  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
+  const evidencePatterns = summarizeComponentVariants(
+    evidence.components.flatMap((component) => {
+      if (!DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)) return []
+      const page = pageById.get(component.pageId)
+      const pageWidth = page?.contentWidth || page?.viewportWidth
+      const pageHeight = page?.contentHeight || page?.viewportHeight
+      return [
+        {
+          type: component.type as ComponentType,
+          confidence: component.confidence,
+          evidence: [component.id, ...component.evidenceRefs],
+          styles: component.styles,
+          tokenRefs: component.tokenRefs,
+          primaryColor: tokens.colors.primary,
+          role: component.role,
+          ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
+          ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
+        },
+      ]
+    }),
+  )
+  return evidencePatterns.length > 0 ? evidencePatterns : resolveDesignDocComponents(detectedComponents, tokens)
+}
+
+function tokenConfidenceSummary(tokens: DesignToken): Record<'high' | 'medium' | 'low', number> | undefined {
+  if (!tokens.evidence || Object.keys(tokens.evidence).length === 0) return undefined
+  return Object.values(tokens.evidence).reduce(
+    (counts, item) => ({ ...counts, [item.confidence]: counts[item.confidence] + 1 }),
+    { high: 0, medium: 0, low: 0 },
+  )
+}
+
+function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesignMdFrontMatter {
+  const {
+    tokens,
+    language,
+    url,
+    featureTags,
+    darkMode,
+    breakpoints,
+    components = [],
+    evidence,
+    profile,
+    status,
+    meta,
+  } = input
+  const source = evidence?.source.finalUrl || url
+  const colors = buildDesignMdColorTokens(tokens, profile?.tokenAliases)
+  const typography = designMdTypographyTokens(tokens)
+  const rounded: Record<string, string> = Object.fromEntries(
+    tokens.radii.flatMap((value, index) =>
+      isDesignMdDimension(value) ? [[RADIUS_NAMES[index] || `${index + 1}`, value]] : [],
+    ),
+  )
+  const pillRadius = observedPillRadius(components)
+  if (pillRadius && !Object.values(rounded).includes(pillRadius)) rounded.pill = pillRadius
+  const spacing = Object.fromEntries(
+    tokens.spacing.flatMap((value, index) => {
+      const scaleValue = designMdScaleValue(value)
+      return scaleValue !== undefined ? [[`space-${index + 1}`, scaleValue]] : []
+    }),
+  )
+  const componentTokens = designMdComponentTokens(components, colors, typography, rounded)
+  const omitted = [
+    Object.keys(colors).length === 0
+      ? { section: 'colors', reason: 'No valid color tokens were observed.' }
+      : undefined,
+    Object.keys(typography).length === 0
+      ? { section: 'typography', reason: 'No valid typography tokens were observed.' }
+      : undefined,
+    Object.keys(spacing).length === 0
+      ? { section: 'spacing', reason: 'No valid spacing tokens were observed.' }
+      : undefined,
+    Object.keys(rounded).length === 0
+      ? { section: 'rounded', reason: 'No valid corner radius tokens were observed.' }
+      : undefined,
+    Object.keys(componentTokens).length === 0
+      ? { section: 'components', reason: 'No safely mappable component tokens were observed.' }
+      : undefined,
+  ].filter((value): value is { section: string; reason: string } => value !== undefined)
   const pageCount = evidence ? new Set(evidence.pages.map((page) => page.url)).size : undefined
-  lines.push('---')
-  lines.push('schema: "imprint.design-system/1"')
-  lines.push('document: "DESIGN.md"')
-  lines.push(`language: ${JSON.stringify(language)}`)
-  if (source) lines.push(`source: ${JSON.stringify(source)}`)
-  lines.push('evidence:')
-  lines.push(`  layer: ${JSON.stringify(evidence ? 'observed' : 'tokens')}`)
-  if (evidence) {
-    lines.push(`  analysis_id: ${JSON.stringify(evidence.analysisId)}`)
-    lines.push(`  access_mode: ${JSON.stringify(evidence.source.accessMode)}`)
-    lines.push(`  page_count: ${pageCount}`)
-    lines.push(`  capture_count: ${evidence.pages.length}`)
+  const requestedUrl = evidence?.source.requestedUrl || url
+  const resolvedBreakpoints =
+    breakpoints ||
+    evidence?.breakpoints.map((breakpoint) => ({ width: breakpoint.width, label: breakpoint.label })) ||
+    []
+  const confidence = tokenConfidenceSummary(tokens)
+  const unsupportedRadii = tokens.radii.filter((radius) => !isDesignMdDimension(radius))
+  const nonstandardTokens = {
+    ...(tokens.shadows.length > 0 ? { shadows: tokens.shadows } : {}),
+    ...(tokens.borders.length > 0 ? { borders: tokens.borders } : {}),
+    ...(unsupportedRadii.length > 0 ? { radii: unsupportedRadii } : {}),
+    ...(tokens.zIndices.length > 0 ? { zIndices: tokens.zIndices } : {}),
+    ...(tokens.transitions.length > 0 ? { transitions: tokens.transitions } : {}),
   }
-  lines.push('analysis:')
-  lines.push(`  ai_status: ${JSON.stringify(status || meta?.status || (profile ? 'unknown' : 'not-requested'))}`)
-  const inputMode = profile?.inputMode || meta?.inputMode
-  if (inputMode) lines.push(`  input_mode: ${JSON.stringify(inputMode)}`)
-  if (meta?.provider) lines.push(`  provider: ${JSON.stringify(meta.provider)}`)
-  if (meta?.model) lines.push(`  model: ${JSON.stringify(meta.model)}`)
-  if (meta?.promptVersion) lines.push(`  prompt_version: ${JSON.stringify(meta.promptVersion)}`)
-  if (meta?.generatedAt) lines.push(`  generated_at: ${JSON.stringify(meta.generatedAt)}`)
-  if (meta) {
-    lines.push(`  rejected_count: ${meta.rejected?.length || 0}`)
-    lines.push(`  repaired_count: ${meta.repaired?.length || 0}`)
-    if (meta.rejected?.length) {
-      lines.push('  rejected:')
-      meta.rejected.slice(0, 20).forEach((reason) => lines.push(`    - ${JSON.stringify(reason)}`))
-    } else {
-      lines.push('  rejected: []')
-    }
-    if (meta.repaired?.length) {
-      lines.push('  repaired:')
-      meta.repaired.slice(0, 20).forEach((reason) => lines.push(`    - ${JSON.stringify(reason)}`))
-    } else {
-      lines.push('  repaired: []')
-    }
+  const suggestedColorAliases = (profile?.tokenAliases || []).flatMap((alias) => {
+    const value = tokens.colors[alias.name] || tokens.colors[alias.tokenId]
+    const normalized = value ? normalizeColorValue(value) : null
+    if (!normalized) return []
+    return [
+      {
+        token: stableDesignMdColorName(alias.tokenId, normalized, new Map(), 'observed'),
+        name: alias.name,
+      },
+    ]
+  })
+  const frontMatter: GoogleDesignMdFrontMatter = {
+    version: 'alpha',
+    name: designSystemName(source),
+    description:
+      language === 'zh-CN'
+        ? '由 Imprint 从已观察的网站样式和结构证据中提取。'
+        : 'Extracted by Imprint from observed website styles and structural evidence.',
+    ...(omitted.length > 0 ? { omitted } : {}),
+    ...(Object.keys(colors).length > 0 ? { colors } : {}),
+    ...(Object.keys(typography).length > 0 ? { typography } : {}),
+    ...(Object.keys(rounded).length > 0 ? { rounded } : {}),
+    ...(Object.keys(spacing).length > 0 ? { spacing } : {}),
+    ...(Object.keys(componentTokens).length > 0 ? { components: componentTokens } : {}),
+    // Unknown top-level maps that contain token-like values trigger the official
+    // token-like-ignored warning. An extension envelope list remains structured,
+    // preserved by consumers, and unambiguous without masquerading as a token group.
+    'x-imprint': [
+      {
+        schema: 'imprint.design-system/2',
+        language,
+        source: {
+          ...(requestedUrl ? { requestedUrl } : {}),
+          ...(source ? { finalUrl: source } : {}),
+          ...(evidence ? { accessMode: evidence.source.accessMode } : {}),
+        },
+        featureTags: featureTags || evidence?.featureTags || [],
+        evidence: {
+          layer: evidence ? 'observed' : 'tokens',
+          ...(evidence
+            ? {
+                analysisId: evidence.analysisId,
+                pageCount,
+                captureCount: evidence.pages.length,
+                coverage: evidence.coverage,
+              }
+            : {}),
+          ...(confidence ? { tokenConfidence: confidence } : {}),
+        },
+        analysis: {
+          aiStatus: status || meta?.status || (profile ? 'unknown' : 'not-requested'),
+          ...(profile?.inputMode || meta?.inputMode ? { inputMode: profile?.inputMode || meta?.inputMode } : {}),
+          ...(meta?.capabilityLevel ? { capabilityLevel: meta.capabilityLevel } : {}),
+          ...(meta?.provider ? { provider: meta.provider } : {}),
+          ...(meta?.model ? { model: meta.model } : {}),
+          ...(meta?.promptVersion ? { promptVersion: meta.promptVersion } : {}),
+          ...(meta?.generatedAt ? { generatedAt: meta.generatedAt } : {}),
+          ...(meta
+            ? {
+                rejectedCount: meta.rejected?.length || 0,
+                repairedCount: meta.repaired?.length || 0,
+                ...(meta.rejected?.length ? { rejected: meta.rejected.slice(0, 20) } : {}),
+                ...(meta.repaired?.length ? { repaired: meta.repaired.slice(0, 20) } : {}),
+                ...(meta.tokenUsage ? { tokenUsage: meta.tokenUsage } : {}),
+                ...(meta.timing
+                  ? {
+                      timing: {
+                        ...(meta.timing.programTotalMs !== undefined ? { programMs: meta.timing.programTotalMs } : {}),
+                        ...(meta.timing.aiTotalMs !== undefined ? { aiMs: meta.timing.aiTotalMs } : {}),
+                        ...(meta.timing.userWaitMs !== undefined ? { userWaitExcludedMs: meta.timing.userWaitMs } : {}),
+                        activeTotalMs: meta.timing.totalMs,
+                      },
+                    }
+                  : {}),
+              }
+            : {}),
+        },
+        ...(suggestedColorAliases.length > 0 ? { suggestedColorAliases } : {}),
+        ...(Object.keys(nonstandardTokens).length > 0 ? { nonstandardTokens } : {}),
+        ...(components.length > 0
+          ? {
+              componentSummary: {
+                source: evidence?.components.length ? 'design-evidence' : 'component-detector',
+                patterns: components.length,
+                instances: components.reduce((total, component) => total + component.count, 0),
+              },
+            }
+          : {}),
+        ...(resolvedBreakpoints.length > 0 ? { responsive: { breakpoints: resolvedBreakpoints } } : {}),
+        ...(darkMode?.hasDarkMode
+          ? {
+              darkMode: {
+                method: darkMode.method || 'none',
+                ...(darkMode.selector ? { selector: normalizeDarkSelector(darkMode.selector) } : {}),
+                ...(darkMode.darkTokens
+                  ? { colors: buildDesignMdColorTokens(darkMode.darkTokens, [], 'dark-observed') }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    ],
   }
-  if (meta?.tokenUsage?.input !== undefined) lines.push(`  input_tokens: ${meta.tokenUsage.input}`)
-  if (meta?.tokenUsage?.output !== undefined) lines.push(`  output_tokens: ${meta.tokenUsage.output}`)
-  const timing = meta?.timing
-  if (timing) {
-    lines.push('  timing:')
-    if (timing.programTotalMs !== undefined) lines.push(`    program_ms: ${timing.programTotalMs}`)
-    if (timing.aiTotalMs !== undefined) lines.push(`    ai_ms: ${timing.aiTotalMs}`)
-    if (timing.userWaitMs !== undefined) lines.push(`    user_wait_excluded_ms: ${timing.userWaitMs}`)
-    lines.push(`    active_total_ms: ${timing.totalMs}`)
-  }
-  lines.push('---')
-  lines.push('')
+
+  return frontMatter
 }
 
 export interface DarkModeExportData {
@@ -494,13 +876,50 @@ export function generateTailwindTheme(
   return lines.join('\n')
 }
 
+const GOOGLE_DESIGN_MD_SECTIONS = [
+  ['overview', 'Overview'],
+  ['colors', 'Colors'],
+  ['typography', 'Typography'],
+  ['layout', 'Layout'],
+  ['elevation', 'Elevation & Depth'],
+  ['shapes', 'Shapes'],
+  ['components', 'Components'],
+  ['dosAndDonts', "Do's and Don'ts"],
+] as const
+
+type DesignMdSectionKey = (typeof GOOGLE_DESIGN_MD_SECTIONS)[number][0]
+
+interface DesignMdDocumentModel {
+  frontMatter: GoogleDesignMdFrontMatter
+  title: string
+  sections: Record<DesignMdSectionKey, string[]>
+  appendices: string[]
+}
+
+function renderDesignMdDocument(model: DesignMdDocumentModel): string {
+  const blocks = [
+    `---\n${stringify(model.frontMatter, { aliasDuplicateObjects: false, lineWidth: 0 }).trimEnd()}\n---`,
+    `# ${model.title}`,
+    ...GOOGLE_DESIGN_MD_SECTIONS.map(([key, heading]) => {
+      const body = model.sections[key].join('\n').trim()
+      return `## ${heading}${body ? `\n\n${body}` : ''}`
+    }),
+    ...model.appendices.map((appendix) => appendix.trim()).filter(Boolean),
+  ]
+  return blocks.join('\n\n')
+}
+
+function withoutCanonicalHeading(markdown: string): string {
+  return markdown.replace(/^## Do's and Don'ts\s*/, '').trim()
+}
+
 export function generateDesignDoc(
   tokens: DesignToken,
   url?: string,
   featureTags?: string[],
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string }>,
-  _components?: ComponentPattern[],
+  components: ComponentPattern[] = [],
   language: DocLanguage = 'en',
   exampleComponents: readonly GeneratedExampleComponent[] = [],
   designEvidence?: DesignEvidence,
@@ -510,25 +929,45 @@ export function generateDesignDoc(
   designIntelligenceMeta?: DesignIntelligenceMeta,
 ): string {
   const zh = language === 'zh-CN'
-  const lines: string[] = []
-
-  appendDesignDocFrontMatter(
-    lines,
+  const documentUrl = url || designEvidence?.source.requestedUrl
+  const documentFeatureTags = featureTags || designEvidence?.featureTags || []
+  const documentBreakpoints =
+    breakpoints ||
+    designEvidence?.breakpoints.map((breakpoint) => ({ width: breakpoint.width, label: breakpoint.label })) ||
+    []
+  const documentComponents = resolveDesignDocComponents(components, tokens, designEvidence)
+  const sections: Record<DesignMdSectionKey, string[]> = {
+    overview: [],
+    colors: [],
+    typography: [],
+    layout: [],
+    elevation: [],
+    shapes: [],
+    components: [],
+    dosAndDonts: [],
+  }
+  const appendixLines: string[] = []
+  let lines = sections.overview
+  const frontMatter = buildDesignDocFrontMatter({
+    tokens,
     language,
-    url,
-    designEvidence,
-    designProfile,
-    designIntelligenceStatus,
-    designIntelligenceMeta,
-  )
-  lines.push(zh ? '# 设计系统' : '# Design System')
-  if (url) lines.push(zh ? `\n提取自：${url}` : `\nExtracted from: ${url}`)
+    url: documentUrl,
+    featureTags: documentFeatureTags,
+    darkMode,
+    breakpoints: documentBreakpoints,
+    components: documentComponents,
+    evidence: designEvidence,
+    profile: designProfile,
+    status: designIntelligenceStatus,
+    meta: designIntelligenceMeta,
+  })
+  if (documentUrl) lines.push(zh ? `\n提取自：${documentUrl}` : `\nExtracted from: ${documentUrl}`)
 
-  if (featureTags && featureTags.length > 0) {
+  if (documentFeatureTags.length > 0) {
     lines.push(
       zh
-        ? `\n**设计特征：** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`
-        : `\n**Design Features:** ${featureTags.map((t) => `\`${t}\``).join(' · ')}`,
+        ? `\n**设计特征：** ${documentFeatureTags.map((tag) => `\`${tag}\``).join(' · ')}`
+        : `\n**Design Features:** ${documentFeatureTags.map((tag) => `\`${tag}\``).join(' · ')}`,
     )
   }
 
@@ -550,34 +989,8 @@ export function generateDesignDoc(
     lines.push(zh ? `\n**深色模式：** 未检测到` : `\n**Dark Mode:** Not detected`)
   }
 
-  lines.push('')
-
-  if (designEvidence) {
-    lines.push(generateDesignEvidenceBrief(designEvidence, language, designProfile?.inputMode))
-    lines.push('')
-  }
-
-  if (designProfile) {
-    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus))
-    lines.push('')
-  } else if (
-    designIntelligenceStatus &&
-    ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
-  ) {
-    lines.push(zh ? '## AI 设计解读' : '## AI Design Insights')
-    lines.push('')
-    lines.push(`**${zh ? '状态' : 'Status'}:** \`${designIntelligenceStatus}\``)
-    lines.push('')
-    lines.push(
-      zh
-        ? '> 本次没有可用的 AI 设计解读；下方令牌与证据仍来自确定性程序提取。'
-        : '> No AI design interpretation is available for this run; the tokens and evidence below still come from deterministic extraction.',
-    )
-    lines.push('')
-  }
-
   // Colors
-  lines.push(zh ? '## 颜色\n' : '## Colors\n')
+  lines = sections.colors
   const colorGroups = observedColorGroups(tokens)
   if (colorGroups.length > 0) {
     lines.push(zh ? '### 主要观察用途颜色分组\n' : '### Dominant Observed Color Roles\n')
@@ -630,7 +1043,7 @@ export function generateDesignDoc(
   }
 
   // Typography
-  lines.push(zh ? '\n## 排版\n' : '\n## Typography\n')
+  lines = sections.typography
   lines.push(
     zh
       ? `**字体族：** ${tokens.typography.fontFamilies.join(', ') || '系统默认'}`
@@ -660,48 +1073,125 @@ export function generateDesignDoc(
     )
   }
 
-  // Spacing
-  lines.push(zh ? '\n## 间距\n' : '\n## Spacing\n')
-  lines.push(
-    tokens.spacing
-      .map((s, i) => {
-        const count = tokens.usageCount?.[`spacing:${s}`] || 0
-        return zh
-          ? `- 级别 ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
-          : `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
-      })
-      .join('\n'),
-  )
-
-  // Radii
-  lines.push(zh ? '\n## 圆角\n' : '\n## Border Radius\n')
-  lines.push(
-    tokens.radii
-      .map((r, i) => {
-        const count = tokens.usageCount?.[`radius:${r}`] || 0
-        return `- ${RADIUS_NAMES[i] || i}: \`${r}\`${count > 0 ? ` (${count}×)` : ''}`
-      })
-      .join('\n'),
-  )
-
-  // Shadows
-  if (tokens.shadows.length > 0) {
-    lines.push(zh ? '\n## 阴影\n' : '\n## Shadows\n')
-    lines.push(tokens.shadows.map((s, i) => `- ${SHADOW_NAMES[i] || i}: \`${s}\``).join('\n'))
+  // Layout
+  lines = sections.layout
+  lines.push(zh ? '### 间距刻度\n' : '### Spacing Scale\n')
+  if (tokens.spacing.length > 0) {
+    lines.push(
+      tokens.spacing
+        .map((s, i) => {
+          const count = tokens.usageCount?.[`spacing:${s}`] || 0
+          return zh
+            ? `- 级别 ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+            : `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+        })
+        .join('\n'),
+    )
+  } else {
+    lines.push(zh ? '- 未观察到可靠的间距刻度。' : '- No reliable spacing scale was observed.')
+  }
+  if (documentBreakpoints.length > 0) {
+    lines.push(zh ? '\n### 响应式断点\n' : '\n### Responsive Breakpoints\n')
+    lines.push(zh ? '| 标签 | 宽度 |' : '| Label | Width |')
+    lines.push('|-------|-------|')
+    documentBreakpoints.forEach((breakpoint) => {
+      lines.push(`| ${breakpoint.label} | \`${breakpoint.width}px\` |`)
+    })
   }
 
-  // Z-index
-  if (tokens.zIndices?.length > 0) {
-    lines.push(zh ? '\n## 层级（Z-Index）\n' : '\n## Z-Index Layers\n')
+  // Elevation
+  lines = sections.elevation
+  if (tokens.shadows.length > 0) {
+    lines.push(zh ? '### 阴影\n' : '### Shadows\n')
+    lines.push(tokens.shadows.map((shadow, index) => `- ${SHADOW_NAMES[index] || index}: \`${shadow}\``).join('\n'))
+  } else {
     lines.push(
-      tokens.zIndices.map((z, i) => (zh ? `- 层级 ${i + 1}: \`${z}\`` : `- Layer ${i + 1}: \`${z}\``)).join('\n'),
+      zh
+        ? '未观察到稳定的阴影刻度；应通过边框、表面颜色和内容层级表达深度。'
+        : 'No stable shadow scale was observed; express depth through borders, surface colors, and content hierarchy.',
+    )
+  }
+  if (tokens.zIndices?.length > 0) {
+    lines.push(zh ? '\n### 层级（Z-Index）\n' : '\n### Z-Index Layers\n')
+    lines.push(
+      tokens.zIndices
+        .map((zIndex, index) => (zh ? `- 层级 ${index + 1}: \`${zIndex}\`` : `- Layer ${index + 1}: \`${zIndex}\``))
+        .join('\n'),
+    )
+  }
+  if (tokens.transitions?.length > 0) {
+    lines.push(zh ? '\n### 过渡时长\n' : '\n### Transition Durations\n')
+    lines.push(
+      tokens.transitions
+        .map((transition, index) => `- ${DURATION_NAMES[index] || index}: \`${transition}\``)
+        .join('\n'),
     )
   }
 
-  // Transitions
-  if (tokens.transitions?.length > 0) {
-    lines.push(zh ? '\n## 过渡时长\n' : '\n## Transition Durations\n')
-    lines.push(tokens.transitions.map((t, i) => `- ${DURATION_NAMES[i] || i}: \`${t}\``).join('\n'))
+  // Shapes
+  lines = sections.shapes
+  if (tokens.radii.length > 0) {
+    lines.push(zh ? '### 圆角刻度\n' : '### Corner Radius Scale\n')
+    lines.push(
+      tokens.radii
+        .map((radius, index) => {
+          const count = tokens.usageCount?.[`radius:${radius}`] || 0
+          return `- ${RADIUS_NAMES[index] || index}: \`${radius}\`${count > 0 ? ` (${count}×)` : ''}`
+        })
+        .join('\n'),
+    )
+  } else {
+    lines.push(zh ? '未观察到可靠的圆角刻度。' : 'No reliable corner radius scale was observed.')
+  }
+
+  // Components
+  lines = sections.components
+  if (documentComponents.length > 0) {
+    lines.push(
+      zh ? '| 类型 | 实例数 | 置信度 | 代表样式 |' : '| Type | Instances | Confidence | Representative styles |',
+    )
+    lines.push('|---|---:|---:|---|')
+    documentComponents.forEach((component) => {
+      const styles = Object.entries(component.styles)
+        .map(([property, value]) => `\`${property}: ${value}\``)
+        .join('<br>')
+      lines.push(`| ${component.name} | ${component.count} | ${component.confidence} | ${styles || '-'} |`)
+    })
+  } else {
+    lines.push(
+      zh
+        ? '本次未观察到足够可靠的组件模式；请使用上面的令牌和原页面证据实现组件。'
+        : 'No component pattern was observed with enough confidence; implement components from the tokens and source evidence above.',
+    )
+  }
+
+  lines = sections.dosAndDonts
+  lines.push(withoutCanonicalHeading(generateDosAndDonts(tokens, language, documentComponents)))
+
+  lines = appendixLines
+
+  if (designEvidence) {
+    lines.push('')
+    lines.push(generateDesignEvidenceBrief(designEvidence, language, designProfile?.inputMode))
+  }
+
+  if (designProfile) {
+    lines.push('')
+    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus))
+  } else if (
+    designIntelligenceStatus &&
+    ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
+  ) {
+    lines.push('')
+    lines.push(zh ? '## AI 设计解读' : '## AI Design Insights')
+    lines.push('')
+    lines.push(`**${zh ? '状态' : 'Status'}:** \`${designIntelligenceStatus}\``)
+    lines.push('')
+    lines.push(
+      zh
+        ? '> 本次没有可用的 AI 设计解读；下方令牌与证据仍来自确定性程序提取。'
+        : '> No AI design interpretation is available for this run; the tokens and evidence below still come from deterministic extraction.',
+    )
   }
 
   if (tokens.evidence && Object.keys(tokens.evidence).length > 0) {
@@ -725,16 +1215,6 @@ export function generateDesignDoc(
         zh ? `- 建议人工确认：${lowConfidence.join('、')}` : `- Review recommended: ${lowConfidence.join(', ')}`,
       )
     }
-  }
-
-  // Breakpoints
-  if (breakpoints && breakpoints.length > 0) {
-    lines.push(zh ? '\n## 响应式断点\n' : '\n## Responsive Breakpoints\n')
-    lines.push(zh ? '| 标签 | 宽度 |' : '| Label | Width |')
-    lines.push('|-------|-------|')
-    breakpoints.forEach((bp) => {
-      lines.push(`| ${bp.label} | \`${bp.width}px\` |`)
-    })
   }
 
   if (!designEvidence) {
@@ -781,11 +1261,15 @@ export function generateDesignDoc(
         : '- For exact CSS variables or Tailwind theme config, use the corresponding Imprint export format.',
     )
   } else {
-    lines.push(generateAgentGuide(tokens, url, language))
-    lines.push(generateDosAndDonts(tokens, language))
+    lines.push(generateAgentGuide(tokens, documentUrl, language))
   }
 
-  return lines.join('\n')
+  return renderDesignMdDocument({
+    frontMatter,
+    title: zh ? '设计系统' : 'Design System',
+    sections,
+    appendices: [appendixLines.join('\n')],
+  })
 }
 
 function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {

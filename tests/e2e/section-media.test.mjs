@@ -114,6 +114,30 @@ test('a feed that fills the whole main landmark keeps its feature-group role', a
   assert.equal(evidence.sections[0].role, 'feature-group')
 })
 
+test('keeps evidence keys unique for repeated subtrees deeper than eight levels', async () => {
+  const repeatedBranch = (label) => `
+    <section>
+      <div><div><div><div><div><div><div><div><div>
+        <button type="button">${label}</button>
+      </div></div></div></div></div></div></div></div></div>
+    </section>`
+
+  await page.setContent(`<!doctype html>
+    <style>
+      button { display: block; width: 120px; height: 40px; }
+    </style>
+    <body><main>${repeatedBranch('First')}${repeatedBranch('Second')}</main></body>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const buttons = evidence.components.filter((component) => component.type === 'button')
+  const actions = evidence.layoutNodes.filter((node) => node.role === 'action')
+
+  assert.equal(buttons.length, 2)
+  assert.equal(new Set(buttons.map((button) => button.key)).size, 2)
+  assert.equal(actions.length, 2)
+  assert.equal(new Set(actions.map((action) => action.key)).size, 2)
+})
+
 test('distinguishes contained horizontal scrollers from page-level overflow', async () => {
   await page.setViewportSize({ width: 375, height: 812 })
   await page.setContent(`<!doctype html>

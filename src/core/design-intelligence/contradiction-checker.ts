@@ -1,4 +1,11 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
+import {
+  classifyComponentVariant,
+  hasVisibleShadow,
+  isOutlinedButton,
+  isPillRadius,
+} from '../analyzer/component-detect.js'
+import type { ComponentType } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
@@ -14,6 +21,16 @@ const MINIMUM_WORD = /\b(?:min(?:imum)?|lowest|smallest)\b|最小|最低/i
 const RANGE_WORD = /\b(?:range|from\s+\d+\s+to|between\s+\d+\s+and)\b|范围|从\s*\d+\s*到/i
 const ONLY_COUNT = /\b(?:only|exactly)\s+(\d+)\s+(?:font\s*)?weights?\b|(?:仅有|只有|恰好)\s*(\d+)\s*种?字重/i
 const COLOR_LITERAL = /#[\da-f]{3,8}\b|rgba?\([^)]+\)/gi
+const PRIMARY_BUTTON_ASSERTION =
+  /\b(?:primary|main)\s+(?:button|action|cta)\b|(?:主按钮|主操作|主要操作|主要行动|一级按钮|(?:一级|主要|主)\s*CTA)/i
+const OUTLINED_BUTTON_ASSERTION =
+  /\b(?:outlined?|bordered)\s+(?:button|action|cta)s?\b|(?:描边|边框)(?:式)?按钮|按钮[^。！？]{0,16}(?:描边|边框)/i
+const UNIVERSAL_SMALL_BUTTON_RADIUS_ASSERTION =
+  /\b(?:all|every)\s+buttons?[^.!?]{0,48}(?:small|minimal|compact)\s+(?:corner\s+)?radius|buttons?[^.!?]{0,40}(?:uniform|consistent)[^.!?]{0,24}(?:small|minimal|compact)\s+(?:corner\s+)?radius|按钮[^。！？]{0,32}(?:统一|一律|全部|均|维持|保持)[^。！？]{0,16}小圆角/i
+const UNIVERSAL_NO_SHADOW_BUTTON_ASSERTION =
+  /\b(?:all|every)\s+buttons?[^.!?]{0,40}(?:no\s+(?:box[- ]?)?shadow|box-shadow\s*:\s*none)|buttons?[^.!?]{0,44}(?:always|uniformly|consistently)[^.!?]{0,24}(?:no\s+(?:box[- ]?)?shadow|box-shadow\s*:\s*none)|按钮[^。！？]{0,24}(?:一律|全部|均|统一|维持)[^。！？]{0,20}(?:无阴影|boxShadow\s*:\s*none)/i
+const RESPONSIVE_CHANGE_ASSERTION =
+  /(?:\b(?:mobile|narrow|small[- ]screen|compact viewport)\b[^.!?;]{0,80}\b(?:reflows?|stacks?|hides?|collapses?|single[- ]column|one[- ]column|fits?)\b|\b(?:reflows?|stacks?|hides?|collapses?|single[- ]column|one[- ]column)\b[^.!?;]{0,80}\b(?:mobile|narrow|small[- ]screen|compact viewport)\b)|(?:移动端|窄屏|小屏|窄视口)[^。！？；]{0,48}(?:重排|堆叠|隐藏|收起|改单列|单列|适配|完整容纳)|(?:重排|堆叠|隐藏|收起|改单列|单列)[^。！？；]{0,48}(?:移动端|窄屏|小屏|窄视口)/i
 
 function normalizeLength(value: string): string {
   const normalized = value.trim().toLowerCase()
@@ -44,6 +61,15 @@ function replaceUnsupportedLength(
 
 function claimText(claim: DesignClaim): string {
   return `${claim.statement} ${claim.implementation}`
+}
+
+function removeUnsupportedResponsiveSegments(value: string): string {
+  return value
+    .split(/(?<=[。！？.!?；;])\s*/)
+    .filter((segment) => !RESPONSIVE_CHANGE_ASSERTION.test(segment))
+    .join(' ')
+    .replace(/[；;]\s*$/, '')
+    .trim()
 }
 
 function numericLength(value: string): number | null {
@@ -166,6 +192,16 @@ function describeContradiction(reason: string, language: DesignProfile['language
       ? '深浅色调色板不能仅按序号建立对应关系，相关主张已降为低置信度。'
       : 'Light and dark palettes cannot be matched by index alone, so the claim was demoted to low confidence.'
   }
+  if (/component-variant-contradiction/.test(detail)) {
+    return zh
+      ? '主按钮规则只引用了非主按钮证据，已替换为低置信度兜底。'
+      : 'The primary-button rule cited only non-primary button evidence and was replaced with a low-confidence fallback.'
+  }
+  if (/button-outline-contradiction/.test(detail)) {
+    return zh
+      ? '描边按钮规则引用的组件没有可见描边，已替换为低置信度兜底。'
+      : 'The outlined-button rule cited components without a visible outline and was replaced with a low-confidence fallback.'
+  }
   return zh
     ? '一项确定性校验发现该主张与提取证据不一致，已采用低置信度兜底。'
     : 'A deterministic check found that this claim conflicts with extracted evidence, so a low-confidence fallback was used.'
@@ -231,6 +267,27 @@ export function checkProfileContradictions(
     evidence.interactionObservations.map((observation) => [observation.id, observation] as const),
   )
   const responsiveIds = new Set(evidence.responsiveObservations.map((observation) => observation.id))
+  const componentsById = new Map<string, DesignEvidence['components']>()
+  for (const component of evidence.components) {
+    const components = componentsById.get(component.id) || []
+    components.push(component)
+    componentsById.set(component.id, components)
+  }
+  const componentContext = (component: DesignEvidence['components'][number]) => {
+    const page = pageById.get(component.pageId)
+    const pageWidth = page?.contentWidth || page?.viewportWidth
+    const pageHeight = page?.contentHeight || page?.viewportHeight
+    return {
+      tokenRefs: component.tokenRefs,
+      primaryColor: evidence.tokens.colors.primary,
+      role: component.role,
+      ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
+      ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
+    }
+  }
+  const allButtons = evidence.components.filter((component) => component.type === 'button')
+  const hasPillButtons = allButtons.some((component) => isPillRadius(component.styles, componentContext(component)))
+  const hasShadowedButtons = allButtons.some((component) => hasVisibleShadow(component.styles.boxShadow))
 
   const visit = (value: unknown, path: string): void => {
     if (Array.isArray(value)) {
@@ -247,6 +304,7 @@ export function checkProfileContradictions(
     if (isClaim) {
       const claim = record as unknown as DesignClaim
       let text = claimText(claim)
+      let buttonRadiusSanitized = false
       const hardReject = (reason: string) => {
         hardRejectedClaims.add(record)
         rejected.push(`${path}:${reason}`)
@@ -348,11 +406,28 @@ export function checkProfileContradictions(
         .filter((page): page is DesignEvidence['pages'][number] => Boolean(page))
       const referencesOverflow = referencedPages.some((page) => page.horizontalOverflow)
       const referencesResponsive = claim.evidence.some((reference) => responsiveIds.has(reference.evidenceId))
-      if (
-        referencesOverflow &&
-        !referencesResponsive &&
-        /\b(?:reflows?|stacks?|hides?|collapses?|fits?|responsive)\b|重排|堆叠|隐藏|收起|响应式适配/i.test(text)
-      ) {
+      const referencesNonOverflowMobile = referencedPages.some(
+        (page) => page.viewport === 'mobile' && !page.horizontalOverflow,
+      )
+      const assertsResponsiveChange = RESPONSIVE_CHANGE_ASSERTION.test(text)
+      if (assertsResponsiveChange && !referencesResponsive && !referencesNonOverflowMobile) {
+        const statement = removeUnsupportedResponsiveSegments(claim.statement)
+        const implementation = removeUnsupportedResponsiveSegments(claim.implementation)
+        if (!statement) {
+          hardReject('responsive-claim-without-mobile-evidence')
+        } else {
+          claim.statement = statement
+          claim.implementation =
+            implementation ||
+            (profile.language === 'zh-CN'
+              ? '仅复用已观察到的结构；移动端行为需由对应的响应式或移动端证据确认。'
+              : 'Reuse only the observed structure; verify mobile behavior with matching responsive or mobile evidence.')
+          if (claim.confidence === 'high') claim.confidence = 'medium'
+          rejected.push(`${path}:responsive-wording-without-mobile-evidence-sanitized`)
+          text = claimText(claim)
+        }
+      }
+      if (referencesOverflow && !referencesResponsive && assertsResponsiveChange) {
         hardReject('overflow-does-not-prove-reflow')
       }
 
@@ -401,6 +476,60 @@ export function checkProfileContradictions(
       }
       if (/dark-palette-\d+\D{0,20}(?:equals|matches|corresponds|对应|等同)\D{0,20}palette-\d+/i.test(text)) {
         hardReject('dark-palette-index-assumption')
+      }
+      const referencedComponents = claim.evidence.flatMap((reference) => componentsById.get(reference.evidenceId) || [])
+      const referencedButtons = referencedComponents.filter((component) => component.type === 'button')
+      const assertsPrimaryButton = PRIMARY_BUTTON_ASSERTION.test(text)
+      const assertsOutlinedButton = OUTLINED_BUTTON_ASSERTION.test(text)
+      const assertsUniversalSmallButtonRadius = UNIVERSAL_SMALL_BUTTON_RADIUS_ASSERTION.test(text)
+      const assertsUniversalNoShadowButton = UNIVERSAL_NO_SHADOW_BUTTON_ASSERTION.test(text)
+      if (assertsPrimaryButton) {
+        const referencedButtonVariants = referencedButtons.map((component) =>
+          classifyComponentVariant(component.type as ComponentType, component.styles, componentContext(component)),
+        )
+        if (referencedButtonVariants.length > 0 && !referencedButtonVariants.includes('primary')) {
+          hardReject(`component-variant-contradiction(primary!=${[...new Set(referencedButtonVariants)].join('|')})`)
+        }
+      }
+      if (
+        !hardRejectedClaims.has(record) &&
+        assertsOutlinedButton &&
+        referencedButtons.length > 0 &&
+        !referencedButtons.some((component) => isOutlinedButton(component.styles))
+      ) {
+        hardReject('button-outline-contradiction')
+      }
+      if (!hardRejectedClaims.has(record) && hasPillButtons && assertsUniversalSmallButtonRadius) {
+        if (UNIVERSAL_SMALL_BUTTON_RADIUS_ASSERTION.test(claim.statement)) {
+          claim.statement =
+            profile.language === 'zh-CN'
+              ? '普通表面以小圆角为主，按钮另有胶囊或圆形变体。'
+              : 'Ordinary surfaces use compact radii, while buttons also include pill or circular variants.'
+        }
+        claim.implementation =
+          profile.language === 'zh-CN'
+            ? '普通卡片和输入框沿用已观察的小圆角；按钮应按证据分别复用小圆角与胶囊形变体。'
+            : 'Reuse observed compact radii for ordinary cards and inputs; preserve compact and pill button variants separately from their evidence.'
+        if (claim.confidence === 'high') claim.confidence = 'medium'
+        buttonRadiusSanitized = true
+        rejected.push(`${path}:button-radius-variants-sanitized`)
+        text = claimText(claim)
+      }
+      if (!hardRejectedClaims.has(record) && hasShadowedButtons && assertsUniversalNoShadowButton) {
+        claim.statement = buttonRadiusSanitized
+          ? profile.language === 'zh-CN'
+            ? '保留紧凑圆角和低投影语言，并区分胶囊按钮及少量浅阴影按钮变体。'
+            : 'Preserve compact radii and low elevation while distinguishing pill and lightly shadowed button variants.'
+          : profile.language === 'zh-CN'
+            ? '整体表面保持低投影；多数按钮无阴影，少量浮动工具按钮使用浅阴影。'
+            : 'Surfaces stay low-elevation overall; most buttons are flat while a few floating tools use light shadows.'
+        claim.implementation =
+          profile.language === 'zh-CN'
+            ? '按组件证据区分无阴影常规按钮与带浅阴影的浮动工具按钮，不把任一变体扩展为全局规则。'
+            : 'Distinguish flat ordinary buttons from lightly shadowed floating tools using component evidence; do not generalize either variant globally.'
+        if (claim.confidence === 'high') claim.confidence = 'medium'
+        rejected.push(`${path}:button-shadow-universal-sanitized`)
+        text = claimText(claim)
       }
     }
     Object.entries(record).forEach(([key, item]) => {
@@ -534,6 +663,9 @@ export function checkProfileContradictions(
             !item.includes('property-normalized') &&
             !item.includes('numeric-value-sanitized') &&
             !item.includes('token-value-sanitized') &&
+            !item.includes('responsive-wording-without-mobile-evidence-sanitized') &&
+            !item.includes('button-radius-variants-sanitized') &&
+            !item.includes('button-shadow-universal-sanitized') &&
             !item.includes('passive-interaction-transfer-rule-sanitized') &&
             !item.includes('passive-interaction-wording-sanitized'),
         )

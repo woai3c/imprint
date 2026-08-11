@@ -41,7 +41,9 @@
     "release:collect": "node scripts/collect-release-artifacts.mjs",
     "prepare": "husky",
     "test:benchmark": "vitest run -c vitest.benchmark.config.ts",
-    "test:benchmark:live": "node scripts/benchmark-live.mjs"
+    "test:benchmark:live": "node scripts/benchmark-live.mjs",
+    "test:competitive": "pnpm build:cli && node scripts/competitive-benchmark.mjs",
+    "test:competitive:all": "pnpm build:cli && node scripts/competitive-benchmark.mjs --tools all"
   },
   "bin": {
     "imprint": "./dist/cli/index.js",
@@ -54,7 +56,8 @@
     "playwright-core": "^1.50.0",
     "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
@@ -63,6 +66,7 @@
     "@electron-forge/maker-dmg": "^7.0.0",
     "@electron-forge/maker-zip": "^7.0.0",
     "@electron-forge/plugin-vite": "^7.0.0",
+    "@google/design.md": "0.4.0",
     "@tailwindcss/vite": "^4.0.0",
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",
     "@types/better-sqlite3": "^7.0.0",

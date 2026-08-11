@@ -57,7 +57,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence               |
 | Screenshot analysis      | Extract design patterns from UI screenshots                                                     |
 | Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance                    |
-| AI-ready documentation   | Export DESIGN.md for AI coding agents                                                           |
+| AI-ready documentation   | Export Google DESIGN.md alpha with traceable Imprint extensions                                 |
 | Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                            |
 | Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli                        |
 | Local-first storage      | Store project data locally with SQLite                                                          |
@@ -85,6 +85,8 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Audit how the source pages were observed               | **Design Evidence JSON** | The related screenshots              |
 
 If you give AI only one exported file, choose **DESIGN.md**.
+
+Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The compact `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; full token provenance remains in Tokens JSON and `design-evidence.json`.
 
 ## Design Evidence and Design DNA
 

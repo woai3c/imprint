@@ -1,5 +1,5 @@
 import type { AiImageInput } from '../ai/provider.js'
-import { callAiProvider } from '../ai/provider.js'
+import { aiPipelineTimeoutMs, callAiProvider } from '../ai/provider.js'
 import { validateColorRenames } from '../analyzer/token-renamer.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { buildAnalysisDigest } from './analysis-digest.js'
@@ -256,7 +256,7 @@ export async function interpretDesignEvidence(
   if (options.mode === 'multimodal' && evidence.source.accessMode !== 'anonymous') {
     throw new Error('Screenshot interpretation is unavailable for signed-in evidence')
   }
-  const timeoutSignal = AbortSignal.timeout(300_000)
+  const timeoutSignal = AbortSignal.timeout(aiPipelineTimeoutMs(options.provider.thinkingEnabled === true))
   let evidencePackage = selectEvidencePackage(evidence, options.mode)
   if (evidencePackage.evidence.pages.length === 0) {
     throw new Error('No page passed the AI evidence health gate')

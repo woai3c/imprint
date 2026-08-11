@@ -52,6 +52,37 @@ function imageContentHash(filePath: string): string | undefined {
   }
 }
 
+interface InstanceIdRegistry<T extends { key: string }> {
+  byItem: Map<T, string>
+  byKey: Map<string, string[]>
+}
+
+function createInstanceIdRegistry<T extends { key: string }>(
+  kind: string,
+  pageId: string,
+  items: readonly T[],
+): InstanceIdRegistry<T> {
+  const totals = new Map<string, number>()
+  items.forEach((item) => totals.set(item.key, (totals.get(item.key) || 0) + 1))
+
+  const occurrences = new Map<string, number>()
+  const byItem = new Map<T, string>()
+  const byKey = new Map<string, string[]>()
+  items.forEach((item) => {
+    const occurrence = (occurrences.get(item.key) || 0) + 1
+    occurrences.set(item.key, occurrence)
+    const id =
+      (totals.get(item.key) || 0) > 1
+        ? createEvidenceId(kind, pageId, item.key, occurrence)
+        : createEvidenceId(kind, pageId, item.key)
+    byItem.set(item, id)
+    const ids = byKey.get(item.key) || []
+    ids.push(id)
+    byKey.set(item.key, ids)
+  })
+  return { byItem, byKey }
+}
+
 function normalizeColor(value: string): string {
   const match = value.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i)
   if (!match || (match[4] !== undefined && Number(match[4]) !== 1)) return value.toLowerCase().trim()
@@ -291,6 +322,11 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const captureKey = `${capture.snapshot.url}|${capture.snapshot.viewport}`
     const pageId = createEvidenceId('page', capture.snapshot.url, capture.snapshot.viewport)
     const imageId = createEvidenceId('image', pageId, 'overview')
+    const componentIds = createInstanceIdRegistry('component', pageId, capture.snapshot.components)
+    const layoutIds = createInstanceIdRegistry('layout', pageId, capture.snapshot.layoutNodes)
+    const mediaIds = createInstanceIdRegistry('media', pageId, capture.snapshot.mediaLayers)
+    const ariaStateIds = createInstanceIdRegistry('interaction', pageId, capture.snapshot.ariaStates || [])
+    const activeInteractionIds = createInstanceIdRegistry('interaction', pageId, capture.interactionObservations || [])
     imageIds.set(captureKey, imageId)
     for (const section of capture.snapshot.sections) {
       sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
@@ -352,9 +388,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         layoutMode: section.layoutMode,
         parentSectionId: section.parentKey ? sectionIds.get(`${captureKey}|${section.parentKey}`) : undefined,
         tokenRefs: tokenRefsForStyles(section.styles, tokenIndex),
-        componentRefs: sectionComponents.map((component) => createEvidenceId('component', pageId, component.key)),
+        componentRefs: sectionComponents.map((component) => componentIds.byItem.get(component)!),
         interactionRefs: [],
-        mediaLayerRefs: sectionMedia.map((media) => createEvidenceId('media', pageId, media.key)),
+        mediaLayerRefs: sectionMedia.map((media) => mediaIds.byItem.get(media)!),
         evidenceRefs: [imageId],
       })
       const snapType = section.styles.scrollSnapType
@@ -381,7 +417,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       const sectionId = sectionIds.get(`${captureKey}|${component.sectionKey}`)
       if (!sectionId) continue
       components.push({
-        id: createEvidenceId('component', pageId, component.key),
+        id: componentIds.byItem.get(component)!,
         pageId,
         sectionId,
         type: component.type,
@@ -398,12 +434,12 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     for (const ariaState of capture.snapshot.ariaStates || []) {
       const sectionId = sectionIds.get(`${captureKey}|${ariaState.sectionKey}`)
       if (!sectionId) continue
-      const id = createEvidenceId('interaction', pageId, ariaState.key)
+      const id = ariaStateIds.byItem.get(ariaState)!
       interactionObservations.push({
         id,
         pageId,
         sectionId,
-        targetId: createEvidenceId('target', pageId, ariaState.key),
+        targetId: createEvidenceId('target', id),
         driver: 'click',
         safety: 'passive',
         trigger: { kind: `aria-state:${ariaState.attribute}` },
@@ -419,15 +455,15 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     for (const observation of capture.interactionObservations || []) {
       const sectionId = sectionIds.get(`${captureKey}|${observation.sectionKey}`)
       if (!sectionId) continue
-      const id = createEvidenceId('interaction', pageId, observation.key)
+      const id = activeInteractionIds.byItem.get(observation)!
       const targetComponentId = observation.targetComponentKey
-        ? createEvidenceId('component', pageId, observation.targetComponentKey)
+        ? componentIds.byKey.get(observation.targetComponentKey)?.[0]
         : undefined
       interactionObservations.push({
         id,
         pageId,
         sectionId,
-        targetId: targetComponentId || createEvidenceId('target', pageId, observation.targetKey),
+        targetId: targetComponentId || createEvidenceId('target', id),
         driver: observation.driver,
         safety: 'safe-active',
         trigger: { kind: observation.triggerKind },
@@ -449,7 +485,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       const sectionId = sectionIds.get(`${captureKey}|${node.sectionKey}`)
       if (!sectionId) continue
       layoutNodes.push({
-        id: createEvidenceId('layout', pageId, node.key),
+        id: layoutIds.byItem.get(node)!,
         pageId,
         sectionId,
         role: node.role,
@@ -470,7 +506,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       const sectionId = sectionIds.get(`${captureKey}|${media.sectionKey}`)
       if (!sectionId) continue
       mediaLayers.push({
-        id: createEvidenceId('media', pageId, media.key),
+        id: mediaIds.byItem.get(media)!,
         pageId,
         sectionId,
         kind: media.kind,

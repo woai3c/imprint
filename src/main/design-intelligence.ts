@@ -7,7 +7,7 @@ import { nativeImage, net } from 'electron'
 import { resolveAiModelCapabilities, resolveEffectiveModel } from '../core/ai/capabilities.js'
 import { loadEvidenceImageFiles, loadEvidenceImageInputs } from '../core/ai/image-summary.js'
 import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
-import { type AiImageInput, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
+import { type AiImageInput, aiPipelineTimeoutMs, callAiProvider, mimeTypeForPath } from '../core/ai/provider.js'
 import {
   buildExamplePrompt,
   completeExampleGeneration,
@@ -54,6 +54,10 @@ export function hasDesignIntelligenceConfiguration(settings: AppSettings): boole
   return settings.aiMode === 'apiKey'
     ? Boolean(settings.provider && settings.apiKeys[settings.provider])
     : Boolean(settings.agentCli)
+}
+
+export function designIntelligenceTimeoutMs(settings: Pick<AppSettings, 'aiMode' | 'thinkingEnabled'>): number {
+  return aiPipelineTimeoutMs(settings.aiMode === 'agentCli' || settings.thinkingEnabled === true)
 }
 
 export function chooseDesignIntelligenceRoute(
@@ -323,7 +327,8 @@ export async function runExampleGeneration(
   }
 
   const startedAt = Date.now()
-  const timeoutSignal = AbortSignal.timeout(300_000)
+  const timeoutBudgetMs = designIntelligenceTimeoutMs(settings)
+  const timeoutSignal = AbortSignal.timeout(timeoutBudgetMs)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
   const route = chooseDesignIntelligenceRoute(settings, evidence)
   const evidencePackage = selectEvidencePackage(evidence, route.mode)
@@ -495,7 +500,8 @@ export async function runDesignIntelligence(
     inputFingerprint: fingerprint,
     inputImageCount: evidencePackage.imageIds.length,
   }
-  const timeoutSignal = AbortSignal.timeout(300_000)
+  const timeoutBudgetMs = designIntelligenceTimeoutMs(settings)
+  const timeoutSignal = AbortSignal.timeout(timeoutBudgetMs)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
   const accumulatedUsage = { input: 0, output: 0, calls: 0 }
   const accumulatedCallDetails: CallDetail[] = []
@@ -532,17 +538,28 @@ export async function runDesignIntelligence(
       onProgress?.('progress.synthesisPass', 40)
       log.info(
         'design-intelligence',
-        `invoke #${invokeCount}: images=${passImages.length} promptLen=${taskPrompt.length}`,
+        `invoke #${invokeCount}: images=${passImages.length} promptLen=${taskPrompt.length} timeoutMs=${timeoutBudgetMs}`,
       )
       let result: Awaited<ReturnType<InterpretationInvoke>>
       const invokeStart = Date.now()
       try {
         if (settings.aiMode === 'apiKey') {
           const thinking = settings.thinkingEnabled === true
+          let lastStreamLogAt: number | undefined
           result = await callAiProvider(
             {
               ...providerConfig,
               maxOutputTokens: thinking ? 8192 : 4096,
+              onStreamProgress: (progress) => {
+                const elapsedMs = Date.now() - invokeStart
+                if (lastStreamLogAt !== undefined && elapsedMs - lastStreamLogAt < 30_000) return
+                lastStreamLogAt = elapsedMs
+                log.info(
+                  'design-intelligence',
+                  `invoke #${invokeCount} stream: elapsedMs=${elapsedMs} events=${progress.eventCount} ` +
+                    `reasoningChars=${progress.reasoningChars} contentChars=${progress.contentChars}`,
+                )
+              },
             },
             taskPrompt,
             passImages,
@@ -671,7 +688,7 @@ export async function runDesignIntelligence(
     let reason: string | undefined
     if (code === 'timeout') {
       reason =
-        'AI interpretation timed out. Thinking models can be slow on large pages — try again, disable thinking, or switch to a faster model.'
+        'AI interpretation exceeded its request timeout. Try again, disable thinking, lower the reasoning effort, or switch to a faster model.'
     } else if (code === 'cancelled') {
       reason = undefined
     } else {

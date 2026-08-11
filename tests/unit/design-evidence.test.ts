@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import {
@@ -196,6 +197,68 @@ describe('Design Evidence', () => {
       fontWeight: '700',
       lineHeight: '48px',
     })
+  })
+
+  it('assigns unique stable IDs when a snapshot defensively contains repeated keys', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.components.push({
+      ...structuredClone(snapshot.components[0]),
+      rect: { x: 0.5, y: 0.3, width: 0.2, height: 0.04 },
+      styles: { ...snapshot.components[0].styles, backgroundColor: 'rgba(0, 0, 0, 0)' },
+    })
+    snapshot.layoutNodes.push({
+      ...structuredClone(snapshot.layoutNodes[0]),
+      rect: { x: 0.2, y: 0.5, width: 0.5, height: 0.08 },
+    })
+    snapshot.mediaLayers = [
+      {
+        key: 'image:repeated',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'decorative',
+        importance: 'major',
+        rect: { x: 0.1, y: 0.6, width: 0.2, height: 0.1 },
+      },
+      {
+        key: 'image:repeated',
+        sectionKey: 'hero:1',
+        kind: 'image',
+        role: 'product',
+        importance: 'major',
+        rect: { x: 0.4, y: 0.6, width: 0.2, height: 0.1 },
+      },
+    ]
+    snapshot.ariaStates = [
+      { key: 'aria:repeated', sectionKey: 'hero:1', attribute: 'aria-expanded', value: 'false' },
+      { key: 'aria:repeated', sectionKey: 'hero:1', attribute: 'aria-expanded', value: 'true' },
+    ]
+    const build = () =>
+      buildDesignEvidence({
+        analysisId: 'analysis-duplicate-keys',
+        requestedUrl: snapshot.url,
+        finalUrl: snapshot.url,
+        accessMode: 'anonymous',
+        expectedPageCount: 1,
+        tokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures: [{ screenshot: { url: snapshot.url, path: '', viewport: 'desktop' }, snapshot }],
+      })
+
+    const first = build()
+    const second = build()
+    for (const collection of [first.components, first.layoutNodes, first.mediaLayers, first.interactionObservations]) {
+      expect(new Set(collection.map((item) => item.id)).size).toBe(collection.length)
+    }
+    expect(first.components.map((item) => item.id)).toEqual(second.components.map((item) => item.id))
+    expect(first.sections.find((section) => section.role === 'hero')?.componentRefs).toEqual(
+      first.components.map((component) => component.id),
+    )
+    expect(first.sections.find((section) => section.role === 'hero')?.mediaLayerRefs).toEqual(
+      first.mediaLayers.map((media) => media.id),
+    )
   })
 
   it('records topology, viewport differences, coverage, and explicit limitations', () => {
@@ -595,6 +658,27 @@ describe('Design Evidence', () => {
       node.tokenRefs = node.tokenRefs.filter((ref) => !ref.startsWith('typography.line-height.'))
     })
     const observedLineHeightBrief = generateDesignEvidenceBrief(evidenceWithoutLineHeightRefs)
+    const designFrontMatter = parse(designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
+      version: string
+      components: Record<string, Record<string, string>>
+      'x-imprint': Array<{
+        schema: string
+        evidence: { analysisId: string }
+        componentSummary: { source: string; patterns: number; instances: number }
+      }>
+    }
+    const diagnosticFrontMatter = parse(diagnosticDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
+      'x-imprint': Array<{
+        analysis: {
+          promptVersion: string
+          rejectedCount: number
+          repairedCount: number
+          rejected: string[]
+          repaired: string[]
+          timing: { programMs: number; aiMs: number; userWaitExcludedMs: number; activeTotalMs: number }
+        }
+      }>
+    }
 
     expect(json.schemaVersion).toBe('1')
     expect(json.analysisId).toBe('analysis-1')
@@ -602,8 +686,19 @@ describe('Design Evidence', () => {
     expect(brief).toContain('no AI visual thesis')
     expect(brief).toContain('navigation → hero')
     expect(designDoc).toContain('## Design Evidence Overview')
-    expect(designDoc).toMatch(/^---\nschema: "imprint\.design-system\/1"/)
-    expect(designDoc).toContain('analysis_id: "analysis-1"')
+    expect(designFrontMatter).toMatchObject({
+      version: 'alpha',
+      components: { 'button-primary': expect.any(Object) },
+      'x-imprint': [
+        {
+          schema: 'imprint.design-system/2',
+          evidence: { analysisId: 'analysis-1' },
+          componentSummary: { source: 'design-evidence', patterns: 1, instances: 2 },
+        },
+      ],
+    })
+    expect(designDoc).toContain('| button-primary | 2 | 0.98 |')
+    expect(designDoc).not.toContain('No component pattern was observed with enough confidence')
     expect(designDoc).toContain('### Typography Role Evidence')
     expect(designDoc).toContain('| `display` | 2 | `Inter`')
     expect(designDoc).toContain('`2rem`')
@@ -618,14 +713,13 @@ describe('Design Evidence', () => {
     expect(chineseDoc).not.toContain('经校验的设计解读')
     expect(failedDoc).toContain('**Status:** `failed`')
     expect(failedDoc).toContain('No AI design interpretation is available')
-    expect(diagnosticDoc).toContain('prompt_version: "19"')
-    expect(diagnosticDoc).toContain('rejected_count: 2')
-    expect(diagnosticDoc).toContain('repaired_count: 1')
-    expect(diagnosticDoc).toContain('  rejected:\n    - "one"\n    - "two"')
-    expect(diagnosticDoc).toContain('  repaired:\n    - "one"')
-    expect(diagnosticDoc).toContain('program_ms: 65000')
-    expect(diagnosticDoc).toContain('ai_ms: 95000')
-    expect(diagnosticDoc).toContain('user_wait_excluded_ms: 135000')
-    expect(diagnosticDoc).toContain('active_total_ms: 160000')
+    expect(diagnosticFrontMatter['x-imprint'][0].analysis).toMatchObject({
+      promptVersion: '19',
+      rejectedCount: 2,
+      repairedCount: 1,
+      rejected: ['one', 'two'],
+      repaired: ['one'],
+      timing: { programMs: 65_000, aiMs: 95_000, userWaitExcludedMs: 135_000, activeTotalMs: 160_000 },
+    })
   })
 })

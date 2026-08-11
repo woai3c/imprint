@@ -319,11 +319,13 @@
       "limitations": {
         "fewerPages": "The site had fewer analyzable pages than requested ({{pages}} captured).",
         "singleViewport": "Only one screen size was captured, so layout changes across sizes could not be compared.",
+        "horizontalOverflow": "At least one viewport has horizontal overflow; off-screen content may be clipped instead of responsively reflowed.",
         "noSections": "No clear page sections could be identified.",
         "noActiveInteractions": "Some interactions were not observed because they could not be triggered safely.",
         "noInteractionStates": "No interaction state changes (such as hover or focus styles) were captured.",
         "noMedia": "No major image or video regions were found on the captured pages.",
         "noMediaClassification": "The purpose of media regions could not be determined.",
+        "extractionDegraded": "At least one extraction stage degraded, so the result may be incomplete.",
         "unknown": "Some data could not be captured."
       }
     },

@@ -2,6 +2,8 @@
 
 固定的质量考卷：15 个风格迥异的合成 fixture + 人工标注，用来回答两个问题——**证据提取是否完整**、**设计语言理解是否具体**。修改提取器、prompt 或校验器之后必须跑一遍，指标退化即视为回归。
 
+这个目录的标注是 Imprint 行为特征化，不能直接当作中立竞品分数。跨 CLI 的独立 token/格式基线见 [`../competitive-benchmark/README.md`](../competitive-benchmark/README.md)。
+
 ## 运行
 
 ```bash

@@ -1,3 +1,5 @@
+import { isPillRadius } from './component-detect.js'
+import type { ComponentVariantPattern } from './component-detect.js'
 import type { DesignToken, GeneratedExampleComponent } from './types.js'
 
 export type DocLanguage = 'en' | 'zh-CN'
@@ -191,11 +193,17 @@ export function generateDesignPrinciples(tokens: DesignToken, language: DocLangu
  * Generate Do's and Don'ts based on analyzed design patterns.
  * Code-based heuristics — no LLM needed.
  */
-export function generateDosAndDonts(tokens: DesignToken, language: DocLanguage = 'en'): string {
+export function generateDosAndDonts(
+  tokens: DesignToken,
+  language: DocLanguage = 'en',
+  components: readonly ComponentVariantPattern[] = [],
+): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
 
-  lines.push(zh ? '## 正确做法与避免事项' : "## Do's and Don'ts")
+  // The canonical English heading is required by the DESIGN.md alpha parser;
+  // localized guidance remains below it.
+  lines.push("## Do's and Don'ts")
   lines.push('')
   lines.push(zh ? '### 正确做法' : "### Do's")
   lines.push('')
@@ -219,14 +227,41 @@ export function generateDosAndDonts(tokens: DesignToken, language: DocLanguage =
 
   // Radius-specific
   if (tokens.radii.length > 0) {
-    const maxR = Math.max(...tokens.radii.map((r) => parseFloat(r)))
-    if (maxR >= 12) {
+    const regularRadii = tokens.radii
+      .flatMap((radius) => {
+        const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))(px|rem|em)?$/i.exec(radius.trim())
+        if (!match) return []
+        const value =
+          Number(match[1]) * (match[2]?.toLowerCase() === 'rem' || match[2]?.toLowerCase() === 'em' ? 16 : 1)
+        // Percentages and oversized values describe circles/pills, not the corner
+        // character of ordinary surfaces. They must not make an otherwise compact
+        // system look broadly rounded.
+        return Number.isFinite(value) && value >= 0 && value <= 64 ? [value] : []
+      })
+      .sort((first, second) => first - second)
+    const middle = Math.floor(regularRadii.length / 2)
+    const representativeRadius =
+      regularRadii.length === 0
+        ? undefined
+        : regularRadii.length % 2 === 0
+          ? (regularRadii[middle - 1] + regularRadii[middle]) / 2
+          : regularRadii[middle]
+    if (representativeRadius !== undefined && representativeRadius >= 12) {
       lines.push(
         zh ? '- ✅ 使用较大的圆角，保持柔和友好的观感' : '- ✅ Use generous border-radius for a soft, friendly feel',
       )
-    } else if (maxR <= 4) {
+    } else if (representativeRadius !== undefined && representativeRadius <= 4) {
+      const hasPillButton = components.some(
+        (component) => component.type === 'button' && isPillRadius(component.styles),
+      )
       lines.push(
-        zh ? '- ✅ 保持小圆角，维持锐利精确的气质' : '- ✅ Keep border-radius minimal for a sharp, precise aesthetic',
+        hasPillButton
+          ? zh
+            ? '- ✅ 普通表面使用小圆角；胶囊和圆形按钮按已观察变体单独复用'
+            : '- ✅ Use compact radii on ordinary surfaces; preserve observed pill and circular button variants separately'
+          : zh
+            ? '- ✅ 保持小圆角，维持锐利精确的气质'
+            : '- ✅ Keep border-radius minimal for a sharp, precise aesthetic',
       )
     }
   }

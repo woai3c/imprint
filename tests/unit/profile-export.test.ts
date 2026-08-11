@@ -91,14 +91,17 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown.indexOf('全出血容器')).toBeLessThan(appendixIndex)
     expect(markdown.indexOf('深底白字')).toBeLessThan(appendixIndex)
 
-    // Low-confidence claims only appear inside the appendix.
+    // Non-transfer low-confidence claims appear inside the appendix. Transfer guidance
+    // remains in its named section because downstream agents need to see those guardrails.
     const body = markdown.slice(0, appendixIndex)
     const appendix = markdown.slice(appendixIndex)
     expect(body).not.toContain('首页视线顺序为标题到按钮')
     expect(body).not.toContain('DOM 顺序上 header 为首个区域')
     expect(appendix).toContain('首页视线顺序为标题到按钮')
     expect(appendix).toContain('[注意力层级 · visualSequence.1]')
-    expect(appendix).toContain('避免把 footer 当全局模式')
+    expect(body).toContain('### 必须避免')
+    expect(body).toContain('避免把 footer 当全局模式')
+    expect(appendix).not.toContain('避免把 footer 当全局模式')
   })
 
   test('keeps the thesis in the body even when low confidence', () => {
@@ -157,6 +160,60 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).toContain('`multimodal`')
     expect(markdown).toContain('`evidence-fallback`')
     expect(markdown).toContain('确定性证据兜底')
+  })
+
+  test('surfaces partial AI validation status in the exported document', () => {
+    const markdown = generateDesignProfileMarkdown(makeProfile(), undefined, 'partial')
+
+    expect(markdown).toContain('**状态:** `partial`')
+    expect(markdown).toContain('部分 AI 字段未通过确定性校验')
+  })
+
+  test('renders repeated low-confidence fallbacks and uncertainties once', () => {
+    const profile = makeProfile()
+    const fallback = claim('仅使用已观察到的设计令牌', 'low')
+    profile.composition.containerStrategy = fallback
+    profile.composition.alignmentStrategy = { ...fallback }
+    profile.uncertainties = [
+      { topic: '确定性矛盾检查', reason: '数值不一致' },
+      { topic: '确定性矛盾检查', reason: '数值不一致' },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown.match(/仅使用已观察到的设计令牌/g)).toHaveLength(2)
+    expect(markdown.match(/确定性矛盾检查: 数值不一致/g)).toHaveLength(1)
+  })
+
+  test('groups repeated component types under one heading while retaining each observed role', () => {
+    const profile = makeProfile()
+    profile.componentGrammar = [
+      { component: 'button', role: 'main action', rules: [claim('主操作按钮使用实心表面')] },
+      { component: 'button', role: 'weak action', rules: [claim('弱操作按钮使用轻量边框')] },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown.match(/### 组件语法 · button/g)).toHaveLength(1)
+    expect(markdown).toContain('**main action:** 主操作按钮使用实心表面')
+    expect(markdown).toContain('**weak action:** 弱操作按钮使用轻量边框')
+  })
+
+  test('numbers multiple rules that share the same component role', () => {
+    const profile = makeProfile()
+    profile.componentGrammar = [
+      {
+        component: 'button',
+        role: 'main action',
+        rules: [claim('主操作按钮使用实心表面'), claim('工具按钮使用轻量投影')],
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('**main action.1:** 主操作按钮使用实心表面')
+    expect(markdown).toContain('**main action.2:** 工具按钮使用轻量投影')
+    expect(markdown).not.toContain('**main action:**')
   })
 })
 

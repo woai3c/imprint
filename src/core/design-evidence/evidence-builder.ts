@@ -67,10 +67,27 @@ function normalizeTokenValue(value: string): string {
   return normalized
 }
 
+function normalizeFontValue(value: string): string {
+  return value.replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function cssLengthPx(value: string | undefined): number | null {
+  if (!value) return null
+  const match = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)$/i)
+  if (!match) return null
+  const amount = Number.parseFloat(match[1])
+  return ['rem', 'em'].includes(match[2].toLowerCase()) ? amount * 16 : amount
+}
+
 function buildTokenIndex(tokens: DesignToken): Map<string, string[]> {
   const index = new Map<string, string[]>()
   const add = (value: string, ref: string) => {
-    const variants = new Set([value.toLowerCase().trim(), normalizeColor(value), normalizeTokenValue(value)])
+    const variants = new Set([
+      value.toLowerCase().trim(),
+      normalizeColor(value),
+      normalizeTokenValue(value),
+      normalizeFontValue(value),
+    ])
     for (const variant of variants) {
       const refs = index.get(variant) || []
       if (!refs.includes(ref)) refs.push(ref)
@@ -101,6 +118,7 @@ function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<stri
       value.toLowerCase().trim(),
       normalizeColor(value),
       normalizeTokenValue(value),
+      normalizeFontValue(value),
       ...(value
         .match(/rgba?\([^)]+\)|#[\da-f]{3,8}|-?\d+(?:\.\d+)?(?:px|rem|em|s|ms)\b/gi)
         ?.flatMap((part) => [part.toLowerCase(), normalizeColor(part), normalizeTokenValue(part)]) || []),
@@ -108,6 +126,14 @@ function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<stri
     for (const candidate of candidates) {
       tokenIndex.get(candidate)?.forEach((ref) => refs.add(ref))
     }
+  }
+  const fontSize = cssLengthPx(styles.fontSize)
+  const lineHeight = cssLengthPx(styles.lineHeight)
+  if (fontSize && lineHeight) {
+    const ratio = (lineHeight / fontSize).toFixed(3).replace(/\.?0+$/, '')
+    tokenIndex.get(ratio)?.forEach((ref) => {
+      if (ref.startsWith('typography.line-height.')) refs.add(ref)
+    })
   }
   return [...refs].sort()
 }
@@ -160,6 +186,7 @@ function buildResponsiveObservations(
         const fromSectionId = sectionIds.get(`${fromCaptureKey}|${key}`)
         const toSectionId = sectionIds.get(`${toCaptureKey}|${key}`)
         if (!from || !to || !fromSectionId || !toSectionId) {
+          if (fromCapture.snapshot.horizontalOverflow || toCapture.snapshot.horizontalOverflow) continue
           const sectionId = fromSectionId || toSectionId
           if (!sectionId) continue
           observations.push({
@@ -265,6 +292,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const pageId = createEvidenceId('page', capture.snapshot.url, capture.snapshot.viewport)
     const imageId = createEvidenceId('image', pageId, 'overview')
     imageIds.set(captureKey, imageId)
+    for (const section of capture.snapshot.sections) {
+      sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
+    }
     pages.push({
       id: pageId,
       url: capture.snapshot.url,
@@ -272,9 +302,16 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       role: capture.snapshot.role,
       viewportWidth: capture.snapshot.viewportWidth,
       viewportHeight: capture.snapshot.viewportHeight,
-      contentWidth: capture.snapshot.width,
+      contentWidth: capture.snapshot.contentWidth,
       contentHeight: capture.snapshot.height,
       horizontalOverflow: capture.snapshot.horizontalOverflow,
+      horizontalOverflowSources: capture.snapshot.horizontalOverflowSources.map(
+        ({ sectionKey, sectionRole, ...source }) => ({
+          ...source,
+          ...(sectionKey ? { sectionId: sectionIds.get(`${captureKey}|${sectionKey}`) } : {}),
+          ...(sectionRole ? { sectionRole } : {}),
+        }),
+      ),
       health: capture.health,
       images: [
         {
@@ -292,10 +329,6 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         })),
       ],
     })
-
-    for (const section of capture.snapshot.sections) {
-      sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
-    }
 
     const page = pages[pages.length - 1]
     for (const image of page.images) {
@@ -423,6 +456,12 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         rect: node.rect,
         textRole: node.textRole,
         tokenRefs: tokenRefsForStyles(node.styles, tokenIndex),
+        observedTypography: {
+          fontFamily: node.styles.fontFamily,
+          fontSize: node.styles.fontSize,
+          fontWeight: node.styles.fontWeight,
+          lineHeight: node.styles.lineHeight,
+        },
         traits: node.traits,
       })
     }

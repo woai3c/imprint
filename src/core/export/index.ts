@@ -12,7 +12,7 @@ import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
-import type { DesignProfile } from '../design-intelligence/types.js'
+import type { DesignIntelligenceMeta, DesignIntelligenceStatus, DesignProfile } from '../design-intelligence/types.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
 export { buildComponentSpecs, generateComponentSpecsJson } from './component-specs.js'
@@ -27,7 +27,7 @@ const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
 const LINE_HEIGHT_NAMES = ['tight', 'snug', 'normal', 'relaxed', 'loose']
 const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
 
-function usageForColor(tokens: DesignToken, category: 'bgColor' | 'textColor' | 'borderColor', value: string): number {
+function usageForColor(tokens: DesignToken, category: string, value: string): number {
   const normalized = normalizeColorValue(value)
   if (!normalized) return 0
   const prefix = `${category}:`
@@ -35,6 +35,158 @@ function usageForColor(tokens: DesignToken, category: 'bgColor' | 'textColor' | 
     if (!key.startsWith(prefix)) return total
     return normalizeColorValue(key.slice(prefix.length)) === normalized ? total + count : total
   }, 0)
+}
+
+function observedColorGroups(tokens: DesignToken): Array<{ label: string; names: string[] }> {
+  const groups = new Map<string, Array<{ name: string; score: number }>>([
+    ['action', []],
+    ['status', []],
+    ['text', []],
+    ['surface', []],
+    ['border', []],
+  ])
+  const roleCategories = {
+    action: ['primaryActionColor', 'actionColor', 'selectedColor', 'accentColor', 'brandTokenColor', 'linkColor'],
+    status: ['statusColor'],
+    text: ['textColor'],
+    surface: ['bgColor', 'bgArea'],
+    border: ['borderColor', 'structuralBorderColor'],
+  } as const
+  const colorValues = new Map<string, Array<{ name: string; value: string }>>()
+  for (const [name, value] of Object.entries(tokens.colors)) {
+    const normalized = normalizeColorValue(value)
+    if (!normalized) continue
+    const aliases = colorValues.get(normalized) || []
+    aliases.push({ name, value })
+    colorValues.set(normalized, aliases)
+  }
+  const namePriority = (name: string): number => {
+    if (
+      /^(?:background|surface|secondary|foreground|muted-foreground|primary|accent|border(?:-.+)?|danger|warning|success|status|.*badge.*)$/.test(
+        name,
+      )
+    )
+      return 3
+    if (/^(?:dark-)?palette-\d+$/.test(name)) return 0
+    return 1
+  }
+  const rolePriority = ['action', 'status', 'text', 'surface', 'border'] as const
+  for (const aliases of colorValues.values()) {
+    const value = aliases[0].value
+    const sources = new Set(aliases.flatMap(({ name }) => tokens.evidence?.[`colors.${name}`]?.sources || []))
+    const scores = Object.fromEntries(
+      rolePriority.map((role) => [
+        role,
+        roleCategories[role].reduce(
+          (total, category) =>
+            total + usageForColor(tokens, category, value) + (sources.has(`usage:${category}`) ? 1 : 0),
+          0,
+        ),
+      ]),
+    ) as Record<(typeof rolePriority)[number], number>
+    const dominantRole = rolePriority
+      .map((role) => ({ role, score: scores[role] }))
+      .sort(
+        (first, second) =>
+          second.score - first.score || rolePriority.indexOf(first.role) - rolePriority.indexOf(second.role),
+      )[0]
+    if (!dominantRole || dominantRole.score <= 0) continue
+    const canonical = [...aliases].sort((first, second) => {
+      const firstEvidence = tokens.evidence?.[`colors.${first.name}`]?.observationCount || 0
+      const secondEvidence = tokens.evidence?.[`colors.${second.name}`]?.observationCount || 0
+      return (
+        namePriority(second.name) - namePriority(first.name) ||
+        secondEvidence - firstEvidence ||
+        first.name.localeCompare(second.name)
+      )
+    })[0]
+    const semanticRole = (
+      [
+        [/danger|warning|success|status|badge/i, 'status'],
+        [/^(?:background|surface|secondary)(?:-|$)/i, 'surface'],
+        [/^(?:foreground|muted-foreground|text)(?:-|$)/i, 'text'],
+        [/^border(?:-|$)/i, 'border'],
+        [/^(?:primary|accent|action|brand|link)(?:-|$)/i, 'action'],
+      ] as const
+    ).find(([pattern, role]) => pattern.test(canonical.name) && scores[role] > 0)?.[1]
+    const assignedRole = semanticRole || dominantRole.role
+    groups.get(assignedRole)?.push({ name: canonical.name, score: scores[assignedRole] })
+  }
+  return [...groups].flatMap(([label, entries]) =>
+    entries.length > 0
+      ? [
+          {
+            label,
+            names: entries
+              .sort((first, second) => second.score - first.score)
+              .slice(0, 6)
+              .map(({ name }) => name),
+          },
+        ]
+      : [],
+  )
+}
+
+function appendDesignDocFrontMatter(
+  lines: string[],
+  language: DocLanguage,
+  url: string | undefined,
+  evidence: DesignEvidence | undefined,
+  profile: DesignProfile | null | undefined,
+  status: DesignIntelligenceStatus | undefined,
+  meta: DesignIntelligenceMeta | undefined,
+): void {
+  const source = url || evidence?.source.finalUrl
+  const pageCount = evidence ? new Set(evidence.pages.map((page) => page.url)).size : undefined
+  lines.push('---')
+  lines.push('schema: "imprint.design-system/1"')
+  lines.push('document: "DESIGN.md"')
+  lines.push(`language: ${JSON.stringify(language)}`)
+  if (source) lines.push(`source: ${JSON.stringify(source)}`)
+  lines.push('evidence:')
+  lines.push(`  layer: ${JSON.stringify(evidence ? 'observed' : 'tokens')}`)
+  if (evidence) {
+    lines.push(`  analysis_id: ${JSON.stringify(evidence.analysisId)}`)
+    lines.push(`  access_mode: ${JSON.stringify(evidence.source.accessMode)}`)
+    lines.push(`  page_count: ${pageCount}`)
+    lines.push(`  capture_count: ${evidence.pages.length}`)
+  }
+  lines.push('analysis:')
+  lines.push(`  ai_status: ${JSON.stringify(status || meta?.status || (profile ? 'unknown' : 'not-requested'))}`)
+  const inputMode = profile?.inputMode || meta?.inputMode
+  if (inputMode) lines.push(`  input_mode: ${JSON.stringify(inputMode)}`)
+  if (meta?.provider) lines.push(`  provider: ${JSON.stringify(meta.provider)}`)
+  if (meta?.model) lines.push(`  model: ${JSON.stringify(meta.model)}`)
+  if (meta?.promptVersion) lines.push(`  prompt_version: ${JSON.stringify(meta.promptVersion)}`)
+  if (meta?.generatedAt) lines.push(`  generated_at: ${JSON.stringify(meta.generatedAt)}`)
+  if (meta) {
+    lines.push(`  rejected_count: ${meta.rejected?.length || 0}`)
+    lines.push(`  repaired_count: ${meta.repaired?.length || 0}`)
+    if (meta.rejected?.length) {
+      lines.push('  rejected:')
+      meta.rejected.slice(0, 20).forEach((reason) => lines.push(`    - ${JSON.stringify(reason)}`))
+    } else {
+      lines.push('  rejected: []')
+    }
+    if (meta.repaired?.length) {
+      lines.push('  repaired:')
+      meta.repaired.slice(0, 20).forEach((reason) => lines.push(`    - ${JSON.stringify(reason)}`))
+    } else {
+      lines.push('  repaired: []')
+    }
+  }
+  if (meta?.tokenUsage?.input !== undefined) lines.push(`  input_tokens: ${meta.tokenUsage.input}`)
+  if (meta?.tokenUsage?.output !== undefined) lines.push(`  output_tokens: ${meta.tokenUsage.output}`)
+  const timing = meta?.timing
+  if (timing) {
+    lines.push('  timing:')
+    if (timing.programTotalMs !== undefined) lines.push(`    program_ms: ${timing.programTotalMs}`)
+    if (timing.aiTotalMs !== undefined) lines.push(`    ai_ms: ${timing.aiTotalMs}`)
+    if (timing.userWaitMs !== undefined) lines.push(`    user_wait_excluded_ms: ${timing.userWaitMs}`)
+    lines.push(`    active_total_ms: ${timing.totalMs}`)
+  }
+  lines.push('---')
+  lines.push('')
 }
 
 export interface DarkModeExportData {
@@ -354,10 +506,21 @@ export function generateDesignDoc(
   designEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
   _reconstructionBrief?: string,
+  designIntelligenceStatus?: DesignIntelligenceStatus,
+  designIntelligenceMeta?: DesignIntelligenceMeta,
 ): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
 
+  appendDesignDocFrontMatter(
+    lines,
+    language,
+    url,
+    designEvidence,
+    designProfile,
+    designIntelligenceStatus,
+    designIntelligenceMeta,
+  )
   lines.push(zh ? '# 设计系统' : '# Design System')
   if (url) lines.push(zh ? `\n提取自：${url}` : `\nExtracted from: ${url}`)
 
@@ -395,12 +558,48 @@ export function generateDesignDoc(
   }
 
   if (designProfile) {
-    lines.push(generateDesignProfileMarkdown(designProfile, tokens))
+    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus))
+    lines.push('')
+  } else if (
+    designIntelligenceStatus &&
+    ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
+  ) {
+    lines.push(zh ? '## AI 设计解读' : '## AI Design Insights')
+    lines.push('')
+    lines.push(`**${zh ? '状态' : 'Status'}:** \`${designIntelligenceStatus}\``)
+    lines.push('')
+    lines.push(
+      zh
+        ? '> 本次没有可用的 AI 设计解读；下方令牌与证据仍来自确定性程序提取。'
+        : '> No AI design interpretation is available for this run; the tokens and evidence below still come from deterministic extraction.',
+    )
     lines.push('')
   }
 
   // Colors
   lines.push(zh ? '## 颜色\n' : '## Colors\n')
+  const colorGroups = observedColorGroups(tokens)
+  if (colorGroups.length > 0) {
+    lines.push(zh ? '### 主要观察用途颜色分组\n' : '### Dominant Observed Color Roles\n')
+    lines.push(zh ? '| 分组 | 令牌 |' : '| Group | Tokens |')
+    lines.push('|---|---|')
+    const colorGroupLabels: Record<string, string> = zh
+      ? { action: '操作/强调', status: '状态/提示', text: '文字', surface: '表面/背景', border: '边框' }
+      : {
+          action: 'Action/accent',
+          status: 'Status/feedback',
+          text: 'Text',
+          surface: 'Surface/background',
+          border: 'Border',
+        }
+    for (const group of colorGroups) {
+      lines.push(
+        `| ${colorGroupLabels[group.label]} | ${group.names.map((name) => `\`--color-${name}\``).join(', ')} |`,
+      )
+    }
+    lines.push('')
+    lines.push(zh ? '### 完整颜色令牌\n' : '### Complete Color Tokens\n')
+  }
   lines.push(zh ? '| 令牌 | 值 | 用途 | 置信度 |' : '| Token | Value | Usage | Confidence |')
   lines.push('|-------|-------|-------|------------|')
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -565,6 +764,16 @@ export function generateDesignDoc(
           : zh
             ? '- 本文件包含基于当前页面覆盖范围提取的设计令牌、结构证据和经校验的设计解读，可提供给 AI 编码助手，并应结合原页面复核。'
             : '- This file contains design tokens, structural evidence, and validated interpretation from the captured page scope. It can be used with AI coding assistants and should be checked against the source.',
+    )
+    lines.push(
+      zh
+        ? '- 实现时先采用“已观察”的令牌与结构事实，再采用高/中置信度 AI 解读；低置信度或证据兜底内容需要人工复核。'
+        : '- Implement observed tokens and structural facts first, then high/medium-confidence AI insights; manually review low-confidence or evidence-fallback content.',
+    )
+    lines.push(
+      zh
+        ? '- 完成页面后，对照当前来源页面或本次截图检查视觉层级、密度和响应式表现。'
+        : '- After implementation, compare against the current source or capture for visual hierarchy, density, and responsive behavior.',
     )
     lines.push(
       zh

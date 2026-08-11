@@ -283,7 +283,9 @@ runs out, the tab strip scrolls horizontally instead.
 - History rows act as work entries, not a log: selecting a record opens the complete result in a dialog where the
   user can review every artifact, copy the design document, export files, or save the result to the Theme Library.
 - Each history row shows the first captured page screenshot as a compact, top-aligned thumbnail; records whose
-  screenshot is unavailable retain the same layout with an explicit placeholder.
+  screenshot is unavailable retain the same layout with an explicit placeholder. Show the record's localized creation
+  date and time together so analyses from the same day remain distinguishable. Chinese uses `YYYY-MM-DD HH:MM:SS`;
+  English uses the familiar localized medium date and time with seconds.
 - The history-detail shell stays fixed within the desktop window while its active artifact scrolls inside the dialog.
   Long token previews and documents must never extend beyond an unscrollable clipped surface. Escape, the visible close
   action, and a direct click on the surrounding backdrop all dismiss the dialog; interaction inside it never does.

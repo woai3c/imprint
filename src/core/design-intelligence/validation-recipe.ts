@@ -7,8 +7,23 @@ import type {
   ValidationReport,
 } from './types.js'
 
-function first<T>(values: T[], fallback: T): T {
-  return values[0] ?? fallback
+function representativeSpacing(tokens: DesignToken): string {
+  const candidates = tokens.spacing
+    .map((value, index) => ({
+      value,
+      index,
+      pixels: /^-?\d+(?:\.\d+)?px$/i.test(value) ? Number.parseFloat(value) : null,
+      usage: tokens.usageCount?.[`spacing:${value}`] || 0,
+    }))
+    // Sub-4px values are usually borders or optical adjustments, not a useful recipe rhythm.
+    .filter((candidate) => candidate.pixels !== null && candidate.pixels >= 4 && candidate.pixels <= 24)
+    .sort(
+      (first, second) =>
+        second.usage - first.usage ||
+        Math.abs((first.pixels || 0) - 16) - Math.abs((second.pixels || 0) - 16) ||
+        first.index - second.index,
+    )
+  return candidates[0]?.value ?? tokens.spacing[0] ?? '8px'
 }
 
 export function createValidationRecipe(
@@ -16,7 +31,7 @@ export function createValidationRecipe(
   profile: DesignProfile,
   tokens: DesignToken,
 ): ValidationRecipe {
-  const gap = first(tokens.spacing, '8px')
+  const gap = representativeSpacing(tokens)
   const ruleRefs = [
     profile.signatureMoves[0]?.id,
     ...profile.transferRules.preserve

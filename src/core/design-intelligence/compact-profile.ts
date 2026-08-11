@@ -36,9 +36,9 @@ function objectList(value: unknown, max: number): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord).slice(0, max) : []
 }
 
-function claimRefs(value: unknown, max: number): string[] {
-  if (typeof value === 'string') return [value]
-  return stringList(value, max)
+function claimInputs(value: unknown, max: number): unknown[] {
+  if (typeof value === 'string' || isRecord(value)) return [value]
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string' || isRecord(item)).slice(0, max) : []
 }
 
 export function expandCompactProfileCandidate(
@@ -47,15 +47,19 @@ export function expandCompactProfileCandidate(
   language: 'en' | 'zh-CN',
   inputMode: IntelligenceInputMode,
 ): ExpandedCompactCandidate {
+  const expandInlineReferences = (value: unknown, fallback = ''): string =>
+    safeString(value, fallback).replace(/\b[a-z]\d+\b/gi, (shortId) => {
+      const normalizedId = shortId.toLowerCase()
+      return digestPackage.tokenRefMap.get(normalizedId) || digestPackage.evidenceIdMap.get(normalizedId) || shortId
+    })
   const claimPool = new Map<string, Record<string, unknown>>()
   for (const claim of objectList(candidate.claims, 48)) {
     const id = safeString(claim.id)
     if (id && !claimPool.has(id)) claimPool.set(id, claim)
   }
 
-  const expandClaim = (claimId: unknown): unknown => {
-    if (typeof claimId !== 'string') return null
-    const source = claimPool.get(claimId)
+  const expandClaim = (claimInput: unknown): unknown => {
+    const source = typeof claimInput === 'string' ? claimPool.get(claimInput) : isRecord(claimInput) ? claimInput : null
     if (!source) return null
     const evidence = stringList(source.e, 3).flatMap((shortId) => {
       const evidenceId = digestPackage.evidenceIdMap.get(shortId)
@@ -68,8 +72,8 @@ export function expandCompactProfileCandidate(
       return tokenRef ? [tokenRef] : []
     })
     return {
-      statement: safeString(source.s),
-      implementation: safeString(source.i),
+      statement: expandInlineReferences(source.s),
+      implementation: expandInlineReferences(source.i),
       confidence: safeString(source.c),
       evidence,
       ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
@@ -84,7 +88,7 @@ export function expandCompactProfileCandidate(
     return expanded
   }
 
-  const expandClaims = (value: unknown, max: number) => claimRefs(value, max).map(expandClaim).filter(Boolean)
+  const expandClaims = (value: unknown, max: number) => claimInputs(value, max).map(expandClaim).filter(Boolean)
   const composition = isRecord(candidate.composition) ? candidate.composition : {}
   const attention = isRecord(candidate.attention) ? candidate.attention : {}
   const visual = isRecord(candidate.visual) ? candidate.visual : {}
@@ -98,8 +102,8 @@ export function expandCompactProfileCandidate(
       {
         ...claim,
         id: `move-${index + 1}`,
-        name: safeString(move.n, safeString(claim.statement).slice(0, 80)),
-        distinctiveness: safeString(move.d, safeString(claim.statement)),
+        name: expandInlineReferences(move.n, safeString(claim.statement).slice(0, 80)),
+        distinctiveness: expandInlineReferences(move.d, safeString(claim.statement)),
       },
     ]
   })
@@ -122,21 +126,21 @@ export function expandCompactProfileCandidate(
     return [
       {
         component: name,
-        role: safeString(component.role, 'observed component'),
+        role: expandInlineReferences(component.role, 'observed component'),
         rules: expandClaims(component.rules, 3),
       },
     ]
   })
   const uncertainties = objectList(candidate.uncertainties, 6).flatMap((item) => {
-    const topic = safeString(item.topic)
-    const reason = safeString(item.reason)
+    const topic = expandInlineReferences(item.topic)
+    const reason = expandInlineReferences(item.reason)
     if (!topic || !reason) return []
-    const neededEvidence = safeString(item.needed)
+    const neededEvidence = expandInlineReferences(item.needed)
     return [{ topic, reason, ...(neededEvidence ? { neededEvidence } : {}) }]
   })
   const imageObservations = objectList(candidate.imageObservations, 3).flatMap((item) => {
     const imageId = digestPackage.evidenceIdMap.get(safeString(item.image))
-    const description = safeString(item.description)
+    const description = expandInlineReferences(item.description)
     return imageId && description ? [{ imageId, description }] : []
   })
 
@@ -179,9 +183,11 @@ export function expandCompactProfileCandidate(
       sectionGrammar,
       interactionLanguage: {
         primaryDrivers: expandClaims(interaction.drivers, 3),
-        feedbackStyle: expandUniqueClaim(interaction.feedback),
-        stateChangeAmplitude: expandUniqueClaim(interaction.amplitude),
-        ...(typeof interaction.scroll === 'string' ? { scrollNarrative: expandUniqueClaim(interaction.scroll) } : {}),
+        feedbackStyle: expandClaim(interaction.feedback),
+        stateChangeAmplitude: expandClaim(interaction.amplitude),
+        ...(typeof interaction.scroll === 'string' || isRecord(interaction.scroll)
+          ? { scrollNarrative: expandClaim(interaction.scroll) }
+          : {}),
         continuityRules: expandClaims(interaction.continuity, 4),
       },
       componentGrammar,

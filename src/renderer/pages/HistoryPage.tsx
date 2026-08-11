@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
+import { formatLocalDateTime } from '../lib/date-time'
 import { getScreenshotUrl } from '../lib/page-screenshots'
 import { useFeedbackStore } from '../stores/feedback-store'
 
@@ -248,8 +249,8 @@ export function HistoryPage() {
                     </div>
                   </div>
 
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(record.created_at).toLocaleDateString(i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US')}
+                  <span data-testid="history-created-at" className="text-xs text-muted-foreground whitespace-nowrap">
+                    {formatLocalDateTime(record.created_at, i18n.language)}
                   </span>
 
                   <div className="flex gap-1" onClick={(event) => event.stopPropagation()}>

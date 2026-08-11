@@ -615,8 +615,11 @@ export async function runDesignIntelligence(
     if (result.rejected?.length) {
       log.info(
         'design-intelligence',
-        `validation adjustments: status=${result.status} ${result.rejected.slice(0, 12).join('; ')}`,
+        `validation rejections: status=${result.status} ${result.rejected.slice(0, 12).join('; ')}`,
       )
+    }
+    if (result.repaired?.length) {
+      log.info('design-intelligence', `coverage repairs: ${result.repaired.slice(0, 12).join('; ')}`)
     }
     log.info(
       'design-intelligence',
@@ -659,6 +662,7 @@ export async function runDesignIntelligence(
           totalMs: Date.now() - runStartedAt,
         },
         rejected: result.rejected,
+        repaired: result.repaired,
         exampleGeneration: { status: 'not-requested' },
       },
     }

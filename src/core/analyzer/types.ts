@@ -67,6 +67,7 @@ export interface ExtractionIssue {
 export interface AnalysisTiming {
   programTotalMs?: number
   aiTotalMs?: number
+  userWaitMs?: number
   browserMs?: number
   preparationMs?: number
   extractionMs?: number

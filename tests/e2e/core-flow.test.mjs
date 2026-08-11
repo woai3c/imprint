@@ -477,6 +477,10 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByText(fixtureUrl, { exact: true }).first().waitFor()
     assert.equal(await page.getByText(fixtureUrl, { exact: true }).count(), 2)
     assert.equal(await page.getByTestId('history-preview-image').count(), 2)
+    assert.match(
+      (await page.getByTestId('history-created-at').first().textContent()) || '',
+      /\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM)/i,
+    )
     const historyThumbnailSize = await page
       .getByTestId('history-preview-image')
       .first()

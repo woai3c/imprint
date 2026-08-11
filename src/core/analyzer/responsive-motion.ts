@@ -63,6 +63,16 @@ function breakpointCanonicality(width: number): number {
   return 0
 }
 
+function isCategoryBoundary(width: number, category: string): boolean {
+  const boundaryByCategory: Record<string, number> = {
+    mobile: 480,
+    'tablet-sm': 768,
+    tablet: 1024,
+    desktop: 1280,
+  }
+  return boundaryByCategory[category] === width
+}
+
 export function selectRepresentativeBreakpointWidths(
   breakpoints: readonly { width: number; count: number }[],
   maximum = 10,
@@ -93,16 +103,28 @@ export function selectRepresentativeBreakpointWidths(
     group.push(breakpoint)
     byCategory.set(breakpoint.category, group)
   }
-  const selected = [...byCategory.values()].flatMap((group) =>
-    [...group]
+  const selected = [...byCategory.values()].flatMap((group) => {
+    const ranked = [...group].sort(
+      (first, second) =>
+        second.count - first.count ||
+        breakpointCanonicality(second.width) - breakpointCanonicality(first.width) ||
+        first.width - second.width,
+    )
+    const primary = ranked[0]
+    if (!primary || ranked.length === 1) return ranked
+    const secondary = ranked
+      .slice(1)
       .sort(
         (first, second) =>
-          second.count - first.count ||
+          Number(isCategoryBoundary(second.width, second.category)) -
+            Number(isCategoryBoundary(first.width, first.category)) ||
           breakpointCanonicality(second.width) - breakpointCanonicality(first.width) ||
+          second.count - first.count ||
+          Math.abs(second.width - primary.width) - Math.abs(first.width - primary.width) ||
           first.width - second.width,
-      )
-      .slice(0, 2),
-  )
+      )[0]
+    return [primary, secondary]
+  })
   return selected
     .sort((first, second) => first.width - second.width)
     .slice(0, maximum)

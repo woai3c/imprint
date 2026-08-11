@@ -22,6 +22,26 @@ function normalizeLength(value: string): string {
   return normalized
 }
 
+type LengthContext = 'typography' | 'spacing' | 'radius'
+
+function lengthTokenPrefix(context: LengthContext, text: string): string {
+  if (context === 'spacing') return 'spacing.'
+  if (context === 'radius') return 'radius.'
+  if (/line.?height|行高/i.test(text)) return 'typography.line-height.'
+  if (/letter.?spacing|字距/i.test(text)) return 'typography.letter-spacing.'
+  return 'typography.font-size.'
+}
+
+function replaceUnsupportedLength(
+  text: string,
+  literal: string,
+  tokenRef: string,
+  language: DesignProfile['language'],
+) {
+  const replacement = language === 'zh-CN' ? `令牌 ${tokenRef}` : `token ${tokenRef}`
+  return text.replace(new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), replacement)
+}
+
 function claimText(claim: DesignClaim): string {
   return `${claim.statement} ${claim.implementation}`
 }
@@ -101,6 +121,56 @@ function replacementClaim(claim: DesignClaim, language: DesignProfile['language'
   }
 }
 
+function describeContradiction(reason: string, language: DesignProfile['language']): string {
+  const detail = reason.slice(reason.indexOf(':') + 1)
+  const zh = language === 'zh-CN'
+  if (/unknown-token-ref/.test(detail)) {
+    return zh
+      ? '主张引用了不存在或未观察到的令牌，相关引用已移除。'
+      : 'The claim referenced an unknown or unobserved token, so that reference was removed.'
+  }
+  if (/numeric-value-not-in-token-set|font-weight-not-in-token-set/.test(detail)) {
+    return zh
+      ? '主张使用了提取结果中不存在的数值，已替换为低置信度兜底。'
+      : 'The claim used a value absent from the extracted token set and was replaced with a low-confidence fallback.'
+  }
+  if (
+    /numeric-boundary-contradiction|font-weight-boundary-contradiction|font-weight-count-contradiction/.test(detail)
+  ) {
+    return zh
+      ? '主张描述的数值范围与已提取令牌不一致，已替换为低置信度兜底。'
+      : 'The claim described a numeric boundary that conflicts with the extracted tokens and was replaced with a low-confidence fallback.'
+  }
+  if (/color-role-contradiction/.test(detail)) {
+    return zh
+      ? '主张描述的颜色用途与实际观察到的用途不一致，已替换为低置信度兜底。'
+      : 'The claimed color role conflicts with observed usage and was replaced with a low-confidence fallback.'
+  }
+  if (/overflow-does-not-prove-reflow/.test(detail)) {
+    return zh
+      ? '横向溢出不能证明内容已完成响应式重排，相关主张已降为低置信度。'
+      : 'Horizontal overflow does not prove responsive reflow, so the claim was demoted to low confidence.'
+  }
+  if (/passive-evidence-cannot-prove-executed-interaction/.test(detail)) {
+    return zh
+      ? '被动样式证据不能证明交互实际执行，相关主张已降为低置信度。'
+      : 'Passive style evidence cannot prove an interaction was executed, so the claim was demoted to low confidence.'
+  }
+  if (/managed-access-contradiction/.test(detail)) {
+    return zh
+      ? '该主张与已认证会话的采集条件冲突，已替换为低置信度兜底。'
+      : 'The claim conflicts with the authenticated capture context and was replaced with a low-confidence fallback.'
+  }
+  if (/dark-palette-index-assumption/.test(detail)) {
+    return zh
+      ? '深浅色调色板不能仅按序号建立对应关系，相关主张已降为低置信度。'
+      : 'Light and dark palettes cannot be matched by index alone, so the claim was demoted to low confidence.'
+  }
+  return zh
+    ? '一项确定性校验发现该主张与提取证据不一致，已采用低置信度兜底。'
+    : 'A deterministic check found that this claim conflicts with extracted evidence, so a low-confidence fallback was used.'
+}
+
 export function checkProfileContradictions(
   inputProfile: DesignProfile,
   evidence: DesignEvidence,
@@ -112,6 +182,11 @@ export function checkProfileContradictions(
     ...evidence.sections.flatMap((section) => section.tokenRefs),
     ...evidence.components.flatMap((component) => component.tokenRefs),
     ...evidence.layoutNodes.flatMap((node) => node.tokenRefs),
+  ])
+  const tokenRefsByEvidenceId = new Map<string, string[]>([
+    ...evidence.sections.map((section) => [section.id, section.tokenRefs] as const),
+    ...evidence.components.map((component) => [component.id, component.tokenRefs] as const),
+    ...evidence.layoutNodes.map((node) => [node.id, node.tokenRefs] as const),
   ])
   const knownLengths = {
     typography: new Set(
@@ -152,6 +227,9 @@ export function checkProfileContradictions(
       .filter((observation) => observation.safety === 'safe-active')
       .map((observation) => observation.id),
   )
+  const interactionById = new Map(
+    evidence.interactionObservations.map((observation) => [observation.id, observation] as const),
+  )
   const responsiveIds = new Set(evidence.responsiveObservations.map((observation) => observation.id))
 
   const visit = (value: unknown, path: string): void => {
@@ -168,7 +246,7 @@ export function checkProfileContradictions(
       Array.isArray(record.evidence)
     if (isClaim) {
       const claim = record as unknown as DesignClaim
-      const text = claimText(claim)
+      let text = claimText(claim)
       const hardReject = (reason: string) => {
         hardRejectedClaims.add(record)
         rejected.push(`${path}:${reason}`)
@@ -179,19 +257,65 @@ export function checkProfileContradictions(
         claim.tokenRefs = filtered
       }
 
-      const lengthContext = /font|type|line.?height|letter.?spacing|字号|字体|行高|字距/i.test(text)
-        ? knownLengths.typography
-        : /radius|rounded|corner|圆角/i.test(text)
-          ? knownLengths.radius
-          : /spacing|gap|padding|margin|rhythm|间距|留白|边距/i.test(text)
-            ? knownLengths.spacing
-            : null
+      const lengthKind: LengthContext | null =
+        /typography/i.test(path) ||
+        /font|type|typography|line.?height|letter.?spacing|字号|字体|行高|字距|排版/i.test(text)
+          ? 'typography'
+          : /visualLanguage\.shape/i.test(path) || /radius|rounded|corner|圆角/i.test(text)
+            ? 'radius'
+            : /densityAndWhitespace|\.rhythm/i.test(path) ||
+                /spacing|gap|padding|margin|rhythm|间距|留白|边距/i.test(text)
+              ? 'spacing'
+              : null
+      const lengthContext = lengthKind ? knownLengths[lengthKind] : null
       if (lengthContext) {
-        const unknown = [...text.matchAll(CSS_LENGTH)]
+        const unknownValues = [
+          ...new Set(
+            [...text.matchAll(CSS_LENGTH)]
+              .map((match) => match[0])
+              .filter((value) => !lengthContext.has(normalizeLength(value))),
+          ),
+        ]
+        const tokenPrefix = lengthTokenPrefix(lengthKind as LengthContext, text)
+        const matchingClaimRefs = [
+          ...new Set(
+            (claim.tokenRefs || []).filter(
+              (tokenRef) => knownTokenRefs.has(tokenRef) && tokenRef.startsWith(tokenPrefix),
+            ),
+          ),
+        ]
+        const matchingEvidenceRefs = [
+          ...new Set(
+            claim.evidence
+              .flatMap((reference) => tokenRefsByEvidenceId.get(reference.evidenceId) || [])
+              .filter((tokenRef) => knownTokenRefs.has(tokenRef) && tokenRef.startsWith(tokenPrefix)),
+          ),
+        ]
+        const groundedTokenRef =
+          matchingClaimRefs.length === 1
+            ? matchingClaimRefs[0]
+            : matchingClaimRefs.length === 0 && matchingEvidenceRefs.length === 1
+              ? matchingEvidenceRefs[0]
+              : undefined
+        for (const unknown of unknownValues) {
+          if (!groundedTokenRef) continue
+          claim.statement = replaceUnsupportedLength(claim.statement, unknown, groundedTokenRef, profile.language)
+          claim.implementation = replaceUnsupportedLength(
+            claim.implementation,
+            unknown,
+            groundedTokenRef,
+            profile.language,
+          )
+          claim.tokenRefs = [...new Set([...(claim.tokenRefs || []), groundedTokenRef])]
+          if (claim.confidence === 'high') claim.confidence = 'medium'
+          rejected.push(`${path}:numeric-value-sanitized(${unknown}->${groundedTokenRef})`)
+          text = claimText(claim)
+        }
+        const remainingUnknown = [...text.matchAll(CSS_LENGTH)]
           .map((match) => match[0])
           .find((value) => !lengthContext.has(normalizeLength(value)))
-        if (unknown) {
-          hardReject(`numeric-value-not-in-token-set(${unknown})`)
+        if (remainingUnknown) {
+          hardReject(`numeric-value-not-in-token-set(${remainingUnknown})`)
         } else {
           const mentioned = [...text.matchAll(CSS_LENGTH)]
             .map((match) => numericLength(match[0]))
@@ -233,12 +357,41 @@ export function checkProfileContradictions(
       }
 
       const assertsExecutedInteraction =
-        /\b(?:clicked|after click|expanded|toggled|opened|closed|navigated)\b|点击后|展开后|切换后|打开后|关闭后|跳转后/i.test(
+        /\b(?:click(?:ed|ing)?|after click|press(?:ed|ing)?|after press|expanded|toggled|opened|closed|navigated)\b|点击|按压|按下|展开后|切换后|打开后|关闭后|跳转后/i.test(
           text,
         )
       const hasActiveInteraction = claim.evidence.some((reference) => activeInteractionIds.has(reference.evidenceId))
       if (assertsExecutedInteraction && !hasActiveInteraction) {
-        hardReject('passive-evidence-cannot-prove-executed-interaction')
+        const passiveObservations = claim.evidence
+          .map((reference) => interactionById.get(reference.evidenceId))
+          .filter(
+            (observation): observation is DesignEvidence['interactionObservations'][number] =>
+              observation?.safety === 'passive',
+          )
+        if (passiveObservations.length > 0) {
+          if (/^transferRules\.(?:preserve|adapt|avoid)\./.test(path)) {
+            hardReject('passive-interaction-transfer-rule-sanitized')
+          } else {
+            const properties = [...new Set(passiveObservations.flatMap((observation) => observation.changedProperties))]
+              .sort()
+              .slice(0, 8)
+            const propertyList =
+              properties.length > 0 ? properties.join(profile.language === 'zh-CN' ? '、' : ', ') : ''
+            claim.statement =
+              profile.language === 'zh-CN'
+                ? `被动状态声明记录了${propertyList ? ` ${propertyList} 的` : ''}样式差异，但没有执行真实按压或点击。`
+                : `Passive state declarations record${propertyList ? ` ${propertyList}` : ''} style differences, but no real press or click was executed.`
+            claim.implementation =
+              profile.language === 'zh-CN'
+                ? '仅将这些差异作为声明态样式复用；实际交互反馈需在执行相应操作后验证。'
+                : 'Reuse these differences only as declared-state styling; verify actual feedback after executing the corresponding interaction.'
+            claim.confidence = 'low'
+            text = claimText(claim)
+            rejected.push(`${path}:passive-interaction-wording-sanitized`)
+          }
+        } else {
+          hardReject('passive-evidence-cannot-prove-executed-interaction')
+        }
       }
       if (
         evidence.source.accessMode === 'managed' &&
@@ -279,12 +432,132 @@ export function checkProfileContradictions(
     }
   }
   prune(profile)
-  for (const reason of rejected.slice(0, 8)) {
-    profile.uncertainties.push({
-      topic: profile.language === 'zh-CN' ? '确定性矛盾检查' : 'Deterministic contradiction check',
-      reason,
+  const hasObservedLayoutModeChange = evidence.responsiveObservations.some((observation) =>
+    observation.changedProperties.includes('layoutMode'),
+  )
+  if (hasObservedLayoutModeChange) {
+    const deniesLayoutModeEvidence =
+      /\b(?:no|without|missing|lacks?)\b[^.]{0,48}\blayout(?:[ -]mode)?\b[^.]{0,28}\b(?:changes?|evidence)\b|(?:无|未(?:观察|检测|发现)?到|没有|缺少)[^。]{0,36}布局(?:模式)?[^。]{0,24}(?:变化|证据)/i
+    profile.uncertainties = profile.uncertainties.map((item, index) => {
+      if (!deniesLayoutModeEvidence.test(item.reason)) return item
+      rejected.push(`uncertainties.${index}:contradicts-responsive-layout-facts`)
+      const overflowObserved = evidence.pages.some((page) => page.horizontalOverflow)
+      return {
+        ...item,
+        topic: profile.language === 'zh-CN' ? '响应式布局范围' : 'Responsive layout scope',
+        reason:
+          profile.language === 'zh-CN'
+            ? overflowObserved
+              ? '已观察到局部布局模式变化，但横向溢出的具体来源和影响范围仍需确认。'
+              : '已观察到局部布局模式变化，但其适用范围和跨页面一致性仍需确认。'
+            : overflowObserved
+              ? 'Local layout-mode changes were observed, but the source and scope of horizontal overflow still need confirmation.'
+              : 'Local layout-mode changes were observed, but their scope and cross-page consistency still need confirmation.',
+      }
     })
   }
-  profile.uncertainties = profile.uncertainties.slice(0, 12)
+  const hasMappedOverflowSource = evidence.pages.some(
+    (page) => page.horizontalOverflow && page.horizontalOverflowSources?.some((source) => source.sectionId),
+  )
+  if (hasMappedOverflowSource) {
+    const mentionsOverflow = /horizontal[- ]overflow(?:-observed)?|横向溢出|水平溢出/i
+    const deniesLocatedOverflowSource =
+      /(?:未给出|未提供|未标注|未指明|未说明|无法|不能|未能|尚未|缺少|没有)[^。]{0,56}(?:来源|源区块|关联区块|具体区块|区块|定位|裁切范围|宽度阈值)|(?:来源|源区块|关联区块|具体区块|区块|裁切范围|宽度阈值)[^。]{0,56}(?:未给出|未提供|未标注|未指明|未说明|无法|不能|未能|尚未|缺少|没有)|\b(?:cannot|unable to|could not|missing|lacks?|no|not provided|not identified|unspecified)\b[^.]{0,64}\b(?:locate|identify|source|section|clipping scope|width threshold)\b|\b(?:source|section|clipping scope|width threshold)\b[^.]{0,64}\b(?:cannot|unable|missing|unknown|not provided|not identified|unspecified)\b/i
+    profile.uncertainties = profile.uncertainties.map((item, index) => {
+      const text = `${item.topic} ${item.reason}`
+      if (!mentionsOverflow.test(text) || !deniesLocatedOverflowSource.test(text)) return item
+      rejected.push(`uncertainties.${index}:contradicts-overflow-source-facts`)
+      return {
+        ...item,
+        topic: profile.language === 'zh-CN' ? '水平溢出细节' : 'Horizontal overflow details',
+        reason:
+          profile.language === 'zh-CN'
+            ? '已定位到发生横向溢出的页面及关联区块，但裁切范围和预期移动端行为仍需确认。'
+            : 'The page and source section with horizontal overflow were located, but the clipping scope and intended mobile behavior still need confirmation.',
+        neededEvidence:
+          profile.language === 'zh-CN' ? '裁切范围与预期移动端行为' : 'Clipping scope and intended mobile behavior',
+      }
+    })
+  }
+  const mobileCaptures = evidence.pages.filter((page) => page.viewport === 'mobile' && page.images.length > 0)
+  if (mobileCaptures.length >= 2) {
+    const topologyByPageId = new Map(evidence.topology.pages.map((page) => [page.pageId, page]))
+    const mobileSequenceCount = mobileCaptures.filter(
+      (page) => (topologyByPageId.get(page.id)?.sectionIds.length || 0) > 0,
+    ).length
+    const understatesMobileCaptures =
+      /(?:移动端|mobile)[^。\.]{0,56}(?:仅|只有|only)[^。\.]{0,40}(?:一个|1\s*个?|one|page-)[^。\.]{0,40}(?:截图|捕获|screenshot|capture)/i
+    const deniesMobileSequences =
+      /(?:移动端|mobile)[^。\.]{0,80}(?:(?:区块序列|section\s*[-_]?\s*sequence)[^。\.]{0,24}(?:为空|空白|无|没有|缺少|未提供|(?:is\s+)?empty|missing|not provided)|(?:无|没有|缺少|未提供|为空|空白|no|without|missing|empty)[^。\.]{0,40}(?:区块序列|section\s*[-_]?\s*sequence))/i
+    profile.uncertainties = profile.uncertainties.map((item, index) => {
+      const text = `${item.topic} ${item.reason}`
+      if (!understatesMobileCaptures.test(text) && !(mobileSequenceCount > 0 && deniesMobileSequences.test(text))) {
+        return item
+      }
+      rejected.push(`uncertainties.${index}:contradicts-mobile-capture-facts`)
+      return {
+        ...item,
+        topic: profile.language === 'zh-CN' ? '移动端结构覆盖' : 'Mobile structure coverage',
+        reason:
+          profile.language === 'zh-CN'
+            ? `已采集 ${mobileCaptures.length} 个移动端页面/视口且均有截图，其中 ${mobileSequenceCount} 个包含区块序列；尚未覆盖的页面及跨页一致性仍需确认。`
+            : `${mobileCaptures.length} mobile page/viewport captures include screenshots, and ${mobileSequenceCount} include section sequences; uncaptured pages and cross-page consistency still need confirmation.`,
+        neededEvidence:
+          profile.language === 'zh-CN'
+            ? '尚未采集的移动端页面及跨页一致性'
+            : 'Uncaptured mobile pages and cross-page consistency',
+      }
+    })
+  }
+  if (knownTokenRefs.size > 0) {
+    const claimsUnknownTokenRefs =
+      /(?:referenced\s+tokens?|token\s+refs?|被引用的令牌|令牌引用)[^。\.]{0,64}(?:undefined|unknown|missing|absent|not defined|not present|未定义|不存在|缺失|未出现|未出现在)|(?:undefined|unknown|missing|absent|not defined|not present|未定义|不存在|缺失|未出现|未出现在)[^。\.]{0,64}(?:referenced\s+tokens?|token\s+refs?|被引用的令牌|令牌引用)/i
+    profile.uncertainties = profile.uncertainties.filter((item, index) => {
+      if (!claimsUnknownTokenRefs.test(`${item.topic} ${item.reason}`)) return true
+      rejected.push(`uncertainties.${index}:contradicts-validated-token-refs`)
+      return false
+    })
+  }
+  const existingUncertainties = new Set(
+    profile.uncertainties.map((item) => `${item.topic.trim()}|${item.reason.replace(/\s+/g, ' ').trim()}`),
+  )
+  const uniqueContradictions = [
+    ...new Set(
+      rejected
+        .filter(
+          (item) =>
+            !item.includes('contradicts-responsive-layout-facts') &&
+            !item.includes('contradicts-overflow-source-facts') &&
+            !item.includes('contradicts-mobile-capture-facts') &&
+            !item.includes('contradicts-validated-token-refs') &&
+            !item.includes('scope-repaired') &&
+            !item.includes('property-normalized') &&
+            !item.includes('numeric-value-sanitized') &&
+            !item.includes('token-value-sanitized') &&
+            !item.includes('passive-interaction-transfer-rule-sanitized') &&
+            !item.includes('passive-interaction-wording-sanitized'),
+        )
+        .map((item) => describeContradiction(item, profile.language)),
+    ),
+  ].slice(0, 8)
+  for (const reason of uniqueContradictions) {
+    const topic = profile.language === 'zh-CN' ? '确定性矛盾检查' : 'Deterministic contradiction check'
+    const key = `${topic}|${reason}`
+    if (existingUncertainties.has(key)) continue
+    profile.uncertainties.push({
+      topic,
+      reason,
+    })
+    existingUncertainties.add(key)
+  }
+  const seenUncertainties = new Set<string>()
+  profile.uncertainties = profile.uncertainties
+    .filter((item) => {
+      const key = `${item.topic.trim()}|${item.reason.replace(/\s+/g, ' ').trim()}`
+      if (seenUncertainties.has(key)) return false
+      seenUncertainties.add(key)
+      return true
+    })
+    .slice(0, 12)
   return { profile, rejected }
 }

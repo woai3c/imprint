@@ -36,7 +36,9 @@ before(async () => {
       return
     }
     if (request.url === '/pricing') {
-      response.end(`<!doctype html><style>
+      const requestProfile = /Mobile/i.test(String(request.headers['user-agent'])) ? 'mobile' : 'desktop'
+      response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+        :root{--imprint-test-request-profile:${requestProfile}}
         body{margin:0;font-family:system-ui;color:#172033} header,main,footer{padding:32px}
         .plans{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:20px;min-width:820px}
         article{padding:24px;border:1px solid #ccd4e0;border-radius:16px}
@@ -144,6 +146,7 @@ test('adaptively captures one mobile view for a structurally distinct sub-page',
     pricingCaptures.some((item) => item.horizontalOverflow),
     true,
   )
+  assert.equal(result.rawStyles.cssVariables['--imprint-test-request-profile'], 'mobile')
   const summaries = result.designEvidence.pages.flatMap((item) =>
     item.images.flatMap((image) => (image.aiSummary ? [image.aiSummary] : [])),
   )

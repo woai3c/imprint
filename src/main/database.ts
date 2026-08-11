@@ -4,6 +4,7 @@ import { app } from 'electron'
 
 import Database from 'better-sqlite3'
 
+import { normalizedAnalysisDurationMs } from '../core/analyzer/analysis-timing.js'
 import { log } from './logger.js'
 
 let db: Database.Database
@@ -107,6 +108,7 @@ function runMigrations() {
       db.exec(`ALTER TABLE analyses ADD COLUMN ${name} ${definition}`)
     }
   }
+  normalizeStoredAnalysisDurations()
 
   const themeColumns = (db.prepare(`PRAGMA table_info(themes)`).all() as Array<{ name: string }>).map(
     (column) => column.name,
@@ -127,4 +129,25 @@ function runMigrations() {
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_design_intelligence_cache_access ON design_intelligence_cache(last_accessed_at)',
   )
+}
+
+function normalizeStoredAnalysisDurations() {
+  const records = db
+    .prepare(`SELECT id, duration_ms, analysis_timing_json FROM analyses WHERE analysis_timing_json IS NOT NULL`)
+    .all() as Array<{ id: string; duration_ms: number | null; analysis_timing_json: string }>
+  const update = db.prepare('UPDATE analyses SET duration_ms = ? WHERE id = ?')
+  let updated = 0
+  db.transaction(() => {
+    for (const record of records) {
+      try {
+        const duration = normalizedAnalysisDurationMs(JSON.parse(record.analysis_timing_json) as { totalMs: number })
+        if (duration === null || duration === record.duration_ms) continue
+        update.run(duration, record.id)
+        updated += 1
+      } catch {
+        // Leave legacy or malformed timing records unchanged.
+      }
+    }
+  })()
+  if (updated > 0) log.info('db', `normalized ${updated} stored analysis durations from net timing`)
 }

@@ -1,5 +1,5 @@
 import type { DesignToken } from '../analyzer/types.js'
-import type { DesignClaim, DesignProfile } from './types.js'
+import type { DesignClaim, DesignIntelligenceStatus, DesignProfile } from './types.js'
 
 // Token refs in claims follow the evidence-package scheme: `color.<name>` plus 1-based array
 // paths like `spacing.2` or `typography.font-stack.1` (see buildTokenIndex in design-evidence).
@@ -37,6 +37,26 @@ interface LowConfidenceEntry {
   claim: DesignClaim
 }
 
+function uniqueLowConfidenceEntries(entries: LowConfidenceEntry[]): LowConfidenceEntry[] {
+  const seen = new Set<string>()
+  return entries.filter((entry) => {
+    const key = `${entry.claim.statement.replace(/\s+/g, ' ').trim()}|${entry.claim.implementation.replace(/\s+/g, ' ').trim()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainties'] {
+  const seen = new Set<string>()
+  return profile.uncertainties.filter((item) => {
+    const key = `${item.topic.trim()}|${item.reason.replace(/\s+/g, ' ').trim()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function claimLines(
   title: string,
   claims: Array<DesignClaim & { label?: string }>,
@@ -69,9 +89,14 @@ function claimLines(
   ]
 }
 
-export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: DesignToken): string {
+export function generateDesignProfileMarkdown(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  status?: DesignIntelligenceStatus,
+): string {
   const zh = profile.language === 'zh-CN'
   const evidenceFallback = profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
+  const displayedStatus = evidenceFallback ? 'evidence-fallback' : status
   const labels = {
     confidence: zh ? '置信度' : 'Confidence',
     evidence: zh ? '证据' : 'Evidence',
@@ -89,6 +114,13 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
     return value ? `\`${mapped}\` (${value})` : `\`${mapped}\``
   }
   const claimOptions = { formatRef }
+  const uncertainties = uniqueUncertainties(profile)
+  const componentGroups = new Map<string, Array<(typeof profile.componentGrammar)[number]>>()
+  for (const component of profile.componentGrammar) {
+    const group = componentGroups.get(component.component) || []
+    group.push(component)
+    componentGroups.set(component.component, group)
+  }
   return [
     zh ? '## AI 设计解读' : '## AI Design Insights',
     '',
@@ -98,11 +130,20 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
     '',
     `**${zh ? '输入模式' : 'Input mode'}:** \`${profile.inputMode}\``,
     '',
+    ...(displayedStatus ? [`**${zh ? '状态' : 'Status'}:** \`${displayedStatus}\``, ''] : []),
     ...(evidenceFallback
       ? [
           zh
             ? '> 状态：`evidence-fallback`。AI 输出未通过校验；下列解读是确定性证据兜底，不是有效的 AI 视觉综合。'
             : '> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.',
+          '',
+        ]
+      : []),
+    ...(!evidenceFallback && status === 'partial'
+      ? [
+          zh
+            ? '> 部分 AI 字段未通过确定性校验，已被省略、降为低置信度或替换为证据兜底；使用前请复核。'
+            : '> Some AI fields failed deterministic validation and were omitted, demoted, or replaced with evidence fallbacks; review before use.',
           '',
         ]
       : []),
@@ -195,13 +236,15 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
         claimOptions,
       ),
     ),
-    ...profile.componentGrammar.flatMap((component) =>
+    ...[...componentGroups.entries()].flatMap(([componentType, components]) =>
       claimLines(
-        `${zh ? '组件语法' : 'Component Grammar'} · ${component.component}`,
-        component.rules.map((claim) => ({
-          ...claim,
-          label: component.role,
-        })),
+        `${zh ? '组件语法' : 'Component Grammar'} · ${componentType}`,
+        components.flatMap((component) =>
+          component.rules.map((claim, index) => ({
+            ...claim,
+            label: component.rules.length > 1 ? `${component.role}.${index + 1}` : component.role,
+          })),
+        ),
         labels,
         lowBucket,
         claimOptions,
@@ -221,9 +264,18 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
         claimOptions,
       ),
     ),
-    ...claimLines(zh ? '必须保持' : 'Preserve', profile.transferRules.preserve, labels, lowBucket, claimOptions),
-    ...claimLines(zh ? '可以适配' : 'Adapt', profile.transferRules.adapt, labels, lowBucket, claimOptions),
-    ...claimLines(zh ? '必须避免' : 'Avoid', profile.transferRules.avoid, labels, lowBucket, claimOptions),
+    ...claimLines(zh ? '必须保持' : 'Preserve', profile.transferRules.preserve, labels, lowBucket, {
+      keepLow: true,
+      formatRef,
+    }),
+    ...claimLines(zh ? '可以适配' : 'Adapt', profile.transferRules.adapt, labels, lowBucket, {
+      keepLow: true,
+      formatRef,
+    }),
+    ...claimLines(zh ? '必须避免' : 'Avoid', profile.transferRules.avoid, labels, lowBucket, {
+      keepLow: true,
+      formatRef,
+    }),
     ...(profile.tokenAliases && profile.tokenAliases.length > 0
       ? [
           `### ${zh ? '建议 Token 别名' : 'Suggested Token Aliases'}`,
@@ -232,11 +284,11 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
           '',
         ]
       : []),
-    ...(profile.uncertainties.length > 0
+    ...(uncertainties.length > 0
       ? [
           `### ${zh ? '不确定性' : 'Uncertainties'}`,
           '',
-          ...profile.uncertainties.map((item) => `- ${item.topic}: ${item.reason}`),
+          ...uncertainties.map((item) => `- ${item.topic}: ${item.reason}`),
           '',
         ]
       : []),
@@ -244,7 +296,7 @@ export function generateDesignProfileMarkdown(profile: DesignProfile, tokens?: D
       ? [
           `### ${zh ? '低置信度推断（谨慎采纳）' : 'Low-confidence inferences (use with caution)'}`,
           '',
-          ...lowBucket.map(
+          ...uniqueLowConfidenceEntries(lowBucket).map(
             (entry) =>
               `- **[${entry.section}${entry.label ? ` · ${entry.label}` : ''}]** ${entry.claim.statement} — ${entry.claim.implementation}`,
           ),

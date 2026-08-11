@@ -140,4 +140,38 @@ describe('dedupeProfileClaims', () => {
       'Cards keep 20px of inner spacing',
     ])
   })
+
+  test('replaces later duplicate required claims with their field fallback', () => {
+    const profile = makeProfile()
+    const fallback = makeProfile()
+    profile.signatureMoves = [
+      { ...claim('绿色主按钮建立主要行动层级'), id: 'move-1', name: '绿色行动', distinctiveness: 'x' },
+    ]
+    profile.attention.contrastStrategy = claim('绿色主按钮建立主要行动层级')
+    fallback.attention.contrastStrategy = claim('颜色对比的独立证据不足', 'low')
+
+    const { profile: deduped, removed } = dedupeProfileClaims(profile, fallback)
+
+    expect(removed).toBe(1)
+    expect(deduped.signatureMoves[0].statement).toBe('绿色主按钮建立主要行动层级')
+    expect(deduped.attention.contrastStrategy.statement).toBe('颜色对比的独立证据不足')
+    expect(deduped.attention.contrastStrategy.confidence).toBe('low')
+  })
+
+  test('keeps transfer guidance even when it restates the thesis but deduplicates within its own list', () => {
+    const profile = makeProfile()
+    profile.transferRules.preserve = [
+      claim('深色开发者文档界面'),
+      claim('深色开发者文档界面。'),
+      claim('保留跨页面的导航层级'),
+    ]
+
+    const { profile: deduped, removed } = dedupeProfileClaims(profile)
+
+    expect(removed).toBe(1)
+    expect(deduped.transferRules.preserve.map((item) => item.statement)).toEqual([
+      '深色开发者文档界面',
+      '保留跨页面的导航层级',
+    ])
+  })
 })

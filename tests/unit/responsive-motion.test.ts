@@ -4,6 +4,7 @@ import {
   labelBreakpointWidths,
   mergeMotionTokens,
   mergeResponsiveBreakpoints,
+  selectRepresentativeBreakpointWidths,
 } from '../../src/core/analyzer/responsive-motion.js'
 
 describe('responsive breakpoint labels', () => {
@@ -16,6 +17,17 @@ describe('responsive breakpoint labels', () => {
       { width: 1024, label: 'tablet' },
       { width: 1440, label: 'wide' },
     ])
+  })
+
+  test('keeps a category boundary alongside the strongest repeated breakpoint', () => {
+    expect(
+      selectRepresentativeBreakpointWidths([
+        { width: 640, count: 20 },
+        { width: 660, count: 8 },
+        { width: 690, count: 16 },
+        { width: 768, count: 6 },
+      ]),
+    ).toEqual([640, 768])
   })
 
   test('merges breakpoint and motion evidence across pages without duplicates', () => {

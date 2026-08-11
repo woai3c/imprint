@@ -60,4 +60,19 @@ describe('usage statistics', () => {
     expect(merged.usageCount['fontSize:16px']).toBeCloseTo(1.1)
     expect(merged.usageCount['fontSize:12px']).toBeCloseTo(0.9)
   })
+
+  test('gives repeated viewports of one URL a single vote in token selection', () => {
+    const merged = mergeStylesWithNormalizedUsage(
+      [
+        createExtractedStyles({ usageCount: { 'radius:4px': 100 } }),
+        createExtractedStyles({ usageCount: { 'radius:4px': 80, 'radius:8px': 20 } }),
+        createExtractedStyles({ usageCount: { 'radius:12px': 100 } }),
+      ],
+      ['https://example.com/', 'https://example.com/', 'https://example.com/pricing'],
+    )
+
+    expect(merged.usageCount['radius:4px']).toBeCloseTo(0.9)
+    expect(merged.usageCount['radius:8px']).toBeCloseTo(0.1)
+    expect(merged.usageCount['radius:12px']).toBeCloseTo(1)
+  })
 })

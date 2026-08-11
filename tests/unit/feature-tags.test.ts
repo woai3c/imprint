@@ -87,7 +87,7 @@ describe('design feature tags', () => {
     })
 
     const tags = generateFeatureTags(designTokens, styles)
-    expect(tags).toContain('sharp-edge geometric style')
+    expect(tags).toContain('small-radius geometric style')
     expect(tags).not.toContain('large-radius rounded style')
   })
 

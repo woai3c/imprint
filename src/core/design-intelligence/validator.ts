@@ -20,6 +20,57 @@ const UNPROVABLE_INTENT =
   /(?:the designer (?:wants|wanted|intends|intended)|the brand (?:wants|must|intends)|设计师(?:希望|想要|意图)|品牌(?:一定|希望|想要))/i
 const HTML_OR_URL = /<[^>]+>|https?:\/\/|javascript:|```/i
 const COLOR_LITERAL = /#[0-9a-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi
+const VISIBLE_FOCUS_ASSERTION =
+  /\b(?:clear|clearly visible|visible|prominent|distinct)\s+(?:keyboard\s+)?focus|(?:focus|keyboard focus)\s+(?:indicator|ring).*(?:clear|visible|prominent|distinct)|清晰可见|清楚可见|明显的?(?:键盘)?焦点|可见的?(?:键盘)?焦点/i
+const ORDERED_VISUAL_SEQUENCE =
+  /\b(?:first|then|next|finally|followed by)\b|\bfrom\b[^.]{1,100}\bto\b|(?:→|->)|(?:先|首先|随后|然后|接着|再到|最后|最终|依次|从[^。]{1,80}到)/i
+const HORIZONTAL_OVERFLOW_ASSERTION =
+  /\b(?:horizontal overflow|overflow|clipp|off-screen|min(?:imum)?-width)\b|横向溢出|横向滚动|裁切|超出视口|最小宽度/i
+
+const SECTION_ROLE_ALIASES: Record<string, string> = {
+  页眉: 'header',
+  头部: 'header',
+  顶部栏: 'header',
+  导航: 'navigation',
+  导航栏: 'navigation',
+  主视觉: 'hero',
+  首屏: 'hero',
+  内容: 'content',
+  正文: 'content',
+  功能组: 'feature-group',
+  特性组: 'feature-group',
+  媒体: 'media',
+  操作: 'action',
+  行动: 'action',
+  侧栏: 'aside',
+  边栏: 'aside',
+  页脚: 'footer',
+  底部: 'footer',
+  未知: 'unknown',
+}
+
+const COMPONENT_TYPE_ALIASES: Record<string, string> = {
+  按钮: 'button',
+  输入框: 'input',
+  输入: 'input',
+  导航: 'navigation',
+  导航栏: 'navigation',
+  卡片: 'card',
+  对话框: 'modal',
+  弹窗: 'modal',
+  列表: 'list',
+  表格: 'table',
+}
+
+function normalizeSectionRole(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  return SECTION_ROLE_ALIASES[normalized] || normalized
+}
+
+function normalizeComponentType(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  return COMPONENT_TYPE_ALIASES[normalized] || normalized
+}
 
 function collectTokenColorValues(evidence: DesignEvidence): Set<string> {
   return new Set(
@@ -255,6 +306,26 @@ function validateClaims(
     .filter((claim): claim is DesignClaim => claim !== null)
 }
 
+function validateVisualSequenceClaims(
+  value: unknown,
+  validIds: Set<string>,
+  path: string,
+  rejected: string[],
+  inputMode: IntelligenceInputMode,
+  max: number,
+  knownColors?: Set<string>,
+): DesignClaim[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, max).flatMap((candidate, index) => {
+    const itemPath = `${path}.${index}`
+    const claim = validateClaim(candidate, validIds, itemPath, rejected, inputMode, true, knownColors)
+    if (!claim) return []
+    if (ORDERED_VISUAL_SEQUENCE.test(`${claim.statement} ${claim.implementation}`)) return [claim]
+    rejected.push(`${itemPath}:semantic-field-mismatch`)
+    return []
+  })
+}
+
 function validateInteractionClaim(
   value: unknown,
   validIds: Set<string>,
@@ -277,7 +348,7 @@ function validateInteractionClaim(
       `${claim.statement} ${claim.implementation}`,
     )
     const assertsExecutedBehavior =
-      /\b(?:click|clicked|expand|expanded|toggle|toggled|open|opened|close|closed|navigate|navigates)\b|点击|展开|切换|打开|关闭|跳转/i.test(
+      /\b(?:click|clicked|press|pressed|pressing|expand|expanded|toggle|toggled|open|opened|close|closed|navigate|navigates)\b|点击|按压|按下|展开|切换|打开|关闭|跳转/i.test(
         `${claim.statement} ${claim.implementation}`,
       )
     if (assertsExecutedBehavior || assertsUniversalBehavior) return { ...claim, confidence: 'low' }
@@ -418,6 +489,404 @@ function referencedPageUrls(claim: DesignClaim, scope: EvidenceScope): Set<strin
       .map((reference) => scope.pageUrlByEvidenceId.get(reference.evidenceId))
       .filter((url): url is string => Boolean(url)),
   )
+}
+
+function groundColorClaims(profile: DesignProfile, evidence: DesignEvidence, scope: EvidenceScope, rejected: string[]) {
+  const refsByValue = new Map<string, string[]>()
+  const pagesByRef = new Map<string, Set<string>>()
+  for (const [name, value] of Object.entries(evidence.tokens.colors)) {
+    const normalized = value.trim().toLowerCase()
+    const ref = `color.${name}`
+    const refs = refsByValue.get(normalized) || []
+    refs.push(ref)
+    refsByValue.set(normalized, refs)
+    pagesByRef.set(
+      ref,
+      new Set((evidence.tokens.evidence?.[`colors.${name}`]?.pages || []).map((page) => canonicalPageUrl(page))),
+    )
+  }
+
+  let mismatch = false
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}.${index}`))
+      return
+    }
+    if (!isRecord(value)) return
+    if (typeof value.statement === 'string' && typeof value.implementation === 'string') {
+      const claim = value as unknown as DesignClaim
+      const literals = [...`${claim.statement} ${claim.implementation}`.matchAll(COLOR_LITERAL)]
+        .map((match) => match[0].trim().toLowerCase())
+        .filter((literal, index, all) => all.indexOf(literal) === index && refsByValue.has(literal))
+      if (literals.length === 0) return
+      const claimPages = referencedPageUrls(claim, scope)
+      const matchedRefs: string[] = []
+      for (const literal of literals) {
+        const refs = refsByValue.get(literal) || []
+        const ref =
+          refs.find((candidate) => [...(pagesByRef.get(candidate) || [])].some((page) => claimPages.has(page))) ||
+          refs[0]
+        if (ref && !matchedRefs.includes(ref)) matchedRefs.push(ref)
+        const tokenPages = refs.flatMap((candidate) => [...(pagesByRef.get(candidate) || [])])
+        if (claimPages.size > 0 && tokenPages.length > 0 && !tokenPages.some((page) => claimPages.has(page))) {
+          mismatch = true
+          claim.confidence = 'low'
+          rejected.push(`${path}:color-token-page-mismatch(${ref || literal})`)
+        }
+      }
+      claim.tokenRefs = [...(claim.tokenRefs || []).filter((ref) => !ref.startsWith('color.')), ...matchedRefs].slice(
+        0,
+        16,
+      )
+      return
+    }
+    Object.entries(value).forEach(([key, item]) => visit(item, path ? `${path}.${key}` : key))
+  }
+  visit(profile, '')
+  return mismatch
+}
+
+function groundOverflowClaims(
+  profile: DesignProfile,
+  evidence: DesignEvidence,
+  scope: EvidenceScope,
+  validIds: Set<string>,
+  rejected: string[],
+): boolean {
+  const overflowFacts = evidence.pages.flatMap((page) => {
+    if (!page.horizontalOverflow) return []
+    const sourceSectionIds = [
+      ...new Set(
+        (page.horizontalOverflowSources || [])
+          .map((source) => source.sectionId)
+          .filter((sectionId): sectionId is string => Boolean(sectionId && validIds.has(sectionId))),
+      ),
+    ]
+    return [{ page, sourceSectionIds }]
+  })
+  if (overflowFacts.length === 0) return false
+
+  let mismatch = false
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}.${index}`))
+      return
+    }
+    if (!isRecord(value)) return
+    if (typeof value.statement === 'string' && typeof value.implementation === 'string') {
+      const claim = value as unknown as DesignClaim
+      if (!HORIZONTAL_OVERFLOW_ASSERTION.test(`${claim.statement} ${claim.implementation}`)) return
+      const citedIds = new Set(claim.evidence.map((reference) => reference.evidenceId))
+      const citedPageIds = new Set(
+        claim.evidence
+          .map((reference) => scope.pageIdByEvidenceId.get(reference.evidenceId))
+          .filter((pageId): pageId is string => Boolean(pageId)),
+      )
+      const fact =
+        overflowFacts.find(({ sourceSectionIds }) => sourceSectionIds.some((sectionId) => citedIds.has(sectionId))) ||
+        overflowFacts.find(({ page }) => citedPageIds.has(page.id)) ||
+        overflowFacts[0]
+      const grounded =
+        fact.sourceSectionIds.length > 0
+          ? fact.sourceSectionIds.some((sectionId) => citedIds.has(sectionId))
+          : citedPageIds.has(fact.page.id)
+      if (grounded) return
+
+      const preferredIds = [
+        ...fact.sourceSectionIds,
+        ...fact.page.images.map((image) => image.id).filter((imageId) => validIds.has(imageId)),
+        ...(validIds.has(fact.page.id) ? [fact.page.id] : []),
+      ].slice(0, 2)
+      if (preferredIds.length === 0) return
+      claim.evidence = preferredIds.map((evidenceId) => ({
+        evidenceId,
+        note:
+          profile.language === 'zh-CN'
+            ? '程序定位的横向溢出页面或关联区块'
+            : 'Programmatically located overflow page or source section',
+      }))
+      if (claim.confidence === 'high') claim.confidence = 'medium'
+      mismatch = true
+      rejected.push(`${path}:overflow-evidence-scope-repaired`)
+      return
+    }
+    Object.entries(value).forEach(([key, item]) => visit(item, path ? `${path}.${key}` : key))
+  }
+  visit(profile, '')
+  return mismatch
+}
+
+function isTransparentPaint(value: string | undefined): boolean {
+  if (!value) return true
+  const normalized = value.toLowerCase().replace(/\s+/g, '')
+  if (normalized === 'none' || normalized === 'transparent' || normalized === '0' || normalized === '0px') return true
+  if (/^#[\da-f]{8}$/.test(normalized) && normalized.endsWith('00')) return true
+  if (/^(?:rgba|hsla)\([^)]*,0(?:\.0+)?\)$/.test(normalized)) return true
+  const withoutTransparentColors = normalized
+    .replace(/(?:rgba|hsla)\([^)]*,0(?:\.0+)?\)/g, '')
+    .replace(/transparent/g, '')
+    .replace(/inset/g, '')
+    .replace(/-?\d+(?:\.\d+)?(?:px|rem|em)?/g, '')
+    .replace(/[(),/]/g, '')
+  if (!withoutTransparentColors) return true
+  return false
+}
+
+function focusObservationHasVisibleIndicator(observation: DesignEvidence['interactionObservations'][number]): boolean {
+  const outlineColor = observation.after['outline-color'] || observation.after.outlineColor
+  const boxShadow = observation.after['box-shadow'] || observation.after.boxShadow
+  return !isTransparentPaint(outlineColor) || !isTransparentPaint(boxShadow)
+}
+
+function validateVisibleFocusClaims(profile: DesignProfile, evidence: DesignEvidence, rejected: string[]): boolean {
+  const observations = new Map(evidence.interactionObservations.map((observation) => [observation.id, observation]))
+  let mismatch = false
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}.${index}`))
+      return
+    }
+    if (!isRecord(value)) return
+    if (typeof value.statement === 'string' && typeof value.implementation === 'string') {
+      const claim = value as unknown as DesignClaim
+      if (!VISIBLE_FOCUS_ASSERTION.test(`${claim.statement} ${claim.implementation}`)) return
+      const focusEvidence = claim.evidence
+        .map((reference) => observations.get(reference.evidenceId))
+        .filter(
+          (observation): observation is DesignEvidence['interactionObservations'][number] =>
+            observation?.driver === 'focus',
+        )
+      if (focusEvidence.length === 0 || focusEvidence.some(focusObservationHasVisibleIndicator)) return
+      mismatch = true
+      claim.confidence = 'low'
+      rejected.push(`${path}:focus-visibility-not-observed`)
+      return
+    }
+    Object.entries(value).forEach(([key, item]) => visit(item, path ? `${path}.${key}` : key))
+  }
+  visit(profile, '')
+  return mismatch
+}
+
+const INTERACTION_PROPERTY_PATTERNS: Array<{ property: string; pattern: RegExp }> = [
+  { property: 'background-color', pattern: /background(?:-|\s*)colou?r|背景色/i },
+  { property: 'box-shadow', pattern: /box(?:-|\s*)shadow|阴影/i },
+  { property: 'outline', pattern: /outline|轮廓/i },
+  { property: 'text-decoration', pattern: /text(?:-|\s*)decoration|underline|下划线/i },
+  { property: 'border-color', pattern: /border(?:-|\s*)colou?r|边框色/i },
+  {
+    property: 'color',
+    pattern:
+      /(?:^|[\s,，、;；])color(?=$|[\s,，、;；])|(?:文字|文本|前景)(?:色|颜色)|(?:^|[\s，、；])颜色(?=$|[\s，、；])/i,
+  },
+  { property: 'opacity', pattern: /opacity|透明度/i },
+]
+
+const INTERACTION_DRIVER_PATTERNS: Array<{
+  driver: DesignEvidence['interactionObservations'][number]['driver']
+  pattern: RegExp
+}> = [
+  { driver: 'hover', pattern: /\bhover\b|mouse[ -]?over|悬停/i },
+  { driver: 'focus', pattern: /\bfocus\b|keyboard|焦点|键盘/i },
+  { driver: 'click', pattern: /\bclick(?:ed|ing)?\b|\btoggle\b|\bpress(?:ed|ing)?\b|点击|按下|切换|展开|打开|关闭/i },
+  { driver: 'disabled', pattern: /\bdisabled?\b|禁用/i },
+  { driver: 'scroll', pattern: /\bscroll\b|滚动/i },
+  { driver: 'time', pattern: /\b(?:time|timed|automatic)\b|定时|自动/i },
+]
+
+function interactionDriverForProperty(
+  text: string,
+  property: string,
+): DesignEvidence['interactionObservations'][number]['driver'] | undefined {
+  const propertyPattern = INTERACTION_PROPERTY_PATTERNS.find((candidate) => candidate.property === property)?.pattern
+  if (!propertyPattern) return undefined
+  for (const clause of text.split(/[,.，。;；\n]/)) {
+    if (!propertyPattern.test(clause)) continue
+    const clauseDrivers = INTERACTION_DRIVER_PATTERNS.filter(({ pattern }) => pattern.test(clause))
+    if (clauseDrivers.length === 1) return clauseDrivers[0].driver
+  }
+  const propertyIndex = text.search(propertyPattern)
+  if (propertyIndex < 0) return undefined
+  return INTERACTION_DRIVER_PATTERNS.flatMap(({ driver, pattern }) => {
+    const index = text.search(pattern)
+    return index >= 0 ? [{ driver, score: Math.abs(propertyIndex - index) + (index > propertyIndex ? 40 : 0) }] : []
+  }).sort((a, b) => a.score - b.score)[0]?.driver
+}
+
+function interactionPropertyObserved(property: string, changedProperties: Set<string>, text: string): boolean {
+  if (property === 'outline') return [...changedProperties].some((candidate) => candidate.startsWith('outline'))
+  if (property === 'border-color') {
+    if (changedProperties.has(property)) return true
+    return [...changedProperties].some((candidate) => {
+      if (!/^border-(?:top|right|bottom|left)-color$/.test(candidate)) return false
+      const humanName = candidate.replaceAll('-', '[ -]?')
+      return new RegExp(`\\b${humanName}\\b`, 'i').test(text)
+    })
+  }
+  return changedProperties.has(property)
+}
+
+function validateInteractionClaimDetails(
+  profile: DesignProfile,
+  evidence: DesignEvidence,
+  scope: EvidenceScope,
+  validIds: Set<string>,
+  rejected: string[],
+): boolean {
+  const eligibleObservations = evidence.interactionObservations.filter((observation) => validIds.has(observation.id))
+  const observations = new Map(eligibleObservations.map((observation) => [observation.id, observation]))
+  let mismatch = false
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}.${index}`))
+      return
+    }
+    if (!isRecord(value)) return
+    if (typeof value.statement === 'string' && typeof value.implementation === 'string') {
+      const claim = value as unknown as DesignClaim
+      let cited = claim.evidence
+        .map((reference) => observations.get(reference.evidenceId))
+        .filter((observation): observation is DesignEvidence['interactionObservations'][number] => Boolean(observation))
+      if (cited.length === 0) return
+      let text = `${claim.statement} ${claim.implementation}`
+      let changedProperties = new Set(cited.flatMap((observation) => observation.changedProperties))
+      let unsupportedProperty = INTERACTION_PROPERTY_PATTERNS.find(
+        ({ property, pattern }) =>
+          pattern.test(text) && !interactionPropertyObserved(property, changedProperties, text),
+      )?.property
+      if (unsupportedProperty === 'border-color') {
+        const observedSideColors = [...changedProperties].filter((property) =>
+          /^border-(?:top|right|bottom|left)-color$/.test(property),
+        )
+        if (observedSideColors.length === 1) {
+          const property = observedSideColors[0]
+          const chineseProperty = (
+            {
+              'border-top-color': '上边框颜色',
+              'border-right-color': '右边框颜色',
+              'border-bottom-color': '下边框颜色',
+              'border-left-color': '左边框颜色',
+            } as Record<string, string>
+          )[property]
+          const replace = (source: string) =>
+            source
+              .replace(/\bborder(?:-|\s*)colou?r\b/gi, property)
+              .replace(/边框(?:色|颜色)/g, chineseProperty || property)
+          claim.statement = replace(claim.statement)
+          claim.implementation = replace(claim.implementation)
+          text = `${claim.statement} ${claim.implementation}`
+          unsupportedProperty = undefined
+          rejected.push(`${path}:interaction-property-normalized(${property})`)
+        }
+      }
+      let repairAttempts = 0
+      while (unsupportedProperty && repairAttempts < 3) {
+        repairAttempts += 1
+        const propertyToRepair = unsupportedProperty
+        const citedSectionIds = new Set(cited.map((observation) => observation.sectionId))
+        const citedPageIds = new Set(
+          cited
+            .map((observation) => scope.pageIdByEvidenceId.get(observation.id))
+            .filter((pageId): pageId is string => Boolean(pageId)),
+        )
+        const citedDrivers = new Set(cited.map((observation) => observation.driver))
+        const namedDriver = interactionDriverForProperty(text, propertyToRepair)
+        const replacement = eligibleObservations
+          .filter(
+            (observation) =>
+              (!namedDriver || observation.driver === namedDriver) &&
+              interactionPropertyObserved(propertyToRepair, new Set(observation.changedProperties), text),
+          )
+          .sort((a, b) => {
+            const score = (observation: DesignEvidence['interactionObservations'][number]) => {
+              const sameDriver = citedDrivers.has(observation.driver)
+              if (sameDriver && citedSectionIds.has(observation.sectionId)) return 0
+              const pageId = scope.pageIdByEvidenceId.get(observation.id)
+              if (sameDriver && pageId && citedPageIds.has(pageId)) return 1
+              if (sameDriver) return 2
+              if (citedSectionIds.has(observation.sectionId)) return 3
+              if (pageId && citedPageIds.has(pageId)) return 4
+              return 5
+            }
+            return score(a) - score(b) || a.id.localeCompare(b.id)
+          })[0]
+        if (!replacement) break
+        const retainedReferences = claim.evidence.filter((reference) => {
+          const observation = observations.get(reference.evidenceId)
+          return (
+            !observation ||
+            INTERACTION_PROPERTY_PATTERNS.some(
+              ({ property, pattern }) =>
+                pattern.test(text) &&
+                interactionPropertyObserved(property, new Set(observation.changedProperties), text),
+            )
+          )
+        })
+        claim.evidence = [
+          ...retainedReferences.filter((reference) => reference.evidenceId !== replacement.id),
+          {
+            evidenceId: replacement.id,
+            note:
+              profile.language === 'zh-CN'
+                ? `程序重绑到包含 ${propertyToRepair} 变化的交互证据`
+                : `Programmatically rebound to interaction evidence containing a ${propertyToRepair} change`,
+          },
+        ].slice(0, 3)
+        cited = claim.evidence
+          .map((reference) => observations.get(reference.evidenceId))
+          .filter((observation): observation is DesignEvidence['interactionObservations'][number] =>
+            Boolean(observation),
+          )
+        changedProperties = new Set(cited.flatMap((observation) => observation.changedProperties))
+        if (!interactionPropertyObserved(propertyToRepair, changedProperties, text)) break
+        if (claim.confidence === 'high') claim.confidence = 'medium'
+        rejected.push(`${path}:interaction-evidence-scope-repaired(${propertyToRepair})`)
+        unsupportedProperty = INTERACTION_PROPERTY_PATTERNS.find(
+          ({ property, pattern }) =>
+            pattern.test(text) && !interactionPropertyObserved(property, changedProperties, text),
+        )?.property
+      }
+      if (unsupportedProperty && path === 'interactionLanguage.stateChangeAmplitude' && changedProperties.size > 0) {
+        const supportedProperties = [...changedProperties].sort().slice(0, 8)
+        claim.statement =
+          profile.language === 'zh-CN'
+            ? `已引用的状态证据仅确认 ${supportedProperties.join('、')} 的属性差异，实际视觉幅度尚未执行验证。`
+            : `The cited state evidence confirms only ${supportedProperties.join(', ')} property differences; the visual amplitude has not been actively verified.`
+        claim.implementation =
+          profile.language === 'zh-CN'
+            ? '仅复用以上已记录的属性差异；其他反馈属性需要新增对应交互证据后再采用。'
+            : 'Reuse only these recorded property differences; require matching interaction evidence before adding other feedback properties.'
+        claim.confidence = 'low'
+        rejected.push(`${path}:interaction-property-claim-sanitized(${unsupportedProperty})`)
+        text = `${claim.statement} ${claim.implementation}`
+        unsupportedProperty = undefined
+      }
+      const observedValues = new Set(
+        cited
+          .flatMap((observation) => [
+            ...Object.values(observation.before),
+            ...Object.values(observation.after),
+            ...(observation.transition?.duration ? [observation.transition.duration] : []),
+            ...(observation.transition?.easing ? [observation.transition.easing] : []),
+          ])
+          .map((item) => item.trim().toLowerCase()),
+      )
+      const exactValues = [
+        ...[...text.matchAll(COLOR_LITERAL)].map((match) => match[0]),
+        ...[...text.matchAll(/\b\d+(?:\.\d+)?(?:ms|s)\b/gi)].map((match) => match[0]),
+      ].map((item) => item.trim().toLowerCase())
+      const unsupportedValue = exactValues.find((item) => !observedValues.has(item))
+      if (!unsupportedProperty && !unsupportedValue) return
+      mismatch = true
+      claim.confidence = 'low'
+      if (unsupportedProperty) rejected.push(`${path}:interaction-property-not-observed(${unsupportedProperty})`)
+      if (unsupportedValue) rejected.push(`${path}:interaction-value-not-observed(${unsupportedValue})`)
+      return
+    }
+    Object.entries(value).forEach(([key, item]) => visit(item, path ? `${path}.${key}` : key))
+  }
+  visit(profile, '')
+  return mismatch
 }
 
 function capSinglePageGlobalClaim<T extends DesignClaim>(
@@ -670,14 +1139,13 @@ export function validateDesignProfile(
       fallbackProfile.attention.entryPoint,
       true,
     ),
-    visualSequence: validateClaims(
+    visualSequence: validateVisualSequenceClaims(
       attentionInput.visualSequence,
       validIds,
       'attention.visualSequence',
       rejected,
       claimMode,
       5,
-      true,
       knownColors,
     ),
     actionHierarchy: resolveRequiredClaim(
@@ -737,7 +1205,7 @@ export function validateDesignProfile(
   const sectionGrammar = Array.isArray(value.sectionGrammar)
     ? value.sectionGrammar.slice(0, 12).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.role, 80)) return []
-        const role = item.role.trim().toLowerCase()
+        const role = normalizeSectionRole(item.role)
         if (!observedSectionRoles.has(role as (typeof evidence.sections)[number]['role'])) {
           rejected.push(`sectionGrammar.${index}:unobserved-role`)
           return []
@@ -793,20 +1261,36 @@ export function validateDesignProfile(
   const componentGrammar = Array.isArray(value.componentGrammar)
     ? value.componentGrammar.slice(0, 16).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.component, 80) || !isSafeText(item.role, 120)) return []
+        const componentType = normalizeComponentType(item.component)
+        const matchingEvidenceIds = new Set(
+          evidence.components
+            .filter((component) => normalizeComponentType(component.type) === componentType)
+            .map((component) => component.id),
+        )
+        if (matchingEvidenceIds.size === 0) {
+          rejected.push(`componentGrammar.${index}:unobserved-component-type`)
+          return []
+        }
+        const rules = validateClaims(
+          item.rules,
+          validIds,
+          `componentGrammar.${index}.rules`,
+          rejected,
+          claimMode,
+          8,
+          false,
+          knownColors,
+        ).filter((claim, ruleIndex) => {
+          if (claim.evidence.some((reference) => matchingEvidenceIds.has(reference.evidenceId))) return true
+          rejected.push(`componentGrammar.${index}.rules.${ruleIndex}:mismatched-component-type`)
+          return false
+        })
+        if (rules.length === 0) return []
         return [
           {
-            component: item.component.slice(0, 80),
+            component: componentType.slice(0, 80),
             role: item.role.slice(0, 120),
-            rules: validateClaims(
-              item.rules,
-              validIds,
-              `componentGrammar.${index}.rules`,
-              rejected,
-              claimMode,
-              8,
-              false,
-              knownColors,
-            ),
+            rules,
           },
         ]
       })
@@ -1074,6 +1558,12 @@ export function validateDesignProfile(
     uncertainties: uncertainties.slice(0, 12),
   }
 
+  const colorGroundingGap = groundColorClaims(profile, evidence, evidenceScope, rejected)
+  const overflowGroundingGap = groundOverflowClaims(profile, evidence, evidenceScope, validIds, rejected)
+  const focusGroundingGap = validateVisibleFocusClaims(profile, evidence, rejected)
+  const interactionGroundingGap = validateInteractionClaimDetails(profile, evidence, evidenceScope, validIds, rejected)
+  const semanticGroundingGap = colorGroundingGap || overflowGroundingGap || focusGroundingGap || interactionGroundingGap
+
   const constrainGlobal = <T extends DesignClaim>(claim: T): T =>
     capSinglePageGlobalClaim(claim, evidenceScope, availablePageCount)
   profile.thesis = constrainGlobal(profile.thesis)
@@ -1151,7 +1641,10 @@ export function validateDesignProfile(
   }
   return {
     profile,
-    status: requiredFallbackUsed || imageObservationsValid === false || criticalCoverageGap ? 'partial' : 'complete',
+    status:
+      requiredFallbackUsed || imageObservationsValid === false || criticalCoverageGap || semanticGroundingGap
+        ? 'partial'
+        : 'complete',
     rejected,
     imageObservationsValid,
   }

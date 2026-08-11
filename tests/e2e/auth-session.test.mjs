@@ -61,6 +61,7 @@ test('hands a completed login from visible Chrome to silent analysis', { timeout
     const url = `http://127.0.0.1:${address.port}/private`
 
     let loginDecisions = 0
+    const firstStartedAt = Date.now()
     const firstResult = await analyze(url, {
       authMode: 'managed',
       dataDir,
@@ -68,6 +69,7 @@ test('hands a completed login from visible Chrome to silent analysis', { timeout
       maxPages: 1,
       onLoginRequired: async () => {
         loginDecisions += 1
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
         return 'continue'
       },
       viewports: ['desktop'],
@@ -75,6 +77,9 @@ test('hands a completed login from visible Chrome to silent analysis', { timeout
 
     assert.equal(firstResult.accessMode, 'managed')
     assert.equal(loginDecisions, 1)
+    assert.ok((firstResult.timing.userWaitMs || 0) >= 900)
+    assert.equal(firstResult.duration, firstResult.timing.totalMs)
+    assert.ok(Date.now() - firstStartedAt - firstResult.duration >= 900)
     const storageStatePath = getManagedStorageStatePath(dataDir, url)
     await fs.access(storageStatePath)
     if (process.platform !== 'win32') {

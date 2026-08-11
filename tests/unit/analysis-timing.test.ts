@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mergeAnalysisTimings } from '../../src/core/analyzer/analysis-timing.js'
+import { mergeAnalysisTimings, normalizedAnalysisDurationMs } from '../../src/core/analyzer/analysis-timing.js'
 import type { AnalysisTiming } from '../../src/core/analyzer/types.js'
 
 function timing(overrides: Partial<AnalysisTiming>): AnalysisTiming {
@@ -17,6 +17,12 @@ function timing(overrides: Partial<AnalysisTiming>): AnalysisTiming {
 }
 
 describe('analysis timing aggregation', () => {
+  it('normalizes persisted duration from net timing only', () => {
+    expect(normalizedAnalysisDurationMs({ totalMs: 158_303.6 })).toBe(158_304)
+    expect(normalizedAnalysisDurationMs({ totalMs: Number.NaN })).toBeNull()
+    expect(normalizedAnalysisDurationMs({ totalMs: -1 })).toBeNull()
+  })
+
   it('keeps program and AI timing distinct while exposing an end-to-end total', () => {
     const merged = mergeAnalysisTimings(
       timing({
@@ -28,6 +34,7 @@ describe('analysis timing aggregation', () => {
         imageFingerprintMs: 800,
         imageSummaryMs: 2_000,
         budgetExceeded: ['adaptive-mobile'],
+        userWaitMs: 30_000,
       }),
       timing({
         totalMs: 180_000,
@@ -41,11 +48,13 @@ describe('analysis timing aggregation', () => {
         aiOutputTokens: 1_500,
         imageCount: 1,
       }),
+      45_000,
     )
 
     expect(merged.programTotalMs).toBe(70_000)
     expect(merged.aiTotalMs).toBe(180_000)
     expect(merged.totalMs).toBe(250_000)
+    expect(merged.userWaitMs).toBe(75_000)
     expect(merged.aiNetworkMs).toBe(170_000)
     expect(merged.aiTransportAttempts).toBe(2)
     expect(merged.screenshotCaptureMs).toBe(18_000)

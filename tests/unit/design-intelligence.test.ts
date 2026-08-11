@@ -12,6 +12,7 @@ import {
   evaluateProfileQuality,
   generateAgentContextBundle,
   generateReconstructionBrief,
+  repairProfileCoverage,
   restrictEvidencePackageImages,
   selectEvidencePackage,
   validateDesignProfile,
@@ -179,7 +180,7 @@ function rawProfile(mode: 'structural-only' | 'multimodal' = 'structural-only') 
     },
     attention: {
       entryPoint: claim(),
-      visualSequence: [claim()],
+      visualSequence: [claim('First the opening establishes the topic, then the following section adds detail.')],
       actionHierarchy: claim(),
       contrastStrategy: claim(),
     },
@@ -210,7 +211,21 @@ function rawProfile(mode: 'structural-only' | 'multimodal' = 'structural-only') 
         },
       ],
     },
-    componentGrammar: [{ component: 'button', role: 'primary action', rules: [claim()] }],
+    componentGrammar: [
+      {
+        component: 'button',
+        role: 'primary action',
+        rules: [
+          {
+            ...claim(),
+            evidence: [
+              { evidenceId: 'component-a', note: 'Observed primary action component' },
+              { evidenceId: 'section-a', note: 'Desktop hero context' },
+            ],
+          },
+        ],
+      },
+    ],
     patterns: [
       {
         id: 'pattern-action-cluster',
@@ -495,8 +510,344 @@ describe('Design intelligence', () => {
     const checked = checkProfileContradictions(profile, contradictionEvidence)
     expect(checked.profile.visualLanguage.typography.confidence).toBe('low')
     expect(checked.rejected.some((reason) => reason.includes('font-weight-not-in-token-set'))).toBe(true)
-    expect(checked.rejected.some((reason) => reason.includes('numeric-value-not-in-token-set'))).toBe(true)
+    expect(checked.rejected.some((reason) => reason.includes('numeric-value-sanitized'))).toBe(true)
     expect(checked.profile.uncertainties.some((item) => item.topic === 'Deterministic contradiction check')).toBe(true)
+    expect(checked.profile.uncertainties.map((item) => item.reason).join(' ')).not.toContain('not-in-token-set')
+    expect(new Set(checked.profile.uncertainties.map((item) => item.reason)).size).toBe(
+      checked.profile.uncertainties.length,
+    )
+  })
+
+  it('replaces unsupported generated lengths with grounded token refs instead of discarding the claim', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.composition.densityAndWhitespace = {
+      ...claim('Spacing uses a -16px offset between content groups.'),
+      implementation: 'Apply -16px as the repeated section gap.',
+    }
+    profile.visualLanguage.typography = {
+      ...claim('Body typography uses a -1rem size.'),
+      implementation: 'Set body text to -1rem.',
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.composition.densityAndWhitespace.statement).toContain('token spacing.2')
+    expect(checked.profile.composition.densityAndWhitespace.tokenRefs).toContain('spacing.2')
+    expect(checked.profile.visualLanguage.typography.statement).toContain('token typography.font-size.1')
+    expect(checked.profile.visualLanguage.typography.tokenRefs).toContain('typography.font-size.1')
+    expect(checked.profile.composition.densityAndWhitespace.confidence).toBe('medium')
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        'composition.densityAndWhitespace:numeric-value-sanitized(-16px->spacing.2)',
+        'visualLanguage.typography:numeric-value-sanitized(-1rem->typography.font-size.1)',
+      ]),
+    )
+    expect(checked.profile.uncertainties).toEqual([])
+  })
+
+  it('repairs uncertainty text that denies an observed responsive layout-mode change', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.uncertainties = [
+      {
+        topic: '水平溢出范围',
+        reason: '移动端没有布局模式变化证据，无法确认响应式行为。',
+      },
+    ]
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.pages[1].horizontalOverflow = true
+    contradictionEvidence.responsiveObservations[0].changedProperties.push('layoutMode')
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+
+    expect(checked.rejected).toContain('uncertainties.0:contradicts-responsive-layout-facts')
+    expect(checked.profile.uncertainties[0].reason).toBe(
+      '已观察到局部布局模式变化，但横向溢出的具体来源和影响范围仍需确认。',
+    )
+    expect(checked.profile.uncertainties).toHaveLength(1)
+  })
+
+  it('repairs overflow claims and uncertainties to the programmatically located source section', () => {
+    const overflowEvidence = structuredClone(evidence)
+    overflowEvidence.pages[1] = {
+      ...overflowEvidence.pages[1],
+      viewportWidth: 375,
+      contentWidth: 1_032,
+      horizontalOverflow: true,
+      horizontalOverflowSources: [
+        {
+          locator: 'main > section:nth-of-type(2)',
+          overflowPx: 657,
+          width: 1_032,
+          position: 'static',
+          sectionId: 'section-b',
+          sectionRole: 'hero',
+        },
+      ],
+    }
+    const raw = rawProfile()
+    raw.transferRules.avoid = [
+      {
+        ...claim('Avoid preserving the horizontal overflow observed on the narrow capture.'),
+        evidence: [{ evidenceId: 'section-a', note: 'Unrelated desktop section' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, overflowEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.transferRules.avoid[0].evidence[0].evidenceId).toBe('section-b')
+    expect(validation.rejected).toContain('transferRules.avoid.0:overflow-evidence-scope-repaired')
+
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.uncertainties = [
+      {
+        topic: '横向溢出',
+        reason: '摘要报告 horizontal-overflow-observed 但未指明来源区块与宽度阈值。',
+        neededEvidence: '带 source.section 的 overflow 事实',
+      },
+    ]
+    const checked = checkProfileContradictions(profile, overflowEvidence)
+
+    expect(checked.rejected).toContain('uncertainties.0:contradicts-overflow-source-facts')
+    expect(checked.profile.uncertainties[0].topic).toBe('水平溢出细节')
+    expect(checked.profile.uncertainties[0].reason).toBe(
+      '已定位到发生横向溢出的页面及关联区块，但裁切范围和预期移动端行为仍需确认。',
+    )
+    expect(checked.profile.uncertainties[0].neededEvidence).toBe('裁切范围与预期移动端行为')
+    expect(checked.profile.uncertainties).toHaveLength(1)
+  })
+
+  it('repairs uncertainty text that understates observed mobile captures and section sequences', () => {
+    const mobileEvidence = structuredClone(evidence)
+    mobileEvidence.pages.push({
+      id: 'page-c',
+      url: 'https://example.com/column',
+      viewport: 'mobile',
+      role: 'content',
+      images: [{ id: 'image-c', kind: 'overview', path: 'mobile-column.png', width: 375, height: 1_600 }],
+    })
+    mobileEvidence.sections.push({
+      id: 'section-c',
+      pageId: 'page-c',
+      order: 0,
+      role: 'content',
+      rect: { x: 0, y: 0, width: 1, height: 1 },
+      layoutMode: 'flow',
+      tokenRefs: [],
+      componentRefs: [],
+      interactionRefs: [],
+      mediaLayerRefs: [],
+      evidenceRefs: ['image-c'],
+    })
+    mobileEvidence.topology.pages.push({ pageId: 'page-c', role: 'content', sectionIds: ['section-c'] })
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.uncertainties = [
+      {
+        topic: '移动端整页结构',
+        reason: '移动端页面 sectionSequence 为空，仅有零散的响应式差异事实，无法还原完整移动端顺序。',
+        neededEvidence: '移动端 section 序列',
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, mobileEvidence)
+
+    expect(checked.rejected).toContain('uncertainties.0:contradicts-mobile-capture-facts')
+    expect(checked.profile.uncertainties[0].topic).toBe('移动端结构覆盖')
+    expect(checked.profile.uncertainties[0].reason).toBe(
+      '已采集 2 个移动端页面/视口且均有截图，其中 2 个包含区块序列；尚未覆盖的页面及跨页一致性仍需确认。',
+    )
+    expect(checked.profile.uncertainties[0].neededEvidence).toBe('尚未采集的移动端页面及跨页一致性')
+  })
+
+  it('removes an obsolete uncertainty claiming validated token refs are undefined', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.uncertainties = [
+      {
+        topic: '部分令牌未定义',
+        reason: '个别被引用的令牌未出现在令牌事实中，其数值边界无法核对。',
+        neededEvidence: '完整令牌定义表',
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.uncertainties).toEqual([])
+    expect(checked.rejected).toContain('uncertainties.0:contradicts-validated-token-refs')
+  })
+
+  it('normalizes a generalized interaction border color to the observed side-specific property', () => {
+    const interactionEvidence = structuredClone(evidence)
+    interactionEvidence.interactionObservations = [
+      {
+        id: 'interaction-border',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: ':hover' },
+        before: { 'border-bottom-color': '#111827' },
+        after: { 'border-bottom-color': '#2563eb' },
+        changedProperties: ['border-bottom-color'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+    ]
+    const raw = rawProfile()
+    raw.interactionLanguage.feedbackStyle = {
+      ...claim('Hover changes the border color of the active control.'),
+      implementation: 'Change border-color on hover while keeping the rest of the control stable.',
+      evidence: [{ evidenceId: 'interaction-border', note: 'Observed hover declaration' }],
+    }
+
+    const validation = validateDesignProfile(raw, interactionEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.interactionLanguage.feedbackStyle.statement).toContain('border-bottom-color')
+    expect(validation.profile?.interactionLanguage.feedbackStyle.implementation).toContain('border-bottom-color')
+    expect(validation.profile?.interactionLanguage.feedbackStyle.confidence).toBe('medium')
+    expect(validation.rejected).toContain(
+      'interactionLanguage.feedbackStyle:interaction-property-normalized(border-bottom-color)',
+    )
+  })
+
+  it('constrains an over-broad state amplitude claim to properties supported by its cited states', () => {
+    const interactionEvidence = structuredClone(evidence)
+    interactionEvidence.interactionObservations = [
+      {
+        id: 'interaction-opacity',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'click',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:active' },
+        before: {},
+        after: { opacity: '0.8' },
+        changedProperties: ['opacity'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+      {
+        id: 'interaction-background',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'click',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:active' },
+        before: {},
+        after: { 'background-color': '#111827' },
+        changedProperties: ['background-color'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+      {
+        id: 'interaction-shadow',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'click',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:active' },
+        before: {},
+        after: { 'box-shadow': 'none' },
+        changedProperties: ['box-shadow'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+      {
+        id: 'interaction-border',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:hover' },
+        before: {},
+        after: { 'border-bottom-color': '#2563eb' },
+        changedProperties: ['border-bottom-color'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+    ]
+    const raw = rawProfile()
+    raw.interactionLanguage.stateChangeAmplitude = {
+      ...claim('Feedback stays light across background, border, shadow, color, and opacity changes.'),
+      implementation:
+        'Limit changes to background-color, border-color, box-shadow, color, and opacity without movement.',
+      evidence: [
+        { evidenceId: 'interaction-opacity', note: 'Declared active opacity' },
+        { evidenceId: 'interaction-background', note: 'Declared active background' },
+      ],
+    }
+
+    const validation = validateDesignProfile(raw, interactionEvidence, 'structural-only', 'en')
+    const amplitude = validation.profile?.interactionLanguage.stateChangeAmplitude
+
+    expect(amplitude?.statement).toContain('background-color, box-shadow, opacity')
+    expect(amplitude?.statement).not.toContain('border')
+    expect(amplitude?.confidence).toBe('low')
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'interactionLanguage.stateChangeAmplitude:interaction-evidence-scope-repaired(box-shadow)',
+        'interactionLanguage.stateChangeAmplitude:interaction-property-claim-sanitized(border-color)',
+      ]),
+    )
+    expect(validation.rejected).not.toContain(
+      'interactionLanguage.stateChangeAmplitude:interaction-property-not-observed(border-color)',
+    )
+  })
+
+  it('rejects contrast prose placed in visualSequence', () => {
+    const raw = rawProfile()
+    raw.attention.visualSequence = [
+      claim('Blue actions create stronger contrast than the surrounding neutral surfaces.'),
+    ]
+
+    const validation = validateDesignProfile(raw, evidence, 'structural-only', 'en')
+
+    expect(validation.profile?.attention.visualSequence).toEqual([])
+    expect(validation.rejected).toContain('attention.visualSequence.0:semantic-field-mismatch')
+  })
+
+  it('restores grounded low-confidence coverage after contradiction pruning empties profile arrays', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.signatureMoves = []
+    profile.attention.visualSequence = []
+    profile.sectionGrammar.push({ role: 'content', composition: [], contentRhythm: [], transitionToNext: [] })
+    profile.interactionLanguage.primaryDrivers = []
+    profile.componentGrammar = [{ component: 'button', role: 'primary action', rules: [] }]
+    profile.transferRules = { preserve: [], adapt: [], avoid: [] }
+
+    const repaired = repairProfileCoverage(profile, evidence)
+
+    expect(repaired.repaired).toEqual(
+      expect.arrayContaining([
+        'signatureMoves',
+        'attention.visualSequence',
+        'interactionLanguage.primaryDrivers',
+        'componentGrammar.button',
+        'transferRules.preserve',
+        'transferRules.adapt',
+        'transferRules.avoid',
+      ]),
+    )
+    expect(repaired.profile.signatureMoves).toHaveLength(1)
+    expect(repaired.profile.attention.visualSequence).toHaveLength(1)
+    expect(repaired.profile.componentGrammar[0].rules).toEqual([
+      expect.objectContaining({
+        confidence: 'low',
+        evidence: [expect.objectContaining({ evidenceId: 'component-a' })],
+      }),
+    ])
+    expect(repaired.profile.transferRules.preserve.length).toBeGreaterThan(0)
+    expect(repaired.profile.transferRules.adapt.length).toBeGreaterThan(0)
+    expect(repaired.profile.transferRules.avoid.length).toBeGreaterThan(0)
+    expect(
+      new Set([
+        repaired.profile.transferRules.preserve[0].statement,
+        repaired.profile.transferRules.adapt[0].statement,
+        repaired.profile.transferRules.avoid[0].statement,
+      ]).size,
+    ).toBe(3)
   })
 
   it('removes false extrema and color-role claims instead of retaining them as low-confidence facts', () => {
@@ -606,6 +957,33 @@ describe('Design intelligence', () => {
     expect(validation.profile?.transferRules.preserve[0].confidence).toBe('medium')
     expect(validation.rejected).toContain('sectionGrammar.1:unobserved-role')
     expect(validation.rejected).not.toContain('transferRules.preserve.0:single-page-preserve-rule')
+  })
+
+  it('normalizes localized section role enums before validating evidence', () => {
+    const raw = rawProfile()
+    raw.language = 'zh-CN'
+    raw.sectionGrammar[0].role = '主视觉'
+
+    const validation = validateDesignProfile(raw, evidence, 'structural-only', 'zh-CN')
+
+    expect(validation.profile?.sectionGrammar[0].role).toBe('hero')
+    expect(validation.rejected).not.toContain('sectionGrammar.0:unobserved-role')
+  })
+
+  it('requires component grammar rules to cite the matching observed component type', () => {
+    const localized = rawProfile()
+    localized.componentGrammar[0].component = '按钮'
+    const localizedResult = validateDesignProfile(localized, evidence, 'structural-only', 'en')
+    expect(localizedResult.profile?.componentGrammar[0].component).toBe('button')
+
+    const mismatched = rawProfile()
+    mismatched.componentGrammar[0].rules[0].evidence = [
+      { evidenceId: 'section-a', note: 'Section evidence does not identify a component type' },
+    ]
+    const mismatchedResult = validateDesignProfile(mismatched, evidence, 'structural-only', 'en')
+    expect(mismatchedResult.status).toBe('partial')
+    expect(mismatchedResult.profile?.componentGrammar).toHaveLength(0)
+    expect(mismatchedResult.rejected).toContain('componentGrammar.0.rules.0:mismatched-component-type')
   })
 
   it('maps page screenshots to the roles present on their page', () => {
@@ -752,8 +1130,8 @@ describe('Design intelligence', () => {
   it('sanitizes unsupported token values without discarding the surrounding claim', () => {
     const withNewColor = rawProfile()
     withNewColor.attention.visualSequence.push({
-      ...claim('Accent panels highlight secondary metrics'),
-      implementation: 'Apply #ff3366 panels behind secondary metrics to keep them grouped.',
+      ...claim('First the main summary establishes context, then accent panels highlight secondary metrics.'),
+      implementation: 'After the summary, apply #ff3366 panels behind secondary metrics to keep them grouped.',
     })
     const rejected = validateDesignProfile(withNewColor, evidence, 'structural-only', 'en')
     expect(rejected.status).toBe('complete')
@@ -764,8 +1142,8 @@ describe('Design intelligence', () => {
 
     const withKnownColor = rawProfile()
     withKnownColor.attention.visualSequence.push({
-      ...claim('Accent panels highlight secondary metrics'),
-      implementation: 'Apply #2563eb sparingly to primary actions and keep other surfaces neutral.',
+      ...claim('First the main summary establishes context, then accent panels highlight secondary metrics.'),
+      implementation: 'After the summary, apply #2563eb sparingly to primary actions and keep other surfaces neutral.',
     })
     const accepted = validateDesignProfile(withKnownColor, evidence, 'structural-only', 'en')
     expect(accepted.profile?.attention.visualSequence).toHaveLength(2)
@@ -788,6 +1166,41 @@ describe('Design intelligence', () => {
     expect(result.status).toBe('complete')
     expect(result.profile?.attention.contrastStrategy.implementation).not.toContain('#ff3366')
     expect(result.profile?.visualLanguage.surfaces.implementation).not.toContain('#00ffaa')
+  })
+
+  it('demotes exact color claims when token observations belong to different pages', () => {
+    const scopedEvidence = multiUrlEvidence()
+    scopedEvidence.tokens.evidence = {
+      'colors.primary': {
+        value: '#2563eb',
+        confidence: 'medium',
+        observationCount: 8,
+        pageCount: 1,
+        captureCount: 1,
+        pages: ['https://example.com/pricing'],
+        sources: ['usage:primary-action-color'],
+        reasons: ['rendered-use'],
+      },
+    }
+    const raw = rawProfile()
+    raw.attention.contrastStrategy = {
+      ...claim('A blue CTA is the homepage action accent'),
+      implementation: 'Use #2563eb for the homepage action and keep secondary actions neutral.',
+      evidence: [
+        { evidenceId: 'section-a', note: 'Homepage hero' },
+        { evidenceId: 'image-a', note: 'Homepage capture' },
+      ],
+      tokenRefs: ['color.background'],
+    }
+
+    const validation = validateDesignProfile(raw, scopedEvidence, 'structural-only', 'en')
+
+    expect(validation.status).toBe('partial')
+    expect(validation.profile?.attention.contrastStrategy.confidence).toBe('low')
+    expect(validation.profile?.attention.contrastStrategy.tokenRefs).toEqual(['color.primary'])
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([expect.stringContaining('attention.contrastStrategy:color-token-page-mismatch')]),
+    )
   })
 
   it('flags model-returned token values without failing valid profiles', () => {
@@ -883,8 +1296,12 @@ describe('Design intelligence', () => {
     const base = structuralFingerprint(evidence)
 
     const componentChanged = structuredClone(evidence)
-    componentChanged.components[0].styles.borderRadius = '12px'
+    componentChanged.components[0].styles.backgroundColor = '#2563eb'
     expect(structuralFingerprint(componentChanged)).not.toBe(base)
+
+    const rawMeasurementChanged = structuredClone(evidence)
+    rawMeasurementChanged.components[0].styles.borderRadius = '9999px'
+    expect(structuralFingerprint(rawMeasurementChanged)).toBe(base)
 
     const layoutChanged = structuredClone(evidence)
     layoutChanged.layoutNodes = [
@@ -1039,10 +1456,223 @@ describe('Design intelligence', () => {
     raw.interactionLanguage.primaryDrivers = [passiveClaim]
     raw.interactionLanguage.feedbackStyle = passiveClaim
     raw.interactionLanguage.stateChangeAmplitude = passiveClaim
+    raw.transferRules.avoid = [passiveClaim]
 
     const validation = validateDesignProfile(raw, passiveEvidence, 'structural-only', 'en')
     expect(validation.profile?.interactionLanguage.primaryDrivers[0].confidence).toBe('low')
     expect(validation.profile?.interactionLanguage.feedbackStyle.confidence).toBe('low')
+
+    const checked = checkProfileContradictions(validation.profile!, passiveEvidence)
+    expect(checked.profile.interactionLanguage.feedbackStyle.statement).toBe(
+      'Passive state declarations record aria-expanded style differences, but no real press or click was executed.',
+    )
+    expect(checked.profile.interactionLanguage.feedbackStyle.implementation).toContain('declared-state styling')
+    expect(checked.rejected).toContain('interactionLanguage.feedbackStyle:passive-interaction-wording-sanitized')
+    expect(checked.rejected).not.toContain(
+      'interactionLanguage.feedbackStyle:passive-evidence-cannot-prove-executed-interaction',
+    )
+    expect(checked.profile.transferRules.avoid).toEqual([])
+    expect(checked.rejected).toContain('transferRules.avoid.0:passive-interaction-transfer-rule-sanitized')
+
+    const repaired = repairProfileCoverage(checked.profile, passiveEvidence)
+    expect(repaired.repaired).toContain('transferRules.avoid')
+    expect(repaired.profile.transferRules.avoid[0].statement).toBe(
+      'Unexecuted interaction states and untokenized raw DOM values are not design rules.',
+    )
+  })
+
+  it('does not call a transparent focus style clearly visible', () => {
+    const focusEvidence: DesignEvidence = {
+      ...evidence,
+      interactionObservations: [
+        {
+          id: 'interaction-focus-transparent',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-a',
+          driver: 'focus',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { 'outline-color': 'rgba(0, 0, 0, 0)', 'box-shadow': 'none' },
+          after: { 'outline-color': 'rgba(0, 0, 0, 0)', 'box-shadow': '0 0 0 2px rgba(0, 0, 0, 0)' },
+          changedProperties: ['outline-width', 'box-shadow'],
+          evidenceRefs: ['section-a'],
+        },
+      ],
+    }
+    const raw = rawProfile()
+    raw.interactionLanguage.primaryDrivers = [
+      {
+        ...claim('Focus provides a clearly visible keyboard focus indicator'),
+        implementation: 'Use the observed outline and box-shadow as the visible focus ring.',
+        evidence: [{ evidenceId: 'interaction-focus-transparent', note: 'Passive focus declaration' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, focusEvidence, 'structural-only', 'en')
+
+    expect(validation.status).toBe('partial')
+    expect(validation.profile?.interactionLanguage.primaryDrivers[0].confidence).toBe('low')
+    expect(validation.rejected).toContain('interactionLanguage.primaryDrivers.0:focus-visibility-not-observed')
+  })
+
+  it('demotes interaction details absent from the cited state change', () => {
+    const interactionEvidence: DesignEvidence = {
+      ...evidence,
+      interactionObservations: [
+        {
+          id: 'interaction-hover-color',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-a',
+          driver: 'hover',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { color: '#111827' },
+          after: { color: '#2563eb' },
+          changedProperties: ['color'],
+          evidenceRefs: ['section-a'],
+        },
+      ],
+    }
+    const raw = rawProfile()
+    raw.interactionLanguage.primaryDrivers = [
+      {
+        ...claim('Hover adds a box-shadow and changes the accent to #ffffff'),
+        implementation: 'Apply the observed shadow and color transition on hover.',
+        evidence: [{ evidenceId: 'interaction-hover-color', note: 'Observed hover state' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, interactionEvidence, 'structural-only', 'en')
+
+    expect(validation.status).toBe('partial')
+    expect(validation.profile?.interactionLanguage.primaryDrivers[0].confidence).toBe('low')
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'interactionLanguage.primaryDrivers.0:interaction-property-not-observed(box-shadow)',
+        'interactionLanguage.primaryDrivers.0:interaction-value-not-observed(#ffffff)',
+      ]),
+    )
+  })
+
+  it('rebinds a multi-driver interaction claim to property evidence for each named driver', () => {
+    const interactionEvidence: DesignEvidence = {
+      ...evidence,
+      interactionObservations: [
+        {
+          id: 'interaction-focus-outline',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-focus',
+          driver: 'focus',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { 'outline-color': '#111827' },
+          after: { 'outline-color': '#2563eb' },
+          changedProperties: ['outline-color'],
+          evidenceRefs: ['section-a'],
+        },
+        {
+          id: 'interaction-hover-background',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-a',
+          driver: 'hover',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { 'background-color': '#ffffff' },
+          after: { 'background-color': '#111827' },
+          changedProperties: ['background-color'],
+          evidenceRefs: ['section-a'],
+        },
+        {
+          id: 'interaction-hover-outline',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-b',
+          driver: 'hover',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { 'outline-color': '#111827' },
+          after: { 'outline-color': '#2563eb' },
+          changedProperties: ['outline-color'],
+          evidenceRefs: ['section-a'],
+        },
+        {
+          id: 'interaction-click-shadow',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-click',
+          driver: 'click',
+          safety: 'safe-active',
+          trigger: { kind: 'click' },
+          before: { 'box-shadow': 'none' },
+          after: { 'box-shadow': '0 0 0 2px' },
+          changedProperties: ['box-shadow'],
+          evidenceRefs: ['section-a'],
+        },
+      ],
+    }
+    const raw = rawProfile()
+    raw.interactionLanguage.primaryDrivers = [
+      {
+        ...claim('Hover changes background-color, focus changes outline, and pressing changes box-shadow.'),
+        implementation: 'Bind each property change to its named interaction driver.',
+        evidence: [{ evidenceId: 'interaction-hover-background', note: 'Only the hover state was selected' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, interactionEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.interactionLanguage.primaryDrivers[0].evidence.map((item) => item.evidenceId)).toEqual(
+      expect.arrayContaining(['interaction-hover-background', 'interaction-focus-outline', 'interaction-click-shadow']),
+    )
+    expect(validation.profile?.interactionLanguage.primaryDrivers[0].confidence).toBe('low')
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'interactionLanguage.primaryDrivers.0:interaction-evidence-scope-repaired(box-shadow)',
+        'interactionLanguage.primaryDrivers.0:interaction-evidence-scope-repaired(outline)',
+      ]),
+    )
+    expect(validation.rejected).not.toContain(
+      'interactionLanguage.primaryDrivers.0:interaction-property-not-observed(outline)',
+    )
+  })
+
+  it('accepts an exact edge border-color property observed in the cited state change', () => {
+    const interactionEvidence: DesignEvidence = {
+      ...evidence,
+      interactionObservations: [
+        {
+          id: 'interaction-hover-bottom-border',
+          pageId: 'page-a',
+          sectionId: 'section-a',
+          targetId: 'target-a',
+          driver: 'hover',
+          safety: 'passive',
+          trigger: { kind: 'css-pseudo' },
+          before: { 'border-bottom-color': '#111827' },
+          after: { 'border-bottom-color': '#2563eb' },
+          changedProperties: ['border-bottom-color'],
+          evidenceRefs: ['section-a'],
+        },
+      ],
+    }
+    const raw = rawProfile()
+    raw.interactionLanguage.primaryDrivers = [
+      {
+        ...claim('Hover changes the observed border-bottom-color.'),
+        implementation: 'Apply border-bottom-color only to the observed edge.',
+        evidence: [{ evidenceId: 'interaction-hover-bottom-border', note: 'Observed hover state' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, interactionEvidence, 'structural-only', 'en')
+
+    expect(validation.rejected).not.toContain(
+      'interactionLanguage.primaryDrivers.0:interaction-property-not-observed(border-color)',
+    )
   })
 
   it('generates scoped context, reconstruction guidance, and layered validation checks', () => {
@@ -1058,6 +1688,21 @@ describe('Design intelligence', () => {
       expect.arrayContaining(['token-spacing', 'text-contrast', 'horizontal-overflow', 'reduced-motion']),
     )
     expect(report.checks.find((check) => check.id === 'text-contrast')?.status).toBe('passed')
+  })
+
+  it('uses a dominant practical spacing value for validation recipes', () => {
+    const profile = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en').profile!
+    const denseTokens: DesignToken = {
+      ...tokens,
+      spacing: ['1.5px', '8px', '16px'],
+      usageCount: {
+        'spacing:1.5px': 4_000,
+        'spacing:8px': 100,
+        'spacing:16px': 900,
+      },
+    }
+
+    expect(createValidationRecipe('workflow', profile, denseTokens).root).toMatchObject({ gap: '16px' })
   })
 
   it('reports independent quality dimensions and compares design language profiles', () => {

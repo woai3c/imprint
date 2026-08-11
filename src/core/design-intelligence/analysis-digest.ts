@@ -1,3 +1,4 @@
+import { normalizeColorValue } from '../analyzer/color-cluster.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { distillInteractionChanges } from './evidence-selector.js'
 import type { EvidencePackage, IntelligenceInputMode, InteractionChange } from './types.js'
@@ -17,7 +18,11 @@ export interface AnalysisDigest {
     viewport: string
     images: string[]
     sectionSequence: string[]
-    overflow?: { viewportWidth: number; contentWidth: number }
+    overflow?: {
+      viewportWidth: number
+      contentWidth: number
+      sources?: Array<{ locator: string; overflowPx: number; section?: string; role?: string }>
+    }
     limitations: string[]
   }>
   tokenFacts: {
@@ -193,6 +198,40 @@ function safeExactStyles(styles: Record<string, string>): Record<string, string>
   )
 }
 
+function comparableStyleValue(value: string): string {
+  const color = normalizeColorValue(value)
+  if (color) return color
+  const normalized = value.toLowerCase().replace(/\s+/g, ' ').trim()
+  const length = normalized.match(/^(-?\d+(?:\.\d+)?)(px|em|rem)$/)
+  if (!length) return normalized
+  const numeric = Number.parseFloat(length[1])
+  const rem = length[2] === 'px' ? numeric / 16 : numeric
+  return `${Number(rem.toFixed(4))}rem`
+}
+
+function tokenValueByRef(evidence: DesignEvidence): Map<string, string> {
+  const result = new Map<string, string>()
+  const add = (ref: string, value: string) => result.set(ref, comparableStyleValue(value))
+  Object.entries(evidence.tokens.colors).forEach(([name, value]) => add(`color.${name}`, value))
+  evidence.tokens.typography.fontFamilies.forEach((value, index) => add(`typography.font-family.${index + 1}`, value))
+  evidence.tokens.typography.fontStacks.forEach((value, index) => add(`typography.font-stack.${index + 1}`, value))
+  evidence.tokens.typography.fontSizes.forEach((value, index) => add(`typography.font-size.${index + 1}`, value))
+  evidence.tokens.typography.fontWeights.forEach((value, index) => add(`typography.font-weight.${index + 1}`, value))
+  evidence.tokens.typography.lineHeights.forEach((value, index) => add(`typography.line-height.${index + 1}`, value))
+  evidence.tokens.typography.letterSpacings.forEach((value, index) =>
+    add(`typography.letter-spacing.${index + 1}`, value),
+  )
+  evidence.tokens.spacing.forEach((value, index) => add(`spacing.${index + 1}`, value))
+  evidence.tokens.radii.forEach((value, index) => add(`radius.${index + 1}`, value))
+  evidence.tokens.shadows.forEach((value, index) => add(`shadow.${index + 1}`, value))
+  evidence.tokens.borders.forEach((value, index) => add(`border.${index + 1}`, value))
+  evidence.tokens.zIndices.forEach((value, index) => add(`z-index.${index + 1}`, value))
+  evidence.tokens.transitions.forEach((value, index) => add(`transition.${index + 1}`, value))
+  return result
+}
+
+const RAW_STYLE_LITERAL = /(?:^|[^\p{L}])-?\d|#[\da-f]{3,8}\b|rgba?\(|hsla?\(|oklch\(|oklab\(|calc\(|var\(/iu
+
 function colorRoles(sources: string[] | undefined): string[] {
   return stableUnique(
     (sources || []).flatMap((source) => {
@@ -222,6 +261,19 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
   const selectedSectionIds = new Set(evidencePackage.selectedSectionIds)
   const selectedComponentIds = new Set(selected.components.map((component) => component.id))
   const pageGroups = pageGroupMap(selected.pages)
+  const knownTokenValues = tokenValueByRef(evidence)
+  const promptSafeStyles = (styles: Record<string, string>, tokenRefs: string[]): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(safeExactStyles(styles)).flatMap(([property, value]) => {
+        const comparable = comparableStyleValue(value)
+        const matchingTokenRef = tokenRefs.find((tokenRef) => knownTokenValues.get(tokenRef) === comparable)
+        if (matchingTokenRef) return [[property, tokens.add(matchingTokenRef)]]
+        // Exact DOM values such as 9999px radii and negative positioning offsets are useful
+        // extraction evidence, but they are not reusable design tokens. Do not expose them to
+        // the synthesis model, which otherwise tends to promote them into global rules.
+        return RAW_STYLE_LITERAL.test(value) ? [] : [[property, value]]
+      }),
+    )
 
   selected.pages.forEach((page) => {
     ids.add(page.id, 'p')
@@ -264,7 +316,26 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       }),
       sectionSequence,
       ...(page.horizontalOverflow && page.viewportWidth && page.contentWidth
-        ? { overflow: { viewportWidth: page.viewportWidth, contentWidth: page.contentWidth } }
+        ? {
+            overflow: {
+              viewportWidth: page.viewportWidth,
+              contentWidth: page.contentWidth,
+              ...(page.horizontalOverflowSources?.length
+                ? {
+                    sources: page.horizontalOverflowSources
+                      .slice(0, 3)
+                      .map(({ locator, overflowPx, sectionId, sectionRole }) => ({
+                        locator,
+                        overflowPx,
+                        ...(sectionId && ids.evidenceShortIdMap.has(sectionId)
+                          ? { section: ids.evidenceShortIdMap.get(sectionId) }
+                          : {}),
+                        ...(sectionRole ? { role: sectionRole } : {}),
+                      })),
+                  }
+                : {}),
+            },
+          }
         : {}),
       limitations,
     }
@@ -274,7 +345,10 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
     .slice(0, 24)
     .map(([name, value]) => {
       const tokenRef = `color.${name}`
-      const tokenEvidence = selected.tokens.evidence?.[`colors.${name}`]
+      // The selected package intentionally caps detailed token evidence for prompt size. Digest
+      // facts still come from the complete deterministic extraction so a retained color never
+      // degrades to count=0/pages=0 merely because its evidence fell outside that cap.
+      const tokenEvidence = evidence.tokens.evidence?.[`colors.${name}`]
       return {
         id: tokens.add(tokenRef),
         name,
@@ -337,7 +411,10 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
             group.map((component) => pageShortId(component.pageId)),
             4,
           ),
-          exactStyles: safeExactStyles(group[0].styles),
+          exactStyles: promptSafeStyles(
+            group[0].styles,
+            group.flatMap((component) => component.tokenRefs),
+          ),
           tokenRefs: tokenShortIds(group.flatMap((component) => component.tokenRefs)),
           stateChanges: relatedInteractions.flatMap(distillInteractionChanges).slice(0, 6),
           sampleEvidenceIds: samples.map((component) => ids.evidenceShortIdMap.get(component.id)!),

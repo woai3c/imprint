@@ -122,10 +122,58 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     const mainText = (main?.textContent || bodyText).replace(/\s+/g, ' ').trim()
     const meaningfulMedia = document.querySelectorAll('img[src], video, canvas, svg').length
     const pageIdentity = `${document.title} ${bodyText.slice(0, 4_000)}`
+    const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
+    let contentWidth = viewportWidth
+    const overflowStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
+    const overflowStyleFor = (element: Element): CSSStyleDeclaration => {
+      const cached = overflowStyleCache.get(element)
+      if (cached) return cached
+      const style = getComputedStyle(element)
+      overflowStyleCache.set(element, style)
+      return style
+    }
+    const isInsideHorizontalContainer = (element: Element): boolean => {
+      let ancestor = element.parentElement
+      while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+        const style = overflowStyleFor(ancestor)
+        if (
+          ['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowX) &&
+          (['hidden', 'clip'].includes(style.overflowX) || ancestor.scrollWidth > ancestor.clientWidth + 4)
+        ) {
+          return true
+        }
+        ancestor = ancestor.parentElement
+      }
+      return false
+    }
+    const fixedLayerCache = new WeakMap<Element, boolean>()
+    fixedLayerCache.set(document.documentElement, overflowStyleFor(document.documentElement).position === 'fixed')
+    for (const element of [document.body, ...[...document.body.querySelectorAll('*')].slice(0, 5_000)]) {
+      const rect = element.getBoundingClientRect()
+      const style = overflowStyleFor(element)
+      const insideFixedLayer =
+        style.position === 'fixed' || Boolean(element.parentElement && fixedLayerCache.get(element.parentElement))
+      fixedLayerCache.set(element, insideFixedLayer)
+      if (
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        insideFixedLayer ||
+        Number.parseFloat(style.opacity || '1') <= 0 ||
+        element.closest('[hidden], [aria-hidden="true"], [inert]') ||
+        isInsideHorizontalContainer(element)
+      ) {
+        continue
+      }
+      if (rect.left < -4 || rect.right > viewportWidth + 4) {
+        contentWidth = Math.max(contentWidth, rect.right, viewportWidth - rect.left)
+      }
+    }
     return {
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      contentWidth: Math.max(root.scrollWidth, document.documentElement.scrollWidth),
+      viewportWidth,
+      viewportHeight: Math.max(window.visualViewport?.height || window.innerHeight, 1),
+      contentWidth: Math.ceil(contentWidth),
       contentHeight: Math.max(root.scrollHeight, document.documentElement.scrollHeight),
       overlayAreaRatio,
       mutationCount,

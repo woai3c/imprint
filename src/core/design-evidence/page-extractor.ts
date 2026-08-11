@@ -77,6 +77,15 @@ export interface PageAriaStateSnapshot {
   value: string
 }
 
+export interface PageHorizontalOverflowSource {
+  locator: string
+  overflowPx: number
+  width: number
+  position: string
+  sectionKey?: string
+  sectionRole?: SectionRole
+}
+
 export interface PageEvidenceSnapshot {
   url: string
   viewport: string
@@ -86,7 +95,9 @@ export interface PageEvidenceSnapshot {
   viewportHeight: number
   width: number
   height: number
+  contentWidth: number
   horizontalOverflow: boolean
+  horizontalOverflowSources: PageHorizontalOverflowSource[]
   sections: PageSectionSnapshot[]
   components: PageComponentSnapshot[]
   layoutNodes: PageLayoutNodeSnapshot[]
@@ -151,11 +162,13 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
 
     const documentElement = document.documentElement
     const body = document.body
-    const viewportWidth = Math.max(window.innerWidth, 1)
-    const viewportHeight = Math.max(window.innerHeight, 1)
-    const width = Math.max(documentElement.scrollWidth, body?.scrollWidth || 0, viewportWidth)
+    const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
+    const viewportHeight = Math.max(window.visualViewport?.height || window.innerHeight, 1)
+    // Finalized from visible page-level overflow candidates below. Raw scrollWidth can be
+    // inflated by off-screen fixed helpers or the contents of intentional scrollers.
+    let width = viewportWidth
     const height = Math.max(documentElement.scrollHeight, body?.scrollHeight || 0, viewportHeight)
-    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
+    const viewportArea = Math.max(1, viewportWidth * viewportHeight)
     const areaOf = (element: Element): number => {
       const rect = element.getBoundingClientRect()
       return rect.width * rect.height
@@ -261,6 +274,62 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       }
       return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
     }
+
+    // scrollWidth alone treats the contents of an intentional horizontal scroller as
+    // page-level overflow. Attribute overflow only to visible elements that escape the
+    // viewport without a clipping/scrolling ancestor so responsive conclusions are not
+    // polluted by carousels, code blocks, or wide virtualized rows.
+    const isInsideHorizontalContainer = (element: Element): boolean => {
+      let ancestor = element.parentElement
+      while (ancestor && ancestor !== body && ancestor !== documentElement) {
+        const style = computedFor(ancestor)
+        if (
+          ['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowX) &&
+          (['hidden', 'clip'].includes(style.overflowX) || ancestor.scrollWidth > ancestor.clientWidth + 4)
+        ) {
+          return true
+        }
+        ancestor = ancestor.parentElement
+      }
+      return false
+    }
+    const fixedLayerCache = new WeakMap<Element, boolean>()
+    fixedLayerCache.set(documentElement, computedFor(documentElement).position === 'fixed')
+    const isInsideFixedLayer = (element: Element): boolean => {
+      const fixed =
+        computedFor(element).position === 'fixed' ||
+        Boolean(element.parentElement && fixedLayerCache.get(element.parentElement))
+      fixedLayerCache.set(element, fixed)
+      return fixed
+    }
+    const overflowCandidates = ([body, ...[...body.querySelectorAll('*')].slice(0, 5_000)] as Element[])
+      .filter((element) => !isInsideFixedLayer(element) && isVisible(element) && !isInsideHorizontalContainer(element))
+      .flatMap((element) => {
+        const rect = element.getBoundingClientRect()
+        const leftOverflow = Math.max(0, -rect.left)
+        const rightOverflow = Math.max(0, rect.right - viewportWidth)
+        const overflowPx = leftOverflow + rightOverflow
+        if (overflowPx <= 4) return []
+        return [{ element, rect, overflowPx }]
+      })
+      .sort((first, second) => second.overflowPx - first.overflowPx)
+    const sourceCandidates: typeof overflowCandidates = []
+    for (const candidate of overflowCandidates) {
+      if (
+        sourceCandidates.some(
+          (selected) => selected.element.contains(candidate.element) || candidate.element.contains(selected.element),
+        )
+      ) {
+        continue
+      }
+      sourceCandidates.push(candidate)
+      if (sourceCandidates.length >= 3) break
+    }
+    const contentWidth = Math.ceil(
+      Math.max(viewportWidth, ...overflowCandidates.flatMap(({ rect }) => [rect.right, viewportWidth - rect.left])),
+    )
+    width = contentWidth
+    const horizontalOverflow = sourceCandidates.length > 0 && contentWidth > viewportWidth + 4
 
     // Strong semantic baseline: landmarks at any depth (modern app shells nest them
     // inside several wrapper divs). Card-level headers/footers inside articles or
@@ -428,6 +497,21 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         parent = parent.parentElement
       }
     }
+
+    const horizontalOverflowSources: PageHorizontalOverflowSource[] = sourceCandidates.map(
+      ({ element, rect, overflowPx }) => {
+        const section = sectionEntries
+          .filter((entry) => entry.element === element || entry.element.contains(element))
+          .sort((first, second) => areaOf(first.element) - areaOf(second.element))[0]
+        return {
+          locator: locatorFor(element),
+          overflowPx: Math.round(overflowPx),
+          width: Math.round(rect.width),
+          position: computedFor(element).position,
+          ...(section ? { sectionKey: section.key, sectionRole: section.snapshot.role } : {}),
+        }
+      },
+    )
 
     const sectionFor = (element: Element) => {
       return (
@@ -795,7 +879,9 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       viewportHeight,
       width,
       height,
-      horizontalOverflow: width > viewportWidth + 4,
+      contentWidth,
+      horizontalOverflow,
+      horizontalOverflowSources,
       sections: sectionEntries.map((entry) => entry.snapshot),
       components,
       layoutNodes,

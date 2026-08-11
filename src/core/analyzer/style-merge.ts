@@ -73,15 +73,22 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
 }
 
 /**
- * Merge style values while giving every capture one vote per usage category.
- * This prevents a DOM-heavy documentation page from overwhelming a lighter
- * marketing page merely because it contains more elements.
+ * Merge style values while giving every URL one vote per usage category.
+ * Repeated viewport captures of the same URL are averaged first, preventing
+ * adaptive captures from changing token rankings merely by adding a viewport.
  */
-export function mergeStylesWithNormalizedUsage(stylesList: ExtractedStyles[]): ExtractedStyles {
+export function mergeStylesWithNormalizedUsage(
+  stylesList: ExtractedStyles[],
+  groupKeys: readonly string[] = stylesList.map((_styles, index) => String(index)),
+): ExtractedStyles {
   const merged = mergeStyles(stylesList)
   const normalizedUsage: Record<string, number> = {}
+  const groupedUsage = new Map<string, Map<string, number>>()
+  const groupedCategoryCounts = new Map<string, number>()
 
-  for (const styles of stylesList) {
+  for (let index = 0; index < stylesList.length; index += 1) {
+    const styles = stylesList[index]
+    const groupKey = groupKeys[index] || String(index)
     const categoryTotals = new Map<string, number>()
     for (const [key, count] of Object.entries(styles.usageCount)) {
       const separator = key.indexOf(':')
@@ -93,8 +100,25 @@ export function mergeStylesWithNormalizedUsage(stylesList: ExtractedStyles[]): E
     for (const [key, count] of Object.entries(styles.usageCount)) {
       const separator = key.indexOf(':')
       if (separator <= 0 || !Number.isFinite(count) || count <= 0) continue
-      const total = categoryTotals.get(key.slice(0, separator)) || 0
-      if (total > 0) normalizedUsage[key] = (normalizedUsage[key] || 0) + count / total
+      const category = key.slice(0, separator)
+      const total = categoryTotals.get(category) || 0
+      if (total <= 0) continue
+      const groupUsage = groupedUsage.get(groupKey) || new Map<string, number>()
+      groupUsage.set(key, (groupUsage.get(key) || 0) + count / total)
+      groupedUsage.set(groupKey, groupUsage)
+    }
+    for (const category of categoryTotals.keys()) {
+      const categoryKey = `${groupKey}\u0000${category}`
+      groupedCategoryCounts.set(categoryKey, (groupedCategoryCounts.get(categoryKey) || 0) + 1)
+    }
+  }
+
+  for (const [groupKey, groupUsage] of groupedUsage) {
+    for (const [key, count] of groupUsage) {
+      const separator = key.indexOf(':')
+      const category = key.slice(0, separator)
+      const divisor = groupedCategoryCounts.get(`${groupKey}\u0000${category}`) || 1
+      normalizedUsage[key] = (normalizedUsage[key] || 0) + count / divisor
     }
   }
 

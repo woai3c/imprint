@@ -46,6 +46,7 @@ export interface DesignIntelligenceMeta {
   failureCode?: string
   failureReason?: string
   rejected?: string[]
+  repaired?: string[]
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
   timing?: AnalysisTiming
@@ -189,6 +190,14 @@ export type AiSafeDesignEvidence = Omit<
     contentWidth?: number
     contentHeight?: number
     horizontalOverflow?: boolean
+    horizontalOverflowSources?: Array<{
+      locator: string
+      overflowPx: number
+      width: number
+      position: string
+      sectionId?: string
+      sectionRole?: string
+    }>
     health?: {
       status: string
       aiEligible?: boolean

@@ -49,14 +49,27 @@ function isNearDuplicate(a: PreparedStatement, b: PreparedStatement): boolean {
  * continuityRules, section grammar, and patterns). Single required claims (thesis,
  * composition fields, ...) only act as dedupe sources and are never removed themselves;
  * duplicates are dropped from array fields, keeping the first occurrence in a fixed
- * section order.
+ * section order. When a validated evidence fallback profile is supplied, a later duplicate
+ * required claim is replaced with that field's low-confidence fallback so required schema
+ * fields do not repeat an earlier, more specific claim.
  */
-export function dedupeProfileClaims(profile: DesignProfile): ClaimDedupeResult {
+export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: DesignProfile): ClaimDedupeResult {
   const kept: PreparedStatement[] = []
   let removed = 0
 
   const register = (claim: DesignClaim | undefined) => {
     if (claim) kept.push(prepareStatement(claim.statement))
+  }
+  const registerRequired = <T extends DesignClaim>(claim: T, fallback?: DesignClaim): T => {
+    const prepared = prepareStatement(claim.statement)
+    if (fallback && prepared.text && kept.some((existing) => isNearDuplicate(existing, prepared))) {
+      removed += 1
+      const replacement = { ...fallback, confidence: 'low' as const } as T
+      kept.push(prepareStatement(replacement.statement))
+      return replacement
+    }
+    kept.push(prepared)
+    return claim
   }
   const filterClaims = <T extends DesignClaim>(claims: T[]): T[] =>
     claims.filter((claim) => {
@@ -69,27 +82,65 @@ export function dedupeProfileClaims(profile: DesignProfile): ClaimDedupeResult {
       kept.push(prepared)
       return true
     })
+  const filterLocalClaims = <T extends DesignClaim>(claims: T[]): T[] => {
+    const localKept: PreparedStatement[] = []
+    return claims.filter((claim) => {
+      const prepared = prepareStatement(claim.statement)
+      if (!prepared.text) return true
+      if (localKept.some((existing) => isNearDuplicate(existing, prepared))) {
+        removed += 1
+        return false
+      }
+      localKept.push(prepared)
+      return true
+    })
+  }
 
   register(profile.thesis)
   const signatureMoves = filterClaims(profile.signatureMoves)
-  register(profile.composition.containerStrategy)
-  register(profile.composition.alignmentStrategy)
-  register(profile.composition.densityAndWhitespace)
-  register(profile.composition.rhythm)
-  register(profile.attention.entryPoint)
+  const composition = {
+    containerStrategy: registerRequired(
+      profile.composition.containerStrategy,
+      fallbackProfile?.composition.containerStrategy,
+    ),
+    alignmentStrategy: registerRequired(
+      profile.composition.alignmentStrategy,
+      fallbackProfile?.composition.alignmentStrategy,
+    ),
+    densityAndWhitespace: registerRequired(
+      profile.composition.densityAndWhitespace,
+      fallbackProfile?.composition.densityAndWhitespace,
+    ),
+    rhythm: registerRequired(profile.composition.rhythm, fallbackProfile?.composition.rhythm),
+  }
+  const entryPoint = registerRequired(profile.attention.entryPoint, fallbackProfile?.attention.entryPoint)
   const visualSequence = filterClaims(profile.attention.visualSequence)
-  register(profile.attention.actionHierarchy)
-  register(profile.attention.contrastStrategy)
-  register(profile.visualLanguage.color)
-  register(profile.visualLanguage.typography)
-  register(profile.visualLanguage.shape)
-  register(profile.visualLanguage.surfaces)
-  register(profile.visualLanguage.imagery)
-  register(profile.visualLanguage.motion)
+  const actionHierarchy = registerRequired(
+    profile.attention.actionHierarchy,
+    fallbackProfile?.attention.actionHierarchy,
+  )
+  const contrastStrategy = registerRequired(
+    profile.attention.contrastStrategy,
+    fallbackProfile?.attention.contrastStrategy,
+  )
+  const color = registerRequired(profile.visualLanguage.color, fallbackProfile?.visualLanguage.color)
+  const typography = registerRequired(profile.visualLanguage.typography, fallbackProfile?.visualLanguage.typography)
+  const shape = registerRequired(profile.visualLanguage.shape, fallbackProfile?.visualLanguage.shape)
+  const surfaces = registerRequired(profile.visualLanguage.surfaces, fallbackProfile?.visualLanguage.surfaces)
+  const imagery = profile.visualLanguage.imagery ? filterClaims([profile.visualLanguage.imagery])[0] : undefined
+  const motion = profile.visualLanguage.motion ? filterClaims([profile.visualLanguage.motion])[0] : undefined
   const primaryDrivers = filterClaims(profile.interactionLanguage.primaryDrivers)
-  register(profile.interactionLanguage.feedbackStyle)
-  register(profile.interactionLanguage.stateChangeAmplitude)
-  register(profile.interactionLanguage.scrollNarrative)
+  const feedbackStyle = registerRequired(
+    profile.interactionLanguage.feedbackStyle,
+    fallbackProfile?.interactionLanguage.feedbackStyle,
+  )
+  const stateChangeAmplitude = registerRequired(
+    profile.interactionLanguage.stateChangeAmplitude,
+    fallbackProfile?.interactionLanguage.stateChangeAmplitude,
+  )
+  const scrollNarrative = profile.interactionLanguage.scrollNarrative
+    ? filterClaims([profile.interactionLanguage.scrollNarrative])[0]
+    : undefined
   const continuityRules = filterClaims(profile.interactionLanguage.continuityRules)
   const sectionGrammar = profile.sectionGrammar.map((section) => ({
     ...section,
@@ -109,9 +160,9 @@ export function dedupeProfileClaims(profile: DesignProfile): ClaimDedupeResult {
     responsiveRules: filterClaims(pattern.responsiveRules),
   }))
   const transferRules = {
-    preserve: filterClaims(profile.transferRules.preserve),
-    adapt: filterClaims(profile.transferRules.adapt),
-    avoid: filterClaims(profile.transferRules.avoid),
+    preserve: filterLocalClaims(profile.transferRules.preserve),
+    adapt: filterLocalClaims(profile.transferRules.adapt),
+    avoid: filterLocalClaims(profile.transferRules.avoid),
   }
 
   if (removed === 0) return { profile, removed }
@@ -120,10 +171,21 @@ export function dedupeProfileClaims(profile: DesignProfile): ClaimDedupeResult {
     profile: {
       ...profile,
       signatureMoves,
-      attention: { ...profile.attention, visualSequence },
+      composition,
+      attention: { entryPoint, visualSequence, actionHierarchy, contrastStrategy },
+      visualLanguage: {
+        color,
+        typography,
+        shape,
+        surfaces,
+        ...(imagery ? { imagery } : {}),
+        ...(motion ? { motion } : {}),
+      },
       interactionLanguage: {
-        ...profile.interactionLanguage,
         primaryDrivers,
+        feedbackStyle,
+        stateChangeAmplitude,
+        ...(scrollNarrative ? { scrollNarrative } : {}),
         continuityRules,
       },
       sectionGrammar,

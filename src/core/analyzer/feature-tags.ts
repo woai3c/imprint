@@ -232,7 +232,7 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
     if (radius.value >= 12) {
       tags.push('large-radius rounded style')
     } else if (radius.value <= 4 && radius.smallShare >= 0.5) {
-      tags.push('sharp-edge geometric style')
+      tags.push('small-radius geometric style')
     }
   }
 

@@ -260,10 +260,11 @@ function deduplicateInteractions(observations: InteractionObservation[], limit: 
   return [...seen.values()].slice(0, limit)
 }
 
-function selectRepresentativeSections<T extends { pageId: string }>(
+function selectRepresentativeSections<T extends { id: string; pageId: string }>(
   sections: T[],
   pageUrlMap: Map<string, string>,
   limit: number,
+  preferredIds: ReadonlySet<string> = new Set(),
 ): T[] {
   const byUrl = new Map<string, T[]>()
   for (const section of sections) {
@@ -273,7 +274,9 @@ function selectRepresentativeSections<T extends { pageId: string }>(
     group.push(section)
     byUrl.set(url, group)
   }
-  const groups = [...byUrl.values()].map((group) => [...group])
+  const groups = [...byUrl.values()].map((group) =>
+    [...group].sort((first, second) => Number(preferredIds.has(second.id)) - Number(preferredIds.has(first.id))),
+  )
   const selected: T[] = []
   while (selected.length < limit && groups.some((group) => group.length > 0)) {
     for (const group of groups) {
@@ -617,17 +620,23 @@ export function selectEvidencePackage(
   const pages = selectRepresentativePages(eligiblePages, limits.maxPages)
   const selectedPageIds = pages.map((page) => page.id)
   const pageUrlMap = new Map(pages.map((page) => [page.id, page.url]))
+  const overflowSectionIds = new Set(
+    pages.flatMap((page) =>
+      (page.horizontalOverflowSources || []).flatMap((source) => (source.sectionId ? [source.sectionId] : [])),
+    ),
+  )
   const sectionDedup = new Set<string>()
   const sectionCandidates = evidence.sections
     .filter((section) => selectedPageIds.includes(section.pageId))
     .filter((section) => {
       const url = pageUrlMap.get(section.pageId) || ''
       const key = `${url}|${section.role}|${section.order}`
+      if (overflowSectionIds.has(section.id)) return true
       if (sectionDedup.has(key)) return false
       sectionDedup.add(key)
       return true
     })
-  const sections = selectRepresentativeSections(sectionCandidates, pageUrlMap, limits.maxSections)
+  const sections = selectRepresentativeSections(sectionCandidates, pageUrlMap, limits.maxSections, overflowSectionIds)
   const selectedSectionIds = sections.map((section) => section.id)
   const components = deduplicateComponents(
     evidence.components.filter((component) => selectedSectionIds.includes(component.sectionId)),
@@ -738,6 +747,7 @@ export function selectEvidencePackage(
         contentWidth: page.contentWidth,
         contentHeight: page.contentHeight,
         horizontalOverflow: page.horizontalOverflow,
+        horizontalOverflowSources: page.horizontalOverflowSources,
         health: page.health
           ? {
               status: page.health.status,
@@ -752,7 +762,7 @@ export function selectEvidencePackage(
       components: components.map(
         ({ styles: _s, evidenceRefs: _e, rect: _r, pageId: _p, stateRefs: _st, confidence: _cf, ...c }) => c,
       ),
-      layoutNodes: layoutNodes.map(({ rect: _r, pageId: _p, ...n }) => n),
+      layoutNodes: layoutNodes.map(({ rect: _r, pageId: _p, observedTypography: _ty, ...n }) => n),
       interactionStyles: deduplicateInteractionStyles(evidence.interactionStyles, 20),
       interactionObservations: interactionObservations.map((observation) => {
         const { before: _b, after: _a, evidenceRefs: _e, pageId: _p, targetId: _t, ...obs } = observation

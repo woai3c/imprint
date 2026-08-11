@@ -106,7 +106,21 @@ function makeEvidence(): DesignEvidence {
 
 describe('selectEvidencePackage packaging', () => {
   test('replaces section rects with coarse approximate bounds', () => {
-    const selected = selectEvidencePackage(makeEvidence(), 'structural-only')
+    const evidence = makeEvidence()
+    evidence.layoutNodes = [
+      {
+        id: 'layout-a',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        role: 'heading',
+        textRole: 'heading',
+        rect: { x: 0, y: 0, width: 0.5, height: 0.1 },
+        tokenRefs: [],
+        observedTypography: { fontSize: '17px', lineHeight: '25px' },
+        traits: [],
+      },
+    ]
+    const selected = selectEvidencePackage(evidence, 'structural-only')
     const section = selected.evidence.sections[0]
 
     expect('rect' in section).toBe(false)
@@ -116,6 +130,7 @@ describe('selectEvidencePackage packaging', () => {
       anchor: 'full',
       vertical: 'top',
     })
+    expect(selected.evidence.layoutNodes[0]).not.toHaveProperty('observedTypography')
   })
 
   test('distills interaction before/after into short from/to pairs', () => {
@@ -133,6 +148,8 @@ describe('selectEvidencePackage packaging', () => {
   test('builds a path-free digest with reversible short IDs and exact component styles', () => {
     const evidence = makeEvidence()
     evidence.tokens.colors = { 'palette-1': '#6b1eb9' }
+    evidence.tokens.typography.fontSizes = ['1rem']
+    evidence.tokens.radii = ['12px']
     evidence.tokens.evidence = {
       'colors.palette-1': {
         value: '#6b1eb9',
@@ -161,9 +178,10 @@ describe('selectEvidencePackage packaging', () => {
           backgroundColor: '#6b1eb9',
           borderRadius: '12px',
           fontSize: '16px',
+          margin: '-16px',
           background: 'url(https://private.example/asset.png)',
         },
-        tokenRefs: ['color.palette-1'],
+        tokenRefs: ['color.palette-1', 'typography.font-size.1', 'radius.1'],
         stateRefs: [],
         confidence: 0.9,
         evidenceRefs: ['section-a', 'image-a'],
@@ -178,9 +196,9 @@ describe('selectEvidencePackage packaging', () => {
     expect(sectionShortId).toBe('s1')
     expect(digestPackage.evidenceIdMap.get(sectionShortId!)).toBe('section-a')
     expect(digestPackage.digest.componentPatterns[0].exactStyles).toEqual({
-      backgroundColor: '#6b1eb9',
-      borderRadius: '12px',
-      fontSize: '16px',
+      backgroundColor: digestPackage.tokenShortIdMap.get('color.palette-1'),
+      borderRadius: digestPackage.tokenShortIdMap.get('radius.1'),
+      fontSize: digestPackage.tokenShortIdMap.get('typography.font-size.1'),
     })
     expect(digestPackage.digest.tokenFacts.colors[0]).toMatchObject({
       name: 'palette-1',
@@ -191,11 +209,23 @@ describe('selectEvidencePackage packaging', () => {
     expect(digestJson).not.toContain('C:\\private')
     expect(digestJson).not.toContain('private.example')
     expect(digestJson).not.toContain('https://example.com')
+    expect(digestJson).not.toContain('-16px')
 
     const prompt = buildCompactDesignInterpretationPrompt(digestPackage, 'en')
     expect(prompt.length).toBeLessThanOrEqual(28_000)
     expect(prompt).not.toContain('section-a')
     expect(prompt).toContain('"sampleEvidenceIds":["s1"]')
+    expect(prompt).toContain('literal English enum values even when writing Chinese: header')
+    expect(prompt).toContain('literal observed type values; never invent a role-specific variant: button')
+    expect(prompt).toContain('Section evidence binding (role -> allowed s* IDs): {"header":["s1"]}')
+    expect(prompt).toContain('Component evidence binding (type -> allowed c* IDs): {"button":["c1"]}')
+    expect(prompt).toContain('These 12 required singleton fields must each use a different valid q ID')
+    expect(prompt).toContain('Section and component rules use scoped claim objects without an id')
+    expect(prompt).toContain('interaction: {"drivers":[SCOPED_CLAIM]')
+    expect(prompt).toContain('transfer: {"preserve":[SCOPED_CLAIM]')
+    expect(prompt).toContain('border-bottom-color must not be generalized to border-color')
+    expect(prompt).toContain('never as confirmation after a real press')
+    expect(prompt).toContain('recount the supplied pageFacts and topologyFacts')
     const prepared = prepareAnalysisDigestPackageForPrompt(digestPackage)
     expect([...prepared.evidenceIdMap].every(([shortId]) => JSON.stringify(prepared.digest).includes(shortId))).toBe(
       true,
@@ -212,6 +242,136 @@ describe('selectEvidencePackage packaging', () => {
       'multimodal',
     )
     expect(expanded.aliases).toEqual([{ tokenId: 'palette-1', name: 'action-primary' }])
+
+    const componentShortId = prepared.evidenceShortIdMap.get('component-a')!
+    const interactionShortId = prepared.evidenceShortIdMap.get('interaction-a')!
+    const scoped = expandCompactProfileCandidate(
+      {
+        claims: [],
+        thesis: 'q1',
+        sections: [
+          {
+            role: 'header',
+            composition: [
+              {
+                s: 'The header keeps its controls in one compact row',
+                i: 'Keep the observed header grouping and spacing.',
+                c: 'medium',
+                e: [sectionShortId],
+              },
+            ],
+          },
+        ],
+        components: [
+          {
+            component: 'button',
+            role: 'action',
+            rules: [
+              {
+                s: 'Buttons use the observed action treatment',
+                i: 'Apply the captured button tokens to new actions.',
+                c: 'medium',
+                e: [componentShortId],
+              },
+            ],
+          },
+        ],
+        interaction: {
+          drivers: [
+            {
+              s: 'Hover changes the observed outline',
+              i: 'Apply only the captured outline change.',
+              c: 'medium',
+              e: [interactionShortId],
+            },
+          ],
+          feedback: {
+            s: 'The outline provides state feedback',
+            i: 'Bind the feedback to the observed hover state.',
+            c: 'medium',
+            e: [interactionShortId],
+          },
+          amplitude: {
+            s: 'The state change remains local',
+            i: 'Keep unchanged properties stable.',
+            c: 'medium',
+            e: [interactionShortId],
+          },
+          continuity: [],
+        },
+        transfer: {
+          preserve: [
+            {
+              s: 'Preserve the compact header structure',
+              i: 'Keep the observed section relationship.',
+              c: 'medium',
+              e: [sectionShortId],
+            },
+          ],
+          adapt: [],
+          avoid: [],
+        },
+      },
+      prepared,
+      'en',
+      'structural-only',
+    )
+    expect(scoped.profile).toMatchObject({
+      sectionGrammar: [{ role: 'header', composition: [expect.objectContaining({ evidence: expect.any(Array) })] }],
+      componentGrammar: [{ component: 'button', rules: [expect.objectContaining({ evidence: expect.any(Array) })] }],
+      interactionLanguage: {
+        primaryDrivers: [
+          expect.objectContaining({ evidence: [expect.objectContaining({ evidenceId: 'interaction-a' })] }),
+        ],
+        feedbackStyle: expect.objectContaining({
+          evidence: [expect.objectContaining({ evidenceId: 'interaction-a' })],
+        }),
+        stateChangeAmplitude: expect.objectContaining({
+          evidence: [expect.objectContaining({ evidenceId: 'interaction-a' })],
+        }),
+      },
+      transferRules: {
+        preserve: [expect.objectContaining({ evidence: [expect.objectContaining({ evidenceId: 'section-a' })] })],
+      },
+    })
+  })
+
+  test('keeps digest color counts when detailed token evidence falls outside the package cap', () => {
+    const evidence = makeEvidence()
+    evidence.tokens.colors = { primary: '#6b1eb9' }
+    evidence.tokens.evidence = {
+      ...Object.fromEntries(
+        Array.from({ length: 41 }, (_item, index) => [
+          `spacing.dense-${index}`,
+          {
+            value: `${index + 1}px`,
+            confidence: 'high' as const,
+            observationCount: 1_000 - index,
+            pageCount: 1,
+            captureCount: 1,
+            pages: ['https://example.com/'],
+            sources: ['rendered-use'],
+            reasons: ['rendered-use'],
+          },
+        ]),
+      ),
+      'colors.primary': {
+        value: '#6b1eb9',
+        confidence: 'medium',
+        observationCount: 17,
+        pageCount: 1,
+        captureCount: 1,
+        pages: ['https://example.com/'],
+        sources: ['usage:primaryActionColor'],
+        reasons: ['rendered-use'],
+      },
+    }
+
+    const selected = selectEvidencePackage(evidence, 'structural-only')
+    expect(selected.evidence.tokens.evidence?.['colors.primary']).toBeUndefined()
+
+    const digest = buildAnalysisDigest(evidence, selected).digest
+    expect(digest.tokenFacts.colors[0]).toMatchObject({ name: 'primary', count: 17, pages: 1, roles: ['action'] })
   })
 
   test('keeps the compact prompt under its hard character budget for dense component evidence', () => {
@@ -263,6 +423,40 @@ describe('selectEvidencePackage packaging', () => {
     expect(expanded.profile).toMatchObject({
       thesis: expect.objectContaining({ statement: 'One claim must have one semantic purpose' }),
       composition: { containerStrategy: null },
+    })
+  })
+
+  test('expands compact token and evidence IDs that leak into model prose', () => {
+    const evidence = makeEvidence()
+    const selected = selectEvidencePackage(evidence, 'structural-only')
+    const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(evidence, selected))
+    const sectionId = digestPackage.evidenceShortIdMap.get('section-a')!
+    const tokenId = digestPackage.tokenShortIdMap.get('color.primary')!
+    const expanded = expandCompactProfileCandidate(
+      {
+        claims: [
+          {
+            id: 'q1',
+            s: `Use ${tokenId.toUpperCase()} as the action color`,
+            i: `Apply ${tokenId} where ${sectionId} establishes the main action`,
+            c: 'medium',
+            e: [sectionId],
+            t: [tokenId],
+          },
+        ],
+        thesis: 'q1',
+      },
+      digestPackage,
+      'en',
+      'structural-only',
+    )
+
+    expect(expanded.profile).toMatchObject({
+      thesis: {
+        statement: 'Use color.primary as the action color',
+        implementation: 'Apply color.primary where section-a establishes the main action',
+        tokenRefs: ['color.primary'],
+      },
     })
   })
 

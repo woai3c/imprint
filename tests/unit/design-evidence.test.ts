@@ -43,7 +43,21 @@ function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number
     viewportHeight: viewport === 'mobile' ? 812 : 900,
     width,
     height: 1600,
+    contentWidth: width,
     horizontalOverflow: width > viewportWidth + 4,
+    horizontalOverflowSources:
+      width > viewportWidth + 4
+        ? [
+            {
+              locator: 'body > main:nth-of-type(1)',
+              overflowPx: width - viewportWidth,
+              width,
+              position: 'static',
+              sectionKey: 'hero:1',
+              sectionRole: 'hero',
+            },
+          ]
+        : [],
     sections: [
       {
         key: 'navigation:0',
@@ -103,6 +117,7 @@ function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number
           fontFamily: 'Inter',
           fontSize: '32px',
           fontWeight: '700',
+          lineHeight: '48px',
         },
         traits: ['text-length:short'],
       },
@@ -175,6 +190,12 @@ describe('Design Evidence', () => {
     expect(first.components[0].tokenRefs).toEqual(
       expect.arrayContaining(['color.primary', 'radius.1', 'spacing.1', 'spacing.2']),
     )
+    expect(first.layoutNodes[0].observedTypography).toMatchObject({
+      fontFamily: 'Inter',
+      fontSize: '32px',
+      fontWeight: '700',
+      lineHeight: '48px',
+    })
   })
 
   it('records topology, viewport differences, coverage, and explicit limitations', () => {
@@ -265,10 +286,62 @@ describe('Design Evidence', () => {
       contentWidth: 1032,
       horizontalOverflow: true,
     })
+    expect(evidence.pages[0].horizontalOverflowSources?.[0]).toMatchObject({
+      sectionRole: 'hero',
+      sectionId: evidence.sections.find((section) => section.role === 'hero')?.id,
+    })
     expect(evidence.limitations).toContain('horizontal-overflow-observed')
-    expect(generateDesignEvidenceBrief(evidence)).toContain(
-      'horizontal overflow observed (content 1032px > viewport 375px)',
+    const brief = generateDesignEvidenceBrief(evidence)
+    expect(brief).toContain('horizontal overflow observed (content 1032px > viewport 375px)')
+    expect(brief).toContain('section hero')
+  })
+
+  it('does not infer responsive visibility from a horizontally clipped capture', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 1032)
+    mobile.sections = mobile.sections.filter((section) => section.key !== 'hero:1')
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-overflow-responsive',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'desktop.png', viewport: 'desktop' },
+          snapshot: desktop,
+        },
+        {
+          screenshot: { url: 'https://example.com/', path: 'mobile.png', viewport: 'mobile' },
+          snapshot: mobile,
+        },
+      ],
+    })
+
+    expect(
+      evidence.responsiveObservations.some(
+        (observation) =>
+          observation.changeType === 'visibility' && observation.changedProperties.includes('visibility'),
+      ),
+    ).toBe(false)
+  })
+
+  it('humanizes detailed extraction issues without exposing raw page-health IDs', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.limitations.push(
+      'extraction-issue:page-1%3Adesktop%3Astyles:Timeout%20after%2015000ms',
+      `page-health:horizontal-overflow@${evidence.pages[0].id}`,
     )
+
+    const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+
+    expect(brief).toContain('提取阶段 page-1:desktop:styles：Timeout after 15000ms')
+    expect(brief).not.toContain('page-health:horizontal-overflow')
   })
 
   it('keeps responsive media attributes and links region crops to sections', () => {
@@ -466,6 +539,62 @@ describe('Design Evidence', () => {
       [],
       evidence,
     )
+    const failedDoc = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      [],
+      evidence,
+      undefined,
+      undefined,
+      'failed',
+    )
+    const diagnosticDoc = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      [],
+      evidence,
+      undefined,
+      undefined,
+      'partial',
+      {
+        status: 'partial',
+        capabilityLevel: 'structural-ai',
+        inputMode: 'structural-only',
+        provider: 'openai',
+        model: 'test-model',
+        promptVersion: '19',
+        generatedAt: '2026-08-11T00:00:00.000Z',
+        rejected: ['one', 'two'],
+        repaired: ['one'],
+        timing: {
+          programTotalMs: 65_000,
+          aiTotalMs: 95_000,
+          userWaitMs: 135_000,
+          digestMs: 10,
+          imageSummaryMs: 0,
+          aiInvokeMs: 94_000,
+          validationMs: 990,
+          totalMs: 160_000,
+          imageCount: 0,
+          cacheHit: false,
+        },
+      },
+    )
+    const evidenceWithoutLineHeightRefs = structuredClone(evidence)
+    evidenceWithoutLineHeightRefs.layoutNodes.forEach((node) => {
+      node.tokenRefs = node.tokenRefs.filter((ref) => !ref.startsWith('typography.line-height.'))
+    })
+    const observedLineHeightBrief = generateDesignEvidenceBrief(evidenceWithoutLineHeightRefs)
 
     expect(json.schemaVersion).toBe('1')
     expect(json.analysisId).toBe('analysis-1')
@@ -473,6 +602,13 @@ describe('Design Evidence', () => {
     expect(brief).toContain('no AI visual thesis')
     expect(brief).toContain('navigation → hero')
     expect(designDoc).toContain('## Design Evidence Overview')
+    expect(designDoc).toMatch(/^---\nschema: "imprint\.design-system\/1"/)
+    expect(designDoc).toContain('analysis_id: "analysis-1"')
+    expect(designDoc).toContain('### Typography Role Evidence')
+    expect(designDoc).toContain('| `display` | 2 | `Inter`')
+    expect(designDoc).toContain('`2rem`')
+    expect(designDoc).toContain('`1.5`')
+    expect(observedLineHeightBrief).toContain('`1.5`')
     expect(designDoc).not.toContain('## Design Principles')
     expect(designDoc).not.toContain('matches the visual style')
     expect(designDoc).toContain('no AI interpretation was generated')
@@ -480,5 +616,16 @@ describe('Design Evidence', () => {
     expect(chineseDoc).toContain('未生成 AI 视觉主张、标志性手法或迁移规则')
     expect(chineseDoc).toContain('本次未生成 AI 设计解读')
     expect(chineseDoc).not.toContain('经校验的设计解读')
+    expect(failedDoc).toContain('**Status:** `failed`')
+    expect(failedDoc).toContain('No AI design interpretation is available')
+    expect(diagnosticDoc).toContain('prompt_version: "19"')
+    expect(diagnosticDoc).toContain('rejected_count: 2')
+    expect(diagnosticDoc).toContain('repaired_count: 1')
+    expect(diagnosticDoc).toContain('  rejected:\n    - "one"\n    - "two"')
+    expect(diagnosticDoc).toContain('  repaired:\n    - "one"')
+    expect(diagnosticDoc).toContain('program_ms: 65000')
+    expect(diagnosticDoc).toContain('ai_ms: 95000')
+    expect(diagnosticDoc).toContain('user_wait_excluded_ms: 135000')
+    expect(diagnosticDoc).toContain('active_total_ms: 160000')
   })
 })

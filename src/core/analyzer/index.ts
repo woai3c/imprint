@@ -59,8 +59,10 @@ import type {
   ExtractedStyles,
   ExtractionIssue,
   InteractionStyles,
+  LoginDecision,
   PageScreenshot,
 } from './types.js'
+import { configurePageViewport } from './viewport-emulation.js'
 
 export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
@@ -274,6 +276,7 @@ async function switchManagedRuntimeToHeadless(
   executablePath: string,
   dataDir: string,
   url: string,
+  viewportName: string,
   viewport: { width: number; height: number },
   proxyServer?: string,
 ): Promise<{
@@ -296,7 +299,7 @@ async function switchManagedRuntimeToHeadless(
   try {
     headlessRuntime = await launchRuntime(executablePath, 'managed', dataDir, url, true, proxyServer)
     const headlessPage = headlessRuntime.context.pages()[0] || (await headlessRuntime.context.newPage())
-    await headlessPage.setViewportSize(viewport)
+    await configurePageViewport(headlessPage, viewportName, viewport)
     const headlessResponseStatus = await navigatePage(headlessPage, url)
     const headlessDetection = await detectAuthWall(headlessPage, headlessResponseStatus)
     if (headlessDetection.detected) {
@@ -333,6 +336,37 @@ function mergeInteractionStyles(target: InteractionStyles, source: InteractionSt
 
 function extractionReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isPageHealthExtractionIssue(issue: ExtractionIssue): boolean {
+  return /:health:/.test(issue.stage)
+}
+
+function publicExtractionIssueReason(reason: string): string {
+  return (
+    reason
+      .replace(/https?:\/\/[^\s]+/gi, (value) => {
+        try {
+          const url = new URL(value)
+          return `${url.origin}${url.pathname}`
+        } catch {
+          return '[url]'
+        }
+      })
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 180) || 'unknown reason'
+  )
+}
+
+function extractionIssueLimitation(issue: ExtractionIssue): string {
+  return `extraction-issue:${encodeURIComponent(issue.stage.slice(0, 120))}:${encodeURIComponent(publicExtractionIssueReason(issue.reason))}`
+}
+
+function appendExtractionIssueLimitation(limitations: string[], issue: ExtractionIssue): void {
+  if (isPageHealthExtractionIssue(issue)) return
+  const limitation = extractionIssueLimitation(issue)
+  if (!limitations.includes(limitation)) limitations.push(limitation)
 }
 
 function inspectPngDimensions(filePath: string): { width: number; height: number } | null {
@@ -408,6 +442,8 @@ export async function analyze(
   onProgress?: (step: string, percent: number) => void,
 ): Promise<AnalysisResult> {
   const startTime = Date.now()
+  let userWaitMs = 0
+  const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
   const timing: AnalysisTiming = {
     browserMs: 0,
     preparationMs: 0,
@@ -472,7 +508,7 @@ export async function analyze(
         : headlessExecutablePath
     runtime = await launchRuntime(initialExecutablePath, accessMode, options.dataDir, url, true, options.proxyServer)
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
-    await initialPage.setViewportSize(initialViewport)
+    await configurePageViewport(initialPage, viewportNames[0], initialViewport)
 
     onProgress?.('progress.checkingAccess', 7)
     let responseStatus = await navigatePage(initialPage, url)
@@ -500,7 +536,7 @@ export async function analyze(
           options.proxyServer,
         )
         const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
-        await managedPage.setViewportSize(initialViewport)
+        await configurePageViewport(managedPage, viewportNames[0], initialViewport)
         const managedResponseStatus = await navigatePage(managedPage, url)
         const managedDetection = await detectAuthWall(managedPage, managedResponseStatus)
 
@@ -547,7 +583,7 @@ export async function analyze(
         options.proxyServer,
       )
       let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
-      await loginPage.setViewportSize(initialViewport)
+      await configurePageViewport(loginPage, viewportNames[0], initialViewport)
       responseStatus = await navigatePage(loginPage, url)
       authDetection = await detectAuthWall(loginPage, responseStatus)
 
@@ -558,7 +594,13 @@ export async function analyze(
 
       while (authDetection.detected) {
         onProgress?.(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
-        const decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
+        const waitStartedAt = Date.now()
+        let decision: LoginDecision
+        try {
+          decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
+        } finally {
+          userWaitMs += Date.now() - waitStartedAt
+        }
         if (loginAbortController.signal.aborted) {
           throw new AuthenticationBrowserClosedError()
         }
@@ -592,7 +634,7 @@ export async function analyze(
         )
         accessMode = 'anonymous'
         initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
-        await initialPage.setViewportSize(initialViewport)
+        await configurePageViewport(initialPage, viewportNames[0], initialViewport)
         responseStatus = await navigatePage(initialPage, url)
         authDetection = await detectAuthWall(initialPage, responseStatus)
       } else {
@@ -611,6 +653,7 @@ export async function analyze(
         headlessExecutablePath,
         options.dataDir,
         url,
+        viewportNames[0],
         initialViewport,
         options.proxyServer,
       )
@@ -621,7 +664,7 @@ export async function analyze(
       finalUrl = authDetection.finalUrl
     }
     if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
-    timing.browserMs = Date.now() - startTime
+    timing.browserMs = activeElapsedMs()
 
     const allStyles: ExtractedStyles[] = []
     const aiEligibleStyles: ExtractedStyles[] = []
@@ -659,7 +702,7 @@ export async function analyze(
 
       const page: Page =
         i === 0 && initialPage && !initialPage.isClosed() ? initialPage : await runtime.context.newPage()
-      await page.setViewportSize(viewport)
+      await configurePageViewport(page, vpName, viewport)
       const pageResponseStatus = page !== initialPage ? await navigatePage(page, url) : responseStatus
       if (i === 0) finalUrl = page.url()
 
@@ -876,7 +919,7 @@ export async function analyze(
       const canReuseInitialPage = initialPage && !initialPage.isClosed()
       const discoveryPage = canReuseInitialPage ? initialPage : await runtime.context.newPage()
       if (!canReuseInitialPage) {
-        await discoveryPage.setViewportSize(mainViewport)
+        await configurePageViewport(discoveryPage, mainViewportName, mainViewport)
         await navigatePage(discoveryPage, url)
       }
       onProgress?.('progress.discoveringPages', 75)
@@ -906,7 +949,7 @@ export async function analyze(
         )
 
         const subPage = await runtime.context.newPage()
-        await subPage.setViewportSize(mainViewport)
+        await configurePageViewport(subPage, mainViewportName, mainViewport)
         let adaptiveAbortTimer: ReturnType<typeof setTimeout> | undefined
 
         try {
@@ -1072,7 +1115,10 @@ export async function analyze(
             )
             const mobileStagePrefix = `page-${i + 2}:mobile-adaptive`
             const withinAdaptiveBudget = () => Date.now() < adaptiveDeadline
-            await runWithinDeadline(adaptiveDeadline, () => subPage.setViewportSize(VIEWPORTS.mobile))
+            await runWithinDeadline(adaptiveDeadline, () => configurePageViewport(subPage, 'mobile', VIEWPORTS.mobile))
+            const mobilePageStatus = await runWithinDeadline(adaptiveDeadline, () =>
+              navigatePage(subPage, subUrl, Math.max(1, adaptiveDeadline - Date.now())),
+            )
             await runWithinDeadline(adaptiveDeadline, () => subPage.waitForTimeout(150))
             if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
             const mobilePreparation = await measure('preparationMs', () =>
@@ -1089,7 +1135,7 @@ export async function analyze(
             if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
             const mobileHealth = await measure('healthGateMs', () =>
               runWithinDeadline(adaptiveDeadline, () =>
-                ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: subPageStatus }),
+                ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: mobilePageStatus }),
               ),
             )
             extractionIssues.push(
@@ -1210,7 +1256,10 @@ export async function analyze(
     onProgress?.('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const mergedStyles = mergeStyles(allStyles)
-    const tokenSelectionStyles = mergeStylesWithNormalizedUsage(allStyles)
+    const tokenSelectionStyles = mergeStylesWithNormalizedUsage(
+      allStyles,
+      styleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+    )
 
     onProgress?.('progress.clusteringColors', 90)
     const primaryPageStyles = allStyles[0] || mergedStyles
@@ -1228,7 +1277,10 @@ export async function analyze(
     let evidenceTokens = emptyDesignTokens()
     if (aiEligibleStyles.length > 0) {
       const evidenceMergedStyles = mergeStyles(aiEligibleStyles)
-      const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(aiEligibleStyles)
+      const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
+        aiEligibleStyles,
+        aiEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+      )
       const evidencePrimaryStyles = aiEligibleStyles[0] || evidenceMergedStyles
       const evidenceColors = clusterColors(
         evidenceSelectionStyles.colors,
@@ -1241,9 +1293,10 @@ export async function analyze(
       evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, aiEligibleStyleCaptures)
     }
     const featureTags = generateFeatureTags(tokens, mergedStyles)
-    if (extractionIssues.length > 0 && !analysisLimitations.includes('extraction-stage-degraded')) {
-      analysisLimitations.push('extraction-stage-degraded')
-    }
+    extractionIssues
+      .filter((issue) => !isPageHealthExtractionIssue(issue))
+      .slice(0, 8)
+      .forEach((issue) => appendExtractionIssueLimitation(analysisLimitations, issue))
     const designEvidence = buildDesignEvidence({
       analysisId,
       requestedUrl: url,
@@ -1269,7 +1322,9 @@ export async function analyze(
     })
     await prepareEvidenceImageFingerprints(runtime.context, designEvidence, fingerprintPackage.imageIds).catch(
       (error) => {
-        extractionIssues.push({ stage: 'ai-image-fingerprint', reason: extractionReason(error) })
+        const issue = { stage: 'ai-image-fingerprint', reason: extractionReason(error) }
+        extractionIssues.push(issue)
+        appendExtractionIssueLimitation(designEvidence.limitations, issue)
       },
     )
     timing.imageFingerprintMs = Date.now() - fingerprintStartedAt
@@ -1280,14 +1335,16 @@ export async function analyze(
       designEvidence,
       summaryPackage.imageIds,
     ).catch((error) => {
-      extractionIssues.push({ stage: 'ai-image-summary', reason: extractionReason(error) })
-      designEvidence.limitations.push('ai-image-summary-unavailable')
+      const issue = { stage: 'ai-image-summary', reason: extractionReason(error) }
+      extractionIssues.push(issue)
+      appendExtractionIssueLimitation(designEvidence.limitations, issue)
       return []
     })
     timing.imageSummaryMs = Date.now() - summaryStartedAt
     timing.imageCount = preparedImageIds.length
-    timing.totalMs = Date.now() - startTime
+    timing.totalMs = activeElapsedMs()
     timing.programTotalMs = timing.totalMs
+    timing.userWaitMs = userWaitMs
     if ((timing.preparationMs || 0) > 100_000) timing.budgetExceeded?.push('preparation')
     if ((timing.healthGateMs || 0) > 20_000) timing.budgetExceeded?.push('health-gate')
     if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
@@ -1314,7 +1371,7 @@ export async function analyze(
       components,
       breakpoints,
       motion,
-      duration: Date.now() - startTime,
+      duration: timing.totalMs,
       timing,
       accessMode,
       authWallDetected,

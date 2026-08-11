@@ -44,6 +44,14 @@ export interface EvidencePage {
   contentWidth?: number
   contentHeight?: number
   horizontalOverflow?: boolean
+  horizontalOverflowSources?: Array<{
+    locator: string
+    overflowPx: number
+    width: number
+    position: string
+    sectionId?: string
+    sectionRole?: SectionRole
+  }>
   health?: PageHealthReport
   images: EvidenceImage[]
 }
@@ -118,6 +126,12 @@ export interface LayoutEvidenceNode {
   parentId?: string
   textRole?: 'display' | 'heading' | 'body' | 'label' | 'metadata'
   tokenRefs: string[]
+  observedTypography?: {
+    fontFamily?: string
+    fontSize?: string
+    fontWeight?: string
+    lineHeight?: string
+  }
   traits: string[]
 }
 

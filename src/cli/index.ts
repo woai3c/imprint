@@ -13,7 +13,12 @@ import { getDefaultDataDir } from '../core/data-dir.js'
 import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
 import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
 import { generateReconstructionBrief } from '../core/design-intelligence/reconstruction-brief.js'
-import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
+import type {
+  DesignIntelligenceMeta,
+  DesignIntelligenceStatus,
+  DesignProfile,
+  IntelligenceInputMode,
+} from '../core/design-intelligence/types.js'
 import {
   buildDarkModeExportData,
   generateComponentSpecsJson,
@@ -151,6 +156,8 @@ async function main() {
   const darkModeExport = buildDarkModeExportData(result.darkMode)
 
   let profile: DesignProfile | null = null
+  let intelligenceMeta: DesignIntelligenceMeta | undefined
+  let intelligenceStatus: DesignIntelligenceStatus | undefined
   let reconstructionBrief: string | undefined
   let finalTiming = result.timing
   if (options.intelligence !== 'none') {
@@ -175,6 +182,8 @@ async function main() {
       images: loadEvidenceImages(result.designEvidence, mode),
     })
     profile = interpreted.profile
+    intelligenceMeta = interpreted.meta
+    intelligenceStatus = interpreted.meta.status
     finalTiming = mergeAnalysisTimings(result.timing, interpreted.meta.timing)
     reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens)
   }
@@ -206,6 +215,8 @@ async function main() {
     result.designEvidence,
     profile || undefined,
     reconstructionBrief,
+    intelligenceStatus,
+    intelligenceMeta ? { ...intelligenceMeta, timing: finalTiming } : undefined,
   )
   const dtcgJson = generateDtcgJson(exportTokens, exportDarkMode)
   const evidenceJson = generateDesignEvidenceJson(result.designEvidence)

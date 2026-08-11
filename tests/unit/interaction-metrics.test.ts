@@ -32,7 +32,9 @@ function createSnapshot(url: string): PageEvidenceSnapshot {
     viewportHeight: 900,
     width: 1440,
     height: 1600,
+    contentWidth: 1440,
     horizontalOverflow: false,
+    horizontalOverflowSources: [],
     sections: [
       {
         key: 'main:0',

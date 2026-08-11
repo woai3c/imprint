@@ -79,7 +79,7 @@ interface SaveTextFileOptions {
 
 const designIntelligenceControllers = new Map<string, AbortController>()
 const exampleGenerationControllers = new Map<string, AbortController>()
-const analysisStartTimes = new Map<string, number>()
+const analysisProgramCompletedTimes = new Map<string, number>()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
 
@@ -198,6 +198,14 @@ function readFirstScreenshotPath(serialized: unknown): string | null {
 const HISTORY_THUMBNAIL_SIZE = { width: 192, height: 128 }
 const historyThumbnailJobs = new Map<string, Promise<string>>()
 
+function isValidHistoryThumbnail(filePath: string): boolean {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) return false
+  const image = nativeImage.createFromBuffer(fs.readFileSync(filePath))
+  if (image.isEmpty()) return false
+  const size = image.getSize()
+  return size.width <= HISTORY_THUMBNAIL_SIZE.width && size.height <= HISTORY_THUMBNAIL_SIZE.height
+}
+
 function findHistoryThumbnailSource(evidence: DesignEvidence | null, screenshot: PageScreenshotData): string {
   if (!evidence) return screenshot.path
   const page =
@@ -226,7 +234,7 @@ async function createHistoryThumbnail(sourcePath: string): Promise<string> {
   const cacheKey = createHash('sha256').update(`${sourcePath}:${stats.size}:${stats.mtimeMs}`).digest('hex')
   const thumbnailDir = path.join(app.getPath('userData'), 'history-thumbnails')
   const thumbnailPath = path.join(thumbnailDir, `${cacheKey}.jpg`)
-  if (fs.existsSync(thumbnailPath) && fs.statSync(thumbnailPath).size > 0) return thumbnailPath
+  if (isValidHistoryThumbnail(thumbnailPath)) return thumbnailPath
 
   const existingJob = historyThumbnailJobs.get(cacheKey)
   if (existingJob) return existingJob
@@ -234,9 +242,19 @@ async function createHistoryThumbnail(sourcePath: string): Promise<string> {
   const job = (async () => {
     try {
       fs.mkdirSync(thumbnailDir, { recursive: true })
-      const image = await nativeImage.createThumbnailFromPath(sourcePath, HISTORY_THUMBNAIL_SIZE)
+      const image = nativeImage.createFromBuffer(fs.readFileSync(sourcePath))
       if (image.isEmpty()) return sourcePath
-      fs.writeFileSync(thumbnailPath, image.toJPEG(78))
+      const size = image.getSize()
+      const scale = Math.min(1, HISTORY_THUMBNAIL_SIZE.width / size.width, HISTORY_THUMBNAIL_SIZE.height / size.height)
+      const thumbnail =
+        scale < 1
+          ? image.resize({
+              width: Math.max(1, Math.round(size.width * scale)),
+              height: Math.max(1, Math.round(size.height * scale)),
+              quality: 'better',
+            })
+          : image
+      fs.writeFileSync(thumbnailPath, thumbnail.toJPEG(78))
       return thumbnailPath
     } catch {
       return sourcePath
@@ -769,6 +787,7 @@ export function registerIpcHandlers() {
     if (!record) return { error: true }
     designIntelligenceControllers.get(analysisId)?.abort()
     designIntelligenceControllers.delete(analysisId)
+    analysisProgramCompletedTimes.delete(analysisId)
     const meta: DesignIntelligenceMeta = { status: 'skipped', capabilityLevel: 'evidence-only' }
     db.prepare(
       `UPDATE analyses
@@ -801,7 +820,6 @@ export function registerIpcHandlers() {
         `start: url=${url} viewports=${options?.viewports?.join(',') ?? 'default'} maxPages=${options?.maxPages ?? 'default'} authMode=${options?.authMode ?? 'auto'}`,
       )
 
-      const analysisStartTime = Date.now()
       try {
         const currentSettings = getSettings()
         const effectiveOptions = {
@@ -838,6 +856,10 @@ export function registerIpcHandlers() {
           options?.language?.startsWith('zh') ? 'zh-CN' : 'en',
           [],
           result.designEvidence,
+          undefined,
+          undefined,
+          designIntelligenceStatus,
+          { ...designIntelligenceMeta, timing: result.timing },
         )
 
         const db = getDb()
@@ -857,7 +879,7 @@ export function registerIpcHandlers() {
           url,
           pagesAnalyzed,
           JSON.stringify(viewports),
-          Date.now() - analysisStartTime,
+          result.duration,
           new Date().toISOString(),
           JSON.stringify(result.tokens),
           cssVars,
@@ -879,7 +901,7 @@ export function registerIpcHandlers() {
           JSON.stringify(result.timing),
         )
 
-        analysisStartTimes.set(analysisId, analysisStartTime)
+        analysisProgramCompletedTimes.set(analysisId, Date.now())
 
         log.info(
           'analysis',
@@ -889,7 +911,7 @@ export function registerIpcHandlers() {
           'analysis',
           `timing: total=${result.timing.totalMs}ms screenshots=${result.timing.screenshotCaptureMs || 0}ms ` +
             `fingerprints=${result.timing.imageFingerprintMs || 0}ms summaries=${result.timing.imageSummaryMs}ms ` +
-            `images=${result.timing.imageCount}`,
+            `images=${result.timing.imageCount} userWaitExcluded=${result.timing.userWaitMs || 0}ms`,
         )
         result.extractionIssues.slice(0, 8).forEach((issue, index) => {
           const reason = issue.reason.replace(/\s+/g, ' ').slice(0, 360)
@@ -952,6 +974,10 @@ export function registerIpcHandlers() {
     if (!record) return { error: true, message: 'Analysis not found' }
     if (!record.design_evidence_json) return { error: true, message: 'Design Evidence is unavailable for this record' }
 
+    const programCompletedAt = analysisProgramCompletedTimes.get(analysisId)
+    const interstageUserWaitMs = programCompletedAt ? Math.max(0, Date.now() - programCompletedAt) : 0
+    analysisProgramCompletedTimes.delete(analysisId)
+
     const win = BrowserWindow.fromWebContents(event.sender)
     const designEvidence = JSON.parse(record.design_evidence_json as string) as DesignEvidence
     const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
@@ -1011,9 +1037,13 @@ export function registerIpcHandlers() {
       }
       const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
       const programTiming = readStoredAnalysisTiming(record)
+      const combinedTiming = programTiming
+        ? mergeAnalysisTimings(programTiming, cachedMeta.timing, interstageUserWaitMs)
+        : cachedMeta.timing
       return {
         ...buildStoredAnalysisResult(record, tokens),
-        analysisTiming: programTiming ? mergeAnalysisTimings(programTiming, cachedMeta.timing) : cachedMeta.timing,
+        duration: (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
+        analysisTiming: combinedTiming,
         designEvidence,
         designProfile,
         designIntelligence: cachedMeta,
@@ -1049,16 +1079,22 @@ export function registerIpcHandlers() {
         const cachedValidation = persistentCache.validation_report_json
           ? JSON.parse(persistentCache.validation_report_json as string)
           : null
+        const programTiming = readStoredAnalysisTiming(record)
+        const combinedTiming = programTiming
+          ? mergeAnalysisTimings(programTiming, cachedMeta.timing, interstageUserWaitMs)
+          : cachedMeta.timing
         db.prepare(
           `UPDATE analyses
            SET design_profile_json = ?, design_intelligence_status = ?, design_intelligence_meta_json = ?,
-               validation_report_json = ?
+               validation_report_json = ?, analysis_timing_json = ?, duration_ms = ?
            WHERE id = ?`,
         ).run(
           JSON.stringify(cachedProfile),
           cachedMeta.status,
           JSON.stringify(cachedMeta),
           persistentCache.validation_report_json || null,
+          combinedTiming ? JSON.stringify(combinedTiming) : record.analysis_timing_json,
+          (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
           analysisId,
         )
         db.prepare('UPDATE design_intelligence_cache SET last_accessed_at = ? WHERE cache_key = ?').run(
@@ -1066,11 +1102,11 @@ export function registerIpcHandlers() {
           cacheKey,
         )
         const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens)
-        const programTiming = readStoredAnalysisTiming(record)
         log.info('design-intelligence', `persistent cache hit: key=${cacheKey.slice(0, 12)}`)
         return {
           ...buildStoredAnalysisResult(record, tokens),
-          analysisTiming: programTiming ? mergeAnalysisTimings(programTiming, cachedMeta.timing) : cachedMeta.timing,
+          duration: (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
+          analysisTiming: combinedTiming,
           designEvidence,
           designProfile: cachedProfile,
           designIntelligence: cachedMeta,
@@ -1115,8 +1151,15 @@ export function registerIpcHandlers() {
     intelligence.meta.cacheKey = completedCacheKey
     const programTiming = readStoredAnalysisTiming(record)
     const combinedTiming = programTiming
-      ? mergeAnalysisTimings(programTiming, intelligence.meta.timing)
+      ? mergeAnalysisTimings(programTiming, intelligence.meta.timing, interstageUserWaitMs)
       : intelligence.meta.timing
+    if (combinedTiming) {
+      log.info(
+        'design-intelligence',
+        `combined timing: program=${combinedTiming.programTotalMs || 0}ms ai=${combinedTiming.aiTotalMs || 0}ms ` +
+          `total=${combinedTiming.totalMs}ms userWaitExcluded=${combinedTiming.userWaitMs || 0}ms`,
+      )
+    }
     if (designIntelligenceControllers.get(analysisId) === intelligenceController) {
       designIntelligenceControllers.delete(analysisId)
     }
@@ -1181,17 +1224,39 @@ export function registerIpcHandlers() {
         designEvidence,
         intelligence.profile,
         reconstructionBrief || undefined,
+        intelligence.meta.status,
+        { ...intelligence.meta, timing: combinedTiming },
       )
       if (aliasResult) {
         const aliasComment = `/* AI token aliases: ${aliasResult.applied.map((item) => `${item.tokenId} -> ${item.name}`).join(', ')} */\n`
         aliasedCss = aliasComment + generateCssVariables(exportTokens, exportDarkMode, designEvidence.breakpoints)
         aliasedTailwind = aliasComment + generateTailwindTheme(exportTokens, exportDarkMode, designEvidence.breakpoints)
       }
+    } else {
+      const darkModeExport = readDarkModeExportData(
+        record.dark_tokens_json,
+        tokens,
+        record.dark_mode_method,
+        record.dark_mode_selector,
+      )
+      designDoc = generateDesignDoc(
+        tokens,
+        record.url as string,
+        designEvidence.featureTags,
+        darkModeExport,
+        designEvidence.breakpoints,
+        undefined,
+        outputLanguage,
+        [],
+        designEvidence,
+        undefined,
+        undefined,
+        intelligence.meta.status,
+        { ...intelligence.meta, timing: combinedTiming },
+      )
     }
 
-    const startTime = analysisStartTimes.get(analysisId)
-    const totalDuration = startTime ? Date.now() - startTime : null
-    analysisStartTimes.delete(analysisId)
+    const totalDuration = combinedTiming?.totalMs ?? null
 
     db.prepare(
       `UPDATE analyses
@@ -1282,6 +1347,7 @@ export function registerIpcHandlers() {
 
     return {
       ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
+      duration: (totalDuration ?? Number(record.duration_ms)) || 0,
       analysisTiming: combinedTiming,
       featureTags: designEvidence.featureTags,
       darkTokens:
@@ -1377,6 +1443,8 @@ export function registerIpcHandlers() {
       designEvidence,
       designProfile,
       reconstructionBrief,
+      updatedMeta.status,
+      { ...updatedMeta, timing: readStoredAnalysisTiming(record) || updatedMeta.timing },
     )
 
     db.prepare(

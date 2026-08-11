@@ -9,6 +9,7 @@ export type { InteractionObservationSnapshot } from './interaction-observer.js'
 export type {
   PageComponentSnapshot,
   PageEvidenceSnapshot,
+  PageHorizontalOverflowSource,
   PageInteractionCandidateSnapshot,
   PageLayoutNodeSnapshot,
   PageMediaLayerSnapshot,

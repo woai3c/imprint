@@ -6,7 +6,7 @@ import { buildAnalysisDigest } from './analysis-digest.js'
 import { dedupeProfileClaims } from './claim-dedupe.js'
 import { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
 import { checkProfileContradictions } from './contradiction-checker.js'
-import { buildEvidenceFallbackProfile } from './evidence-fallback.js'
+import { buildEvidenceFallbackProfile, repairProfileCoverage } from './evidence-fallback.js'
 import { listEvidencePackageIds, restrictEvidencePackageImages, selectEvidencePackage } from './evidence-selector.js'
 import { createEvidenceFingerprint } from './input-fingerprint.js'
 import {
@@ -99,6 +99,7 @@ export interface InterpretationPipelineResult {
   pipeline: 'single-pass'
   imageObservationsValid?: boolean
   rejected?: string[]
+  repaired?: string[]
   dedupedClaims?: number
   model?: string
   usage?: {
@@ -110,6 +111,12 @@ export interface InterpretationPipelineResult {
   promptChars: number
   digestChars: number
   evidenceFallback?: boolean
+}
+
+function isRepairDiagnostic(reason: string): boolean {
+  return /(?:scope-repaired|property-normalized|sanitized|contradicts-(?:responsive-layout|overflow-source|mobile-capture)-facts|contradicts-validated-token-refs)/.test(
+    reason,
+  )
 }
 
 export function splitImagesByPass(
@@ -183,21 +190,37 @@ export async function runInterpretationPipeline(
   const contradictionCheck = checkProfileContradictions(validatedProfile, evidence)
   const deduped = evidenceFallback
     ? { profile: contradictionCheck.profile, removed: 0 }
-    : dedupeProfileClaims(contradictionCheck.profile)
+    : dedupeProfileClaims(
+        contradictionCheck.profile,
+        buildEvidenceFallbackProfile(
+          evidence,
+          options.language,
+          options.mode,
+          'A required AI claim duplicated an earlier design claim',
+        ),
+      )
+  const coverageRepair = repairProfileCoverage(deduped.profile, evidence)
   const validationMs = Date.now() - validationStartedAt
+  const validationDiagnostics = [...validation.rejected, ...contradictionCheck.rejected]
+  const rejected = validationDiagnostics.filter((reason) => !isRepairDiagnostic(reason))
+  const repaired = [
+    ...validationDiagnostics.filter(isRepairDiagnostic),
+    ...(deduped.removed > 0 ? [`claims:deduplicated(${deduped.removed})`] : []),
+    ...coverageRepair.repaired,
+  ]
+  const postValidationRepair =
+    validationDiagnostics.length > 0 || deduped.removed > 0 || coverageRepair.repaired.length > 0
   const budgetExceeded: string[] = []
   if ((response.usage?.input || 0) > 16_000) budgetExceeded.push('ai-input-tokens')
   if ((response.usage?.output || 0) > 6_000) budgetExceeded.push('ai-output-tokens')
 
   return {
-    profile: deduped.profile,
-    status: !evidenceFallback && validation.status === 'complete' ? 'complete' : 'partial',
+    profile: coverageRepair.profile,
+    status: !evidenceFallback && validation.status === 'complete' && !postValidationRepair ? 'complete' : 'partial',
     pipeline: 'single-pass',
     imageObservationsValid: validation.imageObservationsValid,
-    rejected:
-      validation.rejected.length + contradictionCheck.rejected.length > 0
-        ? [...validation.rejected, ...contradictionCheck.rejected]
-        : undefined,
+    rejected: rejected.length > 0 ? rejected : undefined,
+    repaired: repaired.length > 0 ? repaired : undefined,
     dedupedClaims: deduped.removed > 0 ? deduped.removed : undefined,
     model: response.model,
     usage: response.usage,
@@ -310,6 +333,7 @@ export async function interpretDesignEvidence(
       callDetails: result.callDetails,
       timing: result.timing,
       rejected: result.rejected,
+      repaired: result.repaired,
     },
   }
 }

@@ -243,6 +243,7 @@ function compactProfile() {
     e: ['s1'],
     t: [],
   }))
+  claims[20].e = ['c1']
   return {
     claims,
     thesis: 'q1',
@@ -310,6 +311,86 @@ describe('Section observation pass', () => {
     expect(calls[0]).toContain('UNTRUSTED_ANALYSIS_DIGEST')
     expect(calls[0]).not.toContain('SECTION_OBSERVATIONS')
     expect(result.callDetails.map((detail) => detail.pass)).toEqual(['synthesis'])
+    expect(result.repaired).toContain('componentGrammar.button')
+    expect(result.rejected || []).not.toEqual(expect.arrayContaining([expect.stringContaining('coverage-repair')]))
+  })
+
+  it('reports deterministic correction diagnostics as repaired instead of rejected', async () => {
+    const interactionEvidence = structuredClone(evidence)
+    interactionEvidence.interactionObservations = [
+      {
+        id: 'interaction-background',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:hover' },
+        before: {},
+        after: { 'background-color': '#111827' },
+        changedProperties: ['background-color'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+      {
+        id: 'interaction-outline',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:hover' },
+        before: {},
+        after: { 'outline-color': '#2563eb' },
+        changedProperties: ['outline-color'],
+        evidenceRefs: ['component-a', 'section-a'],
+      },
+    ]
+    interactionEvidence.sections[0].interactionRefs = ['interaction-background', 'interaction-outline']
+    const candidate = rawProfile()
+    candidate.interactionLanguage.primaryDrivers = [
+      {
+        ...claim('Hover changes the outline of the control.'),
+        implementation: 'Apply the observed outline change on hover.',
+        evidence: [{ evidenceId: 'interaction-background', note: 'Wrong hover evidence' }],
+      },
+    ]
+    candidate.transferRules.avoid = [
+      {
+        ...claim('Avoid changing the control after clicking it.'),
+        evidence: [{ evidenceId: 'interaction-background', note: 'Passive declaration only' }],
+      },
+    ]
+    candidate.uncertainties = [
+      {
+        topic: 'Referenced tokens are undefined',
+        reason: 'Some referenced tokens are not present in the token facts.',
+        neededEvidence: 'Complete token definitions',
+      },
+    ]
+    const evidencePackage = selectEvidencePackage(interactionEvidence, 'structural-only')
+
+    const result = await runInterpretationPipeline(interactionEvidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(candidate) }),
+    })
+
+    const reason = 'interactionLanguage.primaryDrivers.0:interaction-evidence-scope-repaired(outline)'
+    expect(result.repaired).toContain(reason)
+    expect(result.rejected || []).not.toContain(reason)
+    expect(result.repaired).toContain('transferRules.avoid.0:passive-interaction-transfer-rule-sanitized')
+    expect(result.repaired).toContain('transferRules.avoid')
+    expect(result.repaired).toContain('uncertainties.0:contradicts-validated-token-refs')
+    expect(result.rejected || []).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('passive-interaction-transfer-rule-sanitized'),
+        expect.stringContaining('contradicts-validated-token-refs'),
+      ]),
+    )
+    expect(result.profile.transferRules.avoid[0].statement).toBe(
+      'Unexecuted interaction states and untokenized raw DOM values are not design rules.',
+    )
+    expect(result.profile.uncertainties).toEqual([])
   })
 
   it('expands the compact claim pool into the existing DesignProfile schema', async () => {

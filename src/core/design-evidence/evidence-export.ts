@@ -2,6 +2,101 @@ import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
 import type { DesignEvidence } from './types.js'
 
+const TYPOGRAPHY_REF_GROUPS = {
+  'typography.font-family': 'font',
+  'typography.font-stack': 'font',
+  'typography.font-size': 'size',
+  'typography.font-weight': 'weight',
+  'typography.line-height': 'lineHeight',
+} as const
+
+function typographyValueForRef(evidence: DesignEvidence, ref: string): string | null {
+  const dot = ref.lastIndexOf('.')
+  if (dot <= 0) return null
+  const group = ref.slice(0, dot) as keyof typeof TYPOGRAPHY_REF_GROUPS
+  const index = Number.parseInt(ref.slice(dot + 1), 10) - 1
+  if (!(group in TYPOGRAPHY_REF_GROUPS) || !Number.isInteger(index) || index < 0) return null
+  const values = {
+    'typography.font-family': evidence.tokens.typography.fontFamilies,
+    'typography.font-stack': evidence.tokens.typography.fontStacks,
+    'typography.font-size': evidence.tokens.typography.fontSizes,
+    'typography.font-weight': evidence.tokens.typography.fontWeights,
+    'typography.line-height': evidence.tokens.typography.lineHeights,
+  }
+  return values[group][index] ?? null
+}
+
+function markdownCodeList(values: ReadonlySet<string>): string {
+  const selected = [...values].slice(0, 4)
+  return selected.length > 0 ? selected.map((value) => `\`${value.replace(/`/g, '')}\``).join(', ') : '—'
+}
+
+function observedLineHeight(node: DesignEvidence['layoutNodes'][number]): string | null {
+  const typography = node.observedTypography
+  if (!typography?.lineHeight) return null
+  if (typography.lineHeight.trim().toLowerCase() === 'normal') return 'normal'
+  const fontSize = typography.fontSize?.match(/^(\d*\.?\d+)px$/i)
+  const lineHeight = typography.lineHeight.match(/^(\d*\.?\d+)px$/i)
+  if (!fontSize || !lineHeight) return typography.lineHeight
+  const ratio = Number.parseFloat(lineHeight[1]) / Number.parseFloat(fontSize[1])
+  return Number.isFinite(ratio) && ratio > 0 ? ratio.toFixed(3).replace(/\.?0+$/, '') : typography.lineHeight
+}
+
+function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, zh: boolean): void {
+  const rows = new Map<
+    NonNullable<DesignEvidence['layoutNodes'][number]['textRole']>,
+    { count: number; font: Set<string>; size: Set<string>; weight: Set<string>; lineHeight: Set<string> }
+  >()
+  for (const node of evidence.layoutNodes) {
+    if (!node.textRole) continue
+    const row = rows.get(node.textRole) || {
+      count: 0,
+      font: new Set<string>(),
+      size: new Set<string>(),
+      weight: new Set<string>(),
+      lineHeight: new Set<string>(),
+    }
+    row.count += 1
+    const resolvedGroups = new Set<(typeof TYPOGRAPHY_REF_GROUPS)[keyof typeof TYPOGRAPHY_REF_GROUPS]>()
+    for (const ref of node.tokenRefs) {
+      const group = ref.slice(0, ref.lastIndexOf('.')) as keyof typeof TYPOGRAPHY_REF_GROUPS
+      const destination = TYPOGRAPHY_REF_GROUPS[group]
+      const value = typographyValueForRef(evidence, ref)
+      if (destination && value) {
+        row[destination].add(value)
+        resolvedGroups.add(destination)
+      }
+    }
+    const observed = node.observedTypography
+    if (observed?.fontFamily && !resolvedGroups.has('font')) row.font.add(observed.fontFamily)
+    if (observed?.fontSize && !resolvedGroups.has('size')) row.size.add(observed.fontSize)
+    if (observed?.fontWeight && !resolvedGroups.has('weight')) row.weight.add(observed.fontWeight)
+    const lineHeight = observedLineHeight(node)
+    if (lineHeight && !resolvedGroups.has('lineHeight')) row.lineHeight.add(lineHeight)
+    rows.set(node.textRole, row)
+  }
+  if (rows.size === 0) return
+
+  const order = ['display', 'heading', 'body', 'label', 'metadata'] as const
+  lines.push('')
+  lines.push(zh ? '### 排版角色证据' : '### Typography Role Evidence')
+  lines.push('')
+  lines.push(
+    zh
+      ? '| 观察角色 | 实例 | 字体 | 字号 | 字重 | 行高 |'
+      : '| Observed role | Instances | Font | Size | Weight | Line height |',
+  )
+  lines.push('|---|---:|---|---|---|---|')
+  for (const role of order) {
+    const row = rows.get(role)
+    if (!row) continue
+    lines.push(
+      `| \`${role}\` | ${row.count} | ${markdownCodeList(row.font)} | ${markdownCodeList(row.size)} | ${markdownCodeList(row.weight)} | ${markdownCodeList(row.lineHeight)} |`,
+    )
+  }
+  lines.push('')
+}
+
 export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
   return JSON.stringify(evidence, null, 2)
 }
@@ -52,6 +147,8 @@ export function generateDesignEvidenceBrief(
   )
   lines.push('')
 
+  appendTypographyRoleMatrix(lines, evidence, zh)
+
   lines.push(zh ? '### 页面拓扑' : '### Page Topology')
   lines.push('')
   for (const topologyPage of evidence.topology.pages) {
@@ -63,6 +160,16 @@ export function generateDesignEvidenceBrief(
           ? `- \`${page.viewport}\` ${page.url}：检测到横向溢出（内容 ${page.contentWidth}px > 视口 ${page.viewportWidth}px）；视口外内容不能视为已隐藏或已重排`
           : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
       )
+      for (const source of page.horizontalOverflowSources?.slice(0, 3) || []) {
+        const sectionContext = [source.sectionRole, source.sectionId ? `\`${source.sectionId}\`` : '']
+          .filter(Boolean)
+          .join(' · ')
+        lines.push(
+          zh
+            ? `  - 来源：\`${source.locator}\`${sectionContext ? `（区块 ${sectionContext}）` : ''}；超出 ${source.overflowPx}px，元素宽 ${source.width}px，position: ${source.position}`
+            : `  - Source: \`${source.locator}\`${sectionContext ? ` (section ${sectionContext})` : ''}; ${source.overflowPx}px outside, ${source.width}px wide, position: ${source.position}`,
+        )
+      }
     }
     const roles = topologyPage.sectionIds
       .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
@@ -208,8 +315,22 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
 }
 
 function humanizeLimitation(key: string, zh: boolean): string | null {
+  const extractionIssue = /^extraction-issue:([^:]+):(.+)$/.exec(key)
+  if (extractionIssue) {
+    const safeDecode = (value: string) => {
+      try {
+        return decodeURIComponent(value)
+      } catch {
+        return value
+      }
+    }
+    const stage = safeDecode(extractionIssue[1])
+    const reason = safeDecode(extractionIssue[2])
+    return zh ? `提取阶段 ${stage}：${reason}` : `Extraction stage ${stage}: ${reason}`
+  }
   const label = LIMITATION_LABELS[key]
   if (label) return zh ? label.zh : label.en
-  if (key.startsWith('skipped:') || key.startsWith('skipped-interaction:')) return null
+  if (key.startsWith('page-health:') || key.startsWith('skipped:') || key.startsWith('skipped-interaction:'))
+    return null
   return key
 }

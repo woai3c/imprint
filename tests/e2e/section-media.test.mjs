@@ -4,6 +4,7 @@ import { after, before, test } from 'node:test'
 import { chromium } from 'playwright-core'
 
 import { findHeadlessBrowser } from '../../dist/core/analyzer/browser-finder.js'
+import { inspectPageHealth } from '../../dist/core/analyzer/page-health.js'
 import { extractPageEvidence } from '../../dist/core/design-evidence/page-extractor.js'
 
 let browser
@@ -111,6 +112,86 @@ test('a feed that fills the whole main landmark keeps its feature-group role', a
   const evidence = await extractPageEvidence(page, 'desktop')
   assert.equal(evidence.sections.length, 1, 'wrapper chains must collapse into a single section')
   assert.equal(evidence.sections[0].role, 'feature-group')
+})
+
+test('distinguishes contained horizontal scrollers from page-level overflow', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      .scroller { width: 100%; overflow-x: auto; }
+      .track { width: 1200px; display: flex; }
+      .card { flex: 0 0 300px; height: 120px; }
+    </style>
+    <body>
+      <main>
+        <h1>Scrollable recommendations</h1>
+        <div class="scroller"><div class="track">
+          <article class="card">First recommendation</article>
+          <article class="card">Second recommendation</article>
+          <article class="card">Third recommendation</article>
+          <article class="card">Fourth recommendation</article>
+        </div></div>
+      </main>
+    </body>`)
+
+  const contained = await extractPageEvidence(page, 'mobile')
+  const containedHealth = await inspectPageHealth(page, { expectedUrl: page.url() })
+  assert.equal(contained.horizontalOverflow, false)
+  assert.equal(contained.contentWidth, 375)
+  assert.equal(contained.width, 375)
+  assert.deepEqual(contained.horizontalOverflowSources, [])
+  assert.equal(
+    containedHealth.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    false,
+  )
+
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      .offscreen-fixed { position: fixed; left: 2500px; top: 20px; width: 180px; height: 100px; }
+    </style>
+    <body>
+      <main><h1>Normal page content</h1><p>The fixed helper is outside the viewport but not document flow.</p></main>
+      <aside class="offscreen-fixed"><div>Fixed helper panel</div></aside>
+    </body>`)
+
+  const fixedOutsideViewport = await extractPageEvidence(page, 'mobile')
+  const fixedHealth = await inspectPageHealth(page, { expectedUrl: page.url() })
+  assert.equal(fixedOutsideViewport.horizontalOverflow, false)
+  assert.equal(fixedOutsideViewport.contentWidth, 375)
+  assert.equal(fixedOutsideViewport.width, 375)
+  assert.equal(
+    fixedHealth.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    false,
+  )
+
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      main { min-width: 820px; }
+    </style>
+    <body><main><h1>Wide page shell</h1><p>This content genuinely exceeds the mobile viewport.</p></main></body>`)
+
+  const overflowing = await extractPageEvidence(page, 'mobile')
+  const overflowingHealth = await inspectPageHealth(page, { expectedUrl: page.url() })
+  assert.equal(overflowing.horizontalOverflow, true)
+  assert.ok(overflowing.contentWidth >= 820)
+  assert.ok(overflowing.width >= 820)
+  const overflowSource = overflowing.horizontalOverflowSources.find((source) => source.locator.includes('main'))
+  assert.ok(overflowSource)
+  assert.ok(overflowSource.sectionKey)
+  assert.ok(
+    overflowing.sections.some(
+      (section) => section.key === overflowSource.sectionKey && section.role === overflowSource.sectionRole,
+    ),
+  )
+  assert.equal(
+    overflowingHealth.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
 })
 
 test('separates major media from icons and dedupes repeated shapes', async () => {

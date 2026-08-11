@@ -4,6 +4,28 @@ import { buildDesignTokens } from '../../src/core/analyzer/token-builder.js'
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
 describe('design token builder', () => {
+  test('normalizes browser floating-point noise in spacing and radius tokens', () => {
+    const styles = createExtractedStyles({
+      spacings: ['1.428px', '5.95px', '8px'],
+      radii: ['5.95px', '9999.01px'],
+      usageCount: {
+        'spacing:1.428px': 36,
+        'spacing:1.5px': 4,
+        'spacing:5.95px': 36,
+        'spacing:8px': 20,
+        'radius:5.95px': 12,
+        'radius:9999.01px': 49,
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['1.5px', '6px', '8px'])
+    expect(result.radii).toEqual(['6px', '9999px'])
+    expect(result.usageCount?.['spacing:1.5px']).toBe(40)
+    expect(result.usageCount?.['radius:9999px']).toBe(49)
+  })
+
   test('selects typography and effects using usageCount', () => {
     const commonShadow = '0 2px 8px rgb(0 0 0 / 20%)'
     const rareShadow = '0 1px 1px rgb(0 0 0 / 5%)'

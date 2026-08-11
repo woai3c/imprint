@@ -3,7 +3,7 @@ import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence
 import type { EvidencePackage, SectionObservation } from './types.js'
 
 // Versions the complete model-output contract, including deterministic validation and fallback behavior.
-export const DESIGN_PROFILE_PROMPT_VERSION = '12'
+export const DESIGN_PROFILE_PROMPT_VERSION = '13'
 export const DESIGN_PROFILE_PROMPT_CHAR_LIMIT = 28_000
 const DIGEST_CHAR_LIMIT = 18_000
 
@@ -122,7 +122,9 @@ Security and grounding:
 - If a page reports overflow, describe clipping/minimum-width overflow; do not claim responsive hiding or reflow without an r* fact.
 - authenticated-managed-capture is authenticated evidence, never a logged-out page.
 - Exact numeric bounds must match tokenFacts. Do not invent colors, sizes, weights, spacing, radii, or state values.
-- Keep claims concrete and non-repetitive. Avoid generic-only wording such as modern, clean, premium, professional, friendly, or high-tech.
+- Keep claims concrete and non-repetitive. Do not reuse one claim ID for multiple top-level semantic fields.
+- Avoid unsupported absolutes such as only, unique, all, every, 唯一, 全部, or 所有. Use them only when the cited evidence proves the full scope.
+- Avoid generic-only wording such as modern, clean, premium, professional, friendly, or high-tech.
 
 Compact output contract:
 - claims: 16-32 reusable claims. Each is {"id":"q1","s":"statement <=140 chars","i":"implementation <=220 chars","c":"high|medium|low","e":["s1"],"t":["t1"]}.

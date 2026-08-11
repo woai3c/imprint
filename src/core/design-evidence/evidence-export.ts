@@ -146,10 +146,13 @@ export function generateDesignEvidenceBrief(
     lines.push(zh ? '### 响应式结构观察' : '### Responsive Structure Observations')
     lines.push('')
     for (const observation of evidence.responsiveObservations.slice(0, 20)) {
+      const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+      const page = section ? evidence.pages.find((candidate) => candidate.id === section.pageId) : undefined
+      const context = `${page?.url || evidence.source.finalUrl} · ${section?.role || 'unknown'} · \`${observation.sectionId}\``
       lines.push(
         zh
-          ? `- ${observation.fromViewport} → ${observation.toViewport}：${observation.changeType}（${observation.changedProperties.join('、')}）`
-          : `- ${observation.fromViewport} → ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties.join(', ')})`,
+          ? `- ${context}：${observation.fromViewport} → ${observation.toViewport}，${observation.changeType}（${observation.changedProperties.join('、')}）`
+          : `- ${context}: ${observation.fromViewport} → ${observation.toViewport}, ${observation.changeType} (${observation.changedProperties.join(', ')})`,
       )
     }
   }

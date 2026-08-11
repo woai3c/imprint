@@ -1,7 +1,17 @@
 import type { DesignToken, ExtractedStyles } from './types.js'
 
 function usageCount(styles: ExtractedStyles, category: string, value: string): number {
-  return styles.usageCount[`${category}:${value}`] || 0
+  const exact = styles.usageCount[`${category}:${value}`]
+  if (exact) return exact
+  if (category !== 'radius' && category !== 'spacing') return 0
+  const target = cssLengthPx(value)
+  if (target === null) return 0
+  const prefix = `${category}:`
+  return Object.entries(styles.usageCount).reduce((total, [key, count]) => {
+    if (!key.startsWith(prefix)) return total
+    const observed = cssLengthPx(key.slice(prefix.length))
+    return observed !== null && Math.abs(observed - target) <= 0.1 ? total + count : total
+  }, 0)
 }
 
 interface ColorChannels {
@@ -12,6 +22,9 @@ interface ColorChannels {
 
 const CHROMATIC_CHROMA_THRESHOLD = 24
 const COLOR_MATCH_TOLERANCE = 20
+const MIN_DOMINANT_SPACING_GRID_SHARE = 0.8
+const MAX_SPACING_GRID_BASE_PX = 16
+const SPACING_GRID_TOLERANCE_PX = 0.15
 const UI_COLOR_CATEGORIES = new Set([
   'primaryActionColor',
   'actionColor',
@@ -154,20 +167,18 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   const tags: string[] = []
 
   // Spacing system detection
-  const spacingValues = tokens.spacing.map((s) => parseFloat(s)).filter((v) => !isNaN(v) && v > 0)
-  if (spacingValues.length >= 3) {
-    const gcd = findGCD(spacingValues)
-    if (gcd >= 2) {
-      tags.push(`${gcd}px-base grid spacing`)
-    }
-  }
+  const spacingGrid = dominantSpacingGrid(tokens, styles)
+  if (spacingGrid !== null) tags.push(`${spacingGrid}px-base grid spacing`)
 
   // Font detection
   const fonts = tokens.typography.fontFamilies
-  if (fonts.some((f) => f.toLowerCase().includes('mono') || f.toLowerCase().includes('code'))) {
+  const primaryFont = fonts[0]?.toLowerCase() || ''
+  // Font families are ordered by rendered text coverage. A secondary code font must not
+  // label an otherwise proportional site as a monospace typography system.
+  if (primaryFont.includes('mono') || primaryFont.includes('code')) {
     tags.push('monospace typography')
   }
-  if (fonts.some((f) => f.toLowerCase().includes('serif') && !f.toLowerCase().includes('sans'))) {
+  if (primaryFont.includes('serif') && !primaryFont.includes('sans')) {
     tags.push('serif editorial style')
   }
   if (fonts.length === 1) {
@@ -256,20 +267,21 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   return tags.slice(0, 5)
 }
 
-function findGCD(numbers: number[]): number {
-  const rounded = numbers.map(Math.round).filter((n) => n > 0)
-  if (rounded.length < 2) return rounded[0] || 4
+function dominantSpacingGrid(tokens: DesignToken, styles: ExtractedStyles): number | null {
+  const observations = tokens.spacing
+    .map((value) => ({ value: cssLengthPx(value), count: Math.max(1, usageCount(styles, 'spacing', value)) }))
+    .filter((entry): entry is { value: number; count: number } => entry.value !== null && entry.value > 0)
+  if (observations.length < 3) return null
 
-  let result = rounded[0]
-  for (let i = 1; i < rounded.length; i++) {
-    result = gcd(result, rounded[i])
+  const totalWeight = observations.reduce((total, observation) => total + observation.count, 0)
+  for (let base = MAX_SPACING_GRID_BASE_PX; base >= 2; base -= 1) {
+    const matching = observations.filter((observation) => {
+      const closestMultiple = Math.round(observation.value / base) * base
+      return Math.abs(observation.value - closestMultiple) <= SPACING_GRID_TOLERANCE_PX
+    })
+    if (new Set(matching.map((observation) => observation.value)).size < 3) continue
+    const matchingWeight = matching.reduce((total, observation) => total + observation.count, 0)
+    if (matchingWeight / totalWeight >= MIN_DOMINANT_SPACING_GRID_SHARE) return base
   }
-  return result
-}
-
-function gcd(a: number, b: number): number {
-  while (b) {
-    ;[a, b] = [b, a % b]
-  }
-  return a
+  return null
 }

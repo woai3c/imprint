@@ -103,6 +103,35 @@ function numericSort(values: string[]): string[] {
   return values.sort((first, second) => Number.parseFloat(first) - Number.parseFloat(second))
 }
 
+function normalizeComputedLength(value: string): string {
+  const match = value.trim().match(/^(-?\d*\.?\d+)px$/i)
+  if (!match) return value
+  const amount = Number.parseFloat(match[1])
+  if (!Number.isFinite(amount)) return value
+  const nearestHalfPixel = Math.round(amount * 2) / 2
+  const normalized = Math.abs(amount - nearestHalfPixel) <= 0.1 ? nearestHalfPixel : Number(amount.toFixed(3))
+  return `${Object.is(normalized, -0) ? 0 : normalized}px`
+}
+
+function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<string, number> {
+  const normalized = new Map<string, number>()
+  for (const [value, count] of frequency) {
+    const key = normalizeComputedLength(value)
+    normalized.set(key, (normalized.get(key) || 0) + count)
+  }
+  return normalized
+}
+
+export function normalizeDesignTokenUsageCount(usageCount: Readonly<Record<string, number>>): Record<string, number> {
+  const normalized: Record<string, number> = {}
+  for (const [key, count] of Object.entries(usageCount)) {
+    const match = /^(spacing|radius):(.*)$/.exec(key)
+    const normalizedKey = match ? `${match[1]}:${normalizeComputedLength(match[2])}` : key
+    normalized[normalizedKey] = (normalized[normalizedKey] || 0) + count
+  }
+  return normalized
+}
+
 function durationInMilliseconds(value: string): number {
   const match = value.trim().match(/^(\d*\.?\d+)(ms|s)$/)
   if (!match) return Number.POSITIVE_INFINITY
@@ -237,7 +266,7 @@ export function buildDesignTokens(
   const sortedLineHeights = numericSort(sortByFrequency(lineHeightFreq).filter(uniqueFilter()).slice(0, 5))
 
   // Spacing - extract unique values, sort numerically
-  const spacingFreq = frequencyForCategory(styles, 'spacing', styles.spacings)
+  const spacingFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'spacing', styles.spacings))
   const spacings = sortByFrequency(spacingFreq)
     .filter((v) => {
       const num = parseFloat(v)
@@ -248,7 +277,7 @@ export function buildDesignTokens(
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Radii
-  const radiusFreq = frequencyForCategory(styles, 'radius', styles.radii)
+  const radiusFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'radius', styles.radii))
   const radii = sortByFrequency(radiusFreq)
     .filter((v) => parseFloat(v) > 0)
     .filter(uniqueFilter())
@@ -318,7 +347,7 @@ export function buildDesignTokens(
     borders,
     zIndices,
     transitions,
-    usageCount: styles.usageCount,
+    usageCount: normalizeDesignTokenUsageCount(styles.usageCount),
   }
 }
 

@@ -51,7 +51,9 @@ export interface IntelligenceRunResult {
 
 export function hasDesignIntelligenceConfiguration(settings: AppSettings): boolean {
   if (settings.aiEnabled === false) return false
-  return settings.aiMode === 'apiKey' ? Boolean(settings.provider && settings.apiKey) : Boolean(settings.agentCli)
+  return settings.aiMode === 'apiKey'
+    ? Boolean(settings.provider && settings.apiKeys[settings.provider])
+    : Boolean(settings.agentCli)
 }
 
 export function chooseDesignIntelligenceRoute(
@@ -344,7 +346,7 @@ export async function runExampleGeneration(
         evidence.source.requestedUrl,
         {
           provider: settings.provider,
-          apiKey: settings.apiKey,
+          apiKey: settings.apiKeys[settings.provider] || '',
           baseUrl: settings.baseUrl || undefined,
           model: resolveEffectiveModel(settings.provider, settings.model),
           signal: runSignal,
@@ -501,7 +503,7 @@ export async function runDesignIntelligence(
   try {
     const providerConfig = {
       provider: settings.provider,
-      apiKey: settings.apiKey,
+      apiKey: settings.apiKeys[settings.provider] || '',
       baseUrl: settings.baseUrl || undefined,
       model: resolveEffectiveModel(settings.provider, settings.model),
       signal: runSignal,

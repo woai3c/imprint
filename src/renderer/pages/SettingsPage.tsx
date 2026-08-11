@@ -63,7 +63,7 @@ export function SettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(true)
   const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
   const [provider, setProvider] = useState('')
-  const [apiKey, setApiKey] = useState('')
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const [customBaseUrl, setCustomBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [modelSupportsVision, setModelSupportsVision] = useState(false)
@@ -85,7 +85,7 @@ export function SettingsPage() {
       setAiEnabled(s.aiEnabled !== false)
       setAiMode(s.aiMode || 'apiKey')
       setProvider(s.provider || '')
-      setApiKey(s.apiKey || '')
+      setApiKeys(s.apiKeys || {})
       setCustomBaseUrl(s.baseUrl || '')
       setModel(s.model || '')
       setModelSupportsVision(s.modelSupportsVision === true)
@@ -124,6 +124,7 @@ export function SettingsPage() {
   // Catalog providers never show an empty picker: fall back to the recommended model.
   const effectiveModel = model || getRecommendedModel(provider)?.id || ''
   const selectedCatalogModel = getCatalogModel(provider, effectiveModel)
+  const apiKey = apiKeys[provider] || ''
 
   const handleAiModeChange = (mode: 'apiKey' | 'agentCli') => {
     setAiMode(mode)
@@ -144,9 +145,14 @@ export function SettingsPage() {
   }
 
   const handleApiKeyChange = (v: string) => {
-    setApiKey(v)
+    setApiKeys((current) => {
+      const next = { ...current }
+      if (v) next[provider] = v
+      else delete next[provider]
+      return next
+    })
     setTestResult(null)
-    save({ apiKey: v })
+    save({ apiKeys: { [provider]: v } })
   }
 
   const handleBaseUrlChange = (v: string) => {
@@ -211,7 +217,7 @@ export function SettingsPage() {
       const themes = await window.electronAPI.getThemeArchive()
       const analyses = await window.electronAPI.getAnalyses()
       const settings = await window.electronAPI.getSettings()
-      const { apiKey: _apiKey, ...exportableSettings } = settings
+      const { apiKeys: _apiKeys, ...exportableSettings } = settings
       const blob = JSON.stringify({ themes, analyses, settings: exportableSettings }, null, 2)
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
       const a = document.createElement('a')

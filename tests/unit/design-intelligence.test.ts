@@ -249,7 +249,7 @@ describe('Design intelligence', () => {
     const settings: AppSettings = {
       aiMode: 'apiKey',
       provider: 'openai',
-      apiKey: 'test-only',
+      apiKeys: { openai: 'test-only' },
       baseUrl: '',
       model: 'gpt-4o',
       modelSupportsVision: false,
@@ -281,7 +281,7 @@ describe('Design intelligence', () => {
     const settings: AppSettings = {
       aiMode: 'apiKey',
       provider: 'deepseek',
-      apiKey: 'test-only',
+      apiKeys: { deepseek: 'test-only' },
       baseUrl: '',
       model: 'deepseek-chat',
       modelSupportsVision: false,
@@ -300,6 +300,15 @@ describe('Design intelligence', () => {
 
     const visionSettings = { ...settings, provider: 'openai', model: 'gpt-4o' }
     expect(getInitialDesignIntelligenceMeta(visionSettings, evidence)).toMatchObject({
+      status: 'not-configured',
+      capabilityLevel: 'evidence-only',
+    })
+    expect(
+      getInitialDesignIntelligenceMeta(
+        { ...visionSettings, apiKeys: { ...visionSettings.apiKeys, openai: 'openai-test-only' } },
+        evidence,
+      ),
+    ).toMatchObject({
       status: 'pending',
       capabilityLevel: 'multimodal-ai',
     })
@@ -309,7 +318,7 @@ describe('Design intelligence', () => {
     const settings: AppSettings = {
       aiMode: 'apiKey',
       provider: 'openai',
-      apiKey: 'test-only',
+      apiKeys: { openai: 'test-only' },
       baseUrl: '',
       model: 'gpt-4o',
       modelSupportsVision: false,
@@ -562,6 +571,16 @@ describe('Design intelligence', () => {
     expect(validation.rejected).toContain('visualLanguage.color:missing-evidence')
   })
 
+  it('marks profiles partial when observed sections have no section grammar', () => {
+    const raw = rawProfile()
+    raw.sectionGrammar = []
+
+    const validation = validateDesignProfile(raw, evidence, 'structural-only', 'en')
+
+    expect(validation.status).toBe('partial')
+    expect(validation.rejected).toContain('sectionGrammar:empty')
+  })
+
   it('drops unobserved section roles and demotes single-page preserve rules in multi-page profiles', () => {
     const raw = rawProfile()
     raw.sectionGrammar.push({
@@ -792,6 +811,18 @@ describe('Design intelligence', () => {
 
     const continuity = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en')
     expect(continuity.profile?.interactionLanguage.continuityRules[0].confidence).toBe('low')
+  })
+
+  it('downgrades unsupported only and unique claims to low confidence', () => {
+    const raw = rawProfile()
+    raw.visualLanguage.imagery = {
+      ...claim('Badges are the only decorative color on every page'),
+      evidence: [{ evidenceId: 'image-a', note: 'Entry-page screenshot only' }],
+    }
+
+    const result = validateDesignProfile(raw, multiUrlEvidence(), 'structural-only', 'en')
+
+    expect(result.profile?.visualLanguage.imagery?.confidence).toBe('low')
   })
 
   it('downgrades responsive reflow claims when the captured mobile page actually overflows', () => {

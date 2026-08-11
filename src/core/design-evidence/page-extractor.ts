@@ -273,6 +273,12 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (!isVisible(element)) return false
       const tag = element.tagName
       if ((tag === 'HEADER' || tag === 'FOOTER') && element.parentElement?.closest('article, li')) return false
+      if (
+        (tag === 'HEADER' || tag === 'FOOTER') &&
+        element.parentElement?.closest('main, section, [role="main"], [role="region"]')
+      ) {
+        return false
+      }
       return true
     })
     const landmarkSet = new Set<Element>(semanticSectionCandidates)
@@ -390,6 +396,26 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         },
       }
     })
+    // Nested section candidates can all contain the same h1 and would otherwise become
+    // duplicate heroes. Keep the most specific visual region for each heading and retain
+    // its ancestors as ordinary content evidence.
+    const heroEntryByHeading = new Map<Element, (typeof sectionEntries)[number]>()
+    for (const entry of sectionEntries) {
+      if (entry.snapshot.role !== 'hero') continue
+      const heading = entry.element.querySelector('h1')
+      if (!heading) continue
+      const existing = heroEntryByHeading.get(heading)
+      if (!existing) {
+        heroEntryByHeading.set(heading, entry)
+        continue
+      }
+      if (areaOf(entry.element) < areaOf(existing.element)) {
+        existing.snapshot.role = 'content'
+        heroEntryByHeading.set(heading, entry)
+      } else {
+        entry.snapshot.role = 'content'
+      }
+    }
     const sectionEntryByElement = new Map(sectionEntries.map((entry) => [entry.element, entry]))
     for (const entry of sectionEntries) {
       let parent = entry.element.parentElement

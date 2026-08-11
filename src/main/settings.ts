@@ -9,7 +9,7 @@ const defaults: AppSettings = {
   aiEnabled: true,
   aiMode: 'apiKey',
   provider: '',
-  apiKey: '',
+  apiKeys: {},
   baseUrl: '',
   model: '',
   modelSupportsVision: false,
@@ -36,13 +36,33 @@ function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
+function normalizeApiKeys(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[1]),
+    ),
+  )
+}
+
 function readFromDisk(): AppSettings {
   try {
     const raw = fs.readFileSync(getSettingsPath(), 'utf-8')
-    const saved = JSON.parse(raw) as Partial<AppSettings> & { exportFormat?: unknown }
+    const saved = JSON.parse(raw) as Partial<AppSettings> & {
+      apiKey?: unknown
+      apiKeys?: unknown
+      exportFormat?: unknown
+    }
+    const { apiKey: legacyApiKey, apiKeys: savedApiKeys, ...savedSettings } = saved
+    const apiKeys = normalizeApiKeys(savedApiKeys)
+    if (saved.provider && typeof legacyApiKey === 'string' && legacyApiKey && !apiKeys[saved.provider]) {
+      apiKeys[saved.provider] = legacyApiKey
+    }
     return {
       ...defaults,
-      ...saved,
+      ...savedSettings,
+      apiKeys,
       aiEnabled: saved.aiEnabled !== false,
       modelSupportsVision: saved.modelSupportsVision === true,
       visionAnalysisConsent: true,
@@ -54,7 +74,7 @@ function readFromDisk(): AppSettings {
       exportFormat: isExportFormat(saved.exportFormat) ? saved.exportFormat : defaults.exportFormat,
     }
   } catch {
-    return { ...defaults }
+    return { ...defaults, apiKeys: {} }
   }
 }
 
@@ -70,7 +90,14 @@ export function getSettings(): AppSettings {
 
 export function saveSettings(update: Partial<AppSettings>): AppSettings {
   const current = readFromDisk()
-  const merged = { ...current, ...update }
+  const apiKeys = { ...current.apiKeys }
+  for (const [provider, apiKey] of Object.entries(normalizeApiKeys(update.apiKeys))) apiKeys[provider] = apiKey
+  if (update.apiKeys) {
+    for (const [provider, apiKey] of Object.entries(update.apiKeys)) {
+      if (apiKey === '') delete apiKeys[provider]
+    }
+  }
+  const merged = { ...current, ...update, apiKeys }
   if (!isExportFormat(merged.exportFormat)) merged.exportFormat = defaults.exportFormat
   merged.aiEnabled = merged.aiEnabled !== false
   merged.modelSupportsVision = merged.modelSupportsVision === true

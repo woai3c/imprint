@@ -132,6 +132,27 @@ describe('AI color rename validation', () => {
       { proposal: { tokenId: 'palette-3', name: 'action-emphasis' }, reason: 'role-mismatch' },
     ])
   })
+
+  test('requires status evidence before accepting success-prefixed aliases', () => {
+    const tokens: DesignToken = {
+      ...createTokens({ 'palette-4': '#1a7f37', 'palette-5': '#22c55e' }),
+      usageCount: {
+        'bgColor:rgb(26, 127, 55)': 120,
+        'primaryActionColor:rgb(26, 127, 55)': 20,
+        'statusColor:rgb(34, 197, 94)': 30,
+      },
+    }
+
+    const validation = validateColorRenames(tokens, [
+      { tokenId: 'palette-4', name: 'success-green' },
+      { tokenId: 'palette-5', name: 'success-positive' },
+    ])
+
+    expect(validation.accepted).toEqual([{ tokenId: 'palette-5', name: 'success-positive' }])
+    expect(validation.rejected).toMatchObject([
+      { proposal: { tokenId: 'palette-4', name: 'success-green' }, reason: 'role-mismatch' },
+    ])
+  })
 })
 
 describe('applyColorRenames', () => {

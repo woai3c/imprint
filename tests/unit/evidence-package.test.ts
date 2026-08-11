@@ -236,7 +236,37 @@ describe('selectEvidencePackage packaging', () => {
     expect(buildCompactDesignInterpretationPrompt(digestPackage, 'en').length).toBeLessThanOrEqual(28_000)
   })
 
-  test('selects at most two images for the default AI path', () => {
+  test('does not reuse one compact claim across required semantic fields', () => {
+    const evidence = makeEvidence()
+    const selected = selectEvidencePackage(evidence, 'structural-only')
+    const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(evidence, selected))
+    const sectionId = digestPackage.evidenceShortIdMap.get('section-a')!
+    const expanded = expandCompactProfileCandidate(
+      {
+        claims: [
+          {
+            id: 'q1',
+            s: 'One claim must have one semantic purpose',
+            i: 'Keep each required field specific to its own design concern.',
+            c: 'high',
+            e: [sectionId],
+          },
+        ],
+        thesis: 'q1',
+        composition: { container: 'q1' },
+      },
+      digestPackage,
+      'en',
+      'structural-only',
+    )
+
+    expect(expanded.profile).toMatchObject({
+      thesis: expect.objectContaining({ statement: 'One claim must have one semantic purpose' }),
+      composition: { containerStrategy: null },
+    })
+  })
+
+  test('covers up to three distinct page URLs for the default AI path', () => {
     const evidence = makeEvidence()
     evidence.pages = Array.from({ length: 3 }, (_, index) => ({
       id: `page-${index}`,
@@ -255,7 +285,27 @@ describe('selectEvidencePackage packaging', () => {
     }))
     evidence.topology.pages = evidence.pages.map((page) => ({ pageId: page.id, role: 'content', sectionIds: [] }))
 
-    expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toHaveLength(2)
+    const selected = selectEvidencePackage(evidence, 'multimodal')
+    expect(selected.imageIds).toHaveLength(3)
+    expect(selected.imageSelection.slice(1).every((item) => item.reason.includes('distinct page URL'))).toBe(true)
+
+    const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(evidence, selected))
+    const imageObservations = selected.imageIds.map((imageId, index) => ({
+      image: digestPackage.evidenceShortIdMap.get(imageId),
+      description: `Specific visual observation ${index + 1}`,
+    }))
+    const expanded = expandCompactProfileCandidate(
+      { claims: [], thesis: 'q1', imageObservations },
+      digestPackage,
+      'en',
+      'multimodal',
+    )
+    expect(expanded.profile).toMatchObject({
+      imageObservations: selected.imageIds.map((imageId, index) => ({
+        imageId,
+        description: `Specific visual observation ${index + 1}`,
+      })),
+    })
   })
 
   test('keeps one image when the second view adds too little information', () => {
@@ -344,7 +394,7 @@ describe('selectEvidencePackage packaging', () => {
     expect(selected.imageSelection[0].reason).toContain('horizontal overflow')
   })
 
-  test('uses deterministic perceptual hashes to reject a visually redundant second screenshot', () => {
+  test('rejects an exact visual duplicate even when it belongs to a distinct page URL', () => {
     const evidence = makeEvidence()
     evidence.pages[0].images = [
       {
@@ -387,6 +437,40 @@ describe('selectEvidencePackage packaging', () => {
     const selected = selectEvidencePackage(evidence, 'multimodal')
     expect(selected.imageIds).toEqual(['viewport-a', 'distinct-region'])
     expect(selected.imageSelection[1].reason).toContain('visual difference')
+  })
+
+  test('rejects a highly similar cross-page screenshot when the page structures are equivalent', () => {
+    const evidence = makeEvidence()
+    evidence.pages[0].images = [
+      {
+        id: 'viewport-a',
+        kind: 'viewport-crop',
+        path: 'a.png',
+        width: 1_440,
+        height: 900,
+        visualHash: `v1:${'f'.repeat(576)}`,
+      },
+    ]
+    evidence.pages.push({
+      id: 'page-similar',
+      url: 'https://example.com/similar',
+      viewport: 'desktop',
+      role: 'landing',
+      images: [
+        {
+          id: 'similar-viewport',
+          kind: 'viewport-crop',
+          path: 'similar.png',
+          width: 1_440,
+          height: 900,
+          visualHash: `v1:${'e'.repeat(576)}`,
+        },
+      ],
+    })
+    evidence.sections.push({ ...evidence.sections[0], id: 'section-similar', pageId: 'page-similar' })
+    evidence.topology.pages.push({ pageId: 'page-similar', role: 'landing', sectionIds: ['section-similar'] })
+
+    expect(selectEvidencePackage(evidence, 'multimodal').imageIds).toEqual(['viewport-a'])
   })
 
   test('sends one image instead of spending the second slot on a perceptually similar view', () => {

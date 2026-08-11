@@ -427,7 +427,7 @@ function capSinglePageGlobalClaim<T extends DesignClaim>(
 ): T {
   const referencedPages = referencedPageUrls(claim, scope).size
   const assertsUniversalCoverage =
-    /\b(?:all|every|across all|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|每页|两个页面|三页|四页|均采用|均使用/i.test(
+    /\b(?:all|every|only|unique|across all|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|唯一|每页|两个页面|三页|四页|均采用|均使用/i.test(
       `${claim.statement} ${claim.implementation}`,
     )
   if (assertsUniversalCoverage && availablePageCount > 1 && referencedPages < availablePageCount) {
@@ -1122,18 +1122,36 @@ export function validateDesignProfile(
     if (pageCount >= 2) return pattern
     return { ...pattern, confidence: 'medium' as const }
   })
-  if (profile.attention.visualSequence.length === 0) rejected.push('attention.visualSequence:empty')
-  if (profile.sectionGrammar.length === 0) rejected.push('sectionGrammar:empty')
-  if (profile.componentGrammar.length === 0) rejected.push('componentGrammar:empty')
+  let criticalCoverageGap = false
+  if (profile.attention.visualSequence.length === 0) {
+    rejected.push('attention.visualSequence:empty')
+    criticalCoverageGap = evidence.sections.length > 0
+  }
+  if (profile.sectionGrammar.length === 0) {
+    rejected.push('sectionGrammar:empty')
+    criticalCoverageGap ||= evidence.sections.length > 0
+  }
+  if (profile.componentGrammar.length === 0) {
+    rejected.push('componentGrammar:empty')
+    criticalCoverageGap ||= evidence.components.length > 0
+  }
   if (profile.interactionLanguage.primaryDrivers.length === 0) {
     rejected.push('interactionLanguage.primaryDrivers:empty')
+    criticalCoverageGap ||=
+      evidence.interactionObservations.length > 0 ||
+      evidence.interactionStyles.hover.length > 0 ||
+      evidence.interactionStyles.focus.length > 0 ||
+      evidence.interactionStyles.active.length > 0
   }
   for (const kind of ['preserve', 'adapt', 'avoid'] as const) {
-    if (profile.transferRules[kind].length === 0) rejected.push(`transferRules.${kind}:empty`)
+    if (profile.transferRules[kind].length === 0) {
+      rejected.push(`transferRules.${kind}:empty`)
+      criticalCoverageGap = true
+    }
   }
   return {
     profile,
-    status: requiredFallbackUsed || imageObservationsValid === false ? 'partial' : 'complete',
+    status: requiredFallbackUsed || imageObservationsValid === false || criticalCoverageGap ? 'partial' : 'complete',
     rejected,
     imageObservationsValid,
   }

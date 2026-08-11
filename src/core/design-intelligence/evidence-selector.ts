@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import {
+  AI_IMAGE_MAX_COUNT,
   AI_IMAGE_MAX_HEIGHT,
   AI_IMAGE_MAX_WIDTH,
   AI_VISUAL_TOKEN_BUDGET,
@@ -36,7 +37,7 @@ const DEFAULT_BUDGET: EvidenceSelectionBudget = {
   maxInteractions: 24,
   maxResponsiveObservations: 24,
   maxMediaLayers: 24,
-  maxImages: 2,
+  maxImages: AI_IMAGE_MAX_COUNT,
   maxVisualTokens: AI_VISUAL_TOKEN_BUDGET,
 }
 
@@ -327,6 +328,7 @@ interface ComparableImage {
 
 const NIBBLE_BITS = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4]
 const MAX_REPRESENTATIVE_IMAGE_SIMILARITY = 0.8
+const MAX_STRUCTURALLY_REDUNDANT_IMAGE_SIMILARITY = 0.92
 
 function perceptualSimilarity(first: string, second: string): number | null {
   if (/^v1:[0-9a-f]{576}$/i.test(first) && /^v1:[0-9a-f]{576}$/i.test(second)) {
@@ -377,6 +379,11 @@ function imageSimilarity(first: ComparableImage, second: ComparableImage): numbe
   return Math.min(1, Math.max(0, similarity))
 }
 
+function isExactImageDuplicate(first: ComparableImage, second: ComparableImage): boolean {
+  if (first.contentHash && first.contentHash === second.contentHash) return true
+  return !!first.visualHash && first.visualHash === second.visualHash
+}
+
 function selectRepresentativeImages(
   pages: {
     id: string
@@ -412,6 +419,18 @@ function selectRepresentativeImages(
     }),
   )
   const sectionRoles = new Map(evidence.sections.map((section) => [section.id, section.role]))
+  const pageStructureSignatures = new Map(
+    pages.map((page) => {
+      const topologyPage = evidence.topology.pages.find((candidate) => candidate.pageId === page.id)
+      const roles = (
+        topologyPage?.sectionIds ||
+        evidence.sections.filter((section) => section.pageId === page.id).map((section) => section.id)
+      )
+        .map((sectionId) => sectionRoles.get(sectionId) || 'unknown')
+        .join(',')
+      return [page.id, `${page.role || topologyPage?.role || 'unknown'}|${roles}`]
+    }),
+  )
   const majorMediaSections = new Set(
     evidence.mediaLayers.filter((media) => media.importance === 'major').map((media) => media.sectionId),
   )
@@ -472,15 +491,43 @@ function selectRepresentativeImages(
     )
 
   if (candidates.length === 0) return []
-  const fingerprintedCandidates = candidates.filter((candidate) =>
-    /^(?:v1:[0-9a-f]{576}|[0-9a-f]{22})$/i.test(candidate.visualHash || ''),
-  )
-  const candidatePool = fingerprintedCandidates.length >= Math.min(2, maxImages) ? fingerprintedCandidates : candidates
+  const candidatePool = candidates
   const overviewCandidates = candidatePool.filter((candidate) => candidate.kind !== 'region-crop')
   const first = [...(overviewCandidates.length > 0 ? overviewCandidates : candidatePool)].sort(
     (a, b) => b.score - a.score || a.id.localeCompare(b.id),
   )[0]
   const selected = [first]
+
+  // Before spending slots on responsive or region-level diversity, give every selected URL
+  // one visual overview when the image and visual-token budgets allow it. Structural facts
+  // alone are not enough for the model to judge a visually distinct page.
+  for (const page of pages) {
+    if (selected.length >= maxImages) break
+    if (selected.some((candidate) => candidate.page.url === page.url)) continue
+    const selectedIds = new Set(selected.map((candidate) => candidate.id))
+    const usedVisualTokens = selected.reduce((total, candidate) => total + candidate.visualTokens, 0)
+    const representative = candidatePool
+      .filter((candidate) => candidate.page.url === page.url && !selectedIds.has(candidate.id))
+      .filter((candidate) => usedVisualTokens + candidate.visualTokens <= maxVisualTokens)
+      .filter((candidate) =>
+        selected.every((selectedImage) => {
+          if (isExactImageDuplicate(candidate, selectedImage)) return false
+          if (imageSimilarity(candidate, selectedImage) <= MAX_STRUCTURALLY_REDUNDANT_IMAGE_SIMILARITY) return true
+          return pageStructureSignatures.get(candidate.page.id) !== pageStructureSignatures.get(selectedImage.page.id)
+        }),
+      )
+      .sort(
+        (a, b) =>
+          Number(a.kind === 'region-crop') - Number(b.kind === 'region-crop') ||
+          b.score - a.score ||
+          a.id.localeCompare(b.id),
+      )[0]
+    if (!representative) continue
+    selected.push({
+      ...representative,
+      reason: `${representative.reason}; selected to cover a distinct page URL`,
+    })
+  }
 
   while (selected.length < maxImages) {
     const selectedIds = new Set(selected.map((candidate) => candidate.id))

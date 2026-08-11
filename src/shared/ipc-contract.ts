@@ -27,7 +27,7 @@ export interface AppSettings {
   aiEnabled: boolean
   aiMode: 'apiKey' | 'agentCli'
   provider: string
-  apiKey: string
+  apiKeys: Record<string, string>
   baseUrl: string
   model: string
   modelSupportsVision: boolean

@@ -322,6 +322,12 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByLabel('LLM Provider').selectOption('deepseek')
     await page.getByLabel('API Key').fill('e2e-placeholder-key')
     assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'API Key · DeepSeek')
+    await page.getByLabel('LLM Provider').selectOption('openai')
+    assert.equal(await page.getByLabel('API Key').inputValue(), '')
+    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
+    await page.getByLabel('API Key').fill('e2e-openai-key')
+    await page.getByLabel('LLM Provider').selectOption('deepseek')
+    assert.equal(await page.getByLabel('API Key').inputValue(), 'e2e-placeholder-key')
     await page.getByTestId('ai-mode-agent-cli').click()
     assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
     await page.getByTestId('ai-mode-api-key').click()
@@ -329,7 +335,7 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByLabel('API Key').fill('')
     await page.waitForFunction(async () => {
       const settings = await window.electronAPI.getSettings()
-      return settings.aiMode === 'apiKey' && settings.apiKey === '' && settings.agentCli === ''
+      return settings.aiMode === 'apiKey' && !settings.apiKeys.deepseek && settings.apiKeys.openai && !settings.agentCli
     })
 
     await page.locator('a[href="#/"]').click()

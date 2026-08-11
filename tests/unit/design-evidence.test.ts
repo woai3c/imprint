@@ -194,6 +194,12 @@ describe('Design Evidence', () => {
     expect(evidence.interactionObservations).toEqual(
       expect.arrayContaining([expect.objectContaining({ driver: 'hover', safety: 'passive' })]),
     )
+    const responsive = evidence.responsiveObservations[0]
+    const responsiveSection = evidence.sections.find((section) => section.id === responsive.sectionId)!
+    const responsivePage = evidence.pages.find((page) => page.id === responsiveSection.pageId)!
+    expect(generateDesignEvidenceBrief(evidence)).toContain(
+      `${responsivePage.url} · ${responsiveSection.role} · \`${responsive.sectionId}\``,
+    )
   })
 
   it('diffs adjacent viewport pairs for three-viewport analyses', () => {
@@ -469,6 +475,10 @@ describe('Design Evidence', () => {
     expect(designDoc).toContain('## Design Evidence Overview')
     expect(designDoc).not.toContain('## Design Principles')
     expect(designDoc).not.toContain('matches the visual style')
+    expect(designDoc).toContain('no AI interpretation was generated')
+    expect(designDoc).not.toContain('validated interpretation')
     expect(chineseDoc).toContain('未生成 AI 视觉主张、标志性手法或迁移规则')
+    expect(chineseDoc).toContain('本次未生成 AI 设计解读')
+    expect(chineseDoc).not.toContain('经校验的设计解读')
   })
 })

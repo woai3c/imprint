@@ -554,13 +554,17 @@ export function generateDesignDoc(
     lines.push(zh ? '## 如何使用' : '## How to Use')
     lines.push('')
     lines.push(
-      evidenceFallback
+      !designProfile
         ? zh
-          ? '- 本文件包含已观察的设计令牌与结构证据，但 AI 设计解读已回退；交给编码助手前应人工复核，不应视为完整设计系统。'
-          : '- This file contains observed tokens and structural evidence, but the AI interpretation fell back. Review it before use with a coding assistant; it is not a complete design system.'
-        : zh
-          ? '- 本文件包含基于当前页面覆盖范围提取的设计令牌、结构证据和经校验的设计解读，可提供给 AI 编码助手，并应结合原页面复核。'
-          : '- This file contains design tokens, structural evidence, and validated interpretation from the captured page scope. It can be used with AI coding assistants and should be checked against the source.',
+          ? '- 本文件包含已观察的设计令牌与结构证据；本次未生成 AI 设计解读，交给编码助手前应结合原页面复核。'
+          : '- This file contains observed design tokens and structural evidence; no AI interpretation was generated. Check it against the source before using it with a coding assistant.'
+        : evidenceFallback
+          ? zh
+            ? '- 本文件包含已观察的设计令牌与结构证据，但 AI 设计解读已回退；交给编码助手前应人工复核，不应视为完整设计系统。'
+            : '- This file contains observed tokens and structural evidence, but the AI interpretation fell back. Review it before use with a coding assistant; it is not a complete design system.'
+          : zh
+            ? '- 本文件包含基于当前页面覆盖范围提取的设计令牌、结构证据和经校验的设计解读，可提供给 AI 编码助手，并应结合原页面复核。'
+            : '- This file contains design tokens, structural evidence, and validated interpretation from the captured page scope. It can be used with AI coding assistants and should be checked against the source.',
     )
     lines.push(
       zh

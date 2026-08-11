@@ -26,6 +26,54 @@ function tokens(overrides: Partial<DesignToken> = {}): DesignToken {
 }
 
 describe('design feature tags', () => {
+  test('uses the dominant weighted spacing rhythm instead of a rounded GCD', () => {
+    const designTokens = tokens({ spacing: ['1.5px', '4px', '6px', '8px', '12px', '16px', '24px', '32px'] })
+    const styles = createExtractedStyles({
+      usageCount: {
+        'spacing:1.5px': 104,
+        'spacing:4px': 731,
+        'spacing:6px': 122,
+        'spacing:8px': 1_451,
+        'spacing:12px': 210,
+        'spacing:16px': 1_962,
+        'spacing:24px': 167,
+        'spacing:32px': 202,
+      },
+    })
+
+    const tags = generateFeatureTags(designTokens, styles)
+    expect(tags).toContain('4px-base grid spacing')
+    expect(tags).not.toContain('2px-base grid spacing')
+  })
+
+  test('does not claim a base grid when no spacing rhythm dominates', () => {
+    const designTokens = tokens({ spacing: ['3px', '5px', '8px', '11px', '14px'] })
+
+    expect(generateFeatureTags(designTokens, createExtractedStyles())).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('base grid spacing')]),
+    )
+  })
+
+  test('does not label a proportional site as monospace because it also uses a code font', () => {
+    const mixed = tokens({
+      typography: {
+        ...tokens().typography,
+        fontFamilies: ['Mona Sans', 'Mona Sans Mono'],
+        fontStacks: ['Mona Sans, sans-serif', 'Mona Sans Mono, monospace'],
+      },
+    })
+    const monospace = tokens({
+      typography: {
+        ...tokens().typography,
+        fontFamilies: ['Cascadia Code', 'Inter'],
+        fontStacks: ['Cascadia Code, monospace', 'Inter, sans-serif'],
+      },
+    })
+
+    expect(generateFeatureTags(mixed, createExtractedStyles())).not.toContain('monospace typography')
+    expect(generateFeatureTags(monospace, createExtractedStyles())).toContain('monospace typography')
+  })
+
   test('uses the observed radius distribution instead of pill and avatar sentinels', () => {
     const designTokens = tokens({ radii: ['2px', '3px', '4px', '100%', '9999px'] })
     const styles = createExtractedStyles({

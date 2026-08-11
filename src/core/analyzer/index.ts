@@ -48,7 +48,7 @@ import {
 } from './responsive-motion.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { mergeStyles, mergeStylesWithNormalizedUsage } from './style-merge.js'
-import { buildDesignTokens } from './token-builder.js'
+import { buildDesignTokens, normalizeDesignTokenUsageCount } from './token-builder.js'
 import { type TokenEvidenceCapture, buildTokenEvidence } from './token-evidence.js'
 import type {
   AnalysisOptions,
@@ -1223,7 +1223,7 @@ export async function analyze(
 
     onProgress?.('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
-    tokens.usageCount = mergedStyles.usageCount
+    tokens.usageCount = normalizeDesignTokenUsageCount(mergedStyles.usageCount)
     tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
     let evidenceTokens = emptyDesignTokens()
     if (aiEligibleStyles.length > 0) {
@@ -1237,7 +1237,7 @@ export async function analyze(
         evidenceSelectionStyles.usageCount,
       )
       evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
-      evidenceTokens.usageCount = evidenceMergedStyles.usageCount
+      evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
       evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, aiEligibleStyleCaptures)
     }
     const featureTags = generateFeatureTags(tokens, mergedStyles)

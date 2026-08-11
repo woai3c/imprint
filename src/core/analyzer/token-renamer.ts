@@ -26,7 +26,7 @@ function isValidTokenName(name: string): boolean {
   return name.length <= 64 && COLOR_TOKEN_NAME_PATTERN.test(name) && !RESERVED_TOKEN_NAMES.has(name)
 }
 
-type ObservedRole = 'text' | 'link' | 'background' | 'border' | 'action' | 'accent'
+type ObservedRole = 'text' | 'link' | 'background' | 'border' | 'action' | 'accent' | 'status'
 
 const ROLE_SOURCE_PATTERNS: ReadonlyArray<[RegExp, ObservedRole]> = [
   [/^usage:(?:primaryActionColor|actionColor|selectedColor)$/, 'action'],
@@ -35,6 +35,7 @@ const ROLE_SOURCE_PATTERNS: ReadonlyArray<[RegExp, ObservedRole]> = [
   [/^usage:(?:bgColor|bgArea)$/, 'background'],
   [/^usage:(?:structuralBorderColor|borderColor)$/, 'border'],
   [/^usage:(?:accentColor|brandTokenColor)$/, 'accent'],
+  [/^usage:statusColor$/, 'status'],
 ]
 
 // A name prefix must describe a role the color was actually observed in. The naming prompt
@@ -47,6 +48,7 @@ const PREFIX_COMPATIBLE_ROLES: Record<string, readonly ObservedRole[]> = {
   border: ['border'],
   action: ['action'],
   accent: ['accent', 'action'],
+  success: ['status'],
 }
 
 const USAGE_CATEGORY_ROLES: Record<string, ObservedRole> = {
@@ -61,6 +63,7 @@ const USAGE_CATEGORY_ROLES: Record<string, ObservedRole> = {
   borderColor: 'border',
   accentColor: 'accent',
   brandTokenColor: 'accent',
+  statusColor: 'status',
 }
 
 // Palette tokens match every usage category, so evidence sources are a union in which a single

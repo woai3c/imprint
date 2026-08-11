@@ -76,6 +76,14 @@ export function expandCompactProfileCandidate(
     }
   }
 
+  const singletonClaimIds = new Set<string>()
+  const expandUniqueClaim = (claimId: unknown): unknown => {
+    if (typeof claimId !== 'string' || singletonClaimIds.has(claimId)) return null
+    const expanded = expandClaim(claimId)
+    if (expanded) singletonClaimIds.add(claimId)
+    return expanded
+  }
+
   const expandClaims = (value: unknown, max: number) => claimRefs(value, max).map(expandClaim).filter(Boolean)
   const composition = isRecord(candidate.composition) ? candidate.composition : {}
   const attention = isRecord(candidate.attention) ? candidate.attention : {}
@@ -126,7 +134,7 @@ export function expandCompactProfileCandidate(
     const neededEvidence = safeString(item.needed)
     return [{ topic, reason, ...(neededEvidence ? { neededEvidence } : {}) }]
   })
-  const imageObservations = objectList(candidate.imageObservations, 2).flatMap((item) => {
+  const imageObservations = objectList(candidate.imageObservations, 3).flatMap((item) => {
     const imageId = digestPackage.evidenceIdMap.get(safeString(item.image))
     const description = safeString(item.description)
     return imageId && description ? [{ imageId, description }] : []
@@ -146,34 +154,34 @@ export function expandCompactProfileCandidate(
       schemaVersion: '1',
       language,
       inputMode,
-      thesis: expandClaim(candidate.thesis),
+      thesis: expandUniqueClaim(candidate.thesis),
       signatureMoves,
       composition: {
-        containerStrategy: expandClaim(composition.container),
-        alignmentStrategy: expandClaim(composition.alignment),
-        densityAndWhitespace: expandClaim(composition.density),
-        rhythm: expandClaim(composition.rhythm),
+        containerStrategy: expandUniqueClaim(composition.container),
+        alignmentStrategy: expandUniqueClaim(composition.alignment),
+        densityAndWhitespace: expandUniqueClaim(composition.density),
+        rhythm: expandUniqueClaim(composition.rhythm),
       },
       attention: {
-        entryPoint: expandClaim(attention.entry),
+        entryPoint: expandUniqueClaim(attention.entry),
         visualSequence: expandClaims(attention.sequence, 4),
-        actionHierarchy: expandClaim(attention.action),
-        contrastStrategy: expandClaim(attention.contrast),
+        actionHierarchy: expandUniqueClaim(attention.action),
+        contrastStrategy: expandUniqueClaim(attention.contrast),
       },
       visualLanguage: {
-        color: expandClaim(visual.color),
-        typography: expandClaim(visual.typography),
-        shape: expandClaim(visual.shape),
-        surfaces: expandClaim(visual.surfaces),
-        ...(typeof visual.imagery === 'string' ? { imagery: expandClaim(visual.imagery) } : {}),
-        ...(typeof visual.motion === 'string' ? { motion: expandClaim(visual.motion) } : {}),
+        color: expandUniqueClaim(visual.color),
+        typography: expandUniqueClaim(visual.typography),
+        shape: expandUniqueClaim(visual.shape),
+        surfaces: expandUniqueClaim(visual.surfaces),
+        ...(typeof visual.imagery === 'string' ? { imagery: expandUniqueClaim(visual.imagery) } : {}),
+        ...(typeof visual.motion === 'string' ? { motion: expandUniqueClaim(visual.motion) } : {}),
       },
       sectionGrammar,
       interactionLanguage: {
         primaryDrivers: expandClaims(interaction.drivers, 3),
-        feedbackStyle: expandClaim(interaction.feedback),
-        stateChangeAmplitude: expandClaim(interaction.amplitude),
-        ...(typeof interaction.scroll === 'string' ? { scrollNarrative: expandClaim(interaction.scroll) } : {}),
+        feedbackStyle: expandUniqueClaim(interaction.feedback),
+        stateChangeAmplitude: expandUniqueClaim(interaction.amplitude),
+        ...(typeof interaction.scroll === 'string' ? { scrollNarrative: expandUniqueClaim(interaction.scroll) } : {}),
         continuityRules: expandClaims(interaction.continuity, 4),
       },
       componentGrammar,

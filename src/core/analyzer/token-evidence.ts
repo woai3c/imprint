@@ -101,6 +101,11 @@ function valuesMatch(path: string, category: string, tokenValue: string, observe
     const observedPixels = cssPixels(observedValue)
     return tokenPixels !== null && observedPixels !== null && Math.abs(tokenPixels - observedPixels) < 0.01
   }
+  if (path.startsWith('spacing.') || path.startsWith('radii.')) {
+    const tokenPixels = cssPixels(tokenValue)
+    const observedPixels = cssPixels(observedValue)
+    return tokenPixels !== null && observedPixels !== null && Math.abs(tokenPixels - observedPixels) <= 0.1
+  }
   if (path.startsWith('typography.lineHeights.') && category === 'typeMetric') {
     const [fontSize, lineHeight] = observedValue.split('|').map(cssPixels)
     const ratio = fontSize && lineHeight ? lineHeight / fontSize : null

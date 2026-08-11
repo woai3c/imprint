@@ -12,9 +12,9 @@ export const AI_IMAGE_SUMMARY_VERSION = '2'
 export const AI_IMAGE_MAX_WIDTH = 1600
 export const AI_IMAGE_MAX_HEIGHT = 1600
 export const AI_IMAGE_MAX_BYTES = 250 * 1024
-export const AI_IMAGE_MAX_COUNT = 2
+export const AI_IMAGE_MAX_COUNT = 3
 export const AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT = 6
-export const AI_VISUAL_TOKEN_BUDGET = 4_000
+export const AI_VISUAL_TOKEN_BUDGET = 6_000
 
 interface EncodedSummary {
   base64: string

@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react'
 
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from './Button'
@@ -34,8 +35,9 @@ export function ConfirmDialog({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onCancel])
 
-  return (
+  return createPortal(
     <div
+      data-testid="confirm-dialog-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-[2px]"
       onClick={onCancel}
     >
@@ -69,6 +71,7 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

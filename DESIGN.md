@@ -147,6 +147,8 @@ to Imprint rather than an enterprise administration UI.
 - **Progressive disclosure:** lead with summaries, then expose tokens, code, and documentation as users need them.
 - **Stable hierarchy:** light, dark, and artistic themes keep the same information order and interaction locations.
 - **Functional material:** transparency, texture, glow, and illustration establish layers; they never replace contrast.
+- **Application-level dialogs:** modal dialogs and destructive confirmations render through a top-level portal, and their
+  scrim covers the complete desktop window rather than the card or panel that opened them.
 - **Semantic states:** primary, secondary, muted, accent, destructive, focus, disabled, and selected states retain the
   same meaning in every theme.
 - **One hue family for interaction states:** hover, active, selected, and focus surfaces derive from the primary or

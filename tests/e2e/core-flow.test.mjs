@@ -583,6 +583,29 @@ test('extracts a local design system without LLM credentials and persists it', {
     await page.getByTestId('save-theme').click()
     const replaceThemeDialog = page.getByRole('alertdialog')
     await replaceThemeDialog.waitFor({ state: 'visible' })
+    const confirmBackdropCoverage = await page.getByTestId('confirm-dialog-backdrop').evaluate((element) => {
+      const bounds = element.getBoundingClientRect()
+      return {
+        bounds: {
+          bottom: bounds.bottom,
+          left: bounds.left,
+          right: bounds.right,
+          top: bounds.top,
+        },
+        parentIsBody: element.parentElement === document.body,
+        viewport: {
+          height: window.innerHeight,
+          width: window.innerWidth,
+        },
+      }
+    })
+    assert.equal(confirmBackdropCoverage.parentIsBody, true)
+    assert.deepEqual(confirmBackdropCoverage.bounds, {
+      bottom: confirmBackdropCoverage.viewport.height,
+      left: 0,
+      right: confirmBackdropCoverage.viewport.width,
+      top: 0,
+    })
     assert.match((await replaceThemeDialog.textContent()) || '', /theme named.*already exists.*history is retained/is)
     await replaceThemeDialog.getByRole('button', { name: 'Cancel' }).click()
     await replaceThemeDialog.waitFor({ state: 'detached' })

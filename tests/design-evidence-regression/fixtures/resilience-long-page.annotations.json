@@ -1,0 +1,13 @@
+{
+  "fixture": "resilience-long-page",
+  "description": "Long editorial workspace with deliberate mobile overflow, a delayed promotional dialog, and a reversible disclosure.",
+  "expectedSectionRoles": ["header", "hero", "content", "footer"],
+  "minSections": 7,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type", "salience:primary-action-candidate"],
+  "minSectionCoverage": 0.3
+}

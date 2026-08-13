@@ -1,3 +1,4 @@
+import type { DesignEvidence, DeterministicClaim } from '../design-evidence/types.js'
 import type { DesignToken, ExtractedStyles } from './types.js'
 
 function usageCount(styles: ExtractedStyles, category: string, value: string): number {
@@ -22,10 +23,12 @@ interface ColorChannels {
 
 const CHROMATIC_CHROMA_THRESHOLD = 24
 const COLOR_MATCH_TOLERANCE = 20
-const MIN_DOMINANT_SPACING_GRID_SHARE = 0.8
-const MAX_SPACING_GRID_BASE_PX = 16
-const SPACING_GRID_TOLERANCE_PX = 0.15
+const MIN_DECORATIVE_OCCURRENCES_PER_FAMILY = 2
+// Area can substitute for repetition only within the same hue family; small one-offs never pool their area.
+const MIN_DECORATIVE_AREA_SHARE_PER_FAMILY = 0.003
 const UI_COLOR_CATEGORIES = new Set([
+  'primaryActionBackgroundColor',
+  'actionBackgroundColor',
   'primaryActionColor',
   'actionColor',
   'selectedColor',
@@ -37,6 +40,7 @@ const UI_COLOR_CATEGORIES = new Set([
   'bgArea',
   'textColor',
 ])
+const STATUS_COLOR_CATEGORIES = new Set(['statusBackgroundColor', 'statusForegroundColor', 'statusColor'])
 
 function parseColorChannels(value: string): ColorChannels | null {
   const hex = value.trim().match(/^#([0-9a-f]{6}|[0-9a-f]{3})$/i)
@@ -83,7 +87,7 @@ function colorUsageWeight(styles: ExtractedStyles, channels: ColorChannels): { u
     const separator = key.indexOf(':')
     if (separator <= 0) continue
     const category = key.slice(0, separator)
-    const isStatus = category === 'statusColor'
+    const isStatus = STATUS_COLOR_CATEGORIES.has(category)
     if (!isStatus && !UI_COLOR_CATEGORIES.has(category)) continue
     const candidate = parseColorChannels(key.slice(separator + 1))
     if (!candidate) continue
@@ -166,9 +170,9 @@ function hasLayeredElevation(tokens: DesignToken): boolean {
 export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles): string[] {
   const tags: string[] = []
 
-  // Spacing system detection
-  const spacingGrid = dominantSpacingGrid(tokens, styles)
-  if (spacingGrid !== null) tags.push(`${spacingGrid}px-base grid spacing`)
+  const spacingRhythm = dominantSpacingRhythm(tokens, styles)
+  if (spacingRhythm.length >= 2)
+    tags.push(`spacing rhythm led by ${spacingRhythm.map((value) => `${value}px`).join(', ')}`)
 
   // Font detection
   const fonts = tokens.typography.fontFamilies
@@ -183,35 +187,6 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   }
   if (fonts.length === 1) {
     tags.push('single-font system')
-  }
-
-  // Color palette analysis. Richness is judged by stable, independently used chromatic
-  // UI roles — not by the raw number of extracted colors. Content sites pick up avatar,
-  // badge, and status colors that inflate the count without being part of the design system.
-  const colorEntries = Object.entries(tokens.colors)
-  if (colorEntries.length <= 4) {
-    tags.push('minimal palette')
-  } else {
-    const familyWeights = new Map<number, number>()
-    for (const [, value] of colorEntries) {
-      const channels = parseColorChannels(value)
-      if (!channels || colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) continue
-      const weight = colorUsageWeight(styles, channels)
-      // Status-dominant colors (success/warning/error) and colors with no stable UI
-      // evidence (image/incidental sampling) never qualify as brand palette roles.
-      if (weight.ui === 0 || weight.status * 2 >= weight.ui) continue
-      const family = Math.floor(colorHue(channels) / 30)
-      familyWeights.set(family, (familyWeights.get(family) || 0) + weight.ui)
-    }
-    const maxFamilyWeight = Math.max(0, ...familyWeights.values())
-    const significantFamilies = [...familyWeights.values()].filter(
-      (weight) => weight >= Math.max(3, maxFamilyWeight * 0.15),
-    ).length
-    if (significantFamilies >= 3) {
-      tags.push('rich color system')
-    } else if (significantFamilies === 1) {
-      tags.push('neutral palette with a single accent')
-    }
   }
 
   // Check if monochrome
@@ -238,7 +213,7 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
 
   // Shadow analysis
   if (tokens.shadows.length === 0) {
-    tags.push('flat design (no shadows)')
+    tags.push('no stable shadow scale observed')
   } else if (hasLayeredElevation(tokens)) {
     tags.push('layered elevation system')
   }
@@ -253,12 +228,6 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
     }
   }
 
-  // Font size scale
-  const sizes = tokens.typography.fontSizes.map((s) => parseFloat(s)).filter((v) => !isNaN(v))
-  if (sizes.length >= 5) {
-    tags.push('rich type scale')
-  }
-
   // CSS variable usage
   if (Object.keys(styles.cssVariables).length > 20) {
     tags.push('design-token-driven')
@@ -267,21 +236,222 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   return tags.slice(0, 5)
 }
 
-function dominantSpacingGrid(tokens: DesignToken, styles: ExtractedStyles): number | null {
+function hueFamiliesForCategories(styles: ExtractedStyles, categories: ReadonlySet<string>): Map<number, number> {
+  const families = new Map<number, number>()
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !categories.has(key.slice(0, separator)) || !Number.isFinite(count) || count <= 0) continue
+    const channels = parseColorChannels(key.slice(separator + 1))
+    if (!channels || colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) continue
+    const family = Math.floor(colorHue(channels) / 30)
+    families.set(family, (families.get(family) || 0) + count)
+  }
+  return families
+}
+
+interface DecorativeHueFamilyUsage {
+  occurrences: number
+  areaShare: number
+}
+
+function decorativeHueFamilies(styles: ExtractedStyles): Map<number, DecorativeHueFamilyUsage> {
+  const families = new Map<number, DecorativeHueFamilyUsage>()
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !Number.isFinite(count) || count <= 0) continue
+    const category = key.slice(0, separator)
+    if (category !== 'bgColor' && category !== 'bgArea') continue
+    const channels = parseColorChannels(key.slice(separator + 1))
+    if (!channels || colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) continue
+    const family = Math.floor(colorHue(channels) / 30)
+    const usage = families.get(family) || { occurrences: 0, areaShare: 0 }
+    if (category === 'bgColor') usage.occurrences += count
+    else usage.areaShare += count
+    families.set(family, usage)
+  }
+  return families
+}
+
+function neutralCoverage(styles: ExtractedStyles): number {
+  const coverageCategories = new Set(['bgColor', 'bgArea', 'textColor'])
+  let neutral = 0
+  let total = 0
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !coverageCategories.has(key.slice(0, separator)) || count <= 0) continue
+    const channels = parseColorChannels(key.slice(separator + 1))
+    if (!channels) continue
+    total += count
+    if (colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) neutral += count
+  }
+  return total > 0 ? neutral / total : 0
+}
+
+function isCompoundSectionRadius(value: string | undefined): boolean {
+  if (!value) return false
+  const parts = value.trim().split(/\s+/)
+  return (
+    /[%/]/.test(value) ||
+    parts.length !== 4 ||
+    !parts.every((part) => part === parts[0] && /^(?:0|\d*\.?\d+(?:px|rem|em))$/i.test(part))
+  )
+}
+
+export function buildEvidenceBackedClaims(
+  tokens: DesignToken,
+  styles: ExtractedStyles,
+  evidence: Pick<DesignEvidence, 'sections'> & Partial<Pick<DesignEvidence, 'components'>>,
+): DeterministicClaim[] {
+  const claims: DeterministicClaim[] = []
+  const primaryRole = tokens.colorRoles?.primaryAction
+  const roleEvidenceRefs = (primaryRole?.provenance || []).map(
+    (item) => `color-role:${item.captureId}|${item.elementRef}`,
+  )
+  const roleProvenance: DeterministicClaim['provenance'] = roleEvidenceRefs.map((ref) => ({
+    source: 'color-role-observation',
+    ref,
+  }))
+  const actionFamilies = hueFamiliesForCategories(
+    styles,
+    new Set([
+      'primaryActionBackgroundColor',
+      'actionBackgroundColor',
+      'primaryActionColor',
+      'actionColor',
+      'brandTokenColor',
+    ]),
+  )
+  const statusFamilies = hueFamiliesForCategories(styles, STATUS_COLOR_CATEGORIES)
+  const decorativeFamilies = decorativeHueFamilies(styles)
+  for (const family of statusFamilies.keys()) decorativeFamilies.delete(family)
+  const primaryChannels = primaryRole ? parseColorChannels(primaryRole.observedBackground) : null
+  if (primaryChannels) decorativeFamilies.delete(Math.floor(colorHue(primaryChannels) / 30))
+  const gradientSections = evidence.sections.filter((section) => section.observedStyles?.gradient)
+  const compoundRadiusSections = evidence.sections.filter((section) =>
+    isCompoundSectionRadius(section.observedStyles?.borderRadius),
+  )
+
+  const actionFamilyTotal = [...actionFamilies.values()].reduce((sum, weight) => sum + weight, 0)
+  const dominantActionShare = actionFamilyTotal > 0 ? Math.max(...actionFamilies.values()) / actionFamilyTotal : 1
+  const stableDecorativeFamilies = [...decorativeFamilies.values()].filter(
+    (usage) =>
+      usage.occurrences >= MIN_DECORATIVE_OCCURRENCES_PER_FAMILY ||
+      usage.areaShare >= MIN_DECORATIVE_AREA_SHARE_PER_FAMILY,
+  )
+  const stableDecorativeOccurrences = stableDecorativeFamilies.reduce((sum, usage) => sum + usage.occurrences, 0)
+  const stableDecorativeAreaShare = stableDecorativeFamilies.reduce((sum, usage) => sum + usage.areaShare, 0)
+  const repeatedDecorativeFamilies = stableDecorativeFamilies.filter(
+    (usage) => usage.occurrences >= MIN_DECORATIVE_OCCURRENCES_PER_FAMILY,
+  ).length
+  const areaSignificantDecorativeFamilies = stableDecorativeFamilies.filter(
+    (usage) => usage.areaShare >= MIN_DECORATIVE_AREA_SHARE_PER_FAMILY,
+  ).length
+  const stableDecorativePalette = stableDecorativeFamilies.length >= 2
+  if (primaryRole && roleEvidenceRefs.length > 0) {
+    if (dominantActionShare >= 0.6 && gradientSections.length > 0 && stableDecorativePalette) {
+      const sectionRefs = gradientSections.map((section) => section.id)
+      claims.push({
+        label: 'single dominant action family with multicolor decorative accents',
+        confidence: roleEvidenceRefs.length >= 2 ? 'high' : 'medium',
+        reasons: [
+          `The dominant action hue family accounts for ${Math.round(dominantActionShare * 100)}% of observed action background use.`,
+          `${stableDecorativeFamilies.length} non-status decorative hue families independently meet the stability threshold: ${repeatedDecorativeFamilies} repeated family/families, ${areaSignificantDecorativeFamilies} area-significant family/families, ${Math.round(stableDecorativeOccurrences)} rendered occurrence(s), and ${(stableDecorativeAreaShare * 100).toFixed(1)}% viewport-area contribution.`,
+        ],
+        evidenceRefs: [...roleEvidenceRefs, ...sectionRefs],
+        provenance: [
+          ...roleProvenance,
+          ...sectionRefs.map((ref) => ({ source: 'section-observation' as const, ref })),
+          { source: 'token-usage', ref: 'usage:bgColor|bgArea' },
+        ],
+      })
+    } else if (actionFamilies.size <= 1 && neutralCoverage(styles) >= 0.75 && decorativeFamilies.size === 0) {
+      claims.push({
+        label: 'neutral palette with a single accent',
+        confidence: roleEvidenceRefs.length >= 2 ? 'high' : 'medium',
+        reasons: [
+          `Neutral background/text coverage is ${Math.round(neutralCoverage(styles) * 100)}%.`,
+          'Observed non-status action backgrounds remain within one hue family.',
+        ],
+        evidenceRefs: roleEvidenceRefs,
+        provenance: [...roleProvenance, { source: 'token-usage', ref: 'usage:bgColor|bgArea|textColor' }],
+      })
+    }
+  }
+
+  if (!claims.some((claim) => claim.label.includes('multicolor decorative'))) {
+    const stableFamilies = new Map<number, number>()
+    for (const value of Object.values(tokens.colors)) {
+      const channels = parseColorChannels(value)
+      if (!channels || colorChroma(channels) < CHROMATIC_CHROMA_THRESHOLD) continue
+      const weight = colorUsageWeight(styles, channels)
+      if (weight.ui === 0 || weight.status * 2 >= weight.ui) continue
+      const family = Math.floor(colorHue(channels) / 30)
+      stableFamilies.set(family, (stableFamilies.get(family) || 0) + weight.ui)
+    }
+    const maximum = Math.max(0, ...stableFamilies.values())
+    const significant = [...stableFamilies.values()].filter((weight) => weight >= Math.max(3, maximum * 0.15)).length
+    const componentEvidenceRefs = (evidence.components || [])
+      .filter((component) => {
+        const color = parseColorChannels(component.styles.backgroundColor || component.styles.color || '')
+        return color && colorChroma(color) >= CHROMATIC_CHROMA_THRESHOLD
+      })
+      .map((component) => component.id)
+      .slice(0, 8)
+    const sectionEvidenceRefs = evidence.sections
+      .filter((section) => {
+        const color = parseColorChannels(section.observedStyles?.backgroundColor || '')
+        return color && colorChroma(color) >= CHROMATIC_CHROMA_THRESHOLD
+      })
+      .map((section) => section.id)
+      .slice(0, 4)
+    const evidenceRefs = [...new Set([...roleEvidenceRefs, ...componentEvidenceRefs, ...sectionEvidenceRefs])]
+    if (significant >= 3 && evidenceRefs.length > 0) {
+      claims.push({
+        label: 'rich color system',
+        confidence: evidenceRefs.length >= 3 ? 'high' : 'medium',
+        reasons: [`${significant} non-status chromatic hue families have stable rendered or semantic usage.`],
+        evidenceRefs,
+        provenance: [
+          ...roleProvenance,
+          ...componentEvidenceRefs.map((ref) => ({ source: 'component-observation' as const, ref })),
+          ...sectionEvidenceRefs.map((ref) => ({ source: 'section-observation' as const, ref })),
+          { source: 'token-usage', ref: 'usage:semantic-color-roles' },
+        ],
+      })
+    }
+  }
+
+  const structuralSections = [...new Set([...gradientSections, ...compoundRadiusSections])]
+  if (structuralSections.length > 0) {
+    const evidenceRefs = structuralSections.map((section) => section.id)
+    const label =
+      gradientSections.length > 0 && compoundRadiusSections.length > 0
+        ? 'section-level gradient and compound-radius treatments observed'
+        : gradientSections.length > 0
+          ? 'section-level gradient treatments observed'
+          : 'section-level compound-radius treatments observed'
+    claims.push({
+      label,
+      confidence: evidenceRefs.length >= 2 ? 'high' : 'medium',
+      reasons: [
+        `${gradientSections.length} section gradient treatment(s) observed.`,
+        `${compoundRadiusSections.length} compound section radius treatment(s) observed.`,
+      ],
+      evidenceRefs,
+      provenance: evidenceRefs.map((ref) => ({ source: 'section-observation', ref })),
+    })
+  }
+
+  return claims
+}
+
+function dominantSpacingRhythm(tokens: DesignToken, styles: ExtractedStyles): number[] {
   const observations = tokens.spacing
     .map((value) => ({ value: cssLengthPx(value), count: Math.max(1, usageCount(styles, 'spacing', value)) }))
-    .filter((entry): entry is { value: number; count: number } => entry.value !== null && entry.value > 0)
-  if (observations.length < 3) return null
-
-  const totalWeight = observations.reduce((total, observation) => total + observation.count, 0)
-  for (let base = MAX_SPACING_GRID_BASE_PX; base >= 2; base -= 1) {
-    const matching = observations.filter((observation) => {
-      const closestMultiple = Math.round(observation.value / base) * base
-      return Math.abs(observation.value - closestMultiple) <= SPACING_GRID_TOLERANCE_PX
-    })
-    if (new Set(matching.map((observation) => observation.value)).size < 3) continue
-    const matchingWeight = matching.reduce((total, observation) => total + observation.count, 0)
-    if (matchingWeight / totalWeight >= MIN_DOMINANT_SPACING_GRID_SHARE) return base
-  }
-  return null
+    .filter(
+      (entry): entry is { value: number; count: number } =>
+        entry.value !== null && entry.value >= 4 && entry.value <= 96,
+    )
+    .sort((first, second) => second.count - first.count || first.value - second.value)
+  return [...new Set(observations.slice(0, 3).map((observation) => observation.value))]
 }

@@ -2,7 +2,7 @@ import type { Page } from 'playwright-core'
 
 import { normalizeColorValue } from './color-cluster.js'
 
-export type ComponentType = 'button' | 'card' | 'navigation' | 'input' | 'table' | 'modal' | 'list'
+export type ComponentType = 'button' | 'card' | 'navigation' | 'input' | 'table' | 'modal' | 'list' | 'tab' | 'status'
 
 export interface ComponentCandidate {
   type: ComponentType
@@ -18,9 +18,11 @@ export interface ComponentPattern {
   styles: Record<string, string>
   confidence: number
   evidence: string[]
+  elementKinds?: string[]
+  semanticRole?: string
 }
 
-export type ComponentVariant = 'primary' | 'secondary' | 'text' | 'icon'
+export type ComponentVariant = 'primary' | 'secondary' | 'destructive' | 'text' | 'icon'
 
 export interface ComponentVariantContext {
   tokenRefs?: readonly string[]
@@ -28,6 +30,7 @@ export interface ComponentVariantContext {
   role?: string
   widthPx?: number
   heightPx?: number
+  elementKind?: string
 }
 
 export interface ComponentVariantCandidate extends ComponentCandidate, ComponentVariantContext {}
@@ -37,7 +40,17 @@ export interface ComponentVariantPattern extends ComponentPattern {
   variant?: ComponentVariant
 }
 
-const COMPONENT_ORDER: ComponentType[] = ['button', 'card', 'navigation', 'input', 'table', 'modal', 'list']
+const COMPONENT_ORDER: ComponentType[] = [
+  'button',
+  'tab',
+  'status',
+  'card',
+  'navigation',
+  'input',
+  'table',
+  'modal',
+  'list',
+]
 
 const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
   button: ['button', 'input[type="submit"]', '[role="button"]'],
@@ -47,6 +60,8 @@ const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
   table: ['table', '[role="table"]', '[role="grid"]'],
   modal: ['dialog', '[role="dialog"]', '[role="alertdialog"]'],
   list: ['ul', 'ol', '[role="list"]'],
+  tab: ['[role="tab"]'],
+  status: ['[role="status"]', '[role="alert"]', '[aria-live]:not([aria-live="off"])'],
 }
 
 function numericDimensions(value: string | undefined): number[] {
@@ -140,26 +155,40 @@ export function classifyComponentVariant(
   context: ComponentVariantContext = {},
 ): ComponentVariant | undefined {
   if (type !== 'button') return undefined
-  if (isIconSized(styles, context)) return 'icon'
-
+  if (context.role === 'destructive-action') return 'destructive'
   const background = styles.backgroundColor
   const transparent = !background || isTransparentColor(background)
+  const alpha = colorAlpha(background)
+  const normalizedBackground = background ? normalizeColorValue(background) : null
+  const normalizedPrimary = context.primaryColor ? normalizeColorValue(context.primaryColor) : null
+  const referencesPrimaryFill =
+    !transparent &&
+    (alpha === undefined || alpha >= 0.5) &&
+    (context.tokenRefs?.includes('color.primary') ||
+      Boolean(normalizedBackground && normalizedPrimary && normalizedBackground === normalizedPrimary))
+  const hasPrimarySemanticRole = /\b(?:primary|main|cta)(?:-action)?\b|(?:主操作|主要操作|主按钮)/i.test(
+    context.role || '',
+  )
+
+  // Semantic labels identify intent, but they cannot turn a transparent compound-control segment
+  // into a visually filled primary button. A real primary fill still wins over square icon geometry.
+  if (hasPrimarySemanticRole && (referencesPrimaryFill || (!transparent && alpha !== undefined && alpha >= 0.5))) {
+    return 'primary'
+  }
+  if (isIconSized(styles, context)) return 'icon'
+  if (referencesPrimaryFill) return 'primary'
   if (transparent) return hasVisibleBorder(styles.border) ? 'secondary' : 'text'
 
-  const alpha = colorAlpha(background)
   if (alpha !== undefined && alpha < 0.5) return 'secondary'
-  const normalizedBackground = normalizeColorValue(background)
-  const normalizedPrimary = context.primaryColor ? normalizeColorValue(context.primaryColor) : null
   const referencesPrimary =
     context.tokenRefs?.includes('color.primary') ||
-    /\b(?:primary|main|cta)\b|(?:主操作|主要操作|主按钮)/i.test(context.role || '') ||
-    Boolean(normalizedBackground && normalizedPrimary && normalizedBackground === normalizedPrimary)
+    Boolean(normalizedBackground && normalizedPrimary === normalizedBackground)
   return referencesPrimary || (!context.primaryColor && !context.tokenRefs) ? 'primary' : 'secondary'
 }
 
 function representativeStyleRank(type: ComponentType, styles: Record<string, string>): number {
   const variant = classifyComponentVariant(type, styles)
-  if (type === 'button') return { primary: 4, secondary: 3, icon: 2, text: 1 }[variant || 'text']
+  if (type === 'button') return { primary: 5, destructive: 4, secondary: 3, icon: 2, text: 1 }[variant || 'text']
   return [
     styles.backgroundColor && !isTransparentColor(styles.backgroundColor),
     hasVisibleBorder(styles.border),
@@ -235,6 +264,7 @@ export function summarizeComponentCandidates(candidates: ComponentCandidate[]): 
 
 const COMPONENT_VARIANT_ORDER: ReadonlyArray<ComponentVariant | undefined> = [
   'primary',
+  'destructive',
   'secondary',
   'text',
   'icon',
@@ -244,12 +274,38 @@ const COMPONENT_VARIANT_ORDER: ReadonlyArray<ComponentVariant | undefined> = [
 export function summarizeComponentVariants(candidates: ComponentVariantCandidate[]): ComponentVariantPattern[] {
   const groups = new Map<
     string,
-    { type: ComponentType; variant?: ComponentVariant; candidates: ComponentCandidate[] }
+    {
+      type: ComponentType
+      variant?: ComponentVariant
+      size?: 'sm' | 'md' | 'lg'
+      semanticRole?: string
+      candidates: ComponentVariantCandidate[]
+    }
   >()
+  const sizeVariants = new Map<string, Set<string>>()
+  for (const candidate of candidates) {
+    if (candidate.type !== 'button' || !candidate.heightPx) continue
+    const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
+    const size = candidate.heightPx <= 36 ? 'sm' : candidate.heightPx <= 48 ? 'md' : 'lg'
+    const key = `${candidate.type}|${variant || ''}`
+    const sizes = sizeVariants.get(key) || new Set<string>()
+    sizes.add(size)
+    sizeVariants.set(key, sizes)
+  }
   for (const candidate of candidates) {
     const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
-    const key = `${candidate.type}|${variant || ''}`
-    const group = groups.get(key) || { type: candidate.type, variant, candidates: [] }
+    const measuredSize =
+      candidate.type === 'button' && candidate.heightPx
+        ? candidate.heightPx <= 36
+          ? 'sm'
+          : candidate.heightPx <= 48
+            ? 'md'
+            : 'lg'
+        : undefined
+    const size = (sizeVariants.get(`${candidate.type}|${variant || ''}`)?.size || 0) > 1 ? measuredSize : undefined
+    const semanticRole = candidate.type === 'status' ? candidate.role : undefined
+    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}`
+    const group = groups.get(key) || { type: candidate.type, variant, size, semanticRole, candidates: [] }
     group.candidates.push(candidate)
     groups.set(key, group)
   }
@@ -267,8 +323,10 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
           styles: selectRepresentativeStyles(group.type, group.candidates, group.variant === undefined),
           confidence: Math.round(confidence * 100) / 100,
           evidence: [...new Set(group.candidates.flatMap((candidate) => candidate.evidence))].sort(),
-          name: group.variant ? `${group.type}-${group.variant}` : group.type,
+          name: group.semanticRole || [group.type, group.variant, group.size].filter(Boolean).join('-'),
           ...(group.variant ? { variant: group.variant } : {}),
+          ...(group.semanticRole ? { semanticRole: group.semanticRole } : {}),
+          elementKinds: [...new Set(group.candidates.flatMap((candidate) => candidate.elementKind || []))].sort(),
         },
       ]
     })
@@ -571,7 +629,7 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const paddings = [computed.paddingTop, computed.paddingRight, computed.paddingBottom, computed.paddingLeft].map(
         (value) => parseFloat(value) || 0,
       )
-      const hasPadding = Math.min(...paddings) >= 12
+      const hasPadding = Math.max(...paddings) >= 12
       if (!hasPadding || (!hasRadius && !hasShadow && !hasBorder)) continue
 
       const parentBackground = element.parentElement ? computedStyleFor(element.parentElement).backgroundColor : ''

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>App Shell — Regression Fixture</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #f8fafc;
+        color: #0f172a;
+        font-family: -apple-system, 'Segoe UI', sans-serif;
+        line-height: 1.55;
+      }
+      header.shell {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        height: 52px;
+        padding: 0 20px;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      header.shell nav {
+        display: flex;
+        gap: 16px;
+        font-size: 14px;
+      }
+      header.shell nav a {
+        color: #cbd5e1;
+        text-decoration: none;
+      }
+      .columns {
+        display: flex;
+        gap: 20px;
+        max-width: 1060px;
+        margin: 20px auto;
+        padding: 0 16px;
+        align-items: flex-start;
+      }
+      main {
+        flex: 1;
+        min-width: 0;
+      }
+      .ticket {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-bottom: 10px;
+      }
+      .ticket h2 {
+        font-size: 15px;
+      }
+      .ticket p {
+        font-size: 13px;
+        color: #475569;
+        margin-top: 4px;
+      }
+      .ticket .row {
+        display: flex;
+        gap: 10px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: #64748b;
+      }
+      aside.rail {
+        width: 260px;
+        position: sticky;
+        top: 20px;
+      }
+      aside.rail .box {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        font-size: 13px;
+      }
+      aside.rail .box h3 {
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      button.pill {
+        border: 0;
+        border-radius: 999px;
+        background: #2563eb;
+        color: #ffffff;
+        padding: 6px 14px;
+        font-size: 12px;
+      }
+      footer.shell {
+        padding: 18px 20px;
+        font-size: 12px;
+        color: #94a3b8;
+        text-align: center;
+      }
+      .panel {
+        font-size: 13px;
+        color: #475569;
+        padding: 8px 0;
+      }
+      @media (max-width: 768px) {
+        aside.rail {
+          display: none;
+        }
+        .columns {
+          margin: 10px auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="app-runtime">
+        <div class="app-frame">
+          <header class="shell">
+            <strong>Tracker</strong>
+            <nav>
+              <a href="#">Queue</a>
+              <a href="#">Boards</a>
+              <a href="#">Reports</a>
+            </nav>
+          </header>
+          <div class="columns">
+            <main>
+              <div class="content-outer">
+                <div class="content-inner">
+                  <div class="ticket-list">
+                    <article class="ticket">
+                      <h2>Checkout totals round differently in Safari</h2>
+                      <p>Reproducible on the sample store with a three-item cart and a percentage discount.</p>
+                      <div class="row"><span class="badge">bug</span><span>payments</span><span>P1</span></div>
+                    </article>
+                    <article class="ticket">
+                      <h2>Invite emails land in spam for new workspaces</h2>
+                      <p>SPF records verified; the preview-text header looks like the trigger.</p>
+                      <div class="row"><span class="badge">bug</span><span>notifications</span><span>P2</span></div>
+                    </article>
+                    <article class="ticket">
+                      <h2>Add bulk assign to the triage view</h2>
+                      <p>Support leads reassign forty tickets every Monday by hand.</p>
+                      <div class="row"><span class="badge">feature</span><span>triage</span><span>P2</span></div>
+                    </article>
+                    <article class="ticket">
+                      <h2>Keyboard focus disappears after closing a modal</h2>
+                      <p>Focus should return to the trigger; right now it resets to the document body.</p>
+                      <div class="row"><span class="badge">a11y</span><span>shell</span><span>P1</span></div>
+                    </article>
+                    <article class="ticket">
+                      <h2>Export CSV includes soft-deleted rows</h2>
+                      <p>Regressed last release when the export query lost its scope.</p>
+                      <div class="row"><span class="badge">bug</span><span>reports</span><span>P3</span></div>
+                    </article>
+                  </div>
+                </div>
+              </div>
+              <section class="ticket">
+                <h2>Saved views</h2>
+                <p>Starred filters shared with the whole support team.</p>
+                <div class="row"><span>My queue</span><span>Unassigned</span><span>Breaching SLA</span></div>
+                <div class="row"><span>Escalations</span><span>VIP accounts</span><span>Release blockers</span></div>
+                <button class="pill" type="button" aria-expanded="false" aria-controls="filters-panel">
+                  More filters
+                </button>
+                <div class="panel" id="filters-panel" hidden>
+                  Saved views, SLA buckets, and channel filters would render here.
+                </div>
+              </section>
+            </main>
+            <aside class="rail">
+              <div class="box">
+                <h3>Queue health</h3>
+                <p>12 open · 3 unassigned · 1 breaching SLA</p>
+              </div>
+              <div class="box">
+                <h3>On call</h3>
+                <p>Weekday rotation: platform team.</p>
+              </div>
+            </aside>
+          </div>
+          <footer class="shell">Tracker fixture — synthetic app shell with layered wrappers</footer>
+        </div>
+      </div>
+    </div>
+    <script>
+      document.querySelectorAll('[aria-expanded][aria-controls]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panel = document.getElementById(button.getAttribute('aria-controls'))
+          const expanded = button.getAttribute('aria-expanded') === 'true'
+          button.setAttribute('aria-expanded', String(!expanded))
+          panel.hidden = expanded
+        })
+      })
+    </script>
+  </body>
+</html>

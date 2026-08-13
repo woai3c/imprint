@@ -351,7 +351,7 @@ html[data-app-theme]:not([data-app-theme='default']) [data-theme-preview='extrac
   box-shadow: var(--shadow-lg);
 }
 
-/* Ink Wash —宣纸留白，五色墨韵，朱砂点睛。 */
+/* Ink Wash — rice-paper whitespace, five ink tones, and cinnabar accents. */
 html[data-app-theme='chinese-landscape'] {
   --art-backdrop:
     linear-gradient(90deg, rgb(246 242 232 / 12%), rgb(246 242 232 / 46%) 28%, rgb(246 242 232 / 32%)),

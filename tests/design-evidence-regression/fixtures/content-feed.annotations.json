@@ -1,0 +1,17 @@
+{
+  "fixture": "content-feed",
+  "description": "Content feed: light gray canvas, white cards, one blue accent, repeated feed items with avatars/icons, sticky right rail, legal footer.",
+  "expectedSectionRoles": ["header", "content", "aside", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button", "card"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["visibility", "reflow", "scale"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["image"],
+  "expectedSalienceTraits": [],
+  "minSectionCoverage": 0.3,
+  "expectedFeatureTags": ["neutral palette with a single accent"],
+  "expectedDeterministicClaims": ["neutral palette with a single accent"],
+  "forbiddenFeatureTags": ["rich color system"],
+  "maxMajorMediaRegions": 2
+}

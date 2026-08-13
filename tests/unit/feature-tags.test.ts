@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest'
 
-import { generateFeatureTags } from '../../src/core/analyzer/feature-tags.js'
+import { buildEvidenceBackedClaims, generateFeatureTags } from '../../src/core/analyzer/feature-tags.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
+import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
 function tokens(overrides: Partial<DesignToken> = {}): DesignToken {
@@ -26,7 +27,12 @@ function tokens(overrides: Partial<DesignToken> = {}): DesignToken {
 }
 
 describe('design feature tags', () => {
-  test('uses the dominant weighted spacing rhythm instead of a rounded GCD', () => {
+  const evidence = (overrides: Partial<DesignEvidence> = {}) =>
+    ({
+      sections: [],
+      ...overrides,
+    }) as DesignEvidence
+  test('reports observed dominant spacing values instead of inventing a base grid', () => {
     const designTokens = tokens({ spacing: ['1.5px', '4px', '6px', '8px', '12px', '16px', '24px', '32px'] })
     const styles = createExtractedStyles({
       usageCount: {
@@ -42,16 +48,14 @@ describe('design feature tags', () => {
     })
 
     const tags = generateFeatureTags(designTokens, styles)
-    expect(tags).toContain('4px-base grid spacing')
-    expect(tags).not.toContain('2px-base grid spacing')
+    expect(tags).toContain('spacing rhythm led by 16px, 8px, 4px')
+    expect(tags.join(' ')).not.toContain('base grid spacing')
   })
 
-  test('does not claim a base grid when no spacing rhythm dominates', () => {
+  test('does not claim a base grid for irregular spacing', () => {
     const designTokens = tokens({ spacing: ['3px', '5px', '8px', '11px', '14px'] })
 
-    expect(generateFeatureTags(designTokens, createExtractedStyles())).not.toEqual(
-      expect.arrayContaining([expect.stringContaining('base grid spacing')]),
-    )
+    expect(generateFeatureTags(designTokens, createExtractedStyles()).join(' ')).not.toContain('base grid spacing')
   })
 
   test('does not label a proportional site as monospace because it also uses a code font', () => {
@@ -91,7 +95,7 @@ describe('design feature tags', () => {
     expect(tags).not.toContain('large-radius rounded style')
   })
 
-  test('does not call a neutral palette with one brand accent a rich color system', () => {
+  test('defers palette intent claims until Evidence exists', () => {
     // Zhihu-like: gray canvas, white surface, one blue accent, plus status and incidental colors.
     const designTokens = tokens({
       colors: {
@@ -126,7 +130,7 @@ describe('design feature tags', () => {
     })
 
     const tags = generateFeatureTags(designTokens, styles)
-    expect(tags).toContain('neutral palette with a single accent')
+    expect(tags).not.toContain('neutral palette with a single accent')
     expect(tags).not.toContain('rich color system')
   })
 
@@ -152,7 +156,175 @@ describe('design feature tags', () => {
       },
     })
 
-    expect(generateFeatureTags(designTokens, styles)).toContain('rich color system')
+    expect(generateFeatureTags(designTokens, styles)).not.toContain('rich color system')
+  })
+
+  test('builds a grounded single-accent claim and excludes status colors', () => {
+    const designTokens = tokens({
+      colorRoles: {
+        primaryAction: {
+          observedBackground: '#1772f6',
+          observedForeground: '#ffffff',
+          contrastRatio: 4.6,
+          provenance: [
+            {
+              captureId: 'https://example.com|1440x900',
+              elementRef: 'body > main > button:nth-of-type(1)',
+              elementKind: 'button',
+              role: 'action',
+            },
+          ],
+        },
+      },
+    })
+    const styles = createExtractedStyles({
+      usageCount: {
+        'actionBackgroundColor:#1772f6': 4,
+        'bgColor:#ffffff': 40,
+        'textColor:#111111': 50,
+        'statusForegroundColor:#067647': 8,
+        'statusForegroundColor:#b42318': 6,
+      },
+    })
+    const claims = buildEvidenceBackedClaims(designTokens, styles, evidence())
+    const claim = claims.find((candidate) => candidate.label === 'neutral palette with a single accent')
+
+    expect(claim).toMatchObject({ confidence: 'medium', provenance: expect.any(Array) })
+    expect(claim?.reasons.join(' ')).not.toContain('#067647')
+    expect(claim?.evidenceRefs.length).toBeGreaterThan(0)
+  })
+
+  test('describes one action family with multicolor decoration when section evidence supports it', () => {
+    const designTokens = tokens({
+      colors: { background: '#fff7ed', foreground: '#431407', primary: '#ea580c' },
+      colorRoles: {
+        primaryAction: {
+          observedBackground: '#ea580c',
+          observedForeground: '#ffffff',
+          contrastRatio: 3.56,
+          provenance: [
+            {
+              captureId: 'https://example.com|1440x900',
+              elementRef: 'body > main > a:nth-of-type(1)',
+              elementKind: 'anchor',
+              role: 'action',
+            },
+          ],
+        },
+      },
+    })
+    const styles = createExtractedStyles({
+      usageCount: {
+        'actionBackgroundColor:#ea580c': 2,
+        'bgColor:#e879f9': 1,
+        'bgColor:#a3e635': 1,
+        'bgColor:#fb923c': 1,
+        'bgArea:#e879f9': 0.004,
+        'bgArea:#a3e635': 0.004,
+      },
+    })
+    const claims = buildEvidenceBackedClaims(
+      designTokens,
+      styles,
+      evidence({
+        sections: [
+          {
+            id: 'section-hero',
+            observedStyles: {
+              gradient: {
+                type: 'linear-gradient',
+                direction: '160deg',
+                stops: ['#ffedd5', '#fed7aa'],
+                value: 'linear-gradient(160deg, #ffedd5, #fed7aa)',
+              },
+            },
+          } as DesignEvidence['sections'][number],
+        ],
+      }),
+    )
+
+    expect(claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'single dominant action family with multicolor decorative accents',
+          confidence: 'medium',
+          evidenceRefs: expect.arrayContaining(['section-hero']),
+          provenance: expect.arrayContaining([expect.objectContaining({ source: 'section-observation' })]),
+        }),
+      ]),
+    )
+  })
+
+  test('does not aggregate several small one-off hue families across the area threshold', () => {
+    const designTokens = tokens({
+      colorRoles: {
+        primaryAction: {
+          observedBackground: '#ea580c',
+          observedForeground: '#ffffff',
+          contrastRatio: 3.56,
+          provenance: [
+            {
+              captureId: 'https://example.com|1440x900',
+              elementRef: 'body > main > button',
+              elementKind: 'button',
+              role: 'action',
+            },
+          ],
+        },
+      },
+    })
+    const styles = createExtractedStyles({
+      usageCount: {
+        'actionBackgroundColor:#ea580c': 3,
+        'bgColor:#e879f9': 1,
+        'bgColor:#a3e635': 1,
+        'bgColor:#38bdf8': 1,
+        'bgArea:#e879f9': 0.002,
+        'bgArea:#a3e635': 0.002,
+        'bgArea:#38bdf8': 0.002,
+      },
+    })
+    const sectionEvidence = evidence({
+      sections: [
+        {
+          id: 'section-hero',
+          observedStyles: {
+            gradient: {
+              type: 'linear-gradient',
+              stops: ['#fff7ed', '#ffedd5'],
+              value: 'linear-gradient(#fff7ed, #ffedd5)',
+            },
+          },
+        } as DesignEvidence['sections'][number],
+      ],
+    })
+
+    expect(buildEvidenceBackedClaims(designTokens, styles, sectionEvidence)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'single dominant action family with multicolor decorative accents' }),
+      ]),
+    )
+  })
+
+  test('creates a structural claim only from observed section treatments', () => {
+    const claims = buildEvidenceBackedClaims(
+      tokens(),
+      createExtractedStyles(),
+      evidence({
+        sections: [
+          { id: 'hero', observedStyles: { borderRadius: '0px 0px 48px 48px' } },
+          { id: 'quiz', observedStyles: { borderRadius: '48px 48px 0px 0px' } },
+        ] as DesignEvidence['sections'],
+      }),
+    )
+
+    expect(claims).toContainEqual(
+      expect.objectContaining({
+        label: 'section-level compound-radius treatments observed',
+        confidence: 'high',
+        evidenceRefs: ['hero', 'quiz'],
+      }),
+    )
   })
 
   test('requires materially different shadow elevations before calling the system layered', () => {
@@ -169,5 +341,12 @@ describe('design feature tags', () => {
       shadows: ['0 1px 2px rgba(0, 0, 0, 0.08)', '0 4px 12px rgba(0, 0, 0, 0.12)', '0 12px 32px rgba(0, 0, 0, 0.18)'],
     })
     expect(generateFeatureTags(layered, createExtractedStyles())).toContain('layered elevation system')
+  })
+
+  test('does not infer flat-design intent when no stable shadow scale was observed', () => {
+    const tags = generateFeatureTags(tokens(), createExtractedStyles())
+
+    expect(tags).toContain('no stable shadow scale observed')
+    expect(tags).not.toContain('flat design (no shadows)')
   })
 })

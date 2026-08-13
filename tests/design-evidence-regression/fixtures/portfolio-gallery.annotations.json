@@ -1,0 +1,13 @@
+{
+  "fixture": "portfolio-gallery",
+  "description": "Portfolio gallery: oversized whitespace, two staggered SVG works, ochre accent, quiet captions.",
+  "expectedSectionRoles": ["header", "hero", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["svg"],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3
+}

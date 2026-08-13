@@ -255,7 +255,7 @@ describe('dark mode export data', () => {
     const englishDoc = generateDesignDoc(tokens)
     const chineseDoc = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, undefined, 'zh-CN')
 
-    expect(englishDoc).toContain('| `--color-border` | `rgb(235, 236, 237)` | 34× (border) |')
-    expect(chineseDoc).toContain('| `--color-border-subtle` | `rgb(248, 248, 250)` | 40× (边框) |')
+    expect(englishDoc).toContain('| `--color-border` | `#ebeced` | 34× (border) | - |')
+    expect(chineseDoc).toContain('| `--color-border-subtle` | `#f8f8fa` | 40× (边框) | - |')
   })
 })

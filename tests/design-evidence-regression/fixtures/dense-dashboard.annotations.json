@@ -1,0 +1,52 @@
+{
+  "fixture": "dense-dashboard",
+  "description": "High-density ops console: 13px base type, dark sticky bar, KPI grid, tabbed table panel.",
+  "expectedPageRole": "workspace",
+  "expectedSectionRoles": ["header", "hero", "feature-group", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button", "table", "card", "tab", "status"],
+  "expectedComponentRoles": ["status-positive", "status-warning", "delta-positive", "delta-negative"],
+  "expectedDesignDocComponentCounts": {
+    "tab": 2
+  },
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:primary-action-candidate"],
+  "minSectionCoverage": 0.3,
+  "expectedPrimary": "#155eef",
+  "forbiddenGenericAccents": ["#067647", "#b42318", "#b54708"],
+  "expectedTitle": "Metricbase Console",
+  "expectedSemanticPairs": {
+    "status-positive": { "observedBackground": "#dcfae6", "observedForeground": "#067647" },
+    "status-warning": { "observedBackground": "#fef0c7", "observedForeground": "#b54708" },
+    "delta-positive": { "observedForeground": "#067647" },
+    "delta-negative": { "observedForeground": "#b42318" }
+  },
+  "expectedStickySections": [{ "role": "header", "height": "44px" }],
+  "expectedResponsiveColumns": [{ "from": 4, "to": 2 }],
+  "expectedInteractionValues": [
+    { "driver": "click", "property": "ariaSelected", "from": "false", "to": "true" },
+    {
+      "driver": "hover",
+      "property": "background-color",
+      "from": "rgb(21, 94, 239)",
+      "to": "rgb(0, 78, 235)"
+    }
+  ],
+  "forbiddenColors": ["#000000"],
+  "forbiddenFontFamilies": ["Times New Roman"],
+  "expectedDesignDocStrings": ["status-positive", "status-warning", "delta-positive", "delta-negative"],
+  "expectedReconstructionSummaryStrings": [
+    "header: sticky",
+    "44px high",
+    "tab click: ariaSelected false → true",
+    "tab",
+    "status-positive",
+    "status-warning",
+    "delta-positive",
+    "delta-negative",
+    "columns 4 → 2"
+  ]
+}

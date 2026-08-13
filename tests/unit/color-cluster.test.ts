@@ -123,6 +123,41 @@ describe('color clustering', () => {
     expect(result.accents[0]).toBe('#1772f6')
   })
 
+  test('uses paired action backgrounds without promoting their foreground text', () => {
+    const result = clusterColors(
+      ['rgb(234, 88, 12)', 'rgb(251, 191, 36)', 'rgb(255, 255, 255)', 'rgb(67, 20, 7)'],
+      {},
+      {},
+      {
+        'actionBackgroundColor:rgb(234, 88, 12)': 2,
+        'actionForegroundColor:rgb(255, 255, 255)': 2,
+        'actionBackgroundColor:rgb(251, 191, 36)': 1,
+        'actionForegroundColor:rgb(67, 20, 7)': 1,
+      },
+    )
+
+    expect(result.accents.slice(0, 2)).toEqual(['#ea580c', '#fbbf24'])
+    expect(result.accents).not.toContain('#ffffff')
+    expect(result.accents).not.toContain('#431407')
+  })
+
+  test('excludes status background and foreground colors from generic accents', () => {
+    const result = clusterColors(
+      ['rgb(21, 94, 239)', 'rgb(6, 118, 71)', 'rgb(180, 35, 24)', 'rgb(181, 71, 8)'],
+      {},
+      {},
+      {
+        'actionBackgroundColor:rgb(21, 94, 239)': 1,
+        'statusForegroundColor:rgb(6, 118, 71)': 4,
+        'statusForegroundColor:rgb(180, 35, 24)': 2,
+        'statusForegroundColor:rgb(181, 71, 8)': 1,
+      },
+    )
+
+    expect(result.accents[0]).toBe('#155eef')
+    expect(result.accents).not.toEqual(expect.arrayContaining(['#067647', '#b42318', '#b54708']))
+  })
+
   test('does not use a status-only color as the brand fallback', () => {
     const result = clusterColors(
       ['rgb(255, 255, 255)', 'rgb(17, 24, 39)', 'rgb(220, 38, 38)'],

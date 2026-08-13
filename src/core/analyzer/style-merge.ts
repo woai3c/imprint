@@ -50,6 +50,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     transitions: [],
     usageCount: {},
     valueSources: {},
+    colorRoleObservations: [],
   }
 
   for (const styles of stylesList) {
@@ -63,11 +64,20 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     for (const [key, sources] of Object.entries(styles.valueSources || {})) {
       merged.valueSources![key] = [...new Set([...(merged.valueSources![key] || []), ...sources])]
     }
+    merged.colorRoleObservations!.push(...(styles.colorRoleObservations || []))
   }
 
   for (const field of DEDUPED_ARRAY_FIELDS) {
     merged[field] = [...new Set(merged[field])]
   }
+  merged.colorRoleObservations = [
+    ...new Map(
+      (merged.colorRoleObservations || []).map((observation) => [
+        `${observation.captureId}|${observation.elementRef}|${observation.role}`,
+        observation,
+      ]),
+    ).values(),
+  ]
 
   return merged
 }

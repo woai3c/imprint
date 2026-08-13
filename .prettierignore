@@ -3,3 +3,5 @@ dist
 out
 .vite
 pnpm-lock.yaml
+research/competitive-design-md/pages/
+research/competitive-design-md/current/pages/

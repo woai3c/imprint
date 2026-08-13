@@ -10,19 +10,23 @@ import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
 import {
   classifyComponentVariant,
+  hasVisibleBorder,
+  hasVisibleShadow,
   isContextDependentColor,
   isPillRadius,
   isTransparentColor,
   summarizeComponentVariants,
 } from '../analyzer/component-detect.js'
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
-import { buildDesignTokens } from '../analyzer/token-builder.js'
+import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
 import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
 import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
+import { resolveDesignSystemName } from '../design-evidence/page-identity.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
 import type { DesignIntelligenceMeta, DesignIntelligenceStatus, DesignProfile } from '../design-intelligence/types.js'
+import { designMdColorEntries, designMdColorRefMap } from './design-md-color-names.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
 export { buildComponentSpecs, generateComponentSpecsJson } from './component-specs.js'
@@ -37,6 +41,10 @@ const LETTER_SPACING_NAMES = ['tight', 'normal', 'wide', 'wider', 'widest']
 const LINE_HEIGHT_NAMES = ['tight', 'snug', 'normal', 'relaxed', 'loose']
 const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
 
+function proseDurationName(index: number): string {
+  return DURATION_NAMES[index] || `duration-${index + 1}`
+}
+
 function usageForColor(tokens: DesignToken, category: string, value: string): number {
   const normalized = normalizeColorValue(value)
   if (!normalized) return 0
@@ -47,20 +55,65 @@ function usageForColor(tokens: DesignToken, category: string, value: string): nu
   }, 0)
 }
 
-function observedColorGroups(tokens: DesignToken): Array<{ label: string; names: string[] }> {
+const RENDERED_COLOR_USAGE_CATEGORIES = [
+  'primaryActionBackgroundColor',
+  'primaryActionForegroundColor',
+  'primaryActionColor',
+  'actionBackgroundColor',
+  'actionForegroundColor',
+  'actionColor',
+  'selectedColor',
+  'accentColor',
+  'linkColor',
+  'statusBackgroundColor',
+  'statusForegroundColor',
+  'statusColor',
+  'bgColor',
+  'bgArea',
+  'textColor',
+  'borderColor',
+  'structuralBorderColor',
+] as const
+
+function renderedColorUsageCount(tokens: DesignToken, value: string): number {
+  return RENDERED_COLOR_USAGE_CATEGORIES.reduce((total, category) => total + usageForColor(tokens, category, value), 0)
+}
+
+function isDeclaredOnlyColor(tokens: DesignToken, value: string): boolean {
+  if (renderedColorUsageCount(tokens, value) > 0) return false
+  return usageForColor(tokens, 'declaredColor', value) + usageForColor(tokens, 'brandTokenColor', value) > 0
+}
+
+function observedColorGroups(
+  tokens: DesignToken,
+  publicNames: ReadonlyMap<string, string>,
+): Array<{ label: string; names: string[] }> {
   const groups = new Map<string, Array<{ name: string; score: number }>>([
     ['action', []],
+    ['editorial', []],
     ['status', []],
+    ['decorative', []],
     ['text', []],
     ['surface', []],
     ['border', []],
+    ['declared', []],
+    ['fallback', []],
   ])
   const roleCategories = {
-    action: ['primaryActionColor', 'actionColor', 'selectedColor', 'accentColor', 'brandTokenColor', 'linkColor'],
-    status: ['statusColor'],
+    action: [
+      'primaryActionBackgroundColor',
+      'primaryActionColor',
+      'actionBackgroundColor',
+      'actionColor',
+      'selectedColor',
+    ],
+    editorial: ['actionForegroundColor', 'linkColor'],
+    status: ['statusBackgroundColor', 'statusForegroundColor', 'statusColor'],
+    decorative: ['accentColor', 'bgColor'],
     text: ['textColor'],
     surface: ['bgColor', 'bgArea'],
     border: ['borderColor', 'structuralBorderColor'],
+    fallback: [],
   } as const
   const colorValues = new Map<string, Array<{ name: string; value: string }>>()
   for (const [name, value] of Object.entries(tokens.colors)) {
@@ -80,7 +133,7 @@ function observedColorGroups(tokens: DesignToken): Array<{ label: string; names:
     if (/^(?:dark-)?palette-\d+$/.test(name)) return 0
     return 1
   }
-  const rolePriority = ['action', 'status', 'text', 'surface', 'border'] as const
+  const rolePriority = ['action', 'editorial', 'status', 'decorative', 'text', 'surface', 'border', 'fallback'] as const
   for (const aliases of colorValues.values()) {
     const value = aliases[0].value
     const sources = new Set(aliases.flatMap(({ name }) => tokens.evidence?.[`colors.${name}`]?.sources || []))
@@ -100,7 +153,7 @@ function observedColorGroups(tokens: DesignToken): Array<{ label: string; names:
         (first, second) =>
           second.score - first.score || rolePriority.indexOf(first.role) - rolePriority.indexOf(second.role),
       )[0]
-    if (!dominantRole || dominantRole.score <= 0) continue
+    if (!dominantRole) continue
     const canonical = [...aliases].sort((first, second) => {
       const firstEvidence = tokens.evidence?.[`colors.${first.name}`]?.observationCount || 0
       const secondEvidence = tokens.evidence?.[`colors.${second.name}`]?.observationCount || 0
@@ -112,15 +165,26 @@ function observedColorGroups(tokens: DesignToken): Array<{ label: string; names:
     })[0]
     const semanticRole = (
       [
-        [/danger|warning|success|status|badge/i, 'status'],
+        [/danger|warning|success|status|delta|badge/i, 'status'],
+        [/^editorial-accent$/i, 'editorial'],
+        [/^decorative-accent$/i, 'decorative'],
+        [/^accent$/i, tokens.colors.primary ? 'action' : 'decorative'],
         [/^(?:background|surface|secondary)(?:-|$)/i, 'surface'],
         [/^(?:foreground|muted-foreground|text)(?:-|$)/i, 'text'],
         [/^border(?:-|$)/i, 'border'],
-        [/^(?:primary|accent|action|brand|link)(?:-|$)/i, 'action'],
+        [/^(?:primary|action)(?:-|$)/i, 'action'],
       ] as const
-    ).find(([pattern, role]) => pattern.test(canonical.name) && scores[role] > 0)?.[1]
-    const assignedRole = semanticRole || dominantRole.role
-    groups.get(assignedRole)?.push({ name: canonical.name, score: scores[assignedRole] })
+    ).find(([pattern]) => pattern.test(canonical.name))?.[1]
+    const assignedRole = isDeclaredOnlyColor(tokens, value)
+      ? 'declared'
+      : semanticRole || (dominantRole.score > 0 ? dominantRole.role : 'fallback')
+    groups.get(assignedRole)?.push({
+      name: publicNames.get(canonical.name) || canonical.name,
+      score:
+        assignedRole === 'declared'
+          ? Math.max(1, usageForColor(tokens, 'declaredColor', value) + usageForColor(tokens, 'brandTokenColor', value))
+          : Math.max(1, scores[assignedRole]),
+    })
   }
   return [...groups].flatMap(([label, entries]) =>
     entries.length > 0
@@ -148,58 +212,13 @@ function designMdScaleValue(value: string): string | number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined
 }
 
-function designSystemName(source: string | undefined): string {
-  if (!source) return 'Extracted Design System'
-  try {
-    const hostname = new URL(source).hostname.replace(/^www\./, '')
-    return hostname ? `${hostname} Design System` : 'Extracted Design System'
-  } catch {
-    return 'Extracted Design System'
-  }
-}
-
-function stableColorValueSlug(normalized: string): string {
-  if (/^#[\da-f]{6}$/i.test(normalized)) return normalized.slice(1).toLowerCase()
-  const rgba = normalized.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/i)
-  if (rgba) {
-    const rgb = rgba
-      .slice(1, 4)
-      .map((channel) => Number(channel).toString(16).padStart(2, '0'))
-      .join('')
-    const alpha = Math.round(Number(rgba[4]) * 255)
-      .toString(16)
-      .padStart(2, '0')
-    return `${rgb}-${alpha}`
-  }
-  return normalized
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function stableDesignMdColorName(
-  currentName: string,
-  normalizedValue: string,
-  aliasesByName: ReadonlyMap<string, string>,
-  fallbackPrefix: string,
-): string {
-  const sourceName = aliasesByName.get(currentName) || currentName
-  return /^(?:dark-)?palette-\d+$/.test(sourceName)
-    ? `${fallbackPrefix}-${stableColorValueSlug(normalizedValue)}`
-    : sourceName
-}
-
 export function buildDesignMdColorTokens(
   tokens: DesignToken,
   aliases: readonly ColorRenameProposal[] = [],
   fallbackPrefix = 'observed',
 ): Record<string, string> {
-  const aliasesByName = new Map(aliases.map((alias) => [alias.name, alias.tokenId]))
   return Object.fromEntries(
-    Object.entries(tokens.colors).flatMap(([name, value]) => {
-      const normalized = normalizeColorValue(value)
-      return normalized ? [[stableDesignMdColorName(name, normalized, aliasesByName, fallbackPrefix), normalized]] : []
-    }),
+    designMdColorEntries(tokens, aliases, fallbackPrefix).map(({ publicName, value }) => [publicName, value]),
   )
 }
 
@@ -319,7 +338,7 @@ interface DesignDocFrontMatterInput {
   url?: string
   featureTags?: string[]
   darkMode?: DarkModeExportData
-  breakpoints?: Array<{ width: number; label: string }>
+  breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>
   components?: ComponentVariantPattern[]
   evidence?: DesignEvidence
   profile?: DesignProfile | null
@@ -350,6 +369,37 @@ const DESIGN_MD_COMPONENT_TYPES = new Set<ComponentType>([
   'list',
 ])
 
+const VIEWPORT_PREFERENCE = ['desktop', 'tablet', 'mobile'] as const
+
+function canonicalEvidencePageIds(evidence: DesignEvidence): Set<string> {
+  const pagesByUrl = new Map<string, DesignEvidence['pages']>()
+  for (const page of evidence.pages) {
+    const pages = pagesByUrl.get(page.url) || []
+    pages.push(page)
+    pagesByUrl.set(page.url, pages)
+  }
+  return new Set(
+    [...pagesByUrl.values()].flatMap((pages) => {
+      const selected = [...pages].sort((first, second) => {
+        const firstRank = VIEWPORT_PREFERENCE.indexOf(first.viewport as (typeof VIEWPORT_PREFERENCE)[number])
+        const secondRank = VIEWPORT_PREFERENCE.indexOf(second.viewport as (typeof VIEWPORT_PREFERENCE)[number])
+        return (
+          (firstRank === -1 ? VIEWPORT_PREFERENCE.length : firstRank) -
+          (secondRank === -1 ? VIEWPORT_PREFERENCE.length : secondRank)
+        )
+      })[0]
+      return selected ? [selected.id] : []
+    }),
+  )
+}
+
+function canonicalEvidenceComponents(evidence: DesignEvidence): DesignEvidence['components'] {
+  const pageIds = canonicalEvidencePageIds(evidence)
+  return pageIds.size > 0
+    ? evidence.components.filter((component) => pageIds.has(component.pageId))
+    : evidence.components
+}
+
 function resolveDesignDocComponents(
   detectedComponents: readonly ComponentPattern[],
   tokens: DesignToken,
@@ -370,7 +420,7 @@ function resolveDesignDocComponents(
 
   const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
   const evidencePatterns = summarizeComponentVariants(
-    evidence.components.flatMap((component) => {
+    canonicalEvidenceComponents(evidence).flatMap((component) => {
       if (!DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)) return []
       const page = pageById.get(component.pageId)
       const pageWidth = page?.contentWidth || page?.viewportWidth
@@ -384,13 +434,93 @@ function resolveDesignDocComponents(
           tokenRefs: component.tokenRefs,
           primaryColor: tokens.colors.primary,
           role: component.role,
+          elementKind: component.elementKind,
           ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
           ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
         },
       ]
     }),
   )
-  return evidencePatterns.length > 0 ? evidencePatterns : resolveDesignDocComponents(detectedComponents, tokens)
+  const evidenceKeys = new Set(
+    evidencePatterns.map((pattern) => `${pattern.type}|${pattern.variant || ''}|${pattern.semanticRole || ''}`),
+  )
+  const evidenceTypes = new Set(evidencePatterns.map((pattern) => pattern.type))
+  const detectorSupplements = detectedComponents.flatMap((component) => {
+    const variant = classifyComponentVariant(component.type, component.styles, {
+      primaryColor: tokens.colors.primary,
+    })
+    const key = `${component.type}|${variant || ''}|${component.semanticRole || ''}`
+    if (evidenceKeys.has(key) || (!variant && evidenceTypes.has(component.type))) return []
+    return [
+      {
+        ...component,
+        name: variant ? `${component.type}-${variant}` : component.type,
+        ...(variant ? { variant } : {}),
+        evidence: [...component.evidence, 'component-detector:supplemental:no-instance-provenance'],
+      },
+    ]
+  })
+  const resolvedPatterns = [...evidencePatterns, ...detectorSupplements]
+  const primaryAction = tokens.colorRoles?.primaryAction
+  if (
+    primaryAction &&
+    !resolvedPatterns.some((pattern) => pattern.type === 'button' && pattern.variant === 'primary')
+  ) {
+    const canonicalPageIds = canonicalEvidencePageIds(evidence)
+    const canonicalCaptureIds = new Set(
+      evidence.pages
+        .filter((page) => canonicalPageIds.has(page.id))
+        .map((page) => `${page.url}|${page.viewportWidth}x${page.viewportHeight}`),
+    )
+    const provenance = primaryAction.provenance.filter(
+      (item) => canonicalCaptureIds.size === 0 || canonicalCaptureIds.has(item.captureId),
+    )
+    if (provenance.length > 0) {
+      resolvedPatterns.unshift({
+        type: 'button',
+        count: new Set(provenance.map((item) => `${item.captureId}|${item.elementRef}`)).size,
+        selectors: [],
+        styles: {
+          backgroundColor: primaryAction.observedBackground,
+          ...(primaryAction.observedForeground ? { color: primaryAction.observedForeground } : {}),
+        },
+        confidence: 0.9,
+        evidence: ['color-role:primary-action', ...provenance.map((item) => item.elementRef)],
+        elementKinds: [...new Set(provenance.map((item) => item.elementKind))].sort(),
+        semanticRole: 'primary-action',
+        name: 'button-primary',
+        variant: 'primary',
+      })
+    }
+  }
+  return resolvedPatterns
+}
+
+function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefined): Array<{
+  name: string
+  count: number
+  confidence: number
+  styles: Record<string, string>
+  elementKinds: string[]
+}> {
+  if (!evidence) return []
+  const groups = new Map<string, DesignEvidence['components']>()
+  for (const component of canonicalEvidenceComponents(evidence)) {
+    if (DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)) continue
+    const name = component.type === 'status' && component.role ? component.role : component.type
+    const group = groups.get(name) || []
+    group.push(component)
+    groups.set(name, group)
+  }
+  return [...groups.entries()].map(([name, components]) => ({
+    name,
+    count: components.length,
+    confidence:
+      Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) /
+      100,
+    styles: components[0]?.styles || {},
+    elementKinds: [...new Set(components.flatMap((component) => component.elementKind || []))],
+  }))
 }
 
 function tokenConfidenceSummary(tokens: DesignToken): Record<'high' | 'medium' | 'low', number> | undefined {
@@ -399,6 +529,47 @@ function tokenConfidenceSummary(tokens: DesignToken): Record<'high' | 'medium' |
     (counts, item) => ({ ...counts, [item.confidence]: counts[item.confidence] + 1 }),
     { high: 0, medium: 0, low: 0 },
   )
+}
+
+function designDocColorRoleSummary(tokens: DesignToken): Record<string, unknown> | undefined {
+  const colorRoles = tokens.colorRoles
+  if (!colorRoles) return undefined
+  const primaryAction = colorRoles.primaryAction
+    ? {
+        observedBackground: colorRoles.primaryAction.observedBackground,
+        ...(colorRoles.primaryAction.observedForeground
+          ? { observedForeground: colorRoles.primaryAction.observedForeground }
+          : {}),
+        ...(colorRoles.primaryAction.contrastRatio !== undefined
+          ? { contrastRatio: colorRoles.primaryAction.contrastRatio }
+          : {}),
+        ...(colorRoles.primaryAction.contrastWarning
+          ? { contrastWarning: colorRoles.primaryAction.contrastWarning }
+          : {}),
+        ...(colorRoles.primaryAction.recommendedOnPrimary
+          ? { recommendedOnPrimary: colorRoles.primaryAction.recommendedOnPrimary }
+          : {}),
+        observationCount: colorRoles.primaryAction.provenance.length,
+      }
+    : undefined
+  const semanticPairs = colorRoles.semanticPairs
+    ? Object.fromEntries(
+        Object.entries(colorRoles.semanticPairs).map(([name, pair]) => [
+          name,
+          {
+            ...(pair.observedBackground ? { observedBackground: pair.observedBackground } : {}),
+            ...(pair.observedForeground ? { observedForeground: pair.observedForeground } : {}),
+            observationCount: pair.provenance.length,
+          },
+        ]),
+      )
+    : undefined
+  if (!primaryAction && (!semanticPairs || Object.keys(semanticPairs).length === 0)) return undefined
+  return {
+    ...(primaryAction ? { primaryAction } : {}),
+    ...(semanticPairs && Object.keys(semanticPairs).length > 0 ? { semanticPairs } : {}),
+    provenanceArtifact: 'design-evidence.json',
+  }
 }
 
 function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesignMdFrontMatter {
@@ -456,6 +627,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
     evidence?.breakpoints.map((breakpoint) => ({ width: breakpoint.width, label: breakpoint.label })) ||
     []
   const confidence = tokenConfidenceSummary(tokens)
+  const colorRoleSummary = designDocColorRoleSummary(tokens)
   const unsupportedRadii = tokens.radii.filter((radius) => !isDesignMdDimension(radius))
   const nonstandardTokens = {
     ...(tokens.shadows.length > 0 ? { shadows: tokens.shadows } : {}),
@@ -468,16 +640,22 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
     const value = tokens.colors[alias.name] || tokens.colors[alias.tokenId]
     const normalized = value ? normalizeColorValue(value) : null
     if (!normalized) return []
+    const publicRef = designMdColorRefMap(tokens, profile?.tokenAliases).get(`color.${alias.tokenId}`)
+    if (!publicRef) return []
     return [
       {
-        token: stableDesignMdColorName(alias.tokenId, normalized, new Map(), 'observed'),
+        token: publicRef.slice('color.'.length),
         name: alias.name,
       },
     ]
   })
   const frontMatter: GoogleDesignMdFrontMatter = {
     version: 'alpha',
-    name: designSystemName(source),
+    name: resolveDesignSystemName({
+      url: source,
+      siteName: evidence?.source.siteName,
+      title: evidence?.source.title,
+    }),
     description:
       language === 'zh-CN'
         ? '由 Imprint 从已观察的网站样式和结构证据中提取。'
@@ -525,19 +703,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
             ? {
                 rejectedCount: meta.rejected?.length || 0,
                 repairedCount: meta.repaired?.length || 0,
-                ...(meta.rejected?.length ? { rejected: meta.rejected.slice(0, 20) } : {}),
-                ...(meta.repaired?.length ? { repaired: meta.repaired.slice(0, 20) } : {}),
                 ...(meta.tokenUsage ? { tokenUsage: meta.tokenUsage } : {}),
-                ...(meta.timing
-                  ? {
-                      timing: {
-                        ...(meta.timing.programTotalMs !== undefined ? { programMs: meta.timing.programTotalMs } : {}),
-                        ...(meta.timing.aiTotalMs !== undefined ? { aiMs: meta.timing.aiTotalMs } : {}),
-                        ...(meta.timing.userWaitMs !== undefined ? { userWaitExcludedMs: meta.timing.userWaitMs } : {}),
-                        activeTotalMs: meta.timing.totalMs,
-                      },
-                    }
-                  : {}),
               }
             : {}),
         },
@@ -547,12 +713,50 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ? {
               componentSummary: {
                 source: evidence?.components.length ? 'design-evidence' : 'component-detector',
+                ...(evidence?.components.length
+                  ? {
+                      countBasis: 'one canonical capture per page; desktop preferred',
+                      canonicalViewports: [
+                        ...new Set(
+                          evidence.pages
+                            .filter((page) => canonicalEvidencePageIds(evidence).has(page.id))
+                            .map((page) => page.viewport),
+                        ),
+                      ],
+                    }
+                  : {}),
                 patterns: components.length,
                 instances: components.reduce((total, component) => total + component.count, 0),
+                details: components.map((component) => ({
+                  name: component.name,
+                  type: component.type,
+                  count: component.count,
+                  ...(component.semanticRole ? { semanticRole: component.semanticRole } : {}),
+                  ...(component.elementKinds?.length ? { elementKinds: component.elementKinds } : {}),
+                })),
               },
             }
           : {}),
-        ...(resolvedBreakpoints.length > 0 ? { responsive: { breakpoints: resolvedBreakpoints } } : {}),
+        ...(colorRoleSummary ? { colorRoles: colorRoleSummary } : {}),
+        ...(resolvedBreakpoints.length > 0
+          ? {
+              responsive: {
+                breakpointSource: 'declared-css',
+                breakpoints: resolvedBreakpoints,
+                ...(evidence?.responsiveObservations.length
+                  ? {
+                      observedViewportTransitions: [
+                        ...new Set(
+                          evidence.responsiveObservations.map(
+                            (observation) => `${observation.fromViewport}->${observation.toViewport}`,
+                          ),
+                        ),
+                      ],
+                    }
+                  : {}),
+              },
+            }
+          : {}),
         ...(darkMode?.hasDarkMode
           ? {
               darkMode: {
@@ -913,18 +1117,513 @@ function withoutCanonicalHeading(markdown: string): string {
   return markdown.replace(/^## Do's and Don'ts\s*/, '').trim()
 }
 
+interface ReconstructionFact {
+  fact: string
+  guidance: string
+  priority: number
+}
+
+function reconstructionPageContext(evidence: DesignEvidence, pageId: string | undefined): string {
+  if (!pageId || new Set(evidence.pages.map((page) => page.url)).size <= 1) return ''
+  const page = evidence.pages.find((candidate) => candidate.id === pageId)
+  if (!page) return ''
+  try {
+    const parsed = new URL(page.url)
+    return parsed.pathname === '/' && !parsed.search ? 'entry' : `${parsed.pathname}${parsed.search}`
+  } catch {
+    return page.url
+  }
+}
+
+function scopedReconstructionFact(pageContext: string, fact: string): string {
+  return pageContext ? `[${pageContext}] ${fact}` : fact
+}
+
+function scopedReconstructionGuidance(pageContext: string): string {
+  return pageContext ? ` on ${pageContext}` : ''
+}
+
+function topLevelGridColumnCount(value: string | number | undefined): number | null {
+  if (typeof value !== 'string') return null
+  const repeat = value.match(/^repeat\(\s*(\d+)\s*,/i)
+  if (repeat) return Number.parseInt(repeat[1], 10)
+  let depth = 0
+  let count = 0
+  let insideTrack = false
+  for (const character of value.trim()) {
+    if (character === '(') depth += 1
+    if (character === ')') depth -= 1
+    if (/\s/.test(character) && depth === 0) {
+      if (insideTrack) count += 1
+      insideTrack = false
+    } else {
+      insideTrack = true
+    }
+  }
+  if (insideTrack) count += 1
+  return count > 0 ? count : null
+}
+
+function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
+  if (typeof value !== 'string') return null
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
+  if (!match) return null
+  const amount = Number.parseFloat(match[1])
+  return amount > 0 && amount <= maximum ? value : null
+}
+
+function hasNonzeroCssLength(value: string | undefined): boolean {
+  return Boolean(value && [...value.matchAll(/-?\d+(?:\.\d+)?/g)].some((match) => Math.abs(Number(match[0])) > 0.01))
+}
+
+function normalizedFontFamily(value: string): string {
+  return value.replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function usefulComponentStyles(styles: Readonly<Record<string, string>>, tokens: DesignToken): Array<[string, string]> {
+  const globalFontFamilies = [...(tokens.typography.fontStacks || []), ...tokens.typography.fontFamilies].map(
+    normalizedFontFamily,
+  )
+  return Object.entries(styles).filter(([property, value]) => {
+    if (!value) return false
+    if (property === 'backgroundColor') return !isTransparentColor(value)
+    if (property === 'border') return hasVisibleBorder(value)
+    if (property === 'borderRadius' || property === 'padding' || property === 'gap') {
+      return value !== 'normal' && hasNonzeroCssLength(value)
+    }
+    if (property === 'boxShadow') return hasVisibleShadow(value)
+    if (property === 'fontFamily') return !globalFontFamilies.includes(normalizedFontFamily(value))
+    if (property === 'fontWeight') return !/^(?:400|normal)$/.test(value)
+    if (property === 'display') return /^(?:flex|inline-flex|grid|inline-grid)$/.test(value)
+    return ['color', 'fontSize'].includes(property)
+  })
+}
+
+function componentContrastWarnings(
+  components: readonly ComponentVariantPattern[],
+  tokens: DesignToken,
+): Array<{ name: string; foreground: string; background: string; ratio: number; target: number; inferred: boolean }> {
+  const surface = tokens.colors.surface || tokens.colors.background
+  if (!surface) return []
+  const observedPrimary = tokens.colorRoles?.primaryAction
+  const warnings = new Map<
+    string,
+    { name: string; foreground: string; background: string; ratio: number; target: number; inferred: boolean }
+  >()
+  for (const component of components) {
+    const rawForeground = component.styles.color
+    const foreground = rawForeground ? normalizeColorValue(rawForeground) : null
+    if (!foreground) continue
+    const rawBackground = component.styles.backgroundColor
+    const inferred = !rawBackground || isContextDependentColor(rawBackground)
+    const background = inferred ? normalizeColorValue(surface) : normalizeColorValue(rawBackground)
+    if (!background) continue
+    const target = component.variant === 'icon' ? 3 : 4.5
+    const ratio = colorContrast(foreground, background)
+    if (ratio === null || ratio >= target) continue
+    const duplicatesPrimaryWarning =
+      component.variant === 'primary' &&
+      Boolean(
+        observedPrimary?.observedForeground &&
+        normalizeColorValue(observedPrimary.observedForeground) === foreground &&
+        normalizeColorValue(observedPrimary.observedBackground) === background,
+      )
+    if (duplicatesPrimaryWarning) continue
+    const key = `${component.name}|${foreground}|${background}|${target}`
+    warnings.set(key, {
+      name: component.name,
+      foreground,
+      background,
+      ratio: Number(ratio.toFixed(2)),
+      target,
+      inferred,
+    })
+  }
+  return [...warnings.values()]
+}
+
+function visibleBorderFacts(borders: Readonly<Record<string, string>>): Array<{ label: string; value: string }> {
+  const groups = new Map<string, string[]>()
+  for (const [side, value] of Object.entries(borders)) {
+    if (!hasVisibleBorder(value)) continue
+    const sides = groups.get(value) || []
+    sides.push(side.replace(/^border/, '').toLowerCase())
+    groups.set(value, sides)
+  }
+  return [...groups.entries()].map(([value, sides]) => ({
+    label: sides.length === 4 ? 'border' : `border-${sides.join('/')}`,
+    value,
+  }))
+}
+
+function prominentBorder(value: string): boolean {
+  const width = value.match(/^\s*(\d+(?:\.\d+)?)px\b/i)
+  return Boolean(width && Number.parseFloat(width[1]) >= 2)
+}
+
+function reconstructionRole(role: string | undefined): string {
+  return !role || role === 'unknown' ? 'content' : role
+}
+
+function compactRoleSequence(roles: readonly string[]): string[] {
+  const compacted: string[] = []
+  for (let index = 0; index < roles.length;) {
+    const role = roles[index]
+    let count = 1
+    while (roles[index + count] === role) count += 1
+    compacted.push(count > 1 ? `${role} ×${count}` : role)
+    index += count
+  }
+  return compacted
+}
+
+function isVisiblePseudoValue(property: string, value: string | undefined): boolean {
+  if (!value) return false
+  if (property === 'backgroundColor') return !isTransparentColor(value)
+  if (property === 'boxShadow') return value !== 'none'
+  return !/^(?:none|normal|auto|0px|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\))$/i.test(value)
+}
+
+function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionFact[] {
+  const canonicalPageIds = canonicalEvidencePageIds(evidence)
+  const sections = evidence.sections.filter((section) => canonicalPageIds.has(section.pageId))
+  const facts: ReconstructionFact[] = []
+  for (const section of sections) {
+    const styles = section.observedStyles
+    if (!styles) continue
+    const sectionRole = reconstructionRole(section.role)
+    const pageContext = reconstructionPageContext(evidence, section.pageId)
+    const guidanceContext = scopedReconstructionGuidance(pageContext)
+    if (section.layoutMode !== 'flow') {
+      const height = boundedPixelValue(styles.layout?.height)
+      const top = styles.layout?.top
+      const values = [section.layoutMode, top ? `top ${top}` : '', height ? `${height} high` : ''].filter(Boolean)
+      facts.push({
+        fact: scopedReconstructionFact(pageContext, `${sectionRole}: ${values.join(', ')}`),
+        guidance: `Keep the ${sectionRole}${guidanceContext} ${section.layoutMode}${height ? ` at ${height} high` : ''}.`,
+        priority: 0,
+      })
+    }
+    for (const { label, value } of visibleBorderFacts(styles.borders || {})) {
+      if (!prominentBorder(value)) continue
+      facts.push({
+        fact: scopedReconstructionFact(pageContext, `${sectionRole} ${label}: ${value}`),
+        guidance: `Preserve the ${sectionRole}${guidanceContext} ${label} treatment at ${value}.`,
+        priority: 4,
+      })
+    }
+    if (styles.gradient) {
+      const label = [styles.gradient.type, styles.gradient.direction].filter(Boolean).join(' ')
+      facts.push({
+        fact: scopedReconstructionFact(pageContext, `${sectionRole}: ${label}`),
+        guidance: `Preserve the ${sectionRole}${guidanceContext} ${label}.`,
+        priority: 2,
+      })
+    }
+    if (styles.borderRadius) {
+      facts.push({
+        fact: scopedReconstructionFact(pageContext, `${sectionRole} radius: ${styles.borderRadius}`),
+        guidance: `Keep the ${sectionRole}${guidanceContext} corner treatment at ${styles.borderRadius}; do not flatten it to one radius.`,
+        priority: 3,
+      })
+    }
+    if (styles.layout?.maxWidth) {
+      facts.push({
+        fact: scopedReconstructionFact(pageContext, `${sectionRole} max-width: ${styles.layout.maxWidth}`),
+        guidance: `Constrain the ${sectionRole}${guidanceContext} to its observed ${styles.layout.maxWidth} max-width.`,
+        priority: 2,
+      })
+    }
+  }
+
+  const layoutBorderFacts = new Map<string, ReconstructionFact>()
+  for (const node of evidence.layoutNodes) {
+    if (!canonicalPageIds.has(node.pageId)) continue
+    const section = evidence.sections.find((candidate) => candidate.id === node.sectionId)
+    const pageContext = reconstructionPageContext(evidence, node.pageId)
+    const borders = Object.fromEntries(
+      Object.entries(node.observedStyles || {}).filter(([property]) =>
+        /^border(?:Top|Right|Bottom|Left)$/.test(property),
+      ),
+    )
+    for (const { label: borderLabel, value } of visibleBorderFacts(borders)) {
+      if (!prominentBorder(value)) continue
+      const sectionRole = reconstructionRole(section?.role)
+      const label = [sectionRole, node.role !== section?.role ? node.role : '', `${borderLabel}: ${value}`]
+        .filter(Boolean)
+        .join(' ')
+      layoutBorderFacts.set(`${pageContext}|${node.role}|${borderLabel}|${value}`, {
+        fact: scopedReconstructionFact(pageContext, label),
+        guidance: `Preserve the ${node.role}${scopedReconstructionGuidance(pageContext)} ${borderLabel} treatment at ${value}.`,
+        priority: /^3px\s/.test(value) ? 0 : 2,
+      })
+    }
+  }
+  facts.push(...layoutBorderFacts.values())
+
+  const pseudoFacts = new Map<string, ReconstructionFact>()
+  for (const pseudo of evidence.pseudoElements || []) {
+    if (!canonicalPageIds.has(pseudo.pageId)) continue
+    const section = evidence.sections.find((candidate) => candidate.id === pseudo.sectionId)
+    const pageContext = reconstructionPageContext(evidence, pseudo.pageId)
+    const visibleStyles = Object.entries(pseudo.styles).filter(([property, value]) =>
+      isVisiblePseudoValue(property, value),
+    )
+    const hasProminentBorder = visibleStyles.some(
+      ([property, value]) =>
+        /^border(?:Top|Right|Bottom|Left)?$/.test(property) && hasVisibleBorder(value) && prominentBorder(value),
+    )
+    const isMeaningfulDecoration = visibleStyles.some(
+      ([property]) => property === 'backgroundColor' || property === 'boxShadow',
+    )
+    if (
+      visibleStyles.length === 0 ||
+      (pseudo.kind !== 'first-letter' && !hasProminentBorder && !isMeaningfulDecoration)
+    ) {
+      continue
+    }
+    const details = visibleStyles
+      .filter(([property]) =>
+        [
+          'fontSize',
+          'float',
+          'color',
+          'backgroundColor',
+          'border',
+          'borderTop',
+          'borderRight',
+          'borderBottom',
+          'borderLeft',
+        ].includes(property),
+      )
+      .slice(0, 3)
+      .map(([property, value]) => `${property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} ${value}`)
+    const label = scopedReconstructionFact(
+      pageContext,
+      `${reconstructionRole(section?.role)} ::${pseudo.kind}${details.length ? ` (${details.join(', ')})` : ''}`,
+    )
+    pseudoFacts.set(`${pageContext}|${pseudo.kind}|${JSON.stringify(pseudo.styles)}`, {
+      fact: label,
+      guidance: `Reproduce the ${label} treatment.`,
+      priority: pseudo.kind === 'first-letter' ? 0 : 6,
+    })
+  }
+  facts.push(...pseudoFacts.values())
+
+  const interactionFacts = new Map<string, ReconstructionFact>()
+  for (const observation of evidence.interactionObservations) {
+    if (!canonicalPageIds.has(observation.pageId)) continue
+    const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+    const component = evidence.components.find((candidate) => candidate.id === observation.targetId)
+    const beforeBackground = observation.before['background-color']
+    const primaryColor = evidence.tokens.colors.primary
+    const normalizedBeforeBackground =
+      typeof beforeBackground === 'string' && !isTransparentColor(beforeBackground)
+        ? normalizeColorValue(beforeBackground)
+        : null
+    const primaryActionHover =
+      observation.driver === 'hover' &&
+      typeof primaryColor === 'string' &&
+      normalizedBeforeBackground !== null &&
+      normalizedBeforeBackground === normalizeColorValue(primaryColor)
+    const observedComponent = normalizedBeforeBackground
+      ? canonicalEvidenceComponents(evidence).find(
+          (candidate) =>
+            typeof candidate.styles.backgroundColor === 'string' &&
+            normalizeColorValue(candidate.styles.backgroundColor) === normalizedBeforeBackground,
+        )
+      : undefined
+    const observedVariant = observedComponent
+      ? classifyComponentVariant(observedComponent.type as ComponentType, observedComponent.styles, {
+          primaryColor,
+          role: observedComponent.role,
+        })
+      : undefined
+    const target =
+      (primaryActionHover ? 'primary CTA' : undefined) ||
+      component?.type ||
+      (observedComponent ? [observedComponent.type, observedVariant].filter(Boolean).join('-') : undefined) ||
+      (section ? reconstructionRole(section.role) : undefined) ||
+      'element'
+    const changes = observation.changedProperties
+      .filter(
+        (property) =>
+          observation.before[property] !== undefined &&
+          observation.after[property] !== undefined &&
+          observation.before[property] !== observation.after[property],
+      )
+      .slice(0, 2)
+      .map(
+        (property) =>
+          `${property} ${observation.before[property] ?? 'absent'} → ${observation.after[property] ?? 'absent'}`,
+      )
+    if (changes.length === 0) continue
+    const pageContext = reconstructionPageContext(evidence, observation.pageId)
+    const fact = scopedReconstructionFact(pageContext, `${target} ${observation.driver}: ${changes.join(', ')}`)
+    interactionFacts.set(`${pageContext}|${target}|${observation.driver}|${changes.join('|')}`, {
+      fact,
+      guidance: `Implement the observed ${target} ${observation.driver} transition: ${changes.join(', ')}.`,
+      priority: observation.changedProperties.includes('ariaSelected') ? 0 : observation.driver === 'hover' ? 1 : 5,
+    })
+  }
+  facts.push(...interactionFacts.values())
+
+  return [
+    ...new Map(
+      facts.sort((first, second) => first.priority - second.priority).map((fact) => [fact.fact, fact]),
+    ).values(),
+  ]
+}
+
+function reconstructionResponsiveFacts(evidence: DesignEvidence): ReconstructionFact[] {
+  const facts: ReconstructionFact[] = []
+  for (const observation of evidence.responsiveObservations) {
+    const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+    const pageContext = reconstructionPageContext(evidence, section?.pageId)
+    const context = scopedReconstructionFact(
+      pageContext,
+      `${reconstructionRole(section?.role)} ${observation.fromViewport} → ${observation.toViewport}`,
+    )
+    for (const [property, values] of Object.entries(observation.changes || {})) {
+      if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) continue
+      const gridProperty = property === 'gridTemplateColumns' || property === 'childGridTemplateColumns'
+      const headingProperty = property === 'node.heading.fontSize'
+      const layoutProperty = ['layoutMode', 'position', 'order'].includes(property)
+      const heightProperty = property === 'height' || property.endsWith('.height')
+      const usefulHeight =
+        heightProperty &&
+        ['header', 'navigation', 'action'].includes(section?.role || '') &&
+        Boolean(boundedPixelValue(values.from) && boundedPixelValue(values.to))
+      const borderProperty = /^border(?:Top|Right|Bottom|Left)$/.test(property)
+      const usefulBorder =
+        borderProperty && [values.from, values.to].some((value) => typeof value === 'string' && hasVisibleBorder(value))
+      const shadowProperty = property === 'boxShadow' && values.from !== values.to
+      if (!gridProperty && !headingProperty && !layoutProperty && !usefulHeight && !usefulBorder && !shadowProperty) {
+        continue
+      }
+      const fromColumns = gridProperty ? topLevelGridColumnCount(values.from) : null
+      const toColumns = gridProperty ? topLevelGridColumnCount(values.to) : null
+      if (gridProperty && fromColumns !== null && fromColumns === toColumns) continue
+      const label = gridProperty
+        ? fromColumns && toColumns
+          ? `columns ${fromColumns} → ${toColumns}`
+          : `columns ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
+        : headingProperty
+          ? `heading font-size ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
+          : `${property}: ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
+      const priority = gridProperty ? 0 : headingProperty ? 1 : layoutProperty || usefulHeight ? 2 : 4
+      facts.push({
+        fact: `${context}: ${label}`,
+        guidance: `Implement the ${context} change as ${label}.`,
+        priority,
+      })
+    }
+  }
+  return [
+    ...new Map(
+      facts.sort((first, second) => first.priority - second.priority).map((fact) => [fact.fact, fact]),
+    ).values(),
+  ]
+}
+
+function reconstructionSummary(
+  evidence: DesignEvidence,
+  tokens: DesignToken,
+  components: ReadonlyArray<{ name: string; count: number; elementKinds?: string[] }>,
+  profile: DesignProfile | null | undefined,
+  zh: boolean,
+): string[] {
+  const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop') || evidence.pages[0]
+  const multiPage = new Set(evidence.pages.map((page) => page.url)).size > 1
+  const pageTitle = desktopPage?.title || evidence.source.title || new URL(evidence.source.finalUrl).hostname
+  const pageRole = !desktopPage?.role || desktopPage.role === 'unknown' ? 'page' : desktopPage.role
+  const canonicalTopology = evidence.topology.pages.find((page) => page.pageId === desktopPage?.id)
+  const sectionRoles = compactRoleSequence(
+    canonicalTopology?.sectionIds
+      .map((id) => evidence.sections.find((section) => section.id === id)?.role)
+      .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown') || [],
+  )
+  const signatureFacts = reconstructionSignatureFacts(evidence).slice(0, 8)
+  const responsiveFacts = reconstructionResponsiveFacts(evidence).slice(0, 6)
+  const variants = components.slice(0, 12).map((component) => {
+    const kinds = component.elementKinds?.length ? ` (${component.elementKinds.join('/')})` : ''
+    return `${component.name} ×${component.count}${kinds}`
+  })
+  const profileAliases = designMdColorRefMap(tokens, profile?.tokenAliases)
+  const formatProfileText = (text: string): string =>
+    [...profileAliases.entries()].reduce((value, [source, target]) => {
+      const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
+    }, text)
+  const inferredSignatureMoves = (profile?.signatureMoves || [])
+    .filter((move) => move.confidence !== 'low' && move.id !== 'evidence-fallback')
+    .slice(0, 2)
+    .map((move) => formatProfileText(move.statement))
+  const thesis = profile ? formatProfileText(profile.thesis.statement) : `${pageTitle} is an observed ${pageRole} page.`
+  const profilePreserve =
+    profile?.transferRules.preserve
+      .filter((claim) => claim.confidence !== 'low')
+      .slice(0, 3)
+      .map((claim) => formatProfileText(claim.statement)) || []
+  const preserve =
+    profilePreserve.length > 0
+      ? profilePreserve
+      : [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) => fact.guidance)
+  const profileAvoid =
+    profile?.transferRules.avoid
+      .filter((claim) => claim.confidence !== 'low')
+      .slice(0, 2)
+      .map((claim) => formatProfileText(claim.statement)) || []
+  const avoid =
+    profileAvoid.length > 0
+      ? profileAvoid
+      : [
+          tokens.colors.primary
+            ? zh
+              ? '不要用装饰色、状态色或边框色替代已观察到的操作角色。'
+              : 'Do not substitute decorative, status, or border colors for the observed action role.'
+            : zh
+              ? '不要虚构主操作色；当前没有稳定观察到该角色。'
+              : 'Do not invent a primary action color; none was stably observed.',
+          zh
+            ? '不要把一次性几何值泛化进可复用间距刻度。'
+            : 'Do not generalize one-off geometry into the reusable spacing scale.',
+        ]
+  return [
+    zh ? '### 重建摘要' : '### Reconstruction Summary',
+    '',
+    `- **${zh ? (multiPage ? '站点命题' : '页面命题') : multiPage ? 'Site thesis' : 'Page thesis'}:** ${thesis}`,
+    sectionRoles?.length
+      ? `- **${zh ? (multiPage ? '入口页区块层级' : '区块层级') : multiPage ? 'Entry-page section hierarchy' : 'Section hierarchy'}:** ${sectionRoles.join(' → ')}`
+      : '',
+    inferredSignatureMoves.length
+      ? `- **${zh ? '标志性手法' : 'Signature moves'}:** ${inferredSignatureMoves.join(' ')}`
+      : '',
+    signatureFacts.length
+      ? `- **${zh ? '关键结构' : 'Key structure'}:** ${signatureFacts.map(({ fact }) => `\`${fact}\``).join(' · ')}`
+      : '',
+    variants.length
+      ? `- **${zh ? (multiPage ? '跨页面 canonical 组件变体' : '组件变体') : multiPage ? 'Canonical component variants across pages' : 'Component variants'}:** ${variants.join(', ')}`
+      : '',
+    responsiveFacts.length
+      ? `- **${zh ? '响应式事实' : 'Responsive facts'}:** ${responsiveFacts.map(({ fact }) => fact).join('; ')}`
+      : '',
+    preserve.length ? `- **${zh ? '保留' : 'Preserve'}:** ${preserve.join(' ')}` : '',
+    avoid.length ? `- **${zh ? '避免' : 'Avoid'}:** ${avoid.join(' ')}` : '',
+  ].filter(Boolean)
+}
+
 export function generateDesignDoc(
   tokens: DesignToken,
   url?: string,
   featureTags?: string[],
   darkMode?: DarkModeExportData,
-  breakpoints?: Array<{ width: number; label: string }>,
+  breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>,
   components: ComponentPattern[] = [],
   language: DocLanguage = 'en',
   exampleComponents: readonly GeneratedExampleComponent[] = [],
   designEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
-  _reconstructionBrief?: string,
   designIntelligenceStatus?: DesignIntelligenceStatus,
   designIntelligenceMeta?: DesignIntelligenceMeta,
 ): string {
@@ -933,9 +1632,14 @@ export function generateDesignDoc(
   const documentFeatureTags = featureTags || designEvidence?.featureTags || []
   const documentBreakpoints =
     breakpoints ||
-    designEvidence?.breakpoints.map((breakpoint) => ({ width: breakpoint.width, label: breakpoint.label })) ||
+    designEvidence?.breakpoints.map((breakpoint) => ({
+      width: breakpoint.width,
+      label: breakpoint.label,
+      layoutChanges: breakpoint.layoutChanges,
+    })) ||
     []
   const documentComponents = resolveDesignDocComponents(components, tokens, designEvidence)
+  const freeformEvidenceComponents = summarizeFreeformEvidenceComponents(designEvidence)
   const sections: Record<DesignMdSectionKey, string[]> = {
     overview: [],
     colors: [],
@@ -961,6 +1665,16 @@ export function generateDesignDoc(
     status: designIntelligenceStatus,
     meta: designIntelligenceMeta,
   })
+  if (designEvidence)
+    lines.push(
+      ...reconstructionSummary(
+        designEvidence,
+        tokens,
+        [...freeformEvidenceComponents, ...documentComponents],
+        designProfile,
+        zh,
+      ),
+    )
   if (documentUrl) lines.push(zh ? `\n提取自：${documentUrl}` : `\nExtracted from: ${documentUrl}`)
 
   if (documentFeatureTags.length > 0) {
@@ -991,19 +1705,35 @@ export function generateDesignDoc(
 
   // Colors
   lines = sections.colors
-  const colorGroups = observedColorGroups(tokens)
+  const publicColorEntries = designMdColorEntries(tokens, designProfile?.tokenAliases)
+  const publicColorNames = new Map(publicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
+  const colorGroups = observedColorGroups(tokens, publicColorNames)
   if (colorGroups.length > 0) {
     lines.push(zh ? '### 主要观察用途颜色分组\n' : '### Dominant Observed Color Roles\n')
     lines.push(zh ? '| 分组 | 令牌 |' : '| Group | Tokens |')
     lines.push('|---|---|')
     const colorGroupLabels: Record<string, string> = zh
-      ? { action: '操作/强调', status: '状态/提示', text: '文字', surface: '表面/背景', border: '边框' }
+      ? {
+          action: '操作',
+          editorial: '编辑强调',
+          status: '状态/趋势',
+          decorative: '装饰',
+          text: '文字',
+          surface: '表面/背景',
+          border: '边框',
+          declared: '仅 CSS 声明，未观察到渲染用途',
+          fallback: '已观察但未分配语义',
+        }
       : {
-          action: 'Action/accent',
-          status: 'Status/feedback',
+          action: 'Action',
+          editorial: 'Editorial accent',
+          status: 'Status/delta',
+          decorative: 'Decorative',
           text: 'Text',
           surface: 'Surface/background',
           border: 'Border',
+          declared: 'CSS-declared; no rendered use observed',
+          fallback: 'Observed, unassigned role',
         }
     for (const group of colorGroups) {
       lines.push(
@@ -1015,30 +1745,86 @@ export function generateDesignDoc(
   }
   lines.push(zh ? '| 令牌 | 值 | 用途 | 置信度 |' : '| Token | Value | Usage | Confidence |')
   lines.push('|-------|-------|-------|------------|')
-  for (const [name, value] of Object.entries(tokens.colors)) {
+  for (const { sourceName, publicName, value } of publicColorEntries) {
     const bgCount = usageForColor(tokens, 'bgColor', value)
     const textCount = usageForColor(tokens, 'textColor', value)
     const borderCount = usageForColor(tokens, 'borderColor', value)
-    const total = bgCount + textCount + borderCount
+    const actionCount = [
+      'primaryActionBackgroundColor',
+      'primaryActionForegroundColor',
+      'primaryActionColor',
+      'actionBackgroundColor',
+      'actionForegroundColor',
+      'actionColor',
+      'selectedColor',
+      'linkColor',
+    ].reduce((total, category) => total + usageForColor(tokens, category, value), 0)
+    const statusCount = ['statusBackgroundColor', 'statusForegroundColor', 'statusColor'].reduce(
+      (total, category) => total + usageForColor(tokens, category, value),
+      0,
+    )
+    const renderedCount = Math.max(bgCount + textCount + borderCount, actionCount, statusCount)
+    const declaredOnly = isDeclaredOnlyColor(tokens, value)
     const contexts = [
+      actionCount > 0 ? (zh ? '操作' : 'action') : null,
+      statusCount > 0 ? (zh ? '状态' : 'status') : null,
       bgCount > 0 ? (zh ? '背景' : 'background') : null,
       textCount > 0 ? (zh ? '文字' : 'text') : null,
       borderCount > 0 ? (zh ? '边框' : 'border') : null,
     ].filter((context): context is string => context !== null)
     const context = contexts.join('+')
-    const tokenEvidence = tokens.evidence?.[`colors.${name}`]
+    const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
     const confidence = tokenEvidence
       ? `${tokenEvidence.confidence} · ${zh ? `${tokenEvidence.pageCount}页` : `${tokenEvidence.pageCount} ${tokenEvidence.pageCount === 1 ? 'page' : 'pages'}`}`
       : '-'
-    lines.push(`| \`--color-${name}\` | \`${value}\` | ${total > 0 ? `${total}× (${context})` : '-'} | ${confidence} |`)
+    lines.push(
+      `| \`--color-${publicName}\` | \`${value}\` | ${renderedCount > 0 ? `${renderedCount}× (${context})` : declaredOnly ? (zh ? '仅 CSS 声明；未观察到渲染用途' : 'CSS-declared; no rendered use observed') : '-'} | ${confidence} |`,
+    )
+  }
+
+  const primaryActionRole = tokens.colorRoles?.primaryAction
+  if (primaryActionRole) {
+    lines.push(zh ? '\n### 已观察的主操作配色\n' : '\n### Observed Primary Action Pair\n')
+    const pair = primaryActionRole.observedForeground
+      ? `\`${primaryActionRole.observedBackground}\` / \`${primaryActionRole.observedForeground}\``
+      : `\`${primaryActionRole.observedBackground}\``
+    lines.push(zh ? `- 已观察的主操作配色：${pair}` : `- Observed primary action pair: ${pair}`)
+    if (primaryActionRole.contrastRatio !== undefined) {
+      lines.push(
+        zh
+          ? `- 已观察对比度：${primaryActionRole.contrastRatio.toFixed(2)}:1${primaryActionRole.contrastWarning ? '（低于普通文本 4.5:1 目标）' : ''}`
+          : `- Observed contrast: ${primaryActionRole.contrastRatio.toFixed(2)}:1${primaryActionRole.contrastWarning ? ' (below the 4.5:1 normal-text target)' : ''}`,
+      )
+    }
+    if (primaryActionRole.recommendedOnPrimary) {
+      const recommendation = primaryActionRole.recommendedOnPrimary
+      lines.push(
+        zh
+          ? `- 派生的可访问性建议：\`${recommendation.value}\`（${recommendation.contrastRatio.toFixed(2)}:1，目标 ≥ ${recommendation.targetContrastRatio}:1；非页面观察值）`
+          : `- Derived accessible recommendation: \`${recommendation.value}\` (${recommendation.contrastRatio.toFixed(2)}:1, target ≥ ${recommendation.targetContrastRatio}:1; not an observed value)`,
+      )
+    }
+  }
+
+  const semanticPairs = tokens.colorRoles?.semanticPairs
+  if (semanticPairs && Object.keys(semanticPairs).length > 0) {
+    lines.push(zh ? '\n### 已观察的状态与趋势配色\n' : '\n### Observed Status and Delta Pairs\n')
+    for (const [role, pair] of Object.entries(semanticPairs)) {
+      lines.push(
+        `- \`${role}\`: ${[pair.observedBackground, pair.observedForeground]
+          .filter(Boolean)
+          .map((value) => `\`${value}\``)
+          .join(' / ')}`,
+      )
+    }
   }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
     lines.push(zh ? '\n### 深色模式颜色\n' : '\n### Dark Mode Colors\n')
     lines.push(zh ? '| 令牌 | 值 |' : '| Token | Value |')
     lines.push('|-------|-------|')
-    for (const [name, value] of Object.entries(darkMode.darkTokens.colors)) {
-      lines.push(`| \`--color-${name}\` | \`${value}\` |`)
+    for (const { publicName, value } of designMdColorEntries(darkMode.darkTokens, [], 'dark-observed')) {
+      lines.push(`| \`--color-${publicName}\` | \`${value}\` |`)
     }
   }
 
@@ -1075,7 +1861,7 @@ export function generateDesignDoc(
 
   // Layout
   lines = sections.layout
-  lines.push(zh ? '### 间距刻度\n' : '### Spacing Scale\n')
+  lines.push(zh ? '### 可复用间距候选\n' : '### Reusable Spacing Candidates\n')
   if (tokens.spacing.length > 0) {
     lines.push(
       tokens.spacing
@@ -1090,13 +1876,39 @@ export function generateDesignDoc(
   } else {
     lines.push(zh ? '- 未观察到可靠的间距刻度。' : '- No reliable spacing scale was observed.')
   }
+  lines.push(
+    zh
+      ? '\n> 超过 96px 的低频页面几何不进入可复用刻度；完整 max-width、区块尺寸与响应式值保留在 Design Evidence。'
+      : '\n> Low-frequency page geometry above 96px is excluded from the reusable scale; complete max-width, section, and responsive values remain in Design Evidence.',
+  )
   if (documentBreakpoints.length > 0) {
-    lines.push(zh ? '\n### 响应式断点\n' : '\n### Responsive Breakpoints\n')
-    lines.push(zh ? '| 标签 | 宽度 |' : '| Label | Width |')
-    lines.push('|-------|-------|')
+    lines.push(zh ? '\n### CSS 中声明的响应式断点\n' : '\n### Responsive Breakpoints Declared in CSS\n')
+    lines.push(
+      zh
+        ? '> 下列宽度来自 CSS media/container query；只有列出的变化才经过直接观察，空白不代表页面在该宽度没有变化。\n'
+        : '> These widths come from CSS media/container queries. Only listed changes were directly observed; an empty cell does not prove that nothing changes at that width.\n',
+    )
+    lines.push(zh ? '| 标签 | 宽度 | 直接观察到的变化 |' : '| Label | Width | Directly observed changes |')
+    lines.push('|-------|-------|-------|')
     documentBreakpoints.forEach((breakpoint) => {
-      lines.push(`| ${breakpoint.label} | \`${breakpoint.width}px\` |`)
+      lines.push(`| ${breakpoint.label} | \`${breakpoint.width}px\` | ${breakpoint.layoutChanges?.join(', ') || '-'} |`)
     })
+  }
+  const sectionGradients = [
+    ...new Map(
+      (designEvidence?.sections || []).flatMap((section) => {
+        const gradient = section.observedStyles?.gradient
+        const role = reconstructionRole(section.role)
+        return gradient ? [[`${role}|${gradient.value}`, { section, gradient, role }] as const] : []
+      }),
+    ).values(),
+  ].slice(0, 8)
+  if (sectionGradients.length > 0) {
+    lines.push(zh ? '\n### 区块渐变处理\n' : '\n### Section Gradient Treatments\n')
+    for (const { section, gradient, role } of sectionGradients) {
+      const structure = [gradient.type, gradient.direction, gradient.stops.join(' → ')].filter(Boolean).join(' · ')
+      lines.push(`- ${role} · \`${section.id}\`: \`${gradient.value}\` (${structure})`)
+    }
   }
 
   // Elevation
@@ -1122,9 +1934,7 @@ export function generateDesignDoc(
   if (tokens.transitions?.length > 0) {
     lines.push(zh ? '\n### 过渡时长\n' : '\n### Transition Durations\n')
     lines.push(
-      tokens.transitions
-        .map((transition, index) => `- ${DURATION_NAMES[index] || index}: \`${transition}\``)
-        .join('\n'),
+      tokens.transitions.map((transition, index) => `- ${proseDurationName(index)}: \`${transition}\``).join('\n'),
     )
   }
 
@@ -1143,20 +1953,68 @@ export function generateDesignDoc(
   } else {
     lines.push(zh ? '未观察到可靠的圆角刻度。' : 'No reliable corner radius scale was observed.')
   }
+  const structuralRadii = [
+    ...new Map(
+      (designEvidence?.sections || []).flatMap((section) => {
+        const borderRadius = section.observedStyles?.borderRadius
+        const role = reconstructionRole(section.role)
+        return borderRadius ? [[`${role}|${borderRadius}`, { section, borderRadius, role }] as const] : []
+      }),
+    ).values(),
+  ].slice(0, 8)
+  if (structuralRadii.length > 0) {
+    lines.push(zh ? '\n### 结构圆角\n' : '\n### Structural Shapes\n')
+    for (const { section, borderRadius, role } of structuralRadii) {
+      lines.push(`- ${role} · \`${section.id}\`: \`${borderRadius}\``)
+    }
+  }
 
   // Components
   lines = sections.components
-  if (documentComponents.length > 0) {
+  const proseComponents = [...documentComponents, ...freeformEvidenceComponents]
+  if (proseComponents.length > 0) {
+    if (designEvidence) {
+      lines.push(
+        zh
+          ? '> 实例数按每个页面的一次 canonical 捕获统计；优先使用 desktop。其他视口只用于响应式观察，不重复累计实例。\n'
+          : '> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n',
+      )
+    }
     lines.push(
       zh ? '| 类型 | 实例数 | 置信度 | 代表样式 |' : '| Type | Instances | Confidence | Representative styles |',
     )
     lines.push('|---|---:|---:|---|')
-    documentComponents.forEach((component) => {
-      const styles = Object.entries(component.styles)
+    proseComponents.forEach((component) => {
+      const styles = usefulComponentStyles(component.styles, tokens)
         .map(([property, value]) => `\`${property}: ${value}\``)
         .join('<br>')
-      lines.push(`| ${component.name} | ${component.count} | ${component.confidence} | ${styles || '-'} |`)
+      const elementKinds = 'elementKinds' in component ? (component.elementKinds as string[] | undefined) : undefined
+      const kinds = elementKinds?.length ? elementKinds.join(', ') : '-'
+      const representative = [kinds !== '-' ? `\`elementKind: ${kinds}\`` : '', styles].filter(Boolean).join('<br>')
+      lines.push(`| ${component.name} | ${component.count} | ${component.confidence} | ${representative || '-'} |`)
     })
+    if (
+      documentComponents.some((component) =>
+        component.evidence.includes('component-detector:supplemental:no-instance-provenance'),
+      )
+    ) {
+      lines.push(
+        zh
+          ? '\n> Detector 补充项：仅为聚合模式，不具备 DOM 实例级 provenance；与 Evidence 重叠的计数未相加。'
+          : '\n> Detector supplement; aggregated pattern without instance-level provenance. Counts overlapping Evidence were not added.',
+      )
+    }
+    const contrastWarnings = componentContrastWarnings(documentComponents, tokens)
+    if (contrastWarnings.length > 0) {
+      lines.push(zh ? '\n### 组件对比度注意事项\n' : '\n### Component Contrast Notes\n')
+      for (const warning of contrastWarnings) {
+        lines.push(
+          zh
+            ? `- \`${warning.name}\`：前景 \`${warning.foreground}\` / ${warning.inferred ? '推定表面' : '已观察背景'} \`${warning.background}\` 为 ${warning.ratio.toFixed(2)}:1，低于该${warning.target === 3 ? '图标控件' : '文字控件'}的 ${warning.target}:1 目标。${warning.inferred ? '背景来自透明组件所在的通用表面假设，实施时应在真实容器中复核。' : ''}`
+            : `- \`${warning.name}\`: foreground \`${warning.foreground}\` over ${warning.inferred ? 'inferred surface' : 'observed background'} \`${warning.background}\` is ${warning.ratio.toFixed(2)}:1, below the ${warning.target}:1 target for this ${warning.target === 3 ? 'icon control' : 'text control'}.${warning.inferred ? ' The background comes from the shared-surface assumption for a transparent component; verify it in the real container.' : ''}`,
+        )
+      }
+    }
   } else {
     lines.push(
       zh
@@ -1166,7 +2024,14 @@ export function generateDesignDoc(
   }
 
   lines = sections.dosAndDonts
-  lines.push(withoutCanonicalHeading(generateDosAndDonts(tokens, language, documentComponents)))
+  lines.push(
+    withoutCanonicalHeading(
+      generateDosAndDonts(tokens, language, documentComponents, {
+        hasDeclaredBreakpoints: (designEvidence?.breakpoints.length || 0) > 0,
+        hasObservedResponsiveBehavior: (designEvidence?.responsiveObservations.length || 0) > 0,
+      }),
+    ),
+  )
 
   lines = appendixLines
 
@@ -1177,7 +2042,7 @@ export function generateDesignDoc(
 
   if (designProfile) {
     lines.push('')
-    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus))
+    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus, publicColorNames))
   } else if (
     designIntelligenceStatus &&
     ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
@@ -1202,7 +2067,11 @@ export function generateDesignDoc(
     )
     const lowConfidence = Object.entries(tokens.evidence)
       .filter(([, item]) => item.confidence === 'low')
-      .map(([tokenPath, item]) => `\`${tokenPath}\` (\`${item.value}\`)`)
+      .map(([tokenPath, item]) => {
+        const colorName = /^colors\.(.+)$/.exec(tokenPath)?.[1]
+        const publicPath = colorName ? `colors.${publicColorNames.get(colorName) || colorName}` : tokenPath
+        return `\`${publicPath}\` (\`${item.value}\`)`
+      })
       .slice(0, 12)
     lines.push(zh ? '\n## 提取置信度\n' : '\n## Extraction Confidence\n')
     lines.push(
@@ -1284,6 +2153,7 @@ function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
     $extensions: {
       'com.imprint.borders': tokens.borders,
       ...(tokens.evidence ? { 'com.imprint.tokenEvidence': tokens.evidence } : {}),
+      ...(tokens.colorRoles ? { 'com.imprint.colorRoles': tokens.colorRoles } : {}),
     },
   }
 
@@ -1342,7 +2212,7 @@ function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
 
   const transition = groups.transition as Record<string, unknown>
   tokens.transitions?.forEach((val, i) => {
-    transition[DURATION_NAMES[i] || `${i}`] = { $type: 'duration', $value: val }
+    transition[proseDurationName(i)] = { $type: 'duration', $value: val }
   })
 
   return groups

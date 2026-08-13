@@ -222,8 +222,10 @@ runs out, the tab strip scrolls horizontally instead.
   uncertainties. Profile JSON remains a separate versioned artifact; AI token names are aliases and never replace
   deterministic token keys.
 - The app never asks users to compose prompts or task descriptions for an external agent — that conversation belongs in
-  the user's own agent. Generated reconstruction briefs remain one-click copyable; they prohibit copying source text,
-  logos, page composition, or media and travel with DESIGN.md plus the target UI's source or screenshot.
+  the user's own agent. Eligible complete and partial interpretations expose generated reconstruction briefs as a
+  separate, one-click copyable and downloadable `RECONSTRUCTION.md` tab; analyses without an eligible brief omit the tab.
+  Briefs prohibit copying source text, logos, page composition, or media and travel with DESIGN.md plus the target UI's
+  source or screenshot.
 - Validation scenarios use an allowlisted renderer rather than model-authored HTML. Report token-scale, rule-reference,
   state, contrast, overflow, and reduced-motion checks independently, including evidence, interpretation, or generation
   failure layers; never collapse them into a single opaque quality score.
@@ -346,10 +348,14 @@ Export choices describe different jobs and must never be presented as interchang
   and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact
   `x-imprint` extension retains source, coverage and analysis summaries, responsive metadata, and token groups not covered
   by the alpha schema; full token provenance and component evidence belong in Tokens JSON, `design-evidence.json`, and
-  `component-specs.json` instead of being duplicated into the front matter.
+  `component-specs.json` instead of being duplicated into the front matter. In the result preview, render the front matter
+  as collapsed machine-readable YAML and the remaining document as Markdown; copy and export always preserve the original
+  document byte content.
 - **CSS variables** are recommended for framework-agnostic web and CSS projects.
 - **Tailwind v4 `@theme`** is recommended when the target project already uses Tailwind v4.
 - **Tokens JSON** is recommended for design-token tooling, automation, and agents that need machine-readable values.
+- **Reconstruction Brief** is a generated, evidence-gated execution artifact for carrying a validated design language
+  into a new UI. It remains separate from DESIGN.md and is exported as `RECONSTRUCTION.md`.
 
 Every export action must name the artifact it will create. Theme-library preferences apply only to theme-card exports;
 the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable

@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core'
 
+import { ROLE_CANDIDATE_RULES } from '../analyzer/role-candidates.js'
 import type { LayoutMode, NormalizedRect, PageRole, SectionRole } from './types.js'
 
 export interface PageSectionSnapshot {
@@ -16,6 +17,7 @@ export interface PageComponentSnapshot {
   key: string
   sectionKey: string
   type: string
+  elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
   rect: NormalizedRect
   styles: Record<string, string>
@@ -41,6 +43,14 @@ export interface PageLayoutNodeSnapshot {
   textRole?: 'display' | 'heading' | 'body' | 'label' | 'metadata'
   styles: Record<string, string>
   traits: string[]
+}
+
+export interface PagePseudoElementSnapshot {
+  key: string
+  sectionKey: string
+  target: string
+  kind: 'before' | 'after' | 'first-letter'
+  styles: Record<string, string>
 }
 
 export interface PageMediaLayerSnapshot {
@@ -90,6 +100,9 @@ export interface PageEvidenceSnapshot {
   url: string
   viewport: string
   language?: string
+  applicationName?: string
+  openGraphSiteName?: string
+  title?: string
   role: PageRole
   viewportWidth: number
   viewportHeight: number
@@ -101,13 +114,16 @@ export interface PageEvidenceSnapshot {
   sections: PageSectionSnapshot[]
   components: PageComponentSnapshot[]
   layoutNodes: PageLayoutNodeSnapshot[]
+  pseudoElements?: PagePseudoElementSnapshot[]
   mediaLayers: PageMediaLayerSnapshot[]
   interactionCandidates: PageInteractionCandidateSnapshot[]
   ariaStates: PageAriaStateSnapshot[]
 }
 
 export async function extractPageEvidence(page: Page, viewport: string): Promise<PageEvidenceSnapshot> {
-  return page.evaluate((viewportName) => {
+  const evaluationArgs = { viewportName: viewport, candidateRules: ROLE_CANDIDATE_RULES }
+  return page.evaluate((args) => {
+    const { viewportName, candidateRules } = args
     type BrowserSectionRole =
       | 'header'
       | 'navigation'
@@ -256,6 +272,14 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (/\/(product|products|features)(\/|$)/.test(path)) return 'product'
       if (/\/(article|blog|docs|guide|about)(\/|$)/.test(path)) return 'content'
       if (path === '/' || path === '') return 'landing'
+      const article = document.querySelector('article')
+      if (article && (article.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) return 'content'
+      if (document.querySelector('table') && document.querySelector('header, nav, [role="navigation"]')) {
+        return 'workspace'
+      }
+      if (document.querySelector('h1') && document.querySelectorAll('main > section, main section').length >= 2) {
+        return 'landing'
+      }
       return 'unknown'
     }
 
@@ -438,6 +462,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const role = roleForSection(element)
       const key = locatorFor(element)
       const computed = computedFor(element)
+      const childGrid = [...element.querySelectorAll(':scope > *, :scope > * > *')].find(
+        (child) => isVisible(child) && computedFor(child).display === 'grid' && child.children.length >= 2,
+      )
+      const childGridComputed = childGrid ? computedFor(childGrid) : undefined
       return {
         element,
         key,
@@ -450,9 +478,16 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           layoutMode: layoutModeFor(element),
           styles: {
             backgroundColor: computed.backgroundColor,
+            backgroundImage: computed.backgroundImage,
             color: computed.color,
+            borderTopLeftRadius: computed.borderTopLeftRadius,
+            borderTopRightRadius: computed.borderTopRightRadius,
+            borderBottomRightRadius: computed.borderBottomRightRadius,
+            borderBottomLeftRadius: computed.borderBottomLeftRadius,
             display: computed.display,
             position: computed.position,
+            top: computed.top,
+            height: computed.height,
             maxWidth: computed.maxWidth,
             paddingTop: computed.paddingTop,
             paddingRight: computed.paddingRight,
@@ -460,6 +495,12 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
             paddingLeft: computed.paddingLeft,
             gap: computed.gap,
             gridTemplateColumns: computed.gridTemplateColumns,
+            childGridTemplateColumns: childGridComputed?.gridTemplateColumns || '',
+            borderTop: `${computed.borderTopWidth} ${computed.borderTopStyle} ${computed.borderTopColor}`,
+            borderRight: `${computed.borderRightWidth} ${computed.borderRightStyle} ${computed.borderRightColor}`,
+            borderBottom: `${computed.borderBottomWidth} ${computed.borderBottomStyle} ${computed.borderBottomColor}`,
+            borderLeft: `${computed.borderLeftWidth} ${computed.borderLeftStyle} ${computed.borderLeftColor}`,
+            boxShadow: computed.boxShadow,
             overflowX: computed.overflowX,
             overflowY: computed.overflowY,
             scrollSnapType: computed.scrollSnapType,
@@ -540,24 +581,220 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       }
     }
 
+    const actionTokenPattern = new RegExp(candidateRules.actionTokenPattern, 'i')
+    const primaryActionPattern = new RegExp(candidateRules.primaryActionPattern, 'i')
+    const destructiveActionPattern = new RegExp(candidateRules.destructiveActionPattern, 'i')
+    const directStatusPattern = new RegExp(candidateRules.directStatusPattern, 'i')
+    const statusSubjectPattern = new RegExp(candidateRules.statusSubjectPattern, 'i')
+    const statusDirectionPattern = new RegExp(candidateRules.statusDirectionPattern, 'i')
+    const positiveStatusPattern = new RegExp(candidateRules.positiveStatusPattern, 'i')
+    const warningStatusPattern = new RegExp(candidateRules.warningStatusPattern, 'i')
+    const negativeStatusPattern = new RegExp(candidateRules.negativeStatusPattern, 'i')
+    const statusIntentFor = (context: string): 'positive' | 'warning' | 'negative' | 'neutral' => {
+      if (positiveStatusPattern.test(context)) return 'positive'
+      if (warningStatusPattern.test(context)) return 'warning'
+      if (negativeStatusPattern.test(context)) return 'negative'
+      return 'neutral'
+    }
+    const roleCandidateContext = (element: Element, includeText = false): string =>
+      [
+        typeof element.className === 'string' ? element.className : '',
+        element.id,
+        element.getAttribute('data-variant'),
+        element.getAttribute('data-intent'),
+        element.getAttribute('data-state'),
+        element.getAttribute('data-status'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('type'),
+        element.getAttribute('value'),
+        includeText ? (element.textContent || '').slice(0, 80) : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+    const statusCandidateKind = (element: Element): 'native' | 'heuristic' | null => {
+      const role = element.getAttribute('role') || ''
+      const ariaLive = element.getAttribute('aria-live')
+      if (element.matches(candidateRules.broadActionSelector)) return null
+      const nativeStatus = ['status', 'alert'].includes(role) || Boolean(ariaLive && ariaLive !== 'off')
+      if (nativeStatus) {
+        if (element.parentElement?.closest(candidateRules.nativeStatusSelector)) return null
+        return 'native'
+      }
+      if (
+        element.parentElement?.closest(`${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`)
+      ) {
+        return null
+      }
+      const context = roleCandidateContext(element)
+      return directStatusPattern.test(context) ||
+        (statusSubjectPattern.test(context) && statusDirectionPattern.test(context))
+        ? 'heuristic'
+        : null
+    }
+    const isStyledActionAnchor = (element: Element): boolean => {
+      if (element.tagName !== 'A' || !element.hasAttribute('href')) return false
+      const context = roleCandidateContext(element, true)
+      if (!actionTokenPattern.test(context)) return false
+      const computed = computedFor(element)
+      const rect = element.getBoundingClientRect()
+      const background = computed.backgroundColor.trim().toLowerCase()
+      const paintedFill = background !== 'transparent' && !/^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(background)
+      const paintedBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle],
+        [computed.borderRightWidth, computed.borderRightStyle],
+        [computed.borderBottomWidth, computed.borderBottomStyle],
+        [computed.borderLeftWidth, computed.borderLeftStyle],
+      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+      const controlGeometry =
+        rect.width >= 44 &&
+        rect.height >= 28 &&
+        (Number.parseFloat(computed.paddingLeft) + Number.parseFloat(computed.paddingRight) >= 16 ||
+          Number.parseFloat(computed.paddingTop) + Number.parseFloat(computed.paddingBottom) >= 12)
+      return paintedFill || paintedBorder || controlGeometry
+    }
+
     const componentCandidates: Array<{
       element: Element
       type: string
       role?: string
+      elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
       confidence: number
     }> = []
-    const addComponents = (selector: string, type: string, confidence: number) => {
+    const addComponents = (
+      selector: string,
+      type: string,
+      confidence: number,
+      elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status',
+    ) => {
       for (const element of document.querySelectorAll(selector)) {
         if (!isVisible(element) || componentCandidates.some((candidate) => candidate.element === element)) continue
         componentCandidates.push({
           element,
           type,
           role: element.getAttribute('role') || undefined,
+          elementKind,
           confidence,
         })
       }
     }
-    addComponents('button, input[type="button"], input[type="submit"], [role="button"]', 'button', 0.98)
+    const statusCandidateKinds = new Map<Element, 'native' | 'heuristic'>()
+    for (const element of document.querySelectorAll('body *')) {
+      if (!isVisible(element)) continue
+      const kind = statusCandidateKind(element)
+      if (kind) statusCandidateKinds.set(element, kind)
+    }
+    const statusCandidates = [...statusCandidateKinds.keys()]
+    const statusCandidateSet = new Set(statusCandidates)
+    const candidatesWithNativeDescendants = new Set<Element>()
+    for (const [element, kind] of statusCandidateKinds) {
+      let ancestor = element.parentElement
+      while (ancestor) {
+        if (statusCandidateSet.has(ancestor)) {
+          if (kind === 'native') candidatesWithNativeDescendants.add(ancestor)
+        }
+        ancestor = ancestor.parentElement
+      }
+    }
+    const hasStrongStatusVisualBoundary = (element: Element): boolean => {
+      const computed = computedFor(element)
+      const background = computed.backgroundColor.trim().toLowerCase()
+      const paintedFill = background !== 'transparent' && !/^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(background)
+      const paintedBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle],
+        [computed.borderRightWidth, computed.borderRightStyle],
+        [computed.borderBottomWidth, computed.borderBottomStyle],
+        [computed.borderLeftWidth, computed.borderLeftStyle],
+      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+      return paintedFill || paintedBorder
+    }
+    const stronglyBoundedCandidates = new Set(statusCandidates.filter(hasStrongStatusVisualBoundary))
+    const independentStrongDescendantCounts = new Map<Element, number>()
+    for (const element of stronglyBoundedCandidates) {
+      let ancestor = element.parentElement
+      while (ancestor) {
+        if (statusCandidateSet.has(ancestor)) {
+          independentStrongDescendantCounts.set(ancestor, (independentStrongDescendantCounts.get(ancestor) || 0) + 1)
+          if (stronglyBoundedCandidates.has(ancestor)) break
+        }
+        ancestor = ancestor.parentElement
+      }
+    }
+    const preferredStatusCandidates = new Set(
+      statusCandidates.filter((element) => {
+        if (statusCandidateKinds.get(element) === 'native') return true
+        if (candidatesWithNativeDescendants.has(element)) return false
+        return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2
+      }),
+    )
+    const statusRoots = statusCandidates.filter((element) => {
+      if (!preferredStatusCandidates.has(element)) return false
+      let ancestor = element.parentElement
+      while (ancestor) {
+        if (preferredStatusCandidates.has(ancestor)) return false
+        ancestor = ancestor.parentElement
+      }
+      return true
+    })
+    for (const element of statusRoots) {
+      const context = roleCandidateContext(element, true)
+      const kind = statusSubjectPattern.test(context) && statusDirectionPattern.test(context) ? 'delta' : 'status'
+      componentCandidates.push({
+        element,
+        type: 'status',
+        role: `${kind}-${statusIntentFor(context)}`,
+        elementKind: 'status',
+        confidence: 0.94,
+      })
+    }
+    addComponents('[role="tab"]', 'tab', 0.98, 'button')
+    for (const element of document.querySelectorAll(candidateRules.nativeActionSelector)) {
+      if (
+        !isVisible(element) ||
+        statusCandidateSet.has(element) ||
+        componentCandidates.some((candidate) => candidate.element === element)
+      ) {
+        continue
+      }
+      const tagName = element.tagName.toLowerCase()
+      componentCandidates.push({
+        element,
+        type: 'button',
+        role: primaryActionPattern.test(roleCandidateContext(element, true))
+          ? 'primary-action'
+          : destructiveActionPattern.test(roleCandidateContext(element, true))
+            ? 'destructive-action'
+            : 'action',
+        elementKind:
+          tagName === 'input'
+            ? 'input'
+            : element.getAttribute('role') === 'button' && tagName !== 'button'
+              ? 'role-button'
+              : 'button',
+        confidence: 0.98,
+      })
+    }
+    for (const element of document.querySelectorAll('a[href]')) {
+      if (
+        !isVisible(element) ||
+        statusCandidateSet.has(element) ||
+        !isStyledActionAnchor(element) ||
+        componentCandidates.some((candidate) => candidate.element === element)
+      ) {
+        continue
+      }
+      componentCandidates.push({
+        element,
+        type: 'button',
+        role: primaryActionPattern.test(roleCandidateContext(element, true))
+          ? 'primary-action'
+          : destructiveActionPattern.test(roleCandidateContext(element, true))
+            ? 'destructive-action'
+            : 'action',
+        elementKind: 'anchor',
+        confidence: 0.9,
+      })
+    }
     addComponents('nav, [role="navigation"]', 'navigation', 0.98)
     addComponents(
       'input:not([type="hidden"]):not([type="button"]):not([type="submit"]), textarea, select, [role="textbox"], [role="combobox"]',
@@ -567,25 +804,40 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     addComponents('table, [role="table"], [role="grid"]', 'table', 0.96)
     addComponents('dialog, [role="dialog"], [role="alertdialog"]', 'modal', 0.96)
     addComponents('ul, ol, [role="list"]', 'list', 0.9)
-    addComponents('article', 'card', 0.78)
-
-    for (const element of document.querySelectorAll('main > * > *, [role="main"] > * > *')) {
-      if (!isVisible(element) || componentCandidates.some((candidate) => candidate.element === element)) continue
+    const existingComponentElements = new Set(componentCandidates.map((candidate) => candidate.element))
+    const deepCardElements = [...new Set(document.querySelectorAll('main *, [role="main"] *'))]
+    const deepCardGroups = new Map<Element, Map<string, number>>()
+    const deepCardCandidates: Array<{ element: Element; parent: Element; signature: string }> = []
+    for (const element of deepCardElements) {
+      if (!isVisible(element) || existingComponentElements.has(element) || !element.parentElement) continue
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
       const boundary =
         computed.boxShadow !== 'none' ||
         parseFloat(computed.borderTopWidth || '0') > 0 ||
         parseFloat(computed.borderTopLeftRadius || '0') > 4
-      const padding = Math.min(
+      const padding = Math.max(
         parseFloat(computed.paddingTop || '0'),
         parseFloat(computed.paddingRight || '0'),
         parseFloat(computed.paddingBottom || '0'),
         parseFloat(computed.paddingLeft || '0'),
       )
-      if (boundary && padding >= 8 && rect.width >= 120 && rect.height >= 64) {
-        componentCandidates.push({ element, type: 'card', confidence: 0.68 })
-      }
+      if (!boundary || padding < 8 || rect.width < 120 || rect.height < 64) continue
+      if (deepCardCandidates.length >= candidateRules.deepCardScanLimit) break
+      const signature = [
+        element.tagName,
+        computed.backgroundColor,
+        computed.borderRadius,
+        computed.borderTopWidth,
+      ].join('|')
+      const parentGroups = deepCardGroups.get(element.parentElement) || new Map<string, number>()
+      parentGroups.set(signature, (parentGroups.get(signature) || 0) + 1)
+      deepCardGroups.set(element.parentElement, parentGroups)
+      deepCardCandidates.push({ element, parent: element.parentElement, signature })
+    }
+    for (const candidate of deepCardCandidates) {
+      if ((deepCardGroups.get(candidate.parent)?.get(candidate.signature) || 0) < 2) continue
+      componentCandidates.push({ element: candidate.element, type: 'card', confidence: 0.76 })
     }
 
     const components = componentCandidates.slice(0, 250).flatMap((candidate) => {
@@ -596,6 +848,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           key: `${candidate.type}:${locatorFor(candidate.element)}`,
           sectionKey: section.key,
           type: candidate.type,
+          elementKind: candidate.elementKind,
           role: candidate.role,
           rect: normalizedRect(candidate.element),
           styles: stylesForComponent(candidate.element),
@@ -668,11 +921,102 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
             lineHeight: computed.lineHeight,
             letterSpacing: computed.letterSpacing,
             borderRadius: computed.borderRadius,
+            borderTop: `${computed.borderTopWidth} ${computed.borderTopStyle} ${computed.borderTopColor}`,
+            borderRight: `${computed.borderRightWidth} ${computed.borderRightStyle} ${computed.borderRightColor}`,
+            borderBottom: `${computed.borderBottomWidth} ${computed.borderBottomStyle} ${computed.borderBottomColor}`,
+            borderLeft: `${computed.borderLeftWidth} ${computed.borderLeftStyle} ${computed.borderLeftColor}`,
+            boxShadow: computed.boxShadow,
           },
           traits,
         },
       ]
     })
+
+    const pseudoElements: PagePseudoElementSnapshot[] = []
+    const pseudoCandidates = [...document.querySelectorAll('body *')].filter(isVisible).slice(0, 1_500)
+    for (const element of pseudoCandidates) {
+      const section = sectionFor(element)
+      if (!section || pseudoElements.length >= 80) break
+      const base = computedFor(element)
+      for (const [kind, selector] of [
+        ['before', '::before'],
+        ['after', '::after'],
+      ] as const) {
+        const pseudo = getComputedStyle(element, selector)
+        const content = pseudo.content
+        if (!content || ['none', 'normal', '""', "''"].includes(content)) continue
+        const unquotedContent = content.replace(/^(['"])([\s\S]*)\1$/, '$2').trim()
+        const isTransparentMaterial = (value: string) =>
+          /^(?:transparent|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?%?\s*\)|(?:hsla?|oklch|oklab|lab|lch)\([^)]*\/\s*0(?:\.0+)?%?\s*\))$/i.test(
+            value.trim(),
+          )
+        const shadowColors =
+          pseudo.boxShadow.match(/(?:rgba?|hsla?|oklch|oklab|lab|lch)\([^)]+\)|#[\da-f]{3,8}/gi) || []
+        const hasVisibleShadow =
+          pseudo.boxShadow !== 'none' &&
+          (shadowColors.length === 0 || shadowColors.some((color) => !isTransparentMaterial(color)))
+        const borders = {
+          borderTop: `${pseudo.borderTopWidth} ${pseudo.borderTopStyle} ${pseudo.borderTopColor}`,
+          borderRight: `${pseudo.borderRightWidth} ${pseudo.borderRightStyle} ${pseudo.borderRightColor}`,
+          borderBottom: `${pseudo.borderBottomWidth} ${pseudo.borderBottomStyle} ${pseudo.borderBottomColor}`,
+          borderLeft: `${pseudo.borderLeftWidth} ${pseudo.borderLeftStyle} ${pseudo.borderLeftColor}`,
+        }
+        const hasVisibleBorder = Object.values(borders).some((border) => {
+          const [width, style, ...colorParts] = border.split(/\s+/)
+          return (
+            Number.parseFloat(width) > 0 &&
+            !['none', 'hidden'].includes(style) &&
+            !isTransparentMaterial(colorParts.join(' '))
+          )
+        })
+        const hasMaterial = !isTransparentMaterial(pseudo.backgroundColor) || hasVisibleShadow || hasVisibleBorder
+        if (!unquotedContent && !hasMaterial) continue
+        pseudoElements.push({
+          key: `${kind}:${locatorFor(element)}`,
+          sectionKey: section.key,
+          target: locatorFor(element),
+          kind,
+          styles: {
+            content: content.slice(0, 120),
+            color: pseudo.color,
+            backgroundColor: pseudo.backgroundColor,
+            width: pseudo.width,
+            height: pseudo.height,
+            borderRadius: pseudo.borderRadius,
+            ...borders,
+            boxShadow: pseudo.boxShadow,
+            transform: pseudo.transform,
+          },
+        })
+      }
+      const hasDirectText = [...element.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && Boolean((node.textContent || '').trim()),
+      )
+      if (!hasDirectText) continue
+      const firstLetter = getComputedStyle(element, '::first-letter')
+      const firstLetterStyles = {
+        color: firstLetter.color,
+        fontFamily: firstLetter.fontFamily,
+        fontSize: firstLetter.fontSize,
+        fontWeight: firstLetter.fontWeight,
+        lineHeight: firstLetter.lineHeight,
+        float: firstLetter.cssFloat,
+      }
+      const differs = Object.entries(firstLetterStyles).some(([name, value]) => {
+        const baseValue =
+          name === 'float' ? base.cssFloat : base.getPropertyValue(name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`))
+        return value && value !== baseValue
+      })
+      if (differs) {
+        pseudoElements.push({
+          key: `first-letter:${locatorFor(element)}`,
+          sectionKey: section.key,
+          target: locatorFor(element),
+          kind: 'first-letter',
+          styles: firstLetterStyles,
+        })
+      }
+    }
 
     const MAX_MEDIA_LAYERS = 150
     const MAX_ICON_MEDIA = 48
@@ -877,6 +1221,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       url: location.href,
       viewport: viewportName,
       language: document.documentElement.lang || undefined,
+      applicationName: document.querySelector<HTMLMetaElement>('meta[name="application-name" i]')?.content || undefined,
+      openGraphSiteName:
+        document.querySelector<HTMLMetaElement>('meta[property="og:site_name" i]')?.content || undefined,
+      title: document.title || undefined,
       role: pageRole(),
       viewportWidth,
       viewportHeight,
@@ -888,9 +1236,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       sections: sectionEntries.map((entry) => entry.snapshot),
       components,
       layoutNodes,
+      pseudoElements,
       mediaLayers,
       interactionCandidates,
       ariaStates,
     }
-  }, viewport)
+  }, evaluationArgs)
 }

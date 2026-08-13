@@ -34,7 +34,7 @@ import {
   AuthenticationCancelledError,
   AuthenticationRequiredError,
 } from './errors.js'
-import { generateFeatureTags } from './feature-tags.js'
+import { buildEvidenceBackedClaims, generateFeatureTags } from './feature-tags.js'
 import { type DiscoveredPage, discoverPages } from './page-discovery.js'
 import { ensurePageHealth } from './page-health.js'
 import { freezePageAnimations, preparePageForExtraction } from './page-preparer.js'
@@ -1275,8 +1275,9 @@ export async function analyze(
     tokens.usageCount = normalizeDesignTokenUsageCount(mergedStyles.usageCount)
     tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
     let evidenceTokens = emptyDesignTokens()
+    let evidenceMergedStyles = mergeStyles([])
     if (aiEligibleStyles.length > 0) {
-      const evidenceMergedStyles = mergeStyles(aiEligibleStyles)
+      evidenceMergedStyles = mergeStyles(aiEligibleStyles)
       const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
         aiEligibleStyles,
         aiEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
@@ -1292,18 +1293,19 @@ export async function analyze(
       evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
       evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, aiEligibleStyleCaptures)
     }
-    const featureTags = generateFeatureTags(tokens, mergedStyles)
+    let featureTags = generateFeatureTags(tokens, mergedStyles)
     extractionIssues
       .filter((issue) => !isPageHealthExtractionIssue(issue))
       .slice(0, 8)
       .forEach((issue) => appendExtractionIssueLimitation(analysisLimitations, issue))
-    const designEvidence = buildDesignEvidence({
+    let designEvidence = buildDesignEvidence({
       analysisId,
       requestedUrl: url,
       finalUrl,
       accessMode,
       authWallDetected,
       expectedPageCount: pageLimit,
+      expectedViewports: viewportNames,
       tokens: evidenceTokens,
       featureTags,
       interactionStyles: allInteractions,
@@ -1313,6 +1315,13 @@ export async function analyze(
       limitations: analysisLimitations,
       techStack,
     })
+    const deterministicClaims = buildEvidenceBackedClaims(evidenceTokens, evidenceMergedStyles, designEvidence)
+    featureTags = [...new Set([...deterministicClaims.map((claim) => claim.label), ...featureTags])].slice(0, 6)
+    designEvidence = {
+      ...designEvidence,
+      featureTags,
+      ...(deterministicClaims.length > 0 ? { deterministicClaims } : {}),
+    }
     timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - tokenStartedAt)
     onProgress?.('progress.selectingImageEvidence', 97)
     const fingerprintStartedAt = Date.now()

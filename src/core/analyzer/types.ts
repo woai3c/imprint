@@ -50,13 +50,31 @@ export interface ExtractedStyles {
   transitions: string[]
   usageCount: Record<string, number>
   valueSources?: Record<string, string[]>
+  colorRoleObservations?: ColorRoleObservation[]
+}
+
+export interface ColorRoleObservation {
+  captureId: string
+  background?: string
+  foreground?: string
+  borderColor?: string
+  elementRef: string
+  elementKind: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
+  role: 'action' | 'primary-action' | 'destructive-action' | 'status'
+  statusKind?: 'status' | 'delta'
+  statusIntent?: 'positive' | 'warning' | 'negative' | 'neutral'
+}
+
+export interface InteractionStyleObservation {
+  before: Record<string, string>
+  after: Record<string, string>
 }
 
 export interface InteractionStyles {
-  hover: Record<string, string>[]
-  focus: Record<string, string>[]
-  active: Record<string, string>[]
-  disabled?: Record<string, string>[]
+  hover: InteractionStyleObservation[]
+  focus: InteractionStyleObservation[]
+  active: InteractionStyleObservation[]
+  disabled?: InteractionStyleObservation[]
 }
 
 export interface ExtractionIssue {
@@ -141,6 +159,44 @@ export interface DesignToken {
   transitions: string[]
   usageCount?: Record<string, number>
   evidence?: Record<string, TokenEvidence>
+  colorRoles?: {
+    primaryAction?: {
+      observedBackground: string
+      observedForeground?: string
+      contrastRatio?: number
+      contrastWarning?: {
+        targetContrastRatio: number
+        message: string
+      }
+      recommendedOnPrimary?: {
+        value: string
+        contrastRatio: number
+        targetContrastRatio: number
+        derived: true
+      }
+      provenance: Array<Pick<ColorRoleObservation, 'captureId' | 'elementRef' | 'elementKind' | 'role'>>
+    }
+    semanticPairs?: Partial<
+      Record<
+        | 'status-positive'
+        | 'status-warning'
+        | 'status-negative'
+        | 'status-neutral'
+        | 'delta-positive'
+        | 'delta-negative',
+        {
+          observedBackground?: string
+          observedForeground?: string
+          provenance: Array<
+            Pick<
+              ColorRoleObservation,
+              'captureId' | 'elementRef' | 'elementKind' | 'role' | 'statusKind' | 'statusIntent'
+            >
+          >
+        }
+      >
+    >
+  }
 }
 
 export interface GeneratedExampleComponent {

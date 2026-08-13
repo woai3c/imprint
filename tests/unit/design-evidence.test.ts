@@ -136,10 +136,11 @@ function buildFixtureEvidence() {
     finalUrl: 'https://example.com/',
     accessMode: 'anonymous',
     expectedPageCount: 1,
+    expectedViewports: ['desktop', 'mobile'],
     tokens,
     featureTags: ['responsive'],
     interactionStyles: {
-      hover: [{ color: '#2563eb' }],
+      hover: [{ before: { color: '#111827' }, after: { color: '#2563eb' } }],
       focus: [],
       active: [],
     },
@@ -176,6 +177,443 @@ function buildFixtureEvidence() {
 }
 
 describe('Design Evidence', () => {
+  it('preserves anchor provenance as elementKind without changing the visual button type', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.components[0].elementKind = 'anchor'
+    const evidence = buildDesignEvidence({
+      analysisId: 'anchor-component',
+      requestedUrl: snapshot.url,
+      finalUrl: snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [{ screenshot: { url: snapshot.url, path: 'anchor.png', viewport: 'desktop' }, snapshot }],
+    })
+
+    expect(evidence.components[0]).toMatchObject({ type: 'button', elementKind: 'anchor' })
+  })
+
+  it('keeps Evidence counts authoritative and adds only missing detector types or variants', () => {
+    const evidence = buildFixtureEvidence()
+    const detected = [
+      {
+        type: 'button' as const,
+        count: 99,
+        selectors: ['button'],
+        styles: { backgroundColor: '#2563eb', color: '#ffffff', borderRadius: '12px' },
+        confidence: 1,
+        evidence: ['native-element'],
+      },
+      {
+        type: 'card' as const,
+        count: 5,
+        selectors: [],
+        styles: { backgroundColor: '#ffffff', borderRadius: '12px' },
+        confidence: 0.8,
+        evidence: ['visual-boundary'],
+      },
+    ]
+    const document = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      detected,
+      'en',
+      [],
+      evidence,
+    )
+
+    expect(document).toContain('| button-primary | 1 |')
+    expect(document).not.toContain('| button-primary | 101 |')
+    expect(document).toContain('| card | 5 |')
+    expect(document).toContain('Instance counts use one canonical capture per page, preferring desktop')
+    expect(document).toContain('Detector supplement; aggregated pattern without instance-level provenance')
+  })
+
+  it('keeps an observed primary action visible when component classification misses its variant', () => {
+    const evidence = buildFixtureEvidence()
+    const primaryTokens = structuredClone(tokens)
+    const desktop = evidence.pages.find((page) => page.viewport === 'desktop')!
+    primaryTokens.colorRoles = {
+      primaryAction: {
+        observedBackground: '#2563eb',
+        observedForeground: '#ffffff',
+        provenance: [
+          {
+            captureId: `${desktop.url}|${desktop.viewportWidth}x${desktop.viewportHeight}`,
+            elementRef: 'body > main > button:nth-of-type(1)',
+            elementKind: 'button',
+            role: 'primary-action',
+          },
+        ],
+      },
+    }
+    evidence.tokens = primaryTokens
+    evidence.components = evidence.components.map((component) => ({
+      ...component,
+      role: 'action',
+      styles: { ...component.styles, backgroundColor: 'rgba(37, 99, 235, 0.08)' },
+      tokenRefs: [],
+    }))
+
+    const document = generateDesignDoc(
+      primaryTokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      [],
+      evidence,
+    )
+
+    expect(document).toContain('| button-primary | 1 | 0.9 |')
+    expect(document).toContain('semanticRole: primary-action')
+    expect(document).toContain('observationCount: 1')
+    expect(document).toContain('provenanceArtifact: design-evidence.json')
+    expect(document).not.toContain('body > main > button:nth-of-type(1)')
+  })
+
+  it('keeps volatile geometry and transparent decoration out of human-facing reconstruction facts', () => {
+    const evidence = buildFixtureEvidence()
+    const desktop = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const mobile = evidence.pages.find((page) => page.viewport === 'mobile')!
+    const section = evidence.sections.find((candidate) => candidate.pageId === desktop.id)!
+    const mobileSection = evidence.sections.find((candidate) => candidate.pageId === mobile.id)!
+    section.layoutMode = 'sticky'
+    section.observedStyles = {
+      layout: { top: '72px', height: '2211.31px' },
+      borders: { borderTop: '1px solid #e5e7eb' },
+    }
+    evidence.pseudoElements = [
+      {
+        id: 'pseudo-unmapped',
+        pageId: desktop.id,
+        sectionId: 'missing-section',
+        target: 'body > div:nth-of-type(12)',
+        kind: 'after',
+        styles: { content: '"·"', color: 'rgb(55, 58, 64)' },
+        evidenceRefs: [desktop.images[0].id],
+      },
+      {
+        id: 'pseudo-drop-cap',
+        pageId: desktop.id,
+        sectionId: section.id,
+        target: 'main > article > p:first-of-type',
+        kind: 'first-letter',
+        styles: { fontSize: '48px', float: 'left', color: 'rgb(153, 27, 27)' },
+        evidenceRefs: [desktop.images[0].id],
+      },
+      {
+        id: 'pseudo-blank-geometry',
+        pageId: desktop.id,
+        sectionId: section.id,
+        target: 'main > article::after',
+        kind: 'after',
+        styles: {
+          content: '" "',
+          width: '366px',
+          height: '99px',
+          borderRadius: '4px',
+          transform: 'matrix(0.5, 0, 0, 0.5, 0, 0)',
+        },
+        evidenceRefs: [desktop.images[0].id],
+      },
+      {
+        id: 'pseudo-bordered-decoration',
+        pageId: desktop.id,
+        sectionId: section.id,
+        target: 'main > article::before',
+        kind: 'before',
+        styles: {
+          content: '" "',
+          width: '134.75px',
+          height: '32px',
+          borderRadius: '4px',
+          borderTop: '1px solid rgba(247, 122, 49, 0.3)',
+          borderRight: '1px solid rgba(247, 122, 49, 0.3)',
+          borderBottom: '1px solid rgba(247, 122, 49, 0.3)',
+          borderLeft: '1px solid rgba(247, 122, 49, 0.3)',
+          transform: 'matrix(0.5, 0, 0, 0.5, 0, 0)',
+        },
+        evidenceRefs: [desktop.images[0].id],
+      },
+      {
+        id: 'pseudo-mobile-only',
+        pageId: mobile.id,
+        sectionId: mobileSection.id,
+        target: 'main > article::before',
+        kind: 'before',
+        styles: { content: '"MOBILE-ONLY"', color: 'rgb(55, 58, 64)' },
+        evidenceRefs: [mobile.images[0].id],
+      },
+    ]
+    const repeatedSection = { ...section, id: `${section.id}-repeated`, order: section.order + 1 }
+    evidence.sections.push(repeatedSection)
+    const topology = evidence.topology.pages.find((page) => page.pageId === desktop.id)
+    const sectionIndex = topology?.sectionIds.indexOf(section.id) ?? -1
+    topology?.sectionIds.splice(sectionIndex + 1, 0, repeatedSection.id)
+    evidence.responsiveObservations = [
+      {
+        id: 'responsive-volatile',
+        sectionId: section.id,
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'scale',
+        changedProperties: ['height', 'rect.width'],
+        changes: {
+          height: { from: '3736.83px', to: '1385.69px' },
+          'rect.width': { from: 1, to: 0.1017 },
+        },
+        summary: 'Volatile page geometry differs.',
+        evidenceRefs: [section.id],
+      },
+    ]
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
+
+    expect(summary).toContain('sticky, top 72px')
+    expect(summary).not.toContain('content ::after')
+    expect(summary).toContain('::first-letter')
+    expect(summary).toContain(`${section.role} ×2`)
+    expect(summary).not.toContain('2211.31px')
+    expect(summary).not.toContain('1px solid #e5e7eb')
+    expect(summary).not.toContain('unknown after')
+    expect(summary).not.toContain('rect.width')
+    expect(document).toContain('content: "·"')
+    expect(document).not.toContain('width: 366px')
+    expect(document).toContain('border: 1px solid rgba(247, 122, 49, 0.3)')
+    expect(document).not.toContain('borderRight: 1px solid rgba(247, 122, 49, 0.3)')
+    expect(document).not.toContain('MOBILE-ONLY')
+  })
+
+  it('shows representative passive state values instead of only aggregate property counts', () => {
+    const evidence = buildFixtureEvidence()
+    const page = evidence.pages[0]
+    const section = evidence.sections.find((candidate) => candidate.pageId === page.id)!
+    evidence.interactionObservations = [
+      {
+        id: 'interaction-hover-values',
+        pageId: page.id,
+        sectionId: section.id,
+        targetId: 'synthetic-target-id',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:hover' },
+        before: { color: 'rgb(17, 24, 39)', 'background-color': 'rgb(255, 255, 255)' },
+        after: { color: 'rgb(37, 99, 235)', 'background-color': 'rgb(248, 250, 252)' },
+        changedProperties: ['color', 'background-color'],
+        evidenceRefs: [section.id],
+      },
+    ]
+
+    const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+
+    expect(brief).toContain('代表性状态值')
+    expect(brief).toContain('color: rgb(17, 24, 39) → rgb(37, 99, 235)')
+    expect(brief).toContain('计算样式观察（未点击）')
+    expect(brief).not.toContain('synthetic-target-id')
+  })
+
+  it('labels cross-page reconstruction facts with their source route', () => {
+    const evidence = buildFixtureEvidence()
+    const secondPage = evidence.pages.find((page) => page.viewport === 'mobile')!
+    secondPage.url = 'https://example.com/creator'
+    const secondSection = evidence.sections.find((section) => section.pageId === secondPage.id)!
+    secondSection.observedStyles = { layout: { maxWidth: '413px' } }
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
+
+    expect(summary).toContain('**Site thesis:**')
+    expect(summary).toContain('**Entry-page section hierarchy:**')
+    expect(summary).toContain('`[/creator] navigation max-width: 413px`')
+  })
+
+  it('labels human-facing order-only responsive evidence as reorder', () => {
+    const evidence = buildFixtureEvidence()
+    const section = evidence.sections[0]
+    evidence.responsiveObservations = [
+      {
+        id: 'responsive-order',
+        sectionId: section.id,
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'reflow',
+        changedProperties: ['order', 'rect.width'],
+        changes: {
+          order: { from: 2, to: 1 },
+          'rect.width': { from: 0.5, to: 0.9 },
+        },
+        summary: 'Order and volatile geometry changed.',
+        evidenceRefs: [section.id],
+      },
+    ]
+
+    const brief = generateDesignEvidenceBrief(evidence)
+
+    expect(brief).toContain('reorder (order)')
+    expect(brief).not.toContain('reflow (order)')
+  })
+
+  it('uses human-readable role and duration labels in DESIGN.md', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.sections[0].role = 'unknown'
+    evidence.sections[0].observedStyles = { layout: { maxWidth: '960px' } }
+    const durationTokens = { ...tokens, transitions: ['0.1s', '0.15s', '0.2s', '0.25s', '0.3s', '0.5s'] }
+
+    const document = generateDesignDoc(
+      durationTokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      [],
+      evidence,
+    )
+
+    expect(document).toContain('content · `section-')
+    expect(document).not.toContain('unknown · `section-')
+    expect(document).toContain('- duration-6: `0.5s`')
+    expect(document).not.toContain('- 5: `0.5s`')
+    expect(document).toContain('**Key structure:**')
+  })
+
+  it('orders typography role values by observed frequency', () => {
+    const evidence = buildFixtureEvidence()
+    const exemplar = evidence.layoutNodes[0]
+    evidence.layoutNodes.push(
+      {
+        ...exemplar,
+        id: 'body-rare',
+        textRole: 'body',
+        tokenRefs: [],
+        observedTypography: { fontFamily: 'Rare Face', fontSize: '19px', fontWeight: '500', lineHeight: '47px' },
+      },
+      ...Array.from({ length: 3 }, (_, index) => ({
+        ...exemplar,
+        id: `body-common-${index}`,
+        textRole: 'body' as const,
+        tokenRefs: [],
+        observedTypography: { fontFamily: 'Common Face', fontSize: '16px', fontWeight: '400', lineHeight: '24px' },
+      })),
+    )
+
+    const brief = generateDesignEvidenceBrief(evidence)
+    const bodyRow = brief.split('\n').find((line) => line.startsWith('| `body`')) || ''
+
+    expect(bodyRow.indexOf('Common Face')).toBeLessThan(bodyRow.indexOf('Rare Face'))
+    expect(bodyRow.indexOf('16px')).toBeLessThan(bodyRow.indexOf('19px'))
+    expect(bodyRow.indexOf('1.5')).toBeLessThan(bodyRow.indexOf('2.474'))
+  })
+
+  it('renders free-form tab and status Evidence without adding them to standard frontmatter component types', () => {
+    const evidence = buildFixtureEvidence()
+    const exemplar = evidence.components[0]
+    evidence.components.push(
+      { ...exemplar, id: 'tab-evidence', type: 'tab', elementKind: 'button', role: 'tab' },
+      { ...exemplar, id: 'status-evidence', type: 'status', elementKind: 'status', role: 'status' },
+      {
+        ...exemplar,
+        id: 'tab-mobile-evidence',
+        pageId: evidence.pages.find((page) => page.viewport === 'mobile')!.id,
+        type: 'tab',
+        elementKind: 'button',
+        role: 'tab',
+      },
+      {
+        ...exemplar,
+        id: 'status-mobile-evidence',
+        pageId: evidence.pages.find((page) => page.viewport === 'mobile')!.id,
+        type: 'status',
+        elementKind: 'status',
+        role: 'status',
+      },
+    )
+    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', [], evidence)
+    const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
+
+    expect(document).toContain('| tab | 1 |')
+    expect(document).toContain('| status | 1 |')
+    expect(frontMatter.components).not.toHaveProperty('tab')
+    expect(frontMatter.components).not.toHaveProperty('status')
+  })
+
+  it('exports structural section radii and gradient evidence without adding compound radii to the scalar scale', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.sections[0].observedStyles = {
+      borderRadius: '0px 0px 48px 48px',
+      gradient: {
+        type: 'linear-gradient',
+        direction: '160deg',
+        stops: ['rgb(255, 237, 213)', 'rgb(254, 215, 170)'],
+        value: 'linear-gradient(160deg, rgb(255, 237, 213), rgb(254, 215, 170))',
+      },
+    }
+    evidence.sections[1].observedStyles = { borderRadius: '48px 48px 0px 0px' }
+    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', [], evidence)
+    const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
+
+    expect(document).toContain('linear-gradient(160deg, rgb(255, 237, 213), rgb(254, 215, 170))')
+    expect(document).toContain('0px 0px 48px 48px')
+    expect(document).toContain('48px 48px 0px 0px')
+    expect(Object.values(frontMatter.rounded)).not.toContain('48px 48px 0px 0px')
+  })
+
+  it('keeps the healthy entry-page identity and ignores sub-page titles', () => {
+    const entry = createSnapshot('desktop', 1440)
+    entry.applicationName = 'Home'
+    entry.openGraphSiteName = 'Bubblebox'
+    entry.title = 'Bubblebox — Snacks that pop'
+    const subPage = { ...createSnapshot('mobile', 375), url: 'https://example.com/account', title: 'Account Settings' }
+    const evidence = buildDesignEvidence({
+      analysisId: 'identity-analysis',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: entry.url, path: 'entry.png', viewport: 'desktop' }, snapshot: entry },
+        { screenshot: { url: subPage.url, path: 'sub.png', viewport: 'mobile' }, snapshot: subPage },
+      ],
+    })
+
+    expect(evidence.source).toMatchObject({ siteName: 'Bubblebox', title: 'Bubblebox — Snacks that pop' })
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
+    expect(frontMatter.name).toBe('Bubblebox')
+  })
+
+  it('keeps old schema v1 JSON without optional identity fields compatible', () => {
+    const legacyEvidence = JSON.parse(generateDesignEvidenceJson(buildFixtureEvidence()))
+    delete legacyEvidence.source.title
+    delete legacyEvidence.source.siteName
+    legacyEvidence.pages.forEach((page: Record<string, unknown>) => {
+      delete page.title
+      delete page.siteName
+    })
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], legacyEvidence)
+    const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
+    expect(legacyEvidence.schemaVersion).toBe('1')
+    expect(frontMatter.name).toBe('example.com Design System')
+  })
+
   it('creates stable traceable IDs and preserves deterministic tokens', () => {
     expect(createEvidenceId('section', 'page', 'hero:1')).toBe(createEvidenceId('section', 'page', 'hero:1'))
 
@@ -270,6 +708,13 @@ describe('Design Evidence', () => {
     expect(evidence.responsiveObservations.length).toBeGreaterThan(0)
     expect(evidence.coverage).toMatchObject({
       pageCoverage: 'complete',
+      urlCoverage: { requested: 1, captured: 1 },
+      captureCoverage: {
+        expected: 2,
+        captured: 2,
+        status: 'complete',
+        requestedViewports: ['desktop', 'mobile'],
+      },
       sectionCoverage: 1,
       viewportCoverage: ['desktop', 'mobile'],
     })
@@ -278,12 +723,70 @@ describe('Design Evidence', () => {
     expect(evidence.interactionObservations).toEqual(
       expect.arrayContaining([expect.objectContaining({ driver: 'hover', safety: 'passive' })]),
     )
-    const responsive = evidence.responsiveObservations[0]
-    const responsiveSection = evidence.sections.find((section) => section.id === responsive.sectionId)!
-    const responsivePage = evidence.pages.find((page) => page.id === responsiveSection.pageId)!
-    expect(generateDesignEvidenceBrief(evidence)).toContain(
-      `${responsivePage.url} · ${responsiveSection.role} · \`${responsive.sectionId}\``,
-    )
+    const brief = generateDesignEvidenceBrief(evidence)
+    expect(brief).toContain('Declared states: hover ×1')
+    expect(brief).toContain('Passively declared properties: color ×1')
+    expect(brief).not.toContain('`target-')
+    expect(brief).not.toContain('unknown →')
+    expect(brief).not.toContain('rect.width')
+    expect(brief).toContain('Coverage: URLs 1/1; page×viewport captures 2/2 (complete)')
+  })
+
+  it('reports URL coverage separately from missing page×viewport captures', () => {
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-partial-captures',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: 'https://example.com/', path: 'C:\\evidence\\desktop.png', viewport: 'desktop' },
+          snapshot: createSnapshot('desktop', 1440),
+        },
+      ],
+    })
+
+    expect(evidence.coverage.pageCoverage).toBe('complete')
+    expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 2, captured: 1, status: 'partial' })
+    expect(evidence.limitations).toContain('fewer-page-viewports-than-requested')
+    expect(generateDesignEvidenceBrief(evidence)).toContain('page×viewport captures 1/2 (partial)')
+  })
+
+  it('counts unique requested URL and viewport combinations for capture coverage', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const duplicateDesktop = createSnapshot('desktop', 1440)
+    const unrequestedTablet = createSnapshot('tablet', 768)
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-duplicate-captures',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [desktop, duplicateDesktop, unrequestedTablet].map((snapshot, index) => ({
+        screenshot: {
+          url: 'https://example.com/',
+          path: `capture-${index}.png`,
+          viewport: snapshot.viewport,
+        },
+        snapshot,
+      })),
+    })
+
+    expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 2, captured: 1, status: 'partial' })
+    expect(evidence.limitations).toContain('fewer-page-viewports-than-requested')
   })
 
   it('diffs adjacent viewport pairs for three-viewport analyses', () => {
@@ -613,7 +1116,6 @@ describe('Design Evidence', () => {
       [],
       evidence,
       undefined,
-      undefined,
       'failed',
     )
     const diagnosticDoc = generateDesignDoc(
@@ -626,7 +1128,6 @@ describe('Design Evidence', () => {
       'en',
       [],
       evidence,
-      undefined,
       undefined,
       'partial',
       {
@@ -673,9 +1174,6 @@ describe('Design Evidence', () => {
           promptVersion: string
           rejectedCount: number
           repairedCount: number
-          rejected: string[]
-          repaired: string[]
-          timing: { programMs: number; aiMs: number; userWaitExcludedMs: number; activeTotalMs: number }
         }
       }>
     }
@@ -693,11 +1191,11 @@ describe('Design Evidence', () => {
         {
           schema: 'imprint.design-system/2',
           evidence: { analysisId: 'analysis-1' },
-          componentSummary: { source: 'design-evidence', patterns: 1, instances: 2 },
+          componentSummary: { source: 'design-evidence', patterns: 1, instances: 1 },
         },
       ],
     })
-    expect(designDoc).toContain('| button-primary | 2 | 0.98 |')
+    expect(designDoc).toContain('| button-primary | 1 | 0.98 |')
     expect(designDoc).not.toContain('No component pattern was observed with enough confidence')
     expect(designDoc).toContain('### Typography Role Evidence')
     expect(designDoc).toContain('| `display` | 2 | `Inter`')
@@ -717,9 +1215,9 @@ describe('Design Evidence', () => {
       promptVersion: '19',
       rejectedCount: 2,
       repairedCount: 1,
-      rejected: ['one', 'two'],
-      repaired: ['one'],
-      timing: { programMs: 65_000, aiMs: 95_000, userWaitExcludedMs: 135_000, activeTotalMs: 160_000 },
     })
+    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('rejected')
+    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('repaired')
+    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('timing')
   })
 })

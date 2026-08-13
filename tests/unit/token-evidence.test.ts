@@ -82,7 +82,7 @@ describe('token evidence', () => {
     expect(dtcg.$extensions['com.imprint.tokenEvidence']['colors.primary']).toBeDefined()
     expect(designDoc).toContain('## Extraction Confidence')
     expect(designDoc).toContain('### Dominant Observed Color Roles')
-    expect(designDoc).toContain('| Action/accent | `--color-primary` |')
+    expect(designDoc).toContain('| Action | `--color-primary` |')
     expect(evidence['colors.primary'].pages[0]).toBe('https://example.com/')
   })
 
@@ -98,7 +98,7 @@ describe('token evidence', () => {
     })
     const dominantRoles = designDoc.split('### Complete Color Tokens')[0]
 
-    expect(dominantRoles).toContain('| Action/accent | `--color-primary` |')
+    expect(dominantRoles).toContain('| Action | `--color-primary` |')
     expect(dominantRoles).not.toContain('`--color-palette-1`')
     expect(dominantRoles).toContain('| Text | `--color-foreground` |')
   })
@@ -125,8 +125,8 @@ describe('token evidence', () => {
     const dominantRoles = designDoc.split('### Complete Color Tokens')[0]
 
     expect(dominantRoles).toMatch(/\| Surface\/background \|[^\n]*`--color-surface`[^\n]*\|/)
-    expect(dominantRoles).toMatch(/\| Surface\/background \|[^\n]*`--color-palette-9`[^\n]*\|/)
-    expect(dominantRoles).toContain('| Status/feedback | `--color-danger` |')
+    expect(dominantRoles).toContain('| Decorative | `--color-observed-64748b` |')
+    expect(dominantRoles).toContain('| Status/delta | `--color-danger` |')
     expect(dominantRoles).toContain('| Border | `--color-border-subtle` |')
     expect(dominantRoles).not.toContain('| Action/accent | `--color-surface`')
   })

@@ -1,0 +1,14 @@
+{
+  "fixture": "rich-palette",
+  "description": "Multi-hue product system: six product families each own a saturated hue used on cards and actions.",
+  "expectedSectionRoles": ["header", "hero", "content", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "scale", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "forbiddenFeatureTags": ["neutral palette with a single accent"]
+}

@@ -375,6 +375,53 @@ describe('selectEvidencePackage packaging', () => {
     expect(digest.tokenFacts.colors[0]).toMatchObject({ name: 'primary', count: 17, pages: 1, roles: ['action'] })
   })
 
+  test('keeps reusable section facts while excluding volatile content geometry from AI synthesis', () => {
+    const evidence = makeEvidence()
+    evidence.sections[0].role = 'hero'
+    evidence.sections[0].observedStyles = {
+      layout: { height: '2879.42px', maxWidth: '960px', display: 'grid' },
+    }
+    evidence.responsiveObservations = [
+      {
+        id: 'responsive-a',
+        sectionId: 'section-a',
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'reflow',
+        changedProperties: ['height', 'rect.width', 'gridTemplateColumns'],
+        changes: {
+          height: { from: '2879.42px', to: '1438.2px' },
+          'rect.width': { from: 1, to: 0.92 },
+          gridTemplateColumns: { from: 'repeat(3, 1fr)', to: '1fr' },
+        },
+        summary: 'Observed three raw geometry changes.',
+        evidenceRefs: ['section-a'],
+      },
+    ]
+
+    const digest = buildAnalysisDigest(evidence, selectEvidencePackage(evidence, 'structural-only')).digest
+
+    expect(digest.sectionPatterns[0].observedStyles?.layout).toEqual({ maxWidth: '960px', display: 'grid' })
+    expect(digest.responsiveFacts[0]).toMatchObject({
+      changedProperties: ['gridTemplateColumns'],
+      change: 'gridTemplateColumns: repeat(3, 1fr) -> 1fr',
+    })
+    expect(JSON.stringify(digest)).not.toContain('2879.42px')
+    expect(JSON.stringify(digest)).not.toContain('rect.width')
+
+    const headerEvidence = makeEvidence()
+    headerEvidence.sections[0].observedStyles = { layout: { height: '44px', position: 'sticky', top: '0px' } }
+    const headerDigest = buildAnalysisDigest(
+      headerEvidence,
+      selectEvidencePackage(headerEvidence, 'structural-only'),
+    ).digest
+    expect(headerDigest.sectionPatterns[0].observedStyles?.layout).toEqual({
+      height: '44px',
+      position: 'sticky',
+      top: '0px',
+    })
+  })
+
   test('keeps the compact prompt under its hard character budget for dense component evidence', () => {
     const evidence = makeEvidence()
     const selected = selectEvidencePackage(evidence, 'structural-only')

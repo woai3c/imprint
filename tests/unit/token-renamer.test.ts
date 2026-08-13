@@ -97,12 +97,49 @@ describe('AI color rename validation', () => {
     ])
   })
 
+  test('requires an evidence-backed role prefix when usage evidence exists', () => {
+    const tokens: DesignToken = {
+      ...createTokens({ 'palette-3': '#8491a5' }),
+      usageCount: {
+        'textColor:rgb(132, 145, 165)': 664,
+      },
+    }
+
+    const validation = validateColorRenames(tokens, [
+      { tokenId: 'palette-3', name: 'slate-accent' },
+      { tokenId: 'palette-3', name: 'text-subtle' },
+    ])
+
+    expect(validation.accepted).toEqual([])
+    expect(validation.rejected).toMatchObject([
+      { proposal: { tokenId: 'palette-3', name: 'slate-accent' }, reason: 'role-mismatch' },
+      { proposal: { tokenId: 'palette-3', name: 'text-subtle' }, reason: 'duplicate-token' },
+    ])
+    expect(validateColorRenames(tokens, [{ tokenId: 'palette-3', name: 'text-subtle' }]).accepted).toEqual([
+      { tokenId: 'palette-3', name: 'text-subtle' },
+    ])
+  })
+
   test('skips the role check when the token has no usage evidence', () => {
     const tokens = createTokens({ 'palette-13': '#db2777' })
 
     const validation = validateColorRenames(tokens, [{ tokenId: 'palette-13', name: 'action-danger' }])
 
     expect(validation.accepted).toEqual([{ tokenId: 'palette-13', name: 'action-danger' }])
+  })
+
+  test('rejects aliases when the observed token has no supported semantic role', () => {
+    const tokens: DesignToken = {
+      ...createTokens({ 'palette-9': '#576b95' }),
+      evidence: {
+        'colors.palette-9': { ...tokenEvidence('high', 3), sources: ['computed:color'] },
+      },
+    }
+
+    const validation = validateColorRenames(tokens, [{ tokenId: 'palette-9', name: 'ash-gray' }])
+
+    expect(validation.accepted).toEqual([])
+    expect(validation.rejected).toMatchObject([{ reason: 'role-mismatch' }])
   })
 
   test('uses the dominant role from usage counts, not incidental category matches', () => {
@@ -160,7 +197,7 @@ describe('applyColorRenames', () => {
     const tokens: DesignToken = {
       ...createTokens({ background: '#16171d', 'palette-13': '#db2777', 'palette-20': '#005cc5' }),
       evidence: {
-        'colors.palette-13': tokenEvidence('high', 3),
+        'colors.palette-13': { ...tokenEvidence('high', 3), sources: ['usage:actionColor'] },
         'spacing.1': tokenEvidence('high', 10),
       },
     }

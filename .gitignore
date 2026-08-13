@@ -6,7 +6,10 @@ release-assets/
 release-notes.md
 test-results/
 coverage/
-tests/benchmark/results/
+
+# Local competitive product research (kept for repeat analysis, never shipped)
+/research/competitive-design-md/
+/scripts/competitive-research/
 
 # Internal working documents
 DESIGN_DNA_PROPOSAL.md

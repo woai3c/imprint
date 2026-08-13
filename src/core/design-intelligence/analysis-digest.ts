@@ -1,5 +1,10 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
-import { classifyComponentVariant } from '../analyzer/component-detect.js'
+import {
+  classifyComponentVariant,
+  hasVisibleBorder,
+  hasVisibleShadow,
+  isPillRadius,
+} from '../analyzer/component-detect.js'
 import type { ComponentType, ComponentVariant } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { distillInteractionChanges } from './evidence-selector.js'
@@ -31,13 +36,18 @@ export interface AnalysisDigest {
     colors: Array<{ id: string; name: string; value: string; roles: string[]; count: number; pages: number }>
     typography: {
       families: DigestTokenValue[]
+      stacks: DigestTokenValue[]
       sizes: DigestTokenValue[]
       weights: DigestTokenValue[]
       lineHeights: DigestTokenValue[]
+      letterSpacings: DigestTokenValue[]
     }
     spacing: DigestTokenValue[]
     radii: DigestTokenValue[]
     shadows: DigestTokenValue[]
+    borders: DigestTokenValue[]
+    zIndices: DigestTokenValue[]
+    transitions: DigestTokenValue[]
   }
   sectionPatterns: Array<{
     role: string
@@ -46,6 +56,7 @@ export interface AnalysisDigest {
     layouts: string[]
     tokenRefs: string[]
     sampleEvidenceIds: string[]
+    observedStyles?: NonNullable<DesignEvidence['sections'][number]['observedStyles']>
   }>
   componentPatterns: Array<{
     type: string
@@ -54,6 +65,7 @@ export interface AnalysisDigest {
     count: number
     pages: string[]
     sampleSize?: { width: number; height: number; shape: 'square' | 'wide' | 'tall' }
+    cornerShape?: 'pill' | 'rounded' | 'sharp'
     exactStyles: Record<string, string>
     tokenRefs: string[]
     stateChanges: InteractionChange[]
@@ -95,6 +107,8 @@ export interface AnalysisDigest {
   }>
   coverage: {
     pageCoverage: string
+    urlCoverage?: { requested: number; captured: number }
+    captureCoverage?: { expected: number; captured: number; status: string; requestedViewports: string[] }
     viewportCoverage: string[]
     safeInteractions: number
     skippedInteractions: number
@@ -236,9 +250,79 @@ function tokenValueByRef(evidence: DesignEvidence): Map<string, string> {
 
 const RAW_STYLE_LITERAL = /(?:^|[^\p{L}])-?\d|#[\da-f]{3,8}\b|rgba?\(|hsla?\(|oklch\(|oklab\(|calc\(|var\(/iu
 
+type SectionObservedStyles = NonNullable<DesignEvidence['sections'][number]['observedStyles']>
+type ResponsiveObservation = Omit<DesignEvidence['responsiveObservations'][number], 'evidenceRefs'>
+
+function boundedStructuralHeight(role: string, value: string | undefined): boolean {
+  if (!/^(?:header|navigation|action|toolbar|tablist)$/i.test(role) || !value) return false
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
+  return Boolean(match && Number.parseFloat(match[1]) > 0 && Number.parseFloat(match[1]) <= 240)
+}
+
+function promptSectionObservedStyles(
+  role: string,
+  observedStyles: SectionObservedStyles | undefined,
+): SectionObservedStyles | undefined {
+  if (!observedStyles) return undefined
+  const position = observedStyles.layout?.position
+  const layout = Object.fromEntries(
+    Object.entries(observedStyles.layout || {}).filter(([property, value]) => {
+      if (property === 'height') return boundedStructuralHeight(role, value)
+      if (property === 'top') return /^(?:sticky|fixed)$/i.test(position || '')
+      return true
+    }),
+  )
+  const borders = Object.fromEntries(
+    Object.entries(observedStyles.borders || {}).filter(([, value]) => hasVisibleBorder(value)),
+  )
+  const boxShadow = hasVisibleShadow(observedStyles.boxShadow) ? observedStyles.boxShadow : undefined
+  const result: SectionObservedStyles = {
+    ...(observedStyles.backgroundColor ? { backgroundColor: observedStyles.backgroundColor } : {}),
+    ...(observedStyles.borderRadius ? { borderRadius: observedStyles.borderRadius } : {}),
+    ...(observedStyles.gradient ? { gradient: observedStyles.gradient } : {}),
+    ...(Object.keys(layout).length > 0 ? { layout } : {}),
+    ...(Object.keys(borders).length > 0 ? { borders } : {}),
+    ...(boxShadow ? { boxShadow } : {}),
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function usefulResponsiveProperties(observation: ResponsiveObservation, sectionRole: string): string[] {
+  const reusableProperty =
+    /^(?:order|layoutMode|position|display|gridTemplateColumns|childGridTemplateColumns|maxWidth|gap|padding(?:Top|Right|Bottom|Left)?|borderRadius|border(?:Top|Right|Bottom|Left)|boxShadow|interactionModel|node\.[^.]+\.(?:fontSize|lineHeight|display))$/
+  return observation.changedProperties.filter((property) => {
+    if (property === 'height') {
+      const change = observation.changes?.[property]
+      return (
+        boundedStructuralHeight(sectionRole, typeof change?.from === 'string' ? change.from : undefined) &&
+        boundedStructuralHeight(sectionRole, typeof change?.to === 'string' ? change.to : undefined)
+      )
+    }
+    return reusableProperty.test(property)
+  })
+}
+
+function describeResponsiveChange(observation: ResponsiveObservation, properties: string[]): string {
+  const details = properties.flatMap((property) => {
+    const change = observation.changes?.[property]
+    if (!change || change.from === undefined || change.to === undefined || change.from === change.to) return []
+    return [`${property}: ${String(change.from).slice(0, 80)} -> ${String(change.to).slice(0, 80)}`]
+  })
+  return details.length > 0
+    ? details.join('; ').slice(0, 360)
+    : `Observed ${observation.changeType} between ${observation.fromViewport} and ${observation.toViewport}.`
+}
+
 function colorRoles(sources: string[] | undefined): string[] {
+  const values = sources || []
+  const hasRenderedUse = values.some((source) =>
+    /^usage:(?:primaryAction|action|selected|accent|link|status|bgArea|bgColor|textColor|structuralBorderColor|borderColor)/.test(
+      source,
+    ),
+  )
+  if (!hasRenderedUse && values.some((source) => source.startsWith('css-variable:'))) return ['declared']
   return stableUnique(
-    (sources || []).flatMap((source) => {
+    values.flatMap((source) => {
       const role = COLOR_ROLE_LABELS.find(([pattern]) => pattern.test(source))?.[1]
       return role ? [role] : []
     }),
@@ -365,7 +449,8 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
 
   const sectionGroups = new Map<string, typeof selected.sections>()
   for (const section of selected.sections) {
-    const key = `${section.role}|${section.layoutMode}|${[...section.tokenRefs].sort().join(',')}`
+    const observedStyles = promptSectionObservedStyles(section.role, section.observedStyles)
+    const key = `${section.role}|${section.layoutMode}|${[...section.tokenRefs].sort().join(',')}|${JSON.stringify(observedStyles || {})}`
     const group = sectionGroups.get(key) || []
     group.push(section)
     sectionGroups.set(key, group)
@@ -383,6 +468,9 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
     ),
     tokenRefs: tokenShortIds(group.flatMap((section) => section.tokenRefs)),
     sampleEvidenceIds: group.slice(0, 2).map((section) => sectionShortId(section.id)),
+    ...(promptSectionObservedStyles(group[0].role, group[0].observedStyles)
+      ? { observedStyles: promptSectionObservedStyles(group[0].role, group[0].observedStyles) }
+      : {}),
   }))
 
   const originalComponents = evidence.components.filter(
@@ -429,6 +517,11 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       const sample = samples[0]
       const variant = componentVariant(sample)
       const sampleSize = componentSize(sample)
+      const cornerShape = isPillRadius(sample.styles, sampleSize ? { heightPx: sampleSize.height } : undefined)
+        ? ('pill' as const)
+        : sample.styles.borderRadius && /[1-9]/.test(sample.styles.borderRadius)
+          ? ('rounded' as const)
+          : ('sharp' as const)
       const relatedInteractions = evidence.interactionObservations.filter(
         (observation) =>
           componentIds.has(observation.targetId) ||
@@ -445,6 +538,7 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
             4,
           ),
           ...(sampleSize ? { sampleSize } : {}),
+          cornerShape,
           exactStyles: promptSafeStyles(
             group[0].styles,
             group.flatMap((component) => component.tokenRefs),
@@ -483,18 +577,25 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
     changes: observation.changes.slice(0, 6),
     changedProperties: observation.changedProperties.slice(0, 8),
   }))
-  const responsiveFacts = selected.responsiveObservations.slice(0, 12).map((observation) => {
-    const section = sectionById.get(observation.sectionId)
-    return {
-      id: ids.evidenceShortIdMap.get(observation.id)!,
-      page: section ? pageShortId(section.pageId) : pages[0]?.id || 'p1',
-      section: sectionShortId(observation.sectionId),
-      from: observation.fromViewport,
-      to: observation.toViewport,
-      change: observation.summary.slice(0, 180),
-      changedProperties: observation.changedProperties.slice(0, 8),
-    }
-  })
+  const responsiveFacts = selected.responsiveObservations
+    .slice(0, 24)
+    .flatMap((observation) => {
+      const section = sectionById.get(observation.sectionId)
+      const changedProperties = usefulResponsiveProperties(observation, section?.role || '')
+      if (changedProperties.length === 0) return []
+      return [
+        {
+          id: ids.evidenceShortIdMap.get(observation.id)!,
+          page: section ? pageShortId(section.pageId) : pages[0]?.id || 'p1',
+          section: sectionShortId(observation.sectionId),
+          from: observation.fromViewport,
+          to: observation.toViewport,
+          change: describeResponsiveChange(observation, changedProperties),
+          changedProperties: changedProperties.slice(0, 8),
+        },
+      ]
+    })
+    .slice(0, 12)
   const mediaFacts = selected.mediaLayers.slice(0, 12).map((media) => ({
     id: ids.evidenceShortIdMap.get(media.id)!,
     section: sectionShortId(media.sectionId),
@@ -512,13 +613,18 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       colors,
       typography: {
         families: tokenValues(selected.tokens.typography.fontFamilies, 'typography.font-family', tokens.add),
+        stacks: tokenValues(selected.tokens.typography.fontStacks, 'typography.font-stack', tokens.add),
         sizes: tokenValues(selected.tokens.typography.fontSizes, 'typography.font-size', tokens.add),
         weights: tokenValues(selected.tokens.typography.fontWeights, 'typography.font-weight', tokens.add),
         lineHeights: tokenValues(selected.tokens.typography.lineHeights, 'typography.line-height', tokens.add),
+        letterSpacings: tokenValues(selected.tokens.typography.letterSpacings, 'typography.letter-spacing', tokens.add),
       },
       spacing: tokenValues(selected.tokens.spacing, 'spacing', tokens.add),
       radii: tokenValues(selected.tokens.radii, 'radius', tokens.add),
       shadows: tokenValues(selected.tokens.shadows, 'shadow', tokens.add),
+      borders: tokenValues(selected.tokens.borders, 'border', tokens.add),
+      zIndices: tokenValues(selected.tokens.zIndices, 'z-index', tokens.add),
+      transitions: tokenValues(selected.tokens.transitions, 'transition', tokens.add),
     },
     sectionPatterns,
     componentPatterns,
@@ -528,6 +634,8 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
     mediaFacts,
     coverage: {
       pageCoverage: selected.coverage.pageCoverage,
+      ...(selected.coverage.urlCoverage ? { urlCoverage: selected.coverage.urlCoverage } : {}),
+      ...(selected.coverage.captureCoverage ? { captureCoverage: selected.coverage.captureCoverage } : {}),
       viewportCoverage: selected.coverage.viewportCoverage,
       safeInteractions: selected.coverage.interactionCoverage.safelyObserved,
       skippedInteractions: selected.coverage.interactionCoverage.skipped,

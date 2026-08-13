@@ -1,0 +1,58 @@
+{
+  "fixture": "playful-marketing",
+  "description": "Playful snack brand: warm orange palette, pill buttons, large radii, gradient hero with rounded bottom.",
+  "expectedPageRole": "landing",
+  "expectedSectionRoles": ["header", "hero", "content", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button", "card"],
+  "expectedElementKinds": ["anchor", "button"],
+  "expectedDesktopComponentCounts": {
+    "card": 3
+  },
+  "expectedDesignDocComponentCounts": {
+    "card": 3
+  },
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "expectedDeterministicClaims": [
+    "single dominant action family with multicolor decorative accents",
+    "section-level gradient and compound-radius treatments observed"
+  ],
+  "expectedPrimary": "#ea580c",
+  "forbiddenGenericAccents": ["#431407"],
+  "expectedObservedPrimaryForeground": "#ffffff",
+  "expectedPrimaryContrastRatio": 3.56,
+  "expectedTitle": "Bubblebox — Snacks that pop",
+  "forbiddenScalarRadii": ["48px"],
+  "expectedStructuralTreatments": {
+    "gradientType": "linear-gradient",
+    "gradientDirection": "160deg",
+    "gradientStops": ["rgb(255, 237, 213)", "rgb(254, 215, 170)"],
+    "borderRadii": ["0px 0px 48px 48px", "48px 48px 0px 0px"]
+  },
+  "expectedMaxWidths": ["1080px"],
+  "expectedResponsiveColumns": [{ "from": 3, "to": 1 }],
+  "expectedResponsiveValues": [{ "property": "node.heading.fontSize", "from": "56px", "to": "36px" }],
+  "expectedInteractionValues": [
+    {
+      "driver": "hover",
+      "property": "background-color",
+      "from": "rgb(234, 88, 12)",
+      "to": "rgb(194, 65, 12)"
+    }
+  ],
+  "forbiddenColors": ["#000000"],
+  "forbiddenFontFamilies": ["Times New Roman"],
+  "expectedDesignDocStrings": ["button-primary-sm", "button-primary-lg", "elementKind: anchor", "elementKind: button"],
+  "expectedReconstructionSummaryStrings": [
+    "linear-gradient 160deg",
+    "primary CTA hover",
+    "content max-width: 1080px",
+    "columns 3 → 1",
+    "heading font-size 56px → 36px"
+  ]
+}

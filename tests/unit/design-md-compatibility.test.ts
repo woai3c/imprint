@@ -225,6 +225,144 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(buildDesignMdColorTokens(aliased, aliases)).toEqual(buildDesignMdColorTokens(raw))
   })
 
+  test('uses the same public fallback color name in machine and prose layers', () => {
+    const raw: DesignToken = {
+      ...tokens,
+      colors: { ...tokens.colors, 'palette-5': '#8491a5' },
+      evidence: {
+        'colors.palette-5': {
+          value: '#8491a5',
+          confidence: 'low',
+          observationCount: 1,
+          pageCount: 1,
+          captureCount: 1,
+          pages: ['https://example.com/'],
+          sources: ['rendered:text'],
+          reasons: ['computed-style'],
+        },
+      },
+    }
+    const designDoc = generateDesignDoc(raw, 'https://example.com/')
+
+    expect(designDoc).toContain('observed-8491a5: "#8491a5"')
+    expect(designDoc).toContain('`--color-observed-8491a5`')
+    expect(designDoc).toContain('`colors.observed-8491a5` (`#8491a5`)')
+    expect(designDoc).not.toContain('`--color-palette-5`')
+    expect(designDoc).not.toContain('`colors.palette-5`')
+  })
+
+  test('separates CSS-declared colors from colors with observed rendered roles', () => {
+    const declaredTokens: DesignToken = {
+      ...tokens,
+      colors: { ...tokens.colors, 'palette-9': '#3f45ff' },
+      usageCount: {
+        'declaredColor:rgb(63, 69, 255)': 3,
+        'brandTokenColor:rgb(63, 69, 255)': 3,
+      },
+      evidence: {
+        'colors.palette-9': {
+          value: '#3f45ff',
+          confidence: 'high',
+          observationCount: 3,
+          pageCount: 3,
+          captureCount: 3,
+          pages: ['https://example.com/'],
+          sources: ['usage:declaredColor', 'usage:brandTokenColor', 'css-variable:--brand-color'],
+          reasons: ['declared-token'],
+        },
+      },
+    }
+
+    const designDoc = generateDesignDoc(declaredTokens, 'https://example.com/')
+    const declaredGroup = designDoc.split('\n').find((line) => line.includes('CSS-declared; no rendered use observed'))
+    const actionGroup = designDoc.split('\n').find((line) => line.startsWith('| Action |'))
+
+    expect(declaredGroup).toContain('`--color-observed-3f45ff`')
+    expect(actionGroup || '').not.toContain('`--color-observed-3f45ff`')
+    expect(designDoc).toContain(
+      '| `--color-observed-3f45ff` | `#3f45ff` | CSS-declared; no rendered use observed | high · 3 pages |',
+    )
+  })
+
+  test('uses rendered evidence instead of a CSS variable name when grouping an observed color', () => {
+    const renderedTokens: DesignToken = {
+      ...tokens,
+      colors: { ...tokens.colors, brand: '#3f45ff' },
+      usageCount: {
+        'brandTokenColor:rgb(63, 69, 255)': 20,
+        'textColor:rgb(63, 69, 255)': 2,
+      },
+      evidence: {
+        'colors.brand': {
+          value: '#3f45ff',
+          confidence: 'medium',
+          observationCount: 2,
+          pageCount: 1,
+          captureCount: 1,
+          pages: ['https://example.com/'],
+          sources: ['usage:brandTokenColor', 'usage:textColor', 'css-variable:--brand-color'],
+          reasons: ['declared-token', 'rendered-use'],
+        },
+      },
+    }
+
+    const designDoc = generateDesignDoc(renderedTokens, 'https://example.com/')
+    const textGroup = designDoc.split('\n').find((line) => line.startsWith('| Text |'))
+    const actionGroup = designDoc.split('\n').find((line) => line.startsWith('| Action |'))
+
+    expect(textGroup).toContain('`--color-brand`')
+    expect(actionGroup || '').not.toContain('`--color-brand`')
+  })
+
+  test('surfaces text-component contrast risks without duplicating the primary-action warning', () => {
+    const designDoc = generateDesignDoc(
+      { ...tokens, colors: { ...tokens.colors, surface: '#ffffff', 'palette-5': '#8491a5' } },
+      'https://example.com/',
+      [],
+      undefined,
+      [],
+      [
+        {
+          type: 'button',
+          count: 4,
+          selectors: ['button'],
+          styles: { color: '#8491a5', backgroundColor: 'transparent', fontSize: '14px' },
+          confidence: 0.98,
+          evidence: ['native-element'],
+        },
+      ],
+      'en',
+    )
+
+    expect(designDoc).toContain('### Component Contrast Notes')
+    expect(designDoc).toContain('`button-text`')
+    expect(designDoc).toContain('3.19:1')
+    expect(designDoc).toContain('below the 4.5:1 target for this text control')
+    expect(designDoc).toContain('inferred surface')
+
+    const explicitBackgroundDoc = generateDesignDoc(
+      { ...tokens, colors: { ...tokens.colors, surface: '#ffffff', 'palette-5': '#8491a5' } },
+      'https://example.com/',
+      [],
+      undefined,
+      [],
+      [
+        {
+          type: 'button',
+          count: 1,
+          selectors: ['button'],
+          styles: { color: '#8491a5', backgroundColor: '#ffffff', fontSize: '14px' },
+          confidence: 0.98,
+          evidence: ['native-element'],
+        },
+      ],
+      'en',
+    )
+
+    expect(explicitBackgroundDoc).toContain('observed background `#ffffff`')
+    expect(explicitBackgroundDoc).not.toContain('shared-surface assumption')
+  })
+
   test('keeps detailed token evidence out of the compact front matter', () => {
     const evidencedTokens: DesignToken = {
       ...tokens,

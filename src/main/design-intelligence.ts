@@ -654,7 +654,27 @@ export async function runDesignIntelligence(
         : 'structural-ai'
 
     onProgress?.('progress.validatingProfile', 90)
-    const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens)
+    const finalMeta: DesignIntelligenceMeta = {
+      ...baseMeta,
+      status: result.status,
+      capabilityLevel,
+      inputMode: effectiveMode,
+      pipeline: result.pipeline,
+      generatedAt: new Date().toISOString(),
+      inputImageCount: isAgentCli ? cliImages.length : images.length,
+      tokenUsage: result.usage,
+      callDetails: result.callDetails,
+      timing: {
+        ...result.timing,
+        imageSummaryMs,
+        aiTotalMs: Date.now() - runStartedAt,
+        totalMs: Date.now() - runStartedAt,
+      },
+      rejected: result.rejected,
+      repaired: result.repaired,
+      exampleGeneration: { status: 'not-requested' },
+    }
+    const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens, finalMeta)
     const recipe = createValidationRecipe('workflow', result.profile, tokens)
     const validationReport = validateRecipe(recipe, result.profile, tokens, capabilityLevel)
     return {
@@ -662,26 +682,7 @@ export async function runDesignIntelligence(
       profile: result.profile,
       reconstructionBrief,
       validationReport,
-      meta: {
-        ...baseMeta,
-        status: result.status,
-        capabilityLevel,
-        inputMode: effectiveMode,
-        pipeline: result.pipeline,
-        generatedAt: new Date().toISOString(),
-        inputImageCount: isAgentCli ? cliImages.length : images.length,
-        tokenUsage: result.usage,
-        callDetails: result.callDetails,
-        timing: {
-          ...result.timing,
-          imageSummaryMs,
-          aiTotalMs: Date.now() - runStartedAt,
-          totalMs: Date.now() - runStartedAt,
-        },
-        rejected: result.rejected,
-        repaired: result.repaired,
-        exampleGeneration: { status: 'not-requested' },
-      },
+      meta: finalMeta,
     }
   } catch (error: unknown) {
     const code = failureCode(error, timeoutSignal.aborted && !signal?.aborted)

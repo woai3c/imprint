@@ -1,0 +1,13 @@
+{
+  "fixture": "saas-landing",
+  "description": "Classic SaaS landing: sticky blurred header, radial-gradient hero, logo strip, three feature cards with icon tiles, dark CTA band.",
+  "expectedSectionRoles": ["header", "hero", "feature-group", "content", "action", "footer"],
+  "minSections": 5,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["css-background"],
+  "expectedSalienceTraits": ["salience:max-type", "salience:primary-action-candidate"],
+  "minSectionCoverage": 0.3
+}

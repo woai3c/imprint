@@ -33,6 +33,7 @@ import {
   generateLocalVisualQa,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import { buildInterpretResponse } from './interpret-response.js'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -107,6 +108,11 @@ const TOOLS = [
           description: 'Explicit custom-provider capability declaration for the selected model',
         },
         language: { type: 'string', enum: ['en', 'zh-CN'] },
+        includeBrief: {
+          type: 'boolean',
+          description:
+            'Include the complete Reconstruction Brief when the validated profile is eligible (default: false)',
+        },
       },
       required: ['mode', 'provider'],
       anyOf: [{ required: ['url'] }, { required: ['evidence'] }],
@@ -314,18 +320,19 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
       programTiming = result.timing
     }
     const interpreted = await interpretResult(designEvidence, params, requestedMode)
+    const analysisTiming = programTiming ? mergeAnalysisTimings(programTiming, interpreted.meta.timing) : undefined
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(
-            {
-              profile: interpreted.profile,
-              interpretation: interpreted.meta,
-              ...(programTiming
-                ? { analysisTiming: mergeAnalysisTimings(programTiming, interpreted.meta.timing) }
-                : {}),
-            },
+            buildInterpretResponse(
+              interpreted.profile,
+              interpreted.meta,
+              designEvidence,
+              params.includeBrief === true,
+              analysisTiming,
+            ),
             null,
             2,
           ),

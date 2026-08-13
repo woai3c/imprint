@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pricing Tiers — Regression Fixture</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #ffffff;
+        color: #111827;
+        font-family: -apple-system, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+      header.site {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 60px;
+        padding: 0 28px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      header.site .brand {
+        font-weight: 700;
+      }
+      header.site nav {
+        display: flex;
+        gap: 18px;
+        font-size: 14px;
+      }
+      header.site nav a {
+        color: #4b5563;
+        text-decoration: none;
+      }
+      main {
+        max-width: 1020px;
+        margin: 0 auto;
+        padding: 40px 20px 56px;
+      }
+      .hero {
+        text-align: center;
+        margin-bottom: 36px;
+      }
+      .hero h1 {
+        font-size: 36px;
+        margin-bottom: 10px;
+      }
+      .hero p {
+        color: #6b7280;
+        max-width: 520px;
+        margin: 0 auto;
+      }
+      .tiers {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        align-items: stretch;
+      }
+      .tier {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 26px 24px;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .tier.popular {
+        border-color: #2563eb;
+        box-shadow: 0 16px 40px rgb(37 99 235 / 22%);
+        transform: translateY(-8px);
+      }
+      .tier.enterprise {
+        box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+      }
+      .tier h2 {
+        font-size: 18px;
+      }
+      .tier .price {
+        font-size: 30px;
+        font-weight: 700;
+      }
+      .tier .price span {
+        font-size: 13px;
+        color: #6b7280;
+        font-weight: 400;
+      }
+      .tier ul {
+        list-style: none;
+        padding: 0;
+        font-size: 13px;
+        color: #374151;
+        flex: 1;
+      }
+      .tier li {
+        padding: 4px 0;
+      }
+      .cta {
+        display: block;
+        text-align: center;
+        border-radius: 8px;
+        padding: 10px 0;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid #2563eb;
+        color: #2563eb;
+        background: #ffffff;
+      }
+      .cta.primary {
+        background: #2563eb;
+        color: #ffffff;
+      }
+      .note {
+        margin-top: 28px;
+        text-align: center;
+        font-size: 13px;
+        color: #6b7280;
+      }
+      footer.site {
+        padding: 20px 28px;
+        font-size: 12px;
+        color: #9ca3af;
+        text-align: center;
+        border-top: 1px solid #e5e7eb;
+      }
+      @media (max-width: 768px) {
+        .tiers {
+          grid-template-columns: 1fr;
+        }
+        .tier.popular {
+          transform: none;
+        }
+        .hero h1 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site">
+      <span class="brand">Meterly</span>
+      <nav>
+        <a href="#">Product</a>
+        <a href="#">Docs</a>
+        <a href="#">Pricing</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Usage pricing without surprises</h1>
+        <p>Start free, scale when the graphs say so. Every tier includes unlimited seats and the full API.</p>
+      </section>
+      <section class="tiers">
+        <article class="tier">
+          <h2>Starter</h2>
+          <p class="price">$0 <span>/ month</span></p>
+          <ul>
+            <li>10k tracked events</li>
+            <li>30-day retention</li>
+            <li>Community support</li>
+          </ul>
+          <a class="cta" href="#">Start free</a>
+        </article>
+        <article class="tier popular">
+          <h2>Team</h2>
+          <p class="price">$49 <span>/ month</span></p>
+          <ul>
+            <li>1M tracked events</li>
+            <li>13-month retention</li>
+            <li>Slack support</li>
+            <li>Custom dashboards</li>
+          </ul>
+          <a class="cta primary" href="#">Start 14-day trial</a>
+        </article>
+        <article class="tier enterprise">
+          <h2>Enterprise</h2>
+          <p class="price">Custom</p>
+          <ul>
+            <li>Unlimited events</li>
+            <li>SSO and audit logs</li>
+            <li>Dedicated success manager</li>
+          </ul>
+          <a class="cta" href="#">Talk to sales</a>
+        </article>
+      </section>
+      <p class="note">Prices in USD. Annual billing saves two months.</p>
+    </main>
+    <footer class="site">Meterly fixture — SaaS pricing with tiered elevation</footer>
+  </body>
+</html>

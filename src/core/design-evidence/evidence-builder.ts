@@ -7,13 +7,16 @@ import type { PageScreenshot } from '../analyzer/types.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
 import type { InteractionObservationSnapshot } from './interaction-observer.js'
 import type { PageEvidenceSnapshot, PageSectionSnapshot } from './page-extractor.js'
+import { pageIdentityFromMetadata } from './page-identity.js'
 import { createEvidenceId } from './stable-id.js'
+import { safeSectionObservedStyles } from './structural-styles.js'
 import type {
   ComponentEvidence,
   DesignEvidence,
   EvidenceImage,
   LayoutEvidenceNode,
   MediaLayerEvidence,
+  PseudoElementEvidence,
   ResponsiveSectionObservation,
   SectionEvidence,
 } from './types.js'
@@ -34,6 +37,7 @@ export interface BuildDesignEvidenceInput {
   accessMode: 'anonymous' | 'managed'
   authWallDetected?: boolean
   expectedPageCount: number
+  expectedViewports?: string[]
   tokens: DesignToken
   featureTags: string[]
   interactionStyles: InteractionStyles
@@ -169,18 +173,22 @@ function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<stri
   return [...refs].sort()
 }
 
-function changedSectionProperties(from: PageSectionSnapshot, to: PageSectionSnapshot): string[] {
-  const changed = new Set<string>()
-  if (from.order !== to.order) changed.add('order')
-  if (from.layoutMode !== to.layoutMode) changed.add('layoutMode')
+function changedSectionValues(
+  from: PageSectionSnapshot,
+  to: PageSectionSnapshot,
+): Record<string, { from?: string | number; to?: string | number }> {
+  const changes: Record<string, { from?: string | number; to?: string | number }> = {}
+  if (from.order !== to.order) changes.order = { from: from.order, to: to.order }
+  if (from.layoutMode !== to.layoutMode) changes.layoutMode = { from: from.layoutMode, to: to.layoutMode }
   for (const key of new Set([...Object.keys(from.styles), ...Object.keys(to.styles)])) {
-    if (from.styles[key] !== to.styles[key]) changed.add(key)
+    if (from.styles[key] !== to.styles[key]) changes[key] = { from: from.styles[key], to: to.styles[key] }
   }
-  const rectKeys = ['x', 'y', 'width', 'height'] as const
-  for (const key of rectKeys) {
-    if (Math.abs(from.rect[key] - to.rect[key]) >= 0.04) changed.add(`rect.${key}`)
+  for (const key of ['x', 'y', 'width', 'height'] as const) {
+    if (Math.abs(from.rect[key] - to.rect[key]) >= 0.04) {
+      changes[`rect.${key}`] = { from: from.rect[key], to: to.rect[key] }
+    }
   }
-  return [...changed]
+  return changes
 }
 
 function buildResponsiveObservations(
@@ -227,6 +235,7 @@ function buildResponsiveObservations(
             toViewport: toCapture.snapshot.viewport,
             changeType: 'visibility',
             changedProperties: ['visibility'],
+            changes: { visibility: { from: from ? 'visible' : 'absent', to: to ? 'visible' : 'absent' } },
             summary: 'The section is present in only one of the compared viewport captures.',
             evidenceRefs: [
               ...(fromSectionId ? [fromSectionId] : []),
@@ -238,7 +247,26 @@ function buildResponsiveObservations(
           continue
         }
 
-        const changedProperties = changedSectionProperties(from, to)
+        const changes = changedSectionValues(from, to)
+        const fromNodes = new Map(
+          fromCapture.snapshot.layoutNodes.filter((node) => node.sectionKey === key).map((node) => [node.key, node]),
+        )
+        const toNodes = new Map(
+          toCapture.snapshot.layoutNodes.filter((node) => node.sectionKey === key).map((node) => [node.key, node]),
+        )
+        for (const nodeKey of new Set([...fromNodes.keys(), ...toNodes.keys()])) {
+          const fromNode = fromNodes.get(nodeKey)
+          const toNode = toNodes.get(nodeKey)
+          if (!fromNode || !toNode) continue
+          for (const property of ['fontSize', 'lineHeight', 'display'] as const) {
+            if (fromNode.styles[property] === toNode.styles[property]) continue
+            changes[`node.${fromNode.role}.${property}`] = {
+              from: fromNode.styles[property],
+              to: toNode.styles[property],
+            }
+          }
+        }
+        const changedProperties = Object.keys(changes)
         const fromInteractionKinds = fromCapture.snapshot.interactionCandidates
           .filter((candidate) => candidate.sectionKey === key)
           .map((candidate) => candidate.kind)
@@ -248,7 +276,10 @@ function buildResponsiveObservations(
           .map((candidate) => candidate.kind)
           .sort()
         const interactionChanged = JSON.stringify(fromInteractionKinds) !== JSON.stringify(toInteractionKinds)
-        if (interactionChanged) changedProperties.push('interactionModel')
+        if (interactionChanged) {
+          changedProperties.push('interactionModel')
+          changes.interactionModel = { from: fromInteractionKinds.join(', '), to: toInteractionKinds.join(', ') }
+        }
         if (changedProperties.length === 0) continue
         const reorderOnly =
           changedProperties.includes('order') &&
@@ -293,6 +324,7 @@ function buildResponsiveObservations(
           toViewport: toCapture.snapshot.viewport,
           changeType,
           changedProperties,
+          changes,
           summary: `Observed ${changedProperties.length} section-level changes between ${fromCapture.snapshot.viewport} and ${toCapture.snapshot.viewport}.`,
           evidenceRefs: [
             fromSectionId,
@@ -314,6 +346,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const components: ComponentEvidence[] = []
   const layoutNodes: LayoutEvidenceNode[] = []
   const mediaLayers: MediaLayerEvidence[] = []
+  const pseudoElements: PseudoElementEvidence[] = []
   const interactionObservations: DesignEvidence['interactionObservations'] = []
   const sectionIds = new Map<string, string>()
   const imageIds = new Map<string, string>()
@@ -325,16 +358,27 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const componentIds = createInstanceIdRegistry('component', pageId, capture.snapshot.components)
     const layoutIds = createInstanceIdRegistry('layout', pageId, capture.snapshot.layoutNodes)
     const mediaIds = createInstanceIdRegistry('media', pageId, capture.snapshot.mediaLayers)
+    const pseudoSnapshots = capture.snapshot.pseudoElements || []
+    const pseudoIds = createInstanceIdRegistry('pseudo', pageId, pseudoSnapshots)
     const ariaStateIds = createInstanceIdRegistry('interaction', pageId, capture.snapshot.ariaStates || [])
     const activeInteractionIds = createInstanceIdRegistry('interaction', pageId, capture.interactionObservations || [])
     imageIds.set(captureKey, imageId)
     for (const section of capture.snapshot.sections) {
       sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
     }
+    const pageIdentity = pageIdentityFromMetadata({
+      applicationName: capture.snapshot.applicationName,
+      openGraphSiteName: capture.snapshot.openGraphSiteName,
+      title: capture.snapshot.title,
+      pageHealth: capture.health
+        ? { status: capture.health.status, issueCodes: capture.health.issues.map((issue) => issue.code) }
+        : undefined,
+    })
     pages.push({
       id: pageId,
       url: capture.snapshot.url,
       viewport: capture.snapshot.viewport,
+      ...pageIdentity,
       role: capture.snapshot.role,
       viewportWidth: capture.snapshot.viewportWidth,
       viewportHeight: capture.snapshot.viewportHeight,
@@ -392,6 +436,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         interactionRefs: [],
         mediaLayerRefs: sectionMedia.map((media) => mediaIds.byItem.get(media)!),
         evidenceRefs: [imageId],
+        observedStyles: safeSectionObservedStyles(section.styles),
       })
       const snapType = section.styles.scrollSnapType
       if (snapType && snapType !== 'none') {
@@ -421,6 +466,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         pageId,
         sectionId,
         type: component.type,
+        elementKind: component.elementKind,
         role: component.role,
         rect: component.rect,
         styles: component.styles,
@@ -498,7 +544,35 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           fontWeight: node.styles.fontWeight,
           lineHeight: node.styles.lineHeight,
         },
+        observedStyles: Object.fromEntries(
+          [
+            'backgroundColor',
+            'borderRadius',
+            'borderTop',
+            'borderRight',
+            'borderBottom',
+            'borderLeft',
+            'boxShadow',
+          ].flatMap((property) => {
+            const value = node.styles[property]
+            return value && value !== 'none' && value !== 'rgba(0, 0, 0, 0)' ? [[property, value]] : []
+          }),
+        ),
         traits: node.traits,
+      })
+    }
+
+    for (const pseudo of pseudoSnapshots) {
+      const sectionId = sectionIds.get(`${captureKey}|${pseudo.sectionKey}`)
+      if (!sectionId) continue
+      pseudoElements.push({
+        id: pseudoIds.byItem.get(pseudo)!,
+        pageId,
+        sectionId,
+        target: pseudo.target,
+        kind: pseudo.kind,
+        styles: pseudo.styles,
+        evidenceRefs: [sectionId, imageId],
       })
     }
 
@@ -536,7 +610,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const passiveStyles: Array<{
       driver: 'hover' | 'focus' | 'click' | 'disabled'
       triggerKind: string
-      styles: Record<string, string>[]
+      styles: NonNullable<InteractionStyles['disabled']>
     }> = [
       { driver: 'hover', triggerKind: 'css-pseudo-class:hover', styles: interactionStyles.hover },
       { driver: 'focus', triggerKind: 'css-pseudo-class:focus', styles: interactionStyles.focus },
@@ -554,9 +628,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           driver: group.driver,
           safety: 'passive',
           trigger: { kind: group.triggerKind },
-          before: {},
-          after: styles,
-          changedProperties: Object.keys(styles),
+          before: styles.before,
+          after: styles.after,
+          changedProperties: Object.keys(styles.after),
           evidenceRefs: [firstSection.id, page.images[0]?.id].filter(Boolean),
         })
         firstSection.interactionRefs.push(id)
@@ -566,9 +640,18 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
 
   const uniqueUrls = new Set(pages.map((page) => page.url))
   const viewportCoverage = [...new Set(pages.map((page) => page.viewport))]
+  const expectedViewports = [...new Set(input.expectedViewports || viewportCoverage)]
+  const expectedCaptureCount = input.expectedPageCount * Math.max(1, expectedViewports.length)
+  const expectedViewportSet = new Set(expectedViewports)
+  const capturedExpectedCombinations = new Set(
+    pages.filter((page) => expectedViewportSet.has(page.viewport)).map((page) => `${page.url}|${page.viewport}`),
+  ).size
   const limitations: string[] = []
   limitations.push(...(input.limitations || []))
   if (uniqueUrls.size < input.expectedPageCount) limitations.push('fewer-pages-than-requested')
+  if (capturedExpectedCombinations < expectedCaptureCount) {
+    limitations.push('fewer-page-viewports-than-requested')
+  }
   if (viewportCoverage.length < 2) limitations.push('single-viewport')
   if (pages.some((page) => page.horizontalOverflow)) limitations.push('horizontal-overflow-observed')
   for (const page of pages) {
@@ -641,6 +724,16 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const responsiveObservations = buildResponsiveObservations(input.captures, sectionIds, imageIds)
   const coverage = {
     pageCoverage: uniqueUrls.size >= input.expectedPageCount ? ('complete' as const) : ('partial' as const),
+    urlCoverage: {
+      requested: input.expectedPageCount,
+      captured: uniqueUrls.size,
+    },
+    captureCoverage: {
+      expected: expectedCaptureCount,
+      captured: Math.min(expectedCaptureCount, capturedExpectedCombinations),
+      status: capturedExpectedCombinations >= expectedCaptureCount ? ('complete' as const) : ('partial' as const),
+      requestedViewports: expectedViewports,
+    },
     sectionCoverage:
       input.captures.length === 0
         ? 0
@@ -668,6 +761,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     limitations,
   }
 
+  const entryPage = pages[0]
   return {
     schemaVersion: '1',
     analysisId: input.analysisId,
@@ -676,6 +770,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       finalUrl: input.finalUrl,
       accessMode: input.accessMode,
       language: input.captures[0]?.snapshot.language,
+      ...(entryPage?.title ? { title: entryPage.title } : {}),
+      ...(entryPage?.siteName ? { siteName: entryPage.siteName } : {}),
     },
     pages,
     tokens: input.tokens,
@@ -684,6 +780,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     sections,
     components,
     layoutNodes,
+    pseudoElements,
     interactionStyles: input.interactionStyles,
     interactionObservations,
     breakpoints: input.breakpoints,

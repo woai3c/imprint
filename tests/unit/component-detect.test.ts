@@ -34,6 +34,25 @@ describe('component candidate summarization', () => {
         { primaryColor: '#2563eb', widthPx: 90, heightPx: 34 },
       ),
     ).toBe('primary')
+    expect(
+      classifyComponentVariant(
+        'button',
+        { backgroundColor: '#2563eb', borderRadius: '999px', padding: '0px' },
+        { role: 'primary-action', primaryColor: '#2563eb', widthPx: 40, heightPx: 40 },
+      ),
+    ).toBe('primary')
+    expect(
+      classifyComponentVariant(
+        'button',
+        {
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          color: 'rgb(132, 145, 165)',
+          borderRadius: '0px 9999px 9999px 0px',
+          padding: '0px 12px',
+        },
+        { role: 'primary-action', primaryColor: '#1772f6', widthPx: 72, heightPx: 40 },
+      ),
+    ).toBe('text')
   })
 
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {

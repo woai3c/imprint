@@ -184,9 +184,10 @@ export async function runInterpretationPipeline(
   const fallbackReason = `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`
   const validatedProfile =
     validation.profile || buildEvidenceFallbackProfile(evidence, options.language, options.mode, fallbackReason)
-  validatedProfile.tokenAliases = validation.profile
-    ? validateColorRenames(evidence.tokens, expanded.aliases).accepted
-    : []
+  const unsupportedAliases = expanded.aliases.filter((alias) => !/^palette-\d+$/.test(alias.tokenId))
+  const paletteAliases = expanded.aliases.filter((alias) => /^palette-\d+$/.test(alias.tokenId))
+  const aliasValidation = validateColorRenames(evidence.tokens, paletteAliases)
+  validatedProfile.tokenAliases = validation.profile ? aliasValidation.accepted : []
   const contradictionCheck = checkProfileContradictions(validatedProfile, evidence)
   const deduped = evidenceFallback
     ? { profile: contradictionCheck.profile, removed: 0 }
@@ -201,7 +202,12 @@ export async function runInterpretationPipeline(
       )
   const coverageRepair = repairProfileCoverage(deduped.profile, evidence)
   const validationMs = Date.now() - validationStartedAt
-  const validationDiagnostics = [...validation.rejected, ...contradictionCheck.rejected]
+  const validationDiagnostics = [
+    ...validation.rejected,
+    ...unsupportedAliases.map((_, index) => `tokenAliases.${index}:non-palette-token-sanitized`),
+    ...aliasValidation.rejected.map((item, index) => `tokenAliases.${index}:${item.reason}-sanitized`),
+    ...contradictionCheck.rejected,
+  ]
   const rejected = validationDiagnostics.filter((reason) => !isRepairDiagnostic(reason))
   const repaired = [
     ...validationDiagnostics.filter(isRepairDiagnostic),

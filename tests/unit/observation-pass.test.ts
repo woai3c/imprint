@@ -5,9 +5,11 @@ import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   type InterpretationInvoke,
+  buildAnalysisDigest,
   buildDesignInterpretationPrompt,
   buildSectionObservationPrompt,
   extractObservationCandidate,
+  prepareAnalysisDigestPackageForPrompt,
   runInterpretationPipeline,
   selectEvidencePackage,
   splitImagesByPass,
@@ -405,6 +407,39 @@ describe('Section observation pass', () => {
     expect(result.profile.thesis.evidence[0].evidenceId).toBe('section-a')
     expect(result.profile.componentGrammar[0].component).toBe('button')
     expect(result.pipeline).toBe('single-pass')
+  })
+
+  it('reports and drops compact aliases without observed role support', async () => {
+    const aliasEvidence = structuredClone(evidence)
+    aliasEvidence.tokens.colors['palette-1'] = '#576b95'
+    aliasEvidence.tokens.evidence = {
+      'colors.palette-1': {
+        value: '#576b95',
+        confidence: 'high',
+        observationCount: 3,
+        pageCount: 1,
+        captureCount: 1,
+        pages: ['https://example.com/'],
+        sources: ['computed:color'],
+        reasons: ['observed without a supported role'],
+      },
+    }
+    aliasEvidence.sections[0].tokenRefs.push('color.palette-1')
+    const evidencePackage = selectEvidencePackage(aliasEvidence, 'structural-only')
+    const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(aliasEvidence, evidencePackage))
+    const paletteToken = digestPackage.tokenShortIdMap.get('color.palette-1')
+    expect(paletteToken).toBeDefined()
+    const candidate = compactProfile()
+    candidate.aliases = [{ token: paletteToken!, name: 'ash-gray' }]
+
+    const result = await runInterpretationPipeline(aliasEvidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(candidate) }),
+    })
+
+    expect(result.profile.tokenAliases).toEqual([])
+    expect(result.repaired).toEqual(expect.arrayContaining([expect.stringContaining('role-mismatch-sanitized')]))
   })
 
   it('does not run an automatic observation or repair call', async () => {

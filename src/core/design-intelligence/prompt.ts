@@ -3,13 +3,23 @@ import { listEvidencePackageIds, listEvidencePackageTokenRefs } from './evidence
 import type { EvidencePackage, SectionObservation } from './types.js'
 
 // Versions the complete model-output contract, including deterministic validation and fallback behavior.
-export const DESIGN_PROFILE_PROMPT_VERSION = '25'
+export const DESIGN_PROFILE_PROMPT_VERSION = '29'
 export const DESIGN_PROFILE_PROMPT_CHAR_LIMIT = 28_000
 const DIGEST_CHAR_LIMIT = 18_000
 
 function digestWithinBudget(digest: AnalysisDigest): AnalysisDigest {
   const compact = JSON.parse(JSON.stringify(digest)) as AnalysisDigest
   let json = JSON.stringify(compact)
+  const referencedTokenIds = new Set([
+    ...compact.sectionPatterns.flatMap((section) => section.tokenRefs),
+    ...compact.componentPatterns.flatMap((component) => component.tokenRefs),
+    ...compact.layoutPatterns.flatMap((layout) => layout.tokenRefs),
+  ])
+  const keepReferencedTokenFacts = <T extends { id: string }>(values: T[], limit: number): T[] => {
+    const required = values.filter((value) => referencedTokenIds.has(value.id))
+    const optional = values.filter((value) => !referencedTokenIds.has(value.id))
+    return [...required, ...optional.slice(0, Math.max(0, limit - required.length))]
+  }
   const reduceArrays = (targets: Array<[unknown[], number]>) => {
     while (json.length > DIGEST_CHAR_LIMIT) {
       const candidate = targets
@@ -27,7 +37,6 @@ function digestWithinBudget(digest: AnalysisDigest): AnalysisDigest {
     [compact.responsiveFacts, 6],
     [compact.mediaFacts, 4],
     [compact.sectionPatterns, 8],
-    [compact.tokenFacts.colors, 16],
     [compact.uncertainties, 8],
   ])
   if (json.length > DIGEST_CHAR_LIMIT) {
@@ -37,13 +46,22 @@ function digestWithinBudget(digest: AnalysisDigest): AnalysisDigest {
       stateChanges: component.stateChanges.slice(0, 3),
     }))
     compact.layoutPatterns = compact.layoutPatterns.map((layout) => ({ ...layout, traits: layout.traits.slice(0, 4) }))
-    compact.tokenFacts.typography.families = compact.tokenFacts.typography.families.slice(0, 8)
-    compact.tokenFacts.typography.sizes = compact.tokenFacts.typography.sizes.slice(0, 10)
-    compact.tokenFacts.typography.weights = compact.tokenFacts.typography.weights.slice(0, 10)
-    compact.tokenFacts.typography.lineHeights = compact.tokenFacts.typography.lineHeights.slice(0, 10)
-    compact.tokenFacts.spacing = compact.tokenFacts.spacing.slice(0, 10)
-    compact.tokenFacts.radii = compact.tokenFacts.radii.slice(0, 10)
-    compact.tokenFacts.shadows = compact.tokenFacts.shadows.slice(0, 6)
+    compact.tokenFacts.colors = keepReferencedTokenFacts(compact.tokenFacts.colors, 16)
+    compact.tokenFacts.typography.families = keepReferencedTokenFacts(compact.tokenFacts.typography.families, 8)
+    compact.tokenFacts.typography.stacks = keepReferencedTokenFacts(compact.tokenFacts.typography.stacks, 8)
+    compact.tokenFacts.typography.sizes = keepReferencedTokenFacts(compact.tokenFacts.typography.sizes, 10)
+    compact.tokenFacts.typography.weights = keepReferencedTokenFacts(compact.tokenFacts.typography.weights, 10)
+    compact.tokenFacts.typography.lineHeights = keepReferencedTokenFacts(compact.tokenFacts.typography.lineHeights, 10)
+    compact.tokenFacts.typography.letterSpacings = keepReferencedTokenFacts(
+      compact.tokenFacts.typography.letterSpacings,
+      8,
+    )
+    compact.tokenFacts.spacing = keepReferencedTokenFacts(compact.tokenFacts.spacing, 10)
+    compact.tokenFacts.radii = keepReferencedTokenFacts(compact.tokenFacts.radii, 10)
+    compact.tokenFacts.shadows = keepReferencedTokenFacts(compact.tokenFacts.shadows, 6)
+    compact.tokenFacts.borders = keepReferencedTokenFacts(compact.tokenFacts.borders, 8)
+    compact.tokenFacts.zIndices = keepReferencedTokenFacts(compact.tokenFacts.zIndices, 8)
+    compact.tokenFacts.transitions = keepReferencedTokenFacts(compact.tokenFacts.transitions, 6)
     json = JSON.stringify(compact)
   }
   reduceArrays([
@@ -53,7 +71,6 @@ function digestWithinBudget(digest: AnalysisDigest): AnalysisDigest {
     [compact.responsiveFacts, 3],
     [compact.mediaFacts, 2],
     [compact.sectionPatterns, 5],
-    [compact.tokenFacts.colors, 10],
     [compact.uncertainties, 5],
   ])
   if (json.length > DIGEST_CHAR_LIMIT) {
@@ -65,6 +82,16 @@ function digestWithinBudget(digest: AnalysisDigest): AnalysisDigest {
           .map(([key, value]) => [key, value.slice(0, 80)]),
       ),
     }))
+    compact.tokenFacts.colors = keepReferencedTokenFacts(compact.tokenFacts.colors, 0)
+    for (const values of Object.values(compact.tokenFacts.typography)) {
+      values.splice(0, values.length, ...keepReferencedTokenFacts(values, 0))
+    }
+    compact.tokenFacts.spacing = keepReferencedTokenFacts(compact.tokenFacts.spacing, 0)
+    compact.tokenFacts.radii = keepReferencedTokenFacts(compact.tokenFacts.radii, 0)
+    compact.tokenFacts.shadows = keepReferencedTokenFacts(compact.tokenFacts.shadows, 0)
+    compact.tokenFacts.borders = keepReferencedTokenFacts(compact.tokenFacts.borders, 0)
+    compact.tokenFacts.zIndices = keepReferencedTokenFacts(compact.tokenFacts.zIndices, 0)
+    compact.tokenFacts.transitions = keepReferencedTokenFacts(compact.tokenFacts.transitions, 0)
     json = JSON.stringify(compact)
   }
   return compact
@@ -150,7 +177,11 @@ Security and grounding:
 - Passive state facts prove declared styles, not an executed press, click, expansion, navigation, or toggle. Describe passive active-state evidence as a declared style, never as confirmation after a real press.
 - If a page reports overflow, describe clipping/minimum-width overflow; do not claim responsive hiding or reflow without an r* fact. Cite the overflow source's section ID when source.section is present; otherwise cite that overflow page's p* ID.
 - Any claim about mobile, narrow-screen, single-column, hiding, stacking, or reflow must cite an r* fact or a non-overflowing mobile p*/i* fact. Desktop screenshots cannot prove mobile behavior.
+- A section missing from one capture, or a visibility value changing to absent, does not prove CSS hiding. Claim hiding only when a cited r* fact records display -> none or visibility -> hidden/collapse.
+- Do not claim that content remains present, is not removed, or is not hidden unless the cited responsive facts directly verify that content across both captures.
+- Claim stacking, reflow, or a single-column layout only when a cited r* fact records a grid-column or layout-mode change. Order changes alone prove reordering, not single-column reflow.
 - Before adding an uncertainty about missing overflow sources, mobile screenshots, or section sequences, recount the supplied pageFacts and topologyFacts; do not deny evidence that is present in the digest.
+- A color whose only role is declared comes from a CSS declaration without observed rendered use. Do not call it an action, surface, status, or brand color unless another rendered role is present.
 - authenticated-managed-capture is authenticated evidence, never a logged-out page.
 - Exact numeric bounds must match tokenFacts. Do not invent or repeat raw colors, sizes, weights, spacing, radii, or state values; put their t* IDs only in claim.t.
 - A transparent or absent outline/box-shadow does not prove a clearly visible focus indicator.
@@ -173,11 +204,12 @@ Compact output contract:
 - components: at most 6 objects {"component":"observed type","role":"purpose","rules":[SCOPED_CLAIM]}. Use at most two scoped rules. component must exactly match one of these literal observed type values; never invent a role-specific variant: ${observedComponentTypes.join(', ') || '(none)'}.
 - Component evidence binding (type -> allowed c* IDs): ${JSON.stringify(componentEvidenceByType)}. Every scoped component rule must cite at least one listed ID for that exact type; never reuse a q ID whose evidence belongs to another type. Put the purpose in role instead of changing component.
 - Component exactStyles contain semantic CSS keywords or t* token IDs only. Put those t* IDs in claim.t; never turn omitted raw DOM measurements into rules.
-- Component variant and sampleSize are deterministic observations. A small square button marked variant icon is an icon control, not evidence of a text primary CTA; cite a primary variant for primary-button rules.
+- Component variant, sampleSize, and cornerShape are deterministic observations. A small square button marked variant icon is an icon control, not evidence of a text primary CTA; cite a primary variant for primary-button rules. Preserve cornerShape in both directions: a pill must not become square or small-radius, and a rounded or sharp component must not become a pill.
 - Call a button outlined only when its exactStyles show a visible non-transparent border. A translucent background with no border is a tinted secondary button, not an outlined button.
 - Do not generalize one radius or shadow treatment to every button when component patterns show pill, circular, flat, or lightly shadowed variants; describe the variants separately.
 - interaction.drivers, interaction.feedback, interaction.amplitude, and interaction.continuity must cite the relevant a* interactionFacts ID whenever interactionFacts are available. Never reuse a global q claim as an interaction claim.
 - When a claim describes an observed state change, use the exact changedProperties spelling from the digest (for example border-bottom-color must not be generalized to border-color).
+- Responsive facts are not exhaustive prose checklists. When they record position, border, shadow, or layout changes, preserve that viewport scope and do not prescribe one position across all viewports or say that only a smaller subset changed.
 - transfer: {"preserve":[SCOPED_CLAIM],"adapt":[SCOPED_CLAIM],"avoid":[SCOPED_CLAIM]}; each list must contain at least one local scoped claim. Cite the exact section, component, interaction, or responsive evidence that makes the rule transferable; never reuse a global q claim.
 - uncertainties: at most 4 objects {"topic":"...","reason":"...","needed":"optional evidence"}.
 - aliases: at most 6 objects {"token":"t*","name":"lowercase-kebab-case"}; propose only for colors whose current name starts with palette- and whose observed roles support the new name.
@@ -275,7 +307,9 @@ export function buildDesignInterpretationPrompt(
   )
   // Only roles actually present in the evidence may appear in sectionGrammar; anything else
   // is rejected by validation, so the model needs the observed subset, not the full enum.
-  const observedSectionRoles = [...new Set(evidencePackage.evidence.sections.map((section) => section.role))]
+  const observedSectionRoles = [
+    ...new Set(evidencePackage.evidence.sections.map((section) => section.role).filter((role) => role !== 'unknown')),
+  ]
   return `You are a design-language interpreter. Infer transferable visual and interaction grammar only from the supplied evidence.
 
 Security and evidence rules:
@@ -305,8 +339,11 @@ ${hasUnexercisedSwitch ? '- The evidence contains an ARIA switch (aria-checked) 
 - The access restriction "auth-wall-resolved-by-managed-access" means the captured evidence is authenticated; do not describe that evidence as an unauthenticated or logged-out view.
 - Interaction observations include concrete from/to value changes. Interaction claims must cite those values (for example color #fff -> #b39aff, 0.25s) instead of only saying an element "changes color".
 - Do not state numeric token ranges (such as maximum font weight) unless the cited token refs support the boundary, and do not describe a token's color role from its name alone when its value contradicts that role.
+- A color supported only by a CSS declaration has no observed rendered role. Do not present it as an action, surface, status, or brand color without rendered-use evidence.
 - Call a button outlined only when its observed styles include a visible non-transparent border; a translucent borderless fill is a tinted secondary button.
+- Respect deterministic component geometry in both directions: a pill must not become square or small-radius, and a rounded or sharp component must not become a pill.
 - Do not claim that all buttons share small radii or no shadow when observed components include pill, circular, or lightly shadowed button variants.
+- Preserve viewport scope for responsive position, border, shadow, and layout changes. Do not prescribe one position across every viewport or describe a partial property list as exhaustive.
 - Avoid generic-only descriptions such as modern, clean, premium, professional, friendly, or high-tech.
 - Keep the entire response under 12,000 characters. Never quote or restate evidence text, and do not repeat the same idea across multiple claims. Each claim must add information not stated elsewhere: a structure already covered by a signature move, composition rule, or thesis must not reappear as a pattern, section grammar, or component grammar entry.
 
@@ -418,6 +455,7 @@ function buildRepairEvidence(evidencePackage: EvidencePackage): unknown {
       order: section.order,
       layoutMode: section.layoutMode,
       tokenRefs: section.tokenRefs,
+      ...(section.observedStyles ? { observedStyles: section.observedStyles } : {}),
     })),
     components: evidence.components,
     layoutNodes: evidence.layoutNodes,

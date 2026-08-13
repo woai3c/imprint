@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
+  buildAnalysisDigest,
+  buildDesignProfileRepairPrompt,
   checkProfileContradictions,
   compareDesignProfiles,
   createEvidenceFingerprint,
   createInterpretationCacheKey,
   createStructuralFingerprint,
   createValidationRecipe,
-  evaluateProfileQuality,
   generateAgentContextBundle,
   generateReconstructionBrief,
   repairProfileCoverage,
@@ -265,6 +266,79 @@ function multiUrlEvidence(): DesignEvidence {
 }
 
 describe('Design intelligence', () => {
+  it('keeps safe structural section treatments in synthesis and repair evidence', () => {
+    const structuralEvidence = structuredClone(evidence)
+    structuralEvidence.sections[0].observedStyles = {
+      borderRadius: '0px 0px 48px 48px',
+      gradient: {
+        type: 'linear-gradient',
+        direction: '160deg',
+        stops: ['#ffedd5', '#fed7aa'],
+        value: 'linear-gradient(160deg, #ffedd5, #fed7aa)',
+      },
+    }
+    structuralEvidence.tokens.borders = ['1px solid #e5e7eb']
+    const selected = selectEvidencePackage(structuralEvidence, 'structural-only')
+    const digest = buildAnalysisDigest(structuralEvidence, selected).digest
+    const hero = digest.sectionPatterns.find((section) => section.role === 'hero')
+    const repairPrompt = buildDesignProfileRepairPrompt(selected, 'en', {}, ['thesis:evidence-required'])
+
+    expect(hero?.observedStyles).toEqual(structuralEvidence.sections[0].observedStyles)
+    expect(digest.tokenFacts.typography.stacks).toEqual([expect.objectContaining({ value: 'Inter, sans-serif' })])
+    expect(digest.tokenFacts.borders).toEqual([expect.objectContaining({ value: '1px solid #e5e7eb' })])
+    expect(repairPrompt).toContain('0px 0px 48px 48px')
+    expect(repairPrompt).toContain('linear-gradient(160deg, #ffedd5, #fed7aa)')
+  })
+
+  it('exposes deterministic component shape, complete responsive properties, and declared-only color roles', () => {
+    const structuralEvidence = structuredClone(evidence)
+    structuralEvidence.tokens.colors['palette-9'] = '#3f45ff'
+    structuralEvidence.tokens.evidence = {
+      'colors.palette-9': {
+        value: '#3f45ff',
+        confidence: 'high',
+        observationCount: 3,
+        pageCount: 2,
+        captureCount: 2,
+        pages: ['https://example.com/'],
+        sources: ['usage:declaredColor', 'usage:brandTokenColor', 'css-variable:--brand-color'],
+        reasons: ['declared-token'],
+      },
+    }
+    structuralEvidence.components[0] = {
+      ...structuralEvidence.components[0],
+      role: 'primary-action',
+      styles: {
+        backgroundColor: '#2563eb',
+        color: '#ffffff',
+        borderRadius: '9999px',
+      },
+    }
+    structuralEvidence.sections[0].role = 'header'
+    structuralEvidence.responsiveObservations[0] = {
+      ...structuralEvidence.responsiveObservations[0],
+      changedProperties: ['layoutMode', 'position', 'height', 'borderBottom', 'boxShadow'],
+      changes: {
+        layoutMode: { from: 'flow', to: 'fixed' },
+        position: { from: 'relative', to: 'fixed' },
+        height: { from: '62px', to: '53px' },
+        borderBottom: { from: '0px none #111827', to: '1px solid #e5e7eb' },
+        boxShadow: { from: 'none', to: '0 1px 3px rgba(0, 0, 0, 0.1)' },
+      },
+    }
+
+    const digest = buildAnalysisDigest(
+      structuralEvidence,
+      selectEvidencePackage(structuralEvidence, 'structural-only'),
+    ).digest
+
+    expect(digest.componentPatterns.find((component) => component.variant === 'primary')?.cornerShape).toBe('pill')
+    expect(digest.responsiveFacts[0].changedProperties).toEqual(
+      expect.arrayContaining(['layoutMode', 'position', 'height', 'borderBottom', 'boxShadow']),
+    )
+    expect(digest.tokenFacts.colors.find((color) => color.name === 'palette-9')?.roles).toEqual(['declared'])
+  })
+
   it('does not let the outer pipeline cut off a thinking request at five minutes', () => {
     expect(designIntelligenceTimeoutMs({ aiMode: 'apiKey', thinkingEnabled: false })).toBe(330_000)
     expect(designIntelligenceTimeoutMs({ aiMode: 'apiKey', thinkingEnabled: true })).toBe(630_000)
@@ -522,11 +596,7 @@ describe('Design intelligence', () => {
     expect(checked.profile.visualLanguage.typography.confidence).toBe('low')
     expect(checked.rejected.some((reason) => reason.includes('font-weight-not-in-token-set'))).toBe(true)
     expect(checked.rejected.some((reason) => reason.includes('numeric-value-sanitized'))).toBe(true)
-    expect(checked.profile.uncertainties.some((item) => item.topic === 'Deterministic contradiction check')).toBe(true)
-    expect(checked.profile.uncertainties.map((item) => item.reason).join(' ')).not.toContain('not-in-token-set')
-    expect(new Set(checked.profile.uncertainties.map((item) => item.reason)).size).toBe(
-      checked.profile.uncertainties.length,
-    )
+    expect(checked.profile.uncertainties).toEqual([])
   })
 
   it('removes mobile reflow wording that is supported only by desktop evidence', () => {
@@ -555,6 +625,142 @@ describe('Design intelligence', () => {
     expect(checked.rejected).toContain(
       'composition.containerStrategy:responsive-wording-without-mobile-evidence-sanitized',
     )
+  })
+
+  it('does not treat capture absence or order changes as direct hiding and reflow evidence', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.transferRules.adapt[0] = {
+      ...claim('移动端隐藏顶部导航并把内容改单列。'),
+      implementation: '窄屏使用 visibility 与 order 完成隐藏和单列化。',
+      evidence: [{ evidenceId: 'responsive-a', note: '视口差异' }],
+    }
+    const responsiveEvidence = structuredClone(evidence)
+    responsiveEvidence.responsiveObservations[0] = {
+      ...responsiveEvidence.responsiveObservations[0],
+      changedProperties: ['visibility', 'order'],
+      changes: {
+        visibility: { from: 'visible', to: 'absent' },
+        order: { from: '0', to: '-1' },
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, responsiveEvidence)
+
+    expect(checked.profile.transferRules.adapt).toEqual([])
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        'transferRules.adapt.0:responsive-hiding-without-direct-evidence',
+        'transferRules.adapt.0:responsive-reflow-without-direct-evidence',
+      ]),
+    )
+    expect(checked.profile.uncertainties).toEqual([])
+  })
+
+  it('removes unsupported claims that responsive adaptation preserves all content', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.transferRules.adapt[0] = {
+      ...claim('窄屏适配应压缩头部高度并重排区块顺序，而非移除内容。'),
+      implementation: '沿用观察到的高度与 order 变化，但不隐藏任何区块。',
+      evidence: [{ evidenceId: 'responsive-a', note: '视口差异' }],
+    }
+
+    const responsiveEvidence = structuredClone(evidence)
+    responsiveEvidence.responsiveObservations[0] = {
+      ...responsiveEvidence.responsiveObservations[0],
+      changedProperties: ['layoutMode', 'height', 'order'],
+      changes: {
+        layoutMode: { from: 'flow', to: 'fixed' },
+        height: { from: '62px', to: '53px' },
+        order: { from: '2', to: '0' },
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, responsiveEvidence)
+    const adapted = checked.profile.transferRules.adapt[0]
+
+    expect(adapted.statement).toBe('窄屏适配应压缩头部高度并重排区块顺序。')
+    expect(adapted.implementation).not.toMatch(/不隐藏|不移除/)
+    expect(checked.rejected).toContain('transferRules.adapt.0:responsive-content-preservation-wording-sanitized')
+  })
+
+  it('does not promote section-only evidence into repeated card component grammar', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.composition.rhythm = {
+      ...claim('节奏由重复的白色卡片单元建立。'),
+      implementation: '卡片之间以分隔线形成反复节拍。',
+      evidence: [{ evidenceId: 'section-a', note: '内容区块' }],
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.composition.rhythm.statement).toContain('内容单元')
+    expect(checked.profile.composition.rhythm.statement).not.toContain('卡片')
+    expect(checked.profile.composition.rhythm.confidence).toBe('medium')
+    expect(checked.rejected).toContain('composition.rhythm:unbound-card-grammar-sanitized')
+  })
+
+  it('keeps responsive hiding and reflow claims when cited changes record them directly', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.composition.containerStrategy = {
+      ...claim('On mobile, the navigation hides and the content reflows to a single column.'),
+      implementation: 'Use the observed display and grid-column changes.',
+      evidence: [{ evidenceId: 'responsive-a', note: 'Direct responsive changes' }],
+    }
+    const responsiveEvidence = structuredClone(evidence)
+    responsiveEvidence.responsiveObservations[0] = {
+      ...responsiveEvidence.responsiveObservations[0],
+      changedProperties: ['display', 'gridTemplateColumns'],
+      changes: {
+        display: { from: 'block', to: 'none' },
+        gridTemplateColumns: { from: '1fr 1fr', to: '1fr' },
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, responsiveEvidence)
+
+    expect(checked.profile.composition.containerStrategy.statement).toContain('single column')
+    expect(checked.rejected).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('responsive-hiding-without-direct-evidence'),
+        expect.stringContaining('responsive-reflow-without-direct-evidence'),
+      ]),
+    )
+  })
+
+  it('rewrites unsupported font-weight tier counts to the observed token count', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.visualLanguage.typography = {
+      ...claim('字体以系统字体栈为主，字重分三级。'),
+      implementation: '按字重分三级建立文字层级。',
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.visualLanguage.typography.statement).toContain('字重包含 2 个观察档位')
+    expect(checked.profile.visualLanguage.typography.implementation).toContain('字重包含 2 个观察档位')
+    expect(checked.profile.visualLanguage.typography.confidence).toBe('medium')
+    expect(checked.rejected).toContain('visualLanguage.typography:font-weight-tier-count-sanitized(3->2)')
+  })
+
+  it('scopes universal component and module language to observed evidence', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.thesis = {
+      ...claim('所有内容模块都是白色卡片。'),
+      implementation: '模块一律放进白色卡片，每个按钮都使用蓝色填充。',
+      confidence: 'high',
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.thesis.statement).toBe('已观察到的内容模块都是白色卡片。')
+    expect(checked.profile.thesis.implementation).not.toMatch(/一律|每个/)
+    expect(checked.profile.thesis.confidence).toBe('medium')
+    expect(checked.rejected).toContain('thesis:universal-visual-scope-sanitized')
   })
 
   it('rejects primary-button rules grounded only in icon-button evidence', () => {
@@ -714,10 +920,12 @@ describe('Design intelligence', () => {
 
     const checked = checkProfileContradictions(profile, evidence)
 
-    expect(checked.profile.composition.densityAndWhitespace.statement).toContain('token spacing.2')
+    expect(checked.profile.composition.densityAndWhitespace.statement).toContain('24px')
     expect(checked.profile.composition.densityAndWhitespace.tokenRefs).toContain('spacing.2')
-    expect(checked.profile.visualLanguage.typography.statement).toContain('token typography.font-size.1')
+    expect(checked.profile.visualLanguage.typography.statement).toContain('16px')
     expect(checked.profile.visualLanguage.typography.tokenRefs).toContain('typography.font-size.1')
+    expect(checked.profile.composition.densityAndWhitespace.statement).not.toContain('token spacing')
+    expect(checked.profile.visualLanguage.typography.statement).not.toContain('token typography')
     expect(checked.profile.composition.densityAndWhitespace.confidence).toBe('medium')
     expect(checked.rejected).toEqual(
       expect.arrayContaining([
@@ -726,6 +934,88 @@ describe('Design intelligence', () => {
       ]),
     )
     expect(checked.profile.uncertainties).toEqual([])
+  })
+
+  it('grounds font-size and line-height literals against their own nearby token refs', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    const typographyEvidence = structuredClone(evidence)
+    typographyEvidence.sections[0].tokenRefs.push('typography.line-height.1')
+    profile.visualLanguage.typography = {
+      ...claim('Body typography uses 15px type with a 26px line-height.'),
+      implementation: 'Set body text to 15px and its line-height to 26px.',
+      tokenRefs: ['typography.font-size.1', 'typography.line-height.1'],
+    }
+
+    const checked = checkProfileContradictions(profile, typographyEvidence)
+    const result = checked.profile.visualLanguage.typography
+
+    expect(result.statement).toContain('16px type')
+    expect(result.statement).toContain('1.5 line-height')
+    expect(result.implementation).toContain('16px')
+    expect(result.implementation).toContain('1.5')
+    expect(result.statement).not.toContain('token typography')
+  })
+
+  it('narrows button accent prohibitions to the action palette', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.transferRules.avoid = [
+      {
+        ...claim('避免给按钮体系引入重投影或第二种强调色'),
+        implementation: '按钮应避免第二种强调色，但状态与装饰色仍按各自证据保留。',
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.transferRules.avoid[0].statement).toContain('第二种操作色相')
+    expect(checked.profile.transferRules.avoid[0].implementation).toContain('状态、趋势和装饰色')
+    expect(checked.profile.transferRules.avoid[0].implementation).not.toContain('仅用蓝灰两色')
+    expect(checked.profile.transferRules.avoid[0].statement).not.toContain('第二种强调色')
+    expect(checked.rejected).toContain('transferRules.avoid.0:button-accent-scope-sanitized')
+  })
+
+  it('keeps observed border widths in the border context instead of rewriting them as spacing', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.visualLanguage.surfaces = {
+      ...claim('Cards use a 1px neutral border.'),
+      implementation: 'Keep the observed 1px border instead of converting it to a spacing token.',
+      tokenRefs: ['border.1'],
+      evidence: [{ evidenceId: 'component-a', note: 'Observed component border' }],
+    }
+    const borderEvidence = structuredClone(evidence)
+    borderEvidence.tokens.borders = ['1px solid #e5e7eb']
+    borderEvidence.components[0].tokenRefs.push('border.1')
+
+    const checked = checkProfileContradictions(profile, borderEvidence)
+    const result = checked.profile.visualLanguage.surfaces
+
+    expect(result?.statement).toContain('1px neutral border')
+    expect(result?.implementation).toContain('1px border')
+    expect(result?.implementation).not.toContain('token spacing')
+    expect(checked.rejected).not.toEqual(expect.arrayContaining([expect.stringContaining('numeric-value-sanitized')]))
+  })
+
+  it('does not rewrite component dimensions as typography token references', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.componentGrammar[0].rules[0] = {
+      ...claim('The combobox is 289px wide and 24px high with compact typography.'),
+      implementation: 'Set width to 289px, height to 24px, and type from typography.font-size.1.',
+      tokenRefs: ['typography.font-size.1'],
+      evidence: [{ evidenceId: 'component-a', note: 'Observed component geometry' }],
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+    const resultText = JSON.stringify(checked.profile.componentGrammar)
+
+    expect(resultText).not.toContain('token typography.font-size.1 wide')
+    expect(resultText).not.toContain('height to token typography.font-size.1')
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([expect.stringContaining('numeric-value-not-in-token-set(289px)')]),
+    )
+    expect(checked.rejected).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('numeric-value-sanitized(289px')]),
+    )
   })
 
   it('repairs uncertainty text that denies an observed responsive layout-mode change', () => {
@@ -785,8 +1075,8 @@ describe('Design intelligence', () => {
     profile.language = 'zh-CN'
     profile.uncertainties = [
       {
-        topic: '横向溢出',
-        reason: '摘要报告 horizontal-overflow-observed 但未指明来源区块与宽度阈值。',
+        topic: '横向溢出未定位',
+        reason: 'digest 汇总提到 horizontal-overflow-observed，但没有给出具体 page 或 section 的溢出源。',
         neededEvidence: '带 source.section 的 overflow 事实',
       },
     ]
@@ -799,6 +1089,110 @@ describe('Design intelligence', () => {
     )
     expect(checked.profile.uncertainties[0].neededEvidence).toBe('裁切范围与预期移动端行为')
     expect(checked.profile.uncertainties).toHaveLength(1)
+
+    const responsiveProfile = rawProfile() as unknown as DesignProfile
+    responsiveProfile.language = 'zh-CN'
+    responsiveProfile.uncertainties = [
+      {
+        topic: '响应式布局',
+        reason: '移动端没有布局模式变化证据，无法确认响应式行为。',
+      },
+    ]
+    overflowEvidence.responsiveObservations[0].changedProperties.push('layoutMode')
+
+    const responsiveChecked = checkProfileContradictions(responsiveProfile, overflowEvidence)
+
+    expect(responsiveChecked.profile.uncertainties[0].reason).toContain('定位了横向溢出的页面及关联区块')
+    expect(responsiveChecked.profile.uncertainties[0].reason).not.toContain('具体来源和影响范围仍需确认')
+  })
+
+  it('repairs pill-button and viewport-scoping contradictions from cited evidence', () => {
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.sections[0].role = 'header'
+    contradictionEvidence.components[0] = {
+      ...contradictionEvidence.components[0],
+      role: 'primary-action',
+      styles: {
+        backgroundColor: '#2563eb',
+        color: '#ffffff',
+        borderRadius: '9999px',
+      },
+    }
+    contradictionEvidence.responsiveObservations[0] = {
+      ...contradictionEvidence.responsiveObservations[0],
+      changedProperties: ['layoutMode', 'position', 'height', 'borderBottom', 'boxShadow'],
+      changes: {
+        layoutMode: { from: 'flow', to: 'fixed' },
+        position: { from: 'relative', to: 'fixed' },
+        height: { from: '62px', to: '53px' },
+        borderBottom: { from: '0px none #111827', to: '1px solid #e5e7eb' },
+        boxShadow: { from: 'none', to: '0 1px 3px rgba(0, 0, 0, 0.1)' },
+      },
+    }
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.componentGrammar[0].rules[0] = {
+      ...claim('主按钮是小型实心强调方块。'),
+      implementation: '主 CTA 保持紧凑，不加大圆角。',
+      evidence: [{ evidenceId: 'component-a', note: '主按钮' }],
+    }
+    profile.signatureMoves[0] = {
+      ...profile.signatureMoves[0],
+      statement: '白色顶栏使用相对定位。',
+      implementation: '顶栏用白底、相对定位和轻投影。',
+      evidence: [{ evidenceId: 'section-a', note: '顶栏' }],
+    }
+    profile.sectionGrammar[0].transitionToNext[0] = {
+      ...claim('窄屏只记录到顶栏 layoutMode 与 height 的调整。'),
+      evidence: [{ evidenceId: 'responsive-a', note: '响应式变化' }],
+    }
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+
+    expect(checked.profile.componentGrammar[0].rules[0].statement).toContain('胶囊按钮')
+    expect(checked.profile.componentGrammar[0].rules[0].implementation).not.toContain('不加大圆角')
+    expect(checked.profile.signatureMoves[0].statement).toContain('relative 变为 fixed')
+    expect(checked.profile.signatureMoves[0].implementation).toContain('定位切换')
+    expect(checked.profile.signatureMoves[0].evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ evidenceId: 'responsive-a' })]),
+    )
+    expect(checked.profile.sectionGrammar[0].transitionToNext[0].statement).toMatch(/定位|下边框|阴影/)
+    expect(checked.rejected).toEqual(
+      expect.arrayContaining([
+        'componentGrammar.0.rules.0:primary-pill-shape-sanitized',
+        'signatureMoves.0:header-position-scope-sanitized',
+        'sectionGrammar.0.transitionToNext.0:responsive-property-list-sanitized',
+      ]),
+    )
+  })
+
+  it('does not promote a non-pill input into a pill component rule', () => {
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.components[0] = {
+      ...contradictionEvidence.components[0],
+      type: 'input',
+      styles: { color: '#111827', borderRadius: '3px' },
+    }
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.componentGrammar[0] = {
+      component: 'input',
+      role: '搜索',
+      rules: [
+        {
+          ...claim('输入框宽而低。'),
+          implementation: '输入框使用低矮胶囊样式。',
+          evidence: [{ evidenceId: 'component-a', note: '输入框' }],
+        },
+      ],
+    }
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+    const rule = checked.profile.componentGrammar[0].rules[0]
+
+    expect(rule.implementation).toContain('已观察到的圆角')
+    expect(rule.implementation).not.toContain('胶囊')
+    expect(checked.rejected).toContain('componentGrammar.0.rules.0:unsupported-pill-shape-sanitized')
   })
 
   it('repairs uncertainty text that understates observed mobile captures and section sequences', () => {
@@ -991,6 +1385,27 @@ describe('Design intelligence', () => {
     expect(validation.rejected).toContain('attention.visualSequence.0:semantic-field-mismatch')
   })
 
+  it('keeps unknown extraction buckets out of AI section grammar', () => {
+    const unknownEvidence = structuredClone(evidence)
+    unknownEvidence.sections.forEach((section) => {
+      section.role = 'unknown'
+    })
+    const raw = rawProfile()
+    raw.sectionGrammar = [
+      {
+        role: 'unknown',
+        composition: [claim('An unclassified region uses a reusable structure.')],
+        contentRhythm: [],
+        transitionToNext: [],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, unknownEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.sectionGrammar).toEqual([])
+    expect(validation.rejected).toContain('sectionGrammar.0:unobserved-role')
+  })
+
   it('restores grounded low-confidence coverage after contradiction pruning empties profile arrays', () => {
     const profile = rawProfile() as unknown as DesignProfile
     profile.signatureMoves = []
@@ -1031,6 +1446,28 @@ describe('Design intelligence', () => {
         repaired.profile.transferRules.avoid[0].statement,
       ]).size,
     ).toBe(3)
+  })
+
+  it('promotes repeated canonical component evidence to a visible deterministic fallback', () => {
+    const repeatedEvidence = structuredClone(evidence)
+    repeatedEvidence.components.push({
+      ...repeatedEvidence.components[0],
+      id: 'component-b',
+      rect: { ...repeatedEvidence.components[0].rect, y: 0.42 },
+      confidence: 0.9,
+    })
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.componentGrammar = []
+
+    const repaired = repairProfileCoverage(profile, repeatedEvidence)
+    const button = repaired.profile.componentGrammar.find((component) => component.component === 'button')
+
+    expect(button?.rules[0]).toEqual(
+      expect.objectContaining({
+        confidence: 'medium',
+        statement: expect.stringContaining('Observed button variants'),
+      }),
+    )
   })
 
   it('removes false extrema and color-role claims instead of retaining them as low-confidence facts', () => {
@@ -1861,7 +2298,10 @@ describe('Design intelligence', () => {
   it('generates scoped context, reconstruction guidance, and layered validation checks', () => {
     const profile = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en').profile!
     const context = generateAgentContextBundle('Build a responsive article page', 'structural-ai', evidence, profile)
-    const brief = generateReconstructionBrief(profile, evidence, tokens)
+    const brief = generateReconstructionBrief(profile, evidence, tokens, {
+      status: 'complete',
+      capabilityLevel: 'structural-ai',
+    })
     const report = validateRecipe(createValidationRecipe('states', profile, tokens), profile, tokens, 'structural-ai')
 
     expect(context.task).toContain('article')
@@ -1888,20 +2328,13 @@ describe('Design intelligence', () => {
     expect(createValidationRecipe('workflow', profile, denseTokens).root).toMatchObject({ gap: '16px' })
   })
 
-  it('reports independent quality dimensions and compares design language profiles', () => {
+  it('compares design language profiles', () => {
     const first = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en').profile!
     const secondRaw = rawProfile()
     secondRaw.thesis = claim('Compact repeated cards create a dense operational reading rhythm')
     const second = validateDesignProfile(secondRaw, evidence, 'structural-only', 'en').profile!
-    const metrics = evaluateProfileQuality(first, evidence)
     const comparison = compareDesignProfiles(first, second)
 
-    expect(metrics.groundedness).toBe(1)
-    expect(metrics.coverage).toBe(1)
-    expect(metrics.transferability).toBe(1)
-    expect(metrics.restraint).toBe(1)
-    expect(metrics.safety).toBe(1)
-    expect(metrics.distinctiveness).toBeGreaterThan(0)
     expect(comparison.thesisSimilarity).toBeLessThan(1)
     expect(comparison.evidenceGrounding.profileAReferences).toBeGreaterThan(0)
   })

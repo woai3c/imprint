@@ -197,6 +197,10 @@ export function generateDosAndDonts(
   tokens: DesignToken,
   language: DocLanguage = 'en',
   components: readonly ComponentVariantPattern[] = [],
+  responsiveEvidence: {
+    hasDeclaredBreakpoints?: boolean
+    hasObservedResponsiveBehavior?: boolean
+  } = {},
 ): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
@@ -208,20 +212,22 @@ export function generateDosAndDonts(
   lines.push(zh ? '### 正确做法' : "### Do's")
   lines.push('')
 
-  // Always applicable
-  lines.push(
-    zh
-      ? '- ✅ 使用已定义的颜色令牌，不要硬编码色值'
-      : '- ✅ Use the defined color tokens instead of hardcoded hex values',
-  )
-  lines.push(zh ? '- ✅ 遵循间距刻度保持一致节奏' : '- ✅ Follow the spacing scale for consistent rhythm')
-
-  // Font-specific
-  if (tokens.typography.fontFamilies.length > 0) {
+  if (Object.keys(tokens.colors).length > 0) {
     lines.push(
       zh
-        ? `- ✅ 使用 \`${tokens.typography.fontFamilies[0]}\` 作为主字体`
-        : `- ✅ Use \`${tokens.typography.fontFamilies[0]}\` as the primary font`,
+        ? '- ✅ 使用已定义的颜色令牌，不要硬编码色值'
+        : '- ✅ Use the defined color tokens instead of hardcoded hex values',
+    )
+  }
+  if (tokens.spacing.length > 0) {
+    lines.push(zh ? '- ✅ 遵循间距刻度保持一致节奏' : '- ✅ Follow the spacing scale for consistent rhythm')
+  }
+
+  // Font-specific
+  const primaryFont = tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
+  if (primaryFont) {
+    lines.push(
+      zh ? `- ✅ 使用 \`${primaryFont}\` 作为主字体栈` : `- ✅ Use \`${primaryFont}\` as the primary font stack`,
     )
   }
 
@@ -252,7 +258,13 @@ export function generateDosAndDonts(
       )
     } else if (representativeRadius !== undefined && representativeRadius <= 4) {
       const hasPillButton = components.some(
-        (component) => component.type === 'button' && isPillRadius(component.styles),
+        (component) =>
+          component.type === 'button' &&
+          (isPillRadius(component.styles) ||
+            ((component.variant === 'icon' || /(?:pill|circular)/i.test(component.name)) &&
+              [...(component.styles.borderRadius || '').matchAll(/-?\d+(?:\.\d+)?/g)].some(
+                (match) => Number.parseFloat(match[0]) >= 12,
+              ))),
       )
       lines.push(
         hasPillButton
@@ -272,28 +284,51 @@ export function generateDosAndDonts(
   } else {
     lines.push(
       zh
-        ? '- ✅ 用边框与背景色变化建立层次（无阴影设计）'
-        : '- ✅ Use borders and background shifts for hierarchy (no shadows)',
+        ? '- ✅ 未观察到稳定的阴影刻度；优先使用已观察到的边框与背景色变化建立层次'
+        : '- ✅ No stable shadow scale was observed; prefer observed borders and background shifts for hierarchy',
+    )
+  }
+
+  if (responsiveEvidence.hasObservedResponsiveBehavior) {
+    lines.push(
+      zh
+        ? '- ✅ 保留已观察到的响应式行为及其视口差异'
+        : '- ✅ Preserve the observed responsive behavior across viewports',
+    )
+  } else if (responsiveEvidence.hasDeclaredBreakpoints) {
+    lines.push(
+      zh
+        ? '- 已声明断点，但本次捕获未观察到响应式行为'
+        : '- Breakpoints were declared, but responsive behavior was not observed in this capture',
     )
   }
 
   // Spacing-specific
   if (tokens.spacing.length >= 4) {
     lines.push(
-      zh ? '- ✅ 坚持使用间距刻度，避免任意像素值' : '- ✅ Stick to the spacing scale — avoid arbitrary pixel values',
+      zh
+        ? '- ✅ 重复间距优先使用间距刻度；组件和结构中的已观察例外保持精确值'
+        : '- ✅ Use the spacing scale for recurring rhythm; keep observed component and structural exceptions exact',
     )
   }
 
   lines.push('')
   lines.push(zh ? '### 避免' : "### Don'ts")
   lines.push('')
-  lines.push(zh ? '- ❌ 不要引入色板之外的新颜色' : "- ❌ Don't introduce new colors outside the defined palette")
-  lines.push(zh ? '- ❌ 不要混用不同的间距体系' : "- ❌ Don't mix different spacing systems")
-
-  if (tokens.shadows.length === 0) {
+  if (Object.keys(tokens.colors).length > 0) {
+    const hasDerivedAccessibilityColor = Boolean(tokens.colorRoles?.primaryAction?.recommendedOnPrimary)
     lines.push(
-      zh ? '- ❌ 不要添加阴影——该设计为扁平层级' : "- ❌ Don't add box-shadows — this design uses flat elevation",
+      hasDerivedAccessibilityColor
+        ? zh
+          ? '- ❌ 不要把新颜色当成页面观察值；派生的无障碍建议必须明确标注并单独验证'
+          : "- ❌ Don't present new colors as observed values; label and validate derived accessibility recommendations separately"
+        : zh
+          ? '- ❌ 不要引入色板之外的新颜色'
+          : "- ❌ Don't introduce new colors outside the defined palette",
     )
+  }
+  if (tokens.spacing.length > 0) {
+    lines.push(zh ? '- ❌ 不要混用不同的间距体系' : "- ❌ Don't mix different spacing systems")
   }
 
   if (tokens.typography.fontFamilies.length === 1) {
@@ -305,7 +340,7 @@ export function generateDosAndDonts(
   }
 
   const weights = tokens.typography.fontWeights
-  if (weights.length <= 3) {
+  if (weights.length > 0 && weights.length <= 3) {
     lines.push(
       zh
         ? `- ❌ 不要使用以下之外的字重：${weights.join(', ')}`
@@ -313,9 +348,6 @@ export function generateDosAndDonts(
     )
   }
 
-  lines.push(
-    zh ? '- ❌ 不要忽略响应式间距，使用相对单位' : "- ❌ Don't ignore the responsive spacing — use relative units",
-  )
   lines.push('')
 
   return lines.join('\n')

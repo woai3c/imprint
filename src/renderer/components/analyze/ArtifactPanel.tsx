@@ -1,4 +1,4 @@
-import { Copy, Download, FlaskConical, Info, Save } from 'lucide-react'
+import { ChevronRight, Copy, Download, FlaskConical, Info, Save } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
 import { useState } from 'react'
@@ -15,8 +15,8 @@ import { IconButton } from '../ui/IconButton'
 import { Tabs } from '../ui/Tabs'
 import { DesignDnaPanel } from './DesignDnaPanel'
 import { ExampleComponents } from './ExampleComponents'
-
-export type ExportTab = 'overview' | 'preview' | 'markdown' | 'tailwind' | 'css'
+import { type ExportTab, artifactTabIds } from './artifact-tabs'
+import { splitDesignMarkdown } from './design-markdown'
 
 interface ArtifactPanelProps {
   result: AnalysisResultData
@@ -42,28 +42,37 @@ export function ArtifactPanel({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const notify = useFeedbackStore((state) => state.show)
-  const [activeTab, setActiveTab] = useState<ExportTab>('overview')
+  const [selectedTab, setActiveTab] = useState<ExportTab>('overview')
   const [savingTheme, setSavingTheme] = useState(false)
   const [saveConflict, setSaveConflict] = useState<ThemeSaveConflict | null>(null)
+  const activeTab = selectedTab === 'reconstruction' && !result.reconstructionBrief ? 'overview' : selectedTab
 
   const exportArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
   const activeArtifactLabel = t(`analyze.artifacts.${exportArtifact}`)
   const showCopyDownload = activeTab !== 'preview'
 
-  const tabs: { id: ExportTab; label: string }[] = [
-    { id: 'overview', label: t('analyze.tabOverview') },
-    { id: 'preview', label: t('analyze.tabPreview') },
-    { id: 'markdown', label: t('analyze.tabMarkdown') },
-    { id: 'tailwind', label: t('analyze.tabTailwind') },
-    { id: 'css', label: t('analyze.tabCss') },
-  ]
+  const tabs: { id: ExportTab; label: string }[] = artifactTabIds(Boolean(result.reconstructionBrief)).map((id) => ({
+    id,
+    label: t(
+      {
+        overview: 'analyze.tabOverview',
+        preview: 'analyze.tabPreview',
+        markdown: 'analyze.tabMarkdown',
+        reconstruction: 'analyze.tabReconstruction',
+        tailwind: 'analyze.tabTailwind',
+        css: 'analyze.tabCss',
+      }[id],
+    ),
+  }))
 
   const tokens = result.tokens as Record<string, unknown> | undefined
+  const designMarkdown = splitDesignMarkdown(result.designDoc || '')
 
   const handleCopy = async () => {
     let content = ''
     if (activeTab === 'tailwind') content = result.tailwindTheme || ''
     else if (activeTab === 'css') content = result.cssVariables || ''
+    else if (activeTab === 'reconstruction') content = result.reconstructionBrief || ''
     else content = result.designDoc || ''
     try {
       await navigator.clipboard.writeText(content)
@@ -85,6 +94,9 @@ export function ArtifactPanel({
       content = result.cssVariables
       ext = 'css'
       filename = 'theme-variables.css'
+    } else if (activeTab === 'reconstruction') {
+      content = result.reconstructionBrief || ''
+      filename = 'RECONSTRUCTION.md'
     } else {
       content = result.designDoc
     }
@@ -153,7 +165,11 @@ export function ArtifactPanel({
               {showCopyDownload && (
                 <IconButton
                   icon={Copy}
-                  label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                  label={
+                    activeTab === 'reconstruction'
+                      ? t('analyze.designDna.copyBrief')
+                      : t('analyze.copyCurrent', { format: activeArtifactLabel })
+                  }
                   onClick={handleCopy}
                 />
               )}
@@ -212,11 +228,44 @@ export function ArtifactPanel({
             </>
           )}
           {activeTab === 'markdown' && (
+            <div data-testid="artifact-content-markdown" className="p-6">
+              {designMarkdown.frontmatter !== undefined && (
+                <details
+                  data-testid="artifact-design-frontmatter"
+                  className="group overflow-hidden rounded-lg border border-border/60 bg-secondary/20"
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+                    />
+                    <span className="text-xs font-medium text-foreground">
+                      {t('analyze.designDoc.frontmatterTitle')}
+                    </span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {t('analyze.designDoc.frontmatterDescription')}
+                    </span>
+                  </summary>
+                  <div className="border-t border-border/60 bg-background/70 p-3">
+                    <pre className="max-h-96 overflow-auto text-xs leading-5 whitespace-pre text-foreground">
+                      <code>{`---\n${designMarkdown.frontmatter}\n---`}</code>
+                    </pre>
+                  </div>
+                </details>
+              )}
+              <div
+                className={`prose prose-sm dark:prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none ${designMarkdown.frontmatter !== undefined ? 'mt-5' : ''}`}
+              >
+                <Markdown remarkPlugins={[remarkGfm]}>{designMarkdown.body}</Markdown>
+              </div>
+            </div>
+          )}
+          {activeTab === 'reconstruction' && result.reconstructionBrief && (
             <div
-              data-testid="artifact-content-markdown"
+              data-testid="artifact-content-reconstruction"
               className="prose prose-sm dark:prose-invert max-w-none p-6 prose-code:before:content-none prose-code:after:content-none"
             >
-              <Markdown remarkPlugins={[remarkGfm]}>{result.designDoc}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]}>{result.reconstructionBrief}</Markdown>
             </div>
           )}
           {(activeTab === 'tailwind' || activeTab === 'css') && (

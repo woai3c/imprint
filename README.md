@@ -86,7 +86,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 
 If you give AI only one exported file, choose **DESIGN.md**.
 
-Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The compact `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; full token provenance remains in Tokens JSON and `design-evidence.json`.
+Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The summarized `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; complete token provenance remains in Tokens JSON and `design-evidence.json`.
 
 ## Design Evidence and Design DNA
 
@@ -128,12 +128,14 @@ export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='s
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
+imprint extract https://example.com --intelligence structural --provider deepseek --format reconstruction
 imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
 ```
 
 The MCP server keeps `imprint_extract` deterministic. Use `imprint_interpret` for an explicit provider call, or set
-`depth: "language"` on `imprint_compare` to compare two validated structural profiles. Pass the API key through your
-MCP client's server configuration, for example:
+`depth: "language"` on `imprint_compare` to compare two validated structural profiles. Set `includeBrief: true` on
+`imprint_interpret` only when the complete eligible Reconstruction Brief is needed; it is omitted by default. Pass the
+API key through your MCP client's server configuration, for example:
 
 ```json
 {

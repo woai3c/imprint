@@ -105,6 +105,24 @@ function addFrequency(target: Map<string, number>, source: ColorFrequency, weigh
   }
 }
 
+function roleFrequency(
+  usageCount: Readonly<Record<string, number>>,
+  category: string,
+  legacyCategory?: string,
+): Map<string, number> {
+  const frequency = categoryFrequency(usageCount, category)
+  return frequency.size > 0 || !legacyCategory ? frequency : categoryFrequency(usageCount, legacyCategory)
+}
+
+function combinedRoleFrequency(
+  usageCount: Readonly<Record<string, number>>,
+  categories: readonly string[],
+): Map<string, number> {
+  const frequency = new Map<string, number>()
+  categories.forEach((category) => addFrequency(frequency, categoryFrequency(usageCount, category)))
+  return frequency
+}
+
 function subtractFrequency(target: Map<string, number>, source: ColorFrequency, weight = 1): void {
   for (const [color, count] of source) {
     const remaining = (target.get(color) || 0) - count * weight
@@ -229,36 +247,55 @@ export function clusterColors(
 
   // Explicit semantic evidence is ordered before raw DOM frequency. Otherwise a decorative color repeated across many
   // nodes can outrank a site's declared brand token even though the repetition is an implementation detail.
+  const primaryActionBackgrounds = roleFrequency(accentUsageCount, 'primaryActionBackgroundColor', 'primaryActionColor')
+  const actionBackgrounds = roleFrequency(accentUsageCount, 'actionBackgroundColor', 'actionColor')
+  const actionForegrounds = combinedRoleFrequency(accentUsageCount, [
+    'primaryActionForegroundColor',
+    'actionForegroundColor',
+  ])
+  const statusColors = combinedRoleFrequency(accentUsageCount, [
+    'statusBackgroundColor',
+    'statusForegroundColor',
+    'statusColor',
+  ])
   const accentFrequency = new Map<string, number>()
-  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'primaryActionColor'), 20)
-  addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'actionColor'), 16)
+  addFrequency(accentFrequency, primaryActionBackgrounds, 20)
+  addFrequency(accentFrequency, actionBackgrounds, 16)
   addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'selectedColor'), 12)
   addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'accentColor'), 8)
   addFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'linkColor'), 6)
   addFrequency(accentFrequency, colorFrequency(rawColors, accentUsageCount))
-  subtractFrequency(accentFrequency, categoryFrequency(accentUsageCount, 'statusColor'), 2)
+  subtractFrequency(accentFrequency, actionForegrounds, 50)
+  subtractFrequency(accentFrequency, statusColors, 50)
   const accents: string[] = []
-  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'primaryActionColor')))
-  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'actionColor')))
+  appendDistinctColors(accents, usableAccentColors(primaryActionBackgrounds))
+  appendDistinctColors(accents, usableAccentColors(actionBackgrounds))
   appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'brandTokenColor')))
   appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'selectedColor')))
   appendDistinctColors(accents, usableAccentColors(accentFrequency))
 
-  if (accents.length === 0) {
-    const statusColors = clusterFrequency(categoryFrequency(accentUsageCount, 'statusColor')).map((item) => item.hex)
-    const excluded = new Set([backgrounds[0], texts[0], ...statusColors])
-    accents.push(
-      ...palette
-        .filter((item) => {
-          if (excluded.has(item.hex)) return false
-          const color = parseColor(item.hex)
-          if (!color) return false
-          const lum = luminance(color.r, color.g, color.b)
-          return lum > 0.05 && lum < 0.9
-        })
-        .map((item) => item.hex),
-    )
-  }
+  const explicitlyAllowed = new Set(
+    [
+      ...primaryActionBackgrounds.keys(),
+      ...actionBackgrounds.keys(),
+      ...categoryFrequency(accentUsageCount, 'brandTokenColor').keys(),
+      ...categoryFrequency(accentUsageCount, 'selectedColor').keys(),
+    ].flatMap((color) => {
+      const normalized = normalizeColorValue(color)
+      return normalized ? [normalized] : []
+    }),
+  )
+  const excludedRoles = new Set(
+    [...actionForegrounds.keys(), ...statusColors.keys()].flatMap((color) => {
+      const normalized = normalizeColorValue(color)
+      return normalized ? [normalized] : []
+    }),
+  )
+  const filteredAccents = accents.filter((color) => {
+    const normalized = normalizeColorValue(color)
+    return !normalized || explicitlyAllowed.has(normalized) || !excludedRoles.has(normalized)
+  })
+  accents.splice(0, accents.length, ...filteredAccents)
 
   return { palette, backgrounds, texts, accents }
 }

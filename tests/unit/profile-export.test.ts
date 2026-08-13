@@ -3,8 +3,11 @@ import { describe, expect, test } from 'vitest'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import { generateDesignProfileMarkdown } from '../../src/core/design-intelligence/profile-export.js'
-import { generateReconstructionBrief } from '../../src/core/design-intelligence/reconstruction-brief.js'
-import type { DesignClaim, DesignProfile } from '../../src/core/design-intelligence/types.js'
+import {
+  generateReconstructionBrief,
+  getReconstructionBriefEligibility,
+} from '../../src/core/design-intelligence/reconstruction-brief.js'
+import type { DesignClaim, DesignIntelligenceMeta, DesignProfile } from '../../src/core/design-intelligence/types.js'
 
 function claim(statement: string, confidence: DesignClaim['confidence'] = 'medium'): DesignClaim {
   return {
@@ -51,7 +54,7 @@ function makeProfile(): DesignProfile {
     transferRules: {
       preserve: [claim('保留深色调色板', 'high')],
       adapt: [],
-      avoid: [claim('避免把 footer 当全局模式', 'low')],
+      avoid: [claim('避免引入未经观察的视觉语言', 'medium'), claim('避免把 footer 当全局模式', 'low')],
     },
     uncertainties: [],
   }
@@ -78,30 +81,34 @@ const tokens: DesignToken = {
 const evidence = {
   responsiveObservations: [],
   limitations: [],
+  coverage: {
+    pageCoverage: 'partial',
+    sectionCoverage: 0.75,
+    viewportCoverage: ['desktop', 'mobile'],
+    interactionCoverage: { candidates: 4, safelyObserved: 2, skipped: 2 },
+    mediaCoverage: { majorRegions: 2, classifiedRegions: 1, iconRegions: 3 },
+    accessRestrictions: [],
+    limitations: ['single-page-coverage'],
+  },
 } as unknown as DesignEvidence
 
+const completeMeta: DesignIntelligenceMeta = {
+  status: 'complete',
+  capabilityLevel: 'structural-ai',
+}
+
 describe('generateDesignProfileMarkdown', () => {
-  test('moves low-confidence claims into an appendix and keeps solid claims in the body', () => {
+  test('omits low-confidence claims while keeping solid claims in the document', () => {
     const markdown = generateDesignProfileMarkdown(makeProfile())
 
-    const appendixIndex = markdown.indexOf('低置信度推断')
-    expect(appendixIndex).toBeGreaterThan(-1)
-
-    // Solid claims stay in the main body, before the appendix.
-    expect(markdown.indexOf('全出血容器')).toBeLessThan(appendixIndex)
-    expect(markdown.indexOf('深底白字')).toBeLessThan(appendixIndex)
-
-    // Non-transfer low-confidence claims appear inside the appendix. Transfer guidance
-    // remains in its named section because downstream agents need to see those guardrails.
-    const body = markdown.slice(0, appendixIndex)
-    const appendix = markdown.slice(appendixIndex)
-    expect(body).not.toContain('首页视线顺序为标题到按钮')
-    expect(body).not.toContain('DOM 顺序上 header 为首个区域')
-    expect(appendix).toContain('首页视线顺序为标题到按钮')
-    expect(appendix).toContain('[注意力层级 · visualSequence.1]')
-    expect(body).toContain('### 必须避免')
-    expect(body).toContain('避免把 footer 当全局模式')
-    expect(appendix).not.toContain('避免把 footer 当全局模式')
+    expect(markdown).toContain('全出血容器')
+    expect(markdown).toContain('深底白字')
+    expect(markdown).toContain('### 必须避免')
+    expect(markdown).toContain('避免引入未经观察的视觉语言')
+    expect(markdown).not.toContain('低置信度推断')
+    expect(markdown).not.toContain('首页视线顺序为标题到按钮')
+    expect(markdown).not.toContain('DOM 顺序上 header 为首个区域')
+    expect(markdown).not.toContain('避免把 footer 当全局模式')
   })
 
   test('keeps the thesis in the body even when low confidence', () => {
@@ -110,15 +117,16 @@ describe('generateDesignProfileMarkdown', () => {
 
     const markdown = generateDesignProfileMarkdown(profile)
 
-    const appendixIndex = markdown.indexOf('低置信度推断')
-    expect(markdown.indexOf('设计主张')).toBeLessThan(appendixIndex)
-    expect(markdown.slice(0, appendixIndex)).toContain('证据不足时的设计主张')
+    expect(markdown).toContain('### 设计主张')
+    expect(markdown).toContain('证据不足时的设计主张')
+    expect(markdown).not.toContain('低置信度推断')
   })
 
   test('maps renamed color refs to their aliases and resolves ref values', () => {
     const profile = makeProfile()
     profile.thesis = {
-      ...claim('品牌色与间距主张', 'high'),
+      ...claim('品牌色 color.palette-8 与间距主张', 'high'),
+      implementation: '在正文中使用 color.palette-8，不仅是 token ref。',
       tokenRefs: ['color.palette-8', 'spacing.2', 'color.primary'],
     }
     profile.tokenAliases = [{ tokenId: 'palette-8', name: 'text-subtle' }]
@@ -133,6 +141,24 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).toContain('`color.text-subtle` (#67676c)')
     expect(markdown).toContain('`spacing.2` (12px)')
     expect(markdown).toContain('`color.primary` (#6b1eb9)')
+    expect(markdown).toContain('品牌色 color.text-subtle 与间距主张')
+    expect(markdown).toContain('在正文中使用 color.text-subtle')
+    expect(markdown).not.toContain('color.palette-8')
+  })
+
+  test('maps renamed color refs inside uncertainty prose', () => {
+    const profile = makeProfile()
+    profile.tokenAliases = [{ tokenId: 'palette-8', name: 'text-subtle' }]
+    profile.uncertainties = [
+      {
+        topic: '辅助色语义',
+        reason: 'color.palette-8 的跨页角色仍需确认。',
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('color.text-subtle 的跨页角色仍需确认')
     expect(markdown).not.toContain('color.palette-8')
   })
 
@@ -169,7 +195,7 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).toContain('部分 AI 字段未通过确定性校验')
   })
 
-  test('renders repeated low-confidence fallbacks and uncertainties once', () => {
+  test('omits low-confidence fallbacks and internal validation diagnostics', () => {
     const profile = makeProfile()
     const fallback = claim('仅使用已观察到的设计令牌', 'low')
     profile.composition.containerStrategy = fallback
@@ -177,12 +203,15 @@ describe('generateDesignProfileMarkdown', () => {
     profile.uncertainties = [
       { topic: '确定性矛盾检查', reason: '数值不一致' },
       { topic: '确定性矛盾检查', reason: '数值不一致' },
+      { topic: '水平溢出细节', reason: '裁切范围仍需确认。' },
+      { topic: '响应式行为', reason: '横向溢出的移动端意图仍需确认。' },
     ]
 
     const markdown = generateDesignProfileMarkdown(profile)
 
-    expect(markdown.match(/仅使用已观察到的设计令牌/g)).toHaveLength(2)
-    expect(markdown.match(/确定性矛盾检查: 数值不一致/g)).toHaveLength(1)
+    expect(markdown).not.toContain('仅使用已观察到的设计令牌')
+    expect(markdown).not.toContain('确定性矛盾检查')
+    expect(markdown.match(/横向溢出|水平溢出/g)).toHaveLength(1)
   })
 
   test('groups repeated component types under one heading while retaining each observed role', () => {
@@ -215,16 +244,143 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).toContain('**main action.2:** 工具按钮使用轻量投影')
     expect(markdown).not.toContain('**main action:**')
   })
+
+  test('renumbers visible list claims after low-confidence items are omitted', () => {
+    const profile = makeProfile()
+    profile.interactionLanguage.primaryDrivers = [claim('未验证的首个驱动', 'low'), claim('已验证的聚焦样式', 'medium')]
+    profile.componentGrammar = [
+      {
+        component: 'button',
+        role: 'action',
+        rules: [claim('低置信规则', 'low'), claim('保留主按钮填充', 'medium'), claim('保留文字按钮', 'medium')],
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('**primaryDriver.1:** 已验证的聚焦样式')
+    expect(markdown).not.toContain('primaryDriver.2')
+    expect(markdown).toContain('**action.1:** 保留主按钮填充')
+    expect(markdown).toContain('**action.2:** 保留文字按钮')
+    expect(markdown).not.toContain('action.3')
+  })
 })
 
 describe('generateReconstructionBrief', () => {
   test('filters low-confidence claims out of the brief', () => {
-    const brief = generateReconstructionBrief(makeProfile(), evidence, tokens)
+    const brief = generateReconstructionBrief(makeProfile(), evidence, tokens, completeMeta)
 
+    expect(brief).not.toBeNull()
     expect(brief).toContain('保留深色调色板')
     expect(brief).toContain('主按钮实心品牌色')
     expect(brief).not.toContain('避免把 footer 当全局模式')
     expect(brief).not.toContain('header 跨页一致')
     expect(brief).not.toContain('首页视线顺序为标题到按钮')
+  })
+
+  test('rejects complete profiles whose thesis is low confidence', () => {
+    const profile = makeProfile()
+    profile.thesis = claim('证据不足的设计主张', 'low')
+
+    expect(generateReconstructionBrief(profile, evidence, tokens, completeMeta)).toBeNull()
+    expect(getReconstructionBriefEligibility(profile, completeMeta)).toEqual({
+      eligible: false,
+      reason: 'low-confidence-thesis',
+    })
+  })
+
+  test.each([
+    {
+      name: 'preserve',
+      update: (profile: DesignProfile) => ({
+        ...profile,
+        transferRules: { ...profile.transferRules, preserve: [claim('低置信保留项', 'low')] },
+      }),
+      reason: 'preserve-directive-missing',
+    },
+    {
+      name: 'avoid',
+      update: (profile: DesignProfile) => ({
+        ...profile,
+        transferRules: { ...profile.transferRules, avoid: [claim('低置信避免项', 'low')] },
+      }),
+      reason: 'avoid-directive-missing',
+    },
+  ])('rejects complete profiles without a reliable $name directive', ({ update, reason }) => {
+    const profile = update(makeProfile())
+
+    expect(generateReconstructionBrief(profile, evidence, tokens, completeMeta)).toBeNull()
+    expect(getReconstructionBriefEligibility(profile, completeMeta)).toEqual({ eligible: false, reason })
+  })
+
+  test('marks eligible partial profiles and includes validation and coverage limitations', () => {
+    const profile = makeProfile()
+    profile.transferRules.avoid = [claim('避免引入未观察到的装饰语言', 'medium')]
+    const meta: DesignIntelligenceMeta = {
+      status: 'partial',
+      capabilityLevel: 'structural-ai',
+      rejected: ['visualLanguage.motion:unsupported-evidence'],
+      repaired: ['transferRules.preserve:coverage-repaired'],
+    }
+
+    const brief = generateReconstructionBrief(profile, evidence, tokens, meta)
+
+    expect(brief).not.toBeNull()
+    expect(brief).toContain('Partial interpretation')
+    expect(brief).toContain('visualLanguage.motion:unsupported-evidence')
+    expect(brief).toContain('transferRules.preserve:coverage-repaired')
+    expect(brief).toContain('page=partial')
+    expect(brief).toContain('sections=75%')
+  })
+
+  test.each([
+    {
+      name: 'evidence fallback',
+      update: (profile: DesignProfile) => profile,
+      meta: { status: 'partial', capabilityLevel: 'evidence-fallback' } as DesignIntelligenceMeta,
+      reason: 'evidence-fallback',
+    },
+    {
+      name: 'low-confidence thesis',
+      update: (profile: DesignProfile) => ({ ...profile, thesis: claim('低置信主张', 'low') }),
+      meta: { status: 'partial', capabilityLevel: 'structural-ai' } as DesignIntelligenceMeta,
+      reason: 'low-confidence-thesis',
+    },
+    {
+      name: 'missing preserve directive',
+      update: (profile: DesignProfile) => ({
+        ...profile,
+        transferRules: { ...profile.transferRules, preserve: [claim('低置信保留项', 'low')] },
+      }),
+      meta: { status: 'partial', capabilityLevel: 'structural-ai' } as DesignIntelligenceMeta,
+      reason: 'preserve-directive-missing',
+    },
+    {
+      name: 'missing avoid directive',
+      update: (profile: DesignProfile) => ({
+        ...profile,
+        transferRules: { ...profile.transferRules, avoid: [claim('低置信避免项', 'low')] },
+      }),
+      meta: { status: 'partial', capabilityLevel: 'structural-ai' } as DesignIntelligenceMeta,
+      reason: 'avoid-directive-missing',
+    },
+  ])('does not generate a partial brief for $name', ({ update, meta, reason }) => {
+    const profile = update(makeProfile())
+
+    expect(generateReconstructionBrief(profile, evidence, tokens, meta)).toBeNull()
+    expect(getReconstructionBriefEligibility(profile, meta)).toEqual({ eligible: false, reason })
+  })
+
+  test('does not generate for failed, fallback, or missing profiles', () => {
+    expect(
+      generateReconstructionBrief(makeProfile(), evidence, tokens, {
+        status: 'failed',
+        capabilityLevel: 'evidence-fallback',
+      }),
+    ).toBeNull()
+    expect(getReconstructionBriefEligibility(null, completeMeta)).toEqual({
+      eligible: false,
+      reason: 'no-profile',
+    })
   })
 })

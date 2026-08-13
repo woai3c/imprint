@@ -697,8 +697,9 @@ export function registerIpcHandlers() {
           status: record.design_intelligence_status || 'not-requested',
           capabilityLevel: 'evidence-only',
         } as DesignIntelligenceMeta)
-    const reconstructionBrief =
-      designProfile && designEvidence ? generateReconstructionBrief(designProfile, designEvidence, tokens) : null
+    const reconstructionBrief = designEvidence
+      ? generateReconstructionBrief(designProfile, designEvidence, tokens, designIntelligence)
+      : null
     const agentContext =
       designEvidence && designProfile
         ? createTaskContext('Create a new page or component', designEvidence, designProfile, designIntelligence)
@@ -856,7 +857,6 @@ export function registerIpcHandlers() {
           options?.language?.startsWith('zh') ? 'zh-CN' : 'en',
           [],
           result.designEvidence,
-          undefined,
           undefined,
           designIntelligenceStatus,
           { ...designIntelligenceMeta, timing: result.timing },
@@ -1035,7 +1035,7 @@ export function registerIpcHandlers() {
             }
           : existingMeta.timing,
       }
-      const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
+      const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens, cachedMeta)
       const programTiming = readStoredAnalysisTiming(record)
       const combinedTiming = programTiming
         ? mergeAnalysisTimings(programTiming, cachedMeta.timing, interstageUserWaitMs)
@@ -1101,7 +1101,7 @@ export function registerIpcHandlers() {
           new Date().toISOString(),
           cacheKey,
         )
-        const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens)
+        const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens, cachedMeta)
         log.info('design-intelligence', `persistent cache hit: key=${cacheKey.slice(0, 12)}`)
         return {
           ...buildStoredAnalysisResult(record, tokens),
@@ -1168,9 +1168,12 @@ export function registerIpcHandlers() {
       ? (JSON.parse(record.design_profile_json as string) as DesignProfile)
       : null
     const designProfile = intelligence.profile || previousProfile
-    let reconstructionBrief: string | null = designProfile
-      ? generateReconstructionBrief(designProfile, designEvidence, tokens)
-      : null
+    let reconstructionBrief: string | null = generateReconstructionBrief(
+      designProfile,
+      designEvidence,
+      tokens,
+      intelligence.meta,
+    )
     const validationReport =
       intelligence.validationReport ||
       (record.validation_report_json
@@ -1223,7 +1226,6 @@ export function registerIpcHandlers() {
         [],
         designEvidence,
         intelligence.profile,
-        reconstructionBrief || undefined,
         intelligence.meta.status,
         { ...intelligence.meta, timing: combinedTiming },
       )
@@ -1249,7 +1251,6 @@ export function registerIpcHandlers() {
         outputLanguage,
         [],
         designEvidence,
-        undefined,
         undefined,
         intelligence.meta.status,
         { ...intelligence.meta, timing: combinedTiming },
@@ -1413,7 +1414,7 @@ export function registerIpcHandlers() {
         failureCode: generation.failureCode,
       },
     }
-    const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens)
+    const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens, existingMeta)
     const darkModeExport = readDarkModeExportData(
       record.dark_tokens_json,
       tokens,
@@ -1442,7 +1443,6 @@ export function registerIpcHandlers() {
       generation.status === 'complete' ? generation.examples : [],
       designEvidence,
       designProfile,
-      reconstructionBrief,
       updatedMeta.status,
       { ...updatedMeta, timing: readStoredAnalysisTiming(record) || updatedMeta.timing },
     )
@@ -1497,7 +1497,7 @@ export function registerIpcHandlers() {
         designEvidence: evidence,
         designProfile: profile,
         designIntelligence: meta,
-        reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens),
+        reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens, meta),
         agentContext: generateAgentContextBundle(
           'Validate a new design scenario',
           meta.capabilityLevel,

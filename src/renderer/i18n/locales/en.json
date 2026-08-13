@@ -48,14 +48,20 @@
     "tabOverview": "Overview",
     "tabPreview": "Visual Preview",
     "tabMarkdown": "DESIGN.md",
+    "tabReconstruction": "Reconstruction Brief",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS Variables",
     "copyCurrent": "Copy {{format}}",
     "exportCurrent": "Export {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
+      "reconstruction": "Reconstruction Brief",
       "tailwind": "Tailwind v4",
       "css": "CSS variables"
+    },
+    "designDoc": {
+      "frontmatterTitle": "Machine-readable metadata (YAML)",
+      "frontmatterDescription": "Included in copy and export"
     },
     "aiExport": {
       "title": "Use with AI Coding Agents",

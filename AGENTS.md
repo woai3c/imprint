@@ -27,7 +27,7 @@ Imprint — Electron desktop app + standalone CLI + MCP server that extracts a w
 - `pnpm test` — run the Vitest unit suite for core analyzer behavior
 - `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
 - `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge
-- `pnpm test:benchmark` — run the Design DNA benchmark corpus (annotated fixtures, real browser); see `tests/benchmark/README.md`
+- `pnpm test:design-evidence` — run the annotated Design Evidence browser regression suite
 - `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
 - `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
   trigger native Windows x64 and macOS arm64/x64 release builds
@@ -67,6 +67,8 @@ Extraction and export changes belong in `src/core`; do not create a second deskt
 - Formatting is enforced: no semicolons, single quotes, printWidth 120 (Prettier). Import order is auto-sorted by `@trivago/prettier-plugin-sort-imports` — don't hand-tune import ordering.
 - Relative imports in `.ts` files use `.js` extensions (e.g. `from './database.js'`) — required for the compiled CLI output.
 - ESLint: unused imports are errors; intentionally unused vars/args must be prefixed with `_`.
+- Write source comments, JSDoc, internal documentation, and developer-facing explanations in English by default. Do not
+  hard-code Chinese user-facing copy; add it through the applicable localization mechanism with an English counterpart.
 - Renderer UI strings go through i18next — add keys to BOTH `src/renderer/i18n/locales/en.json` and `zh-CN.json`.
 - Renderer font sizes must resolve to even pixel values (12px, 14px, 16px …): use the `text-xs/sm/base` scale or even
   `text-[Npx]` — never odd px (`text-[11px]`) or fractional rem that lands on odd pixels (`0.9375rem` = 15px). Odd

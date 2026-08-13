@@ -48,14 +48,20 @@
     "tabOverview": "概览",
     "tabPreview": "可视预览",
     "tabMarkdown": "DESIGN.md",
+    "tabReconstruction": "页面重构简报",
     "tabTailwind": "Tailwind v4",
     "tabCss": "CSS 变量",
     "copyCurrent": "复制 {{format}}",
     "exportCurrent": "导出 {{format}}",
     "artifacts": {
       "markdown": "DESIGN.md",
+      "reconstruction": "页面重构简报",
       "tailwind": "Tailwind v4",
       "css": "CSS 变量"
+    },
+    "designDoc": {
+      "frontmatterTitle": "机器可读元数据（YAML）",
+      "frontmatterDescription": "复制和导出时会完整保留"
     },
     "aiExport": {
       "title": "配合 AI 编程助手使用",

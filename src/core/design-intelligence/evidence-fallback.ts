@@ -1,3 +1,4 @@
+import { classifyComponentVariant } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import type { DesignClaim, DesignProfile, IntelligenceInputMode } from './types.js'
 
@@ -6,46 +7,123 @@ export interface ProfileCoverageRepairResult {
   repaired: string[]
 }
 
+const VIEWPORT_PREFERENCE = ['desktop', 'tablet', 'mobile'] as const
+
+function canonicalComponents(evidence: DesignEvidence): DesignEvidence['components'] {
+  const pagesByUrl = new Map<string, DesignEvidence['pages']>()
+  for (const page of evidence.pages) {
+    const pages = pagesByUrl.get(page.url) || []
+    pages.push(page)
+    pagesByUrl.set(page.url, pages)
+  }
+  const pageIds = new Set(
+    [...pagesByUrl.values()].flatMap((pages) => {
+      const selected = [...pages].sort((first, second) => {
+        const firstRank = VIEWPORT_PREFERENCE.indexOf(first.viewport as (typeof VIEWPORT_PREFERENCE)[number])
+        const secondRank = VIEWPORT_PREFERENCE.indexOf(second.viewport as (typeof VIEWPORT_PREFERENCE)[number])
+        return (
+          (firstRank < 0 ? VIEWPORT_PREFERENCE.length : firstRank) -
+          (secondRank < 0 ? VIEWPORT_PREFERENCE.length : secondRank)
+        )
+      })[0]
+      return selected ? [selected.id] : []
+    }),
+  )
+  return pageIds.size > 0
+    ? evidence.components.filter((component) => pageIds.has(component.pageId))
+    : evidence.components
+}
+
+function observedButtonVariants(
+  evidence: DesignEvidence,
+  components: DesignEvidence['components'],
+): Array<[string, number]> {
+  const pages = new Map(evidence.pages.map((page) => [page.id, page]))
+  const counts = new Map<string, number>()
+  for (const component of components) {
+    const page = pages.get(component.pageId)
+    const width = page?.contentWidth || page?.viewportWidth
+    const height = page?.contentHeight || page?.viewportHeight
+    const variant = classifyComponentVariant('button', component.styles, {
+      tokenRefs: component.tokenRefs,
+      primaryColor: evidence.tokens.colors.primary,
+      role: component.role,
+      elementKind: component.elementKind,
+      ...(width ? { widthPx: component.rect.width * width } : {}),
+      ...(height ? { heightPx: component.rect.height * height } : {}),
+    })
+    if (variant) counts.set(variant, (counts.get(variant) || 0) + 1)
+  }
+  return [...counts.entries()].sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+}
+
 function buildFallbackComponentGrammar(
   evidence: DesignEvidence,
   language: 'en' | 'zh-CN',
 ): DesignProfile['componentGrammar'] {
+  const componentPriority = ['button', 'card', 'navigation', 'input', 'tab', 'status', 'table', 'list', 'modal']
   const groups = new Map<string, typeof evidence.components>()
-  for (const component of evidence.components) {
+  for (const component of canonicalComponents(evidence)) {
     const group = groups.get(component.type) || []
     group.push(component)
     groups.set(component.type, group)
   }
-  return [...groups.entries()].slice(0, 6).map(([type, components]) => {
-    const roles = [...new Set(components.flatMap((component) => (component.role ? [component.role] : [])))].slice(0, 3)
-    const tokenRefs = [...new Set(components.flatMap((component) => component.tokenRefs))].slice(0, 8)
-    const rule: DesignClaim = {
-      statement:
-        language === 'zh-CN'
-          ? `已在页面证据中重复观察到 ${type} 组件。`
-          : `${type} components recur in the captured page evidence.`,
-      implementation:
-        language === 'zh-CN'
-          ? '以已观察实例的令牌组合为基准；未执行的交互状态需单独验证。'
-          : 'Base the implementation on tokens from observed instances and separately verify unexecuted states.',
-      confidence: 'low',
-      evidence: components.slice(0, 2).map((component) => ({
-        evidenceId: component.id,
-        note: language === 'zh-CN' ? '程序提取的组件证据' : 'Programmatically extracted component evidence',
-      })),
-      ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
-    }
-    return {
-      component: type,
-      role:
-        roles.length > 0
-          ? roles.join(', ')
-          : language === 'zh-CN'
-            ? `已观察的 ${type} 组件`
-            : `Observed ${type} component`,
-      rules: [rule],
-    }
-  })
+  return [...groups.entries()]
+    .sort(([first], [second]) => {
+      const firstRank = componentPriority.indexOf(first)
+      const secondRank = componentPriority.indexOf(second)
+      return (
+        (firstRank < 0 ? componentPriority.length : firstRank) -
+          (secondRank < 0 ? componentPriority.length : secondRank) || first.localeCompare(second)
+      )
+    })
+    .slice(0, 6)
+    .map(([type, components]) => {
+      const roles = [...new Set(components.flatMap((component) => (component.role ? [component.role] : [])))].slice(
+        0,
+        3,
+      )
+      const tokenRefs = [...new Set(components.flatMap((component) => component.tokenRefs))].slice(0, 8)
+      const confidence =
+        components.length >= 2 && components.every((component) => component.confidence >= 0.6) ? 'medium' : 'low'
+      const variants = type === 'button' ? observedButtonVariants(evidence, components) : []
+      const variantSummary = variants.map(([variant, count]) => `${variant} ×${count}`).join(', ')
+      const observedElementKinds = [...new Set(components.flatMap((component) => component.elementKind || []))]
+      const rule: DesignClaim = {
+        statement:
+          type === 'button' && variantSummary
+            ? language === 'zh-CN'
+              ? `各页面标准视口中观察到按钮变体：${variantSummary}。`
+              : `Observed button variants in canonical page captures: ${variantSummary}.`
+            : language === 'zh-CN'
+              ? `各页面标准视口中观察到 ${components.length} 个 ${type} 组件。`
+              : `${components.length} ${type} component${components.length === 1 ? '' : 's'} were observed in canonical page captures.`,
+        implementation:
+          type === 'button'
+            ? language === 'zh-CN'
+              ? `分别保留各变体的填充、前景、边框、圆角与元素类型${observedElementKinds.length ? `（${observedElementKinds.join('/')}）` : ''}；不要把单一变体提升为全局按钮规则。`
+              : `Preserve each variant's fill, foreground, border, radius, and element kind${observedElementKinds.length ? ` (${observedElementKinds.join('/')})` : ''}; do not promote one variant to a global button rule.`
+            : language === 'zh-CN'
+              ? '以引用实例的令牌与样式组合为基准；未执行的交互状态需单独验证。'
+              : 'Base the implementation on the cited instances and token combinations; separately verify unexecuted states.',
+        confidence,
+        evidence: components.slice(0, 2).map((component) => ({
+          evidenceId: component.id,
+          note: language === 'zh-CN' ? '程序提取的组件证据' : 'Programmatically extracted component evidence',
+        })),
+        ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
+      }
+      return {
+        component: type,
+        role:
+          roles.length > 0
+            ? roles.join(', ')
+            : language === 'zh-CN'
+              ? `已观察的 ${type} 组件`
+              : `Observed ${type} component`,
+        rules: [rule],
+      }
+    })
 }
 
 function buildFallbackSectionGrammar(
@@ -392,7 +470,7 @@ export function repairProfileCoverage(
     if (component.rules.length > 0) return [component]
     repaired.push(`componentGrammar.${component.component}`)
     const replacement = fallbackComponents.get(component.component)
-    return replacement ? [{ ...component, rules: replacement.rules }] : []
+    return replacement ? [replacement] : []
   })
   const representedComponents = new Set(profile.componentGrammar.map((component) => component.component))
   for (const component of fallback.componentGrammar) {

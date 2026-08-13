@@ -56,10 +56,13 @@ function createSnapshot(url: string): PageEvidenceSnapshot {
 describe('Interaction state metrics', () => {
   it('keeps deduped patterns and passive observations as separate metrics', () => {
     const interactionStyles = {
-      hover: [{ color: '#2563eb' }, { 'background-color': '#eff6ff' }],
-      focus: [{ 'outline-color': '#2563eb' }],
+      hover: [
+        { before: { color: '#111827' }, after: { color: '#2563eb' } },
+        { before: { 'background-color': '#ffffff' }, after: { 'background-color': '#eff6ff' } },
+      ],
+      focus: [{ before: { 'outline-color': 'transparent' }, after: { 'outline-color': '#2563eb' } }],
       active: [],
-      disabled: [{ opacity: '0.5' }],
+      disabled: [{ before: { opacity: '1' }, after: { opacity: '0.5' } }],
     }
     const evidence = buildDesignEvidence({
       analysisId: 'analysis-metrics',

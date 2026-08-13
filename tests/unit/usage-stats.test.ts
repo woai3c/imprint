@@ -5,6 +5,28 @@ import { colorFrequency, frequencyForCategory, sortByFrequency } from '../../src
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
 describe('usage statistics', () => {
+  test('deduplicates role observations within a capture while preserving locator collisions across captures', () => {
+    const shared = {
+      elementRef: 'body > button:nth-of-type(1)',
+      elementKind: 'button' as const,
+      role: 'action' as const,
+      foreground: 'rgb(255, 255, 255)',
+      background: 'rgb(21, 94, 239)',
+    }
+    const merged = mergeStyles([
+      createExtractedStyles({
+        colorRoleObservations: [
+          { ...shared, captureId: 'https://example.com|1440x900' },
+          { ...shared, captureId: 'https://example.com|1440x900' },
+        ],
+      }),
+      createExtractedStyles({
+        colorRoleObservations: [{ ...shared, captureId: 'https://example.com|375x812' }],
+      }),
+    ])
+
+    expect(merged.colorRoleObservations).toHaveLength(2)
+  })
   test('uses category counts instead of deduplicated fallback arrays', () => {
     const styles = createExtractedStyles({
       fontSizes: ['12px', '16px'],

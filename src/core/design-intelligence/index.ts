@@ -46,9 +46,12 @@ export {
 export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'
 export { compareDesignProfiles } from './profile-compare.js'
 export type { DesignLanguageComparison } from './profile-compare.js'
-export { evaluateProfileQuality } from './quality-metrics.js'
-export type { ProfileQualityMetrics } from './quality-metrics.js'
-export { generateReconstructionBrief } from './reconstruction-brief.js'
+export {
+  generateReconstructionBrief,
+  getReconstructionBriefEligibility,
+  reconstructionBriefUnavailableMessage,
+} from './reconstruction-brief.js'
+export type { ReconstructionBriefEligibility, ReconstructionBriefIneligibilityReason } from './reconstruction-brief.js'
 export type * from './types.js'
 export { createValidationRecipe, validateRecipe } from './validation-recipe.js'
 export { extractProfileCandidate, validateDesignProfile } from './validator.js'

@@ -37,19 +37,16 @@ interface LowConfidenceEntry {
   claim: DesignClaim
 }
 
-function uniqueLowConfidenceEntries(entries: LowConfidenceEntry[]): LowConfidenceEntry[] {
-  const seen = new Set<string>()
-  return entries.filter((entry) => {
-    const key = `${entry.claim.statement.replace(/\s+/g, ' ').trim()}|${entry.claim.implementation.replace(/\s+/g, ' ').trim()}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
 function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainties'] {
   const seen = new Set<string>()
+  let hasOverflowUncertainty = false
   return profile.uncertainties.filter((item) => {
+    const text = `${item.topic} ${item.reason}`
+    if (/^(?:确定性矛盾检查|Deterministic contradiction check)$/i.test(item.topic.trim())) return false
+    if (/tokenFacts|tokenRefs/i.test(text)) return false
+    const isOverflowUncertainty = /horizontal[- ]overflow|横向溢出|水平溢出/i.test(text)
+    if (isOverflowUncertainty && hasOverflowUncertainty) return false
+    if (isOverflowUncertainty) hasOverflowUncertainty = true
     const key = `${item.topic.trim()}|${item.reason.replace(/\s+/g, ' ').trim()}`
     if (seen.has(key)) return false
     seen.add(key)
@@ -62,7 +59,7 @@ function claimLines(
   claims: Array<DesignClaim & { label?: string }>,
   labels: { confidence: string; evidence: string; tokens: string },
   lowBucket: LowConfidenceEntry[],
-  options: { keepLow?: boolean; formatRef?: (ref: string) => string } = {},
+  options: { keepLow?: boolean; formatRef?: (ref: string) => string; formatText?: (text: string) => string } = {},
 ) {
   const main = options.keepLow ? claims : claims.filter((claim) => claim.confidence !== 'low')
   if (!options.keepLow) {
@@ -75,8 +72,8 @@ function claimLines(
     `### ${title}`,
     '',
     ...main.flatMap((claim) => [
-      `- ${claim.label ? `**${claim.label}:** ` : ''}${claim.statement}`,
-      `  - ${claim.implementation}`,
+      `- ${claim.label ? `**${claim.label}:** ` : ''}${options.formatText?.(claim.statement) ?? claim.statement}`,
+      `  - ${options.formatText?.(claim.implementation) ?? claim.implementation}`,
       `  - ${labels.confidence}: ${claim.confidence}`,
       `  - ${labels.evidence}: ${claim.evidence.map((reference) => `\`${reference.evidenceId}\``).join(', ')}`,
       ...(claim.tokenRefs && claim.tokenRefs.length > 0
@@ -89,10 +86,19 @@ function claimLines(
   ]
 }
 
+function numberedVisibleClaims(claims: DesignClaim[], prefix: string): Array<DesignClaim & { label: string }> {
+  let visibleIndex = 0
+  return claims.map((claim) => ({
+    ...claim,
+    label: `${prefix}.${claim.confidence === 'low' ? 0 : ++visibleIndex}`,
+  }))
+}
+
 export function generateDesignProfileMarkdown(
   profile: DesignProfile,
   tokens?: DesignToken,
   status?: DesignIntelligenceStatus,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
 ): string {
   const zh = profile.language === 'zh-CN'
   const evidenceFallback = profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
@@ -105,15 +111,31 @@ export function generateDesignProfileMarkdown(
   const lowBucket: LowConfidenceEntry[] = []
   // Claims were written before color renaming, so their refs still use palette-N names. Map them
   // to the applied aliases and append the resolved value so refs are checkable within the document.
-  const aliasRefs = new Map(
-    (profile.tokenAliases || []).map((alias) => [`color.${alias.tokenId}`, `color.${alias.name}`]),
-  )
+  const aliasRefs = new Map<string, string>()
+  for (const [sourceName, publicName] of publicColorNames) {
+    aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
+  }
+  for (const alias of profile.tokenAliases || []) {
+    const publicName = publicColorNames.get(alias.name) || publicColorNames.get(alias.tokenId) || alias.name
+    aliasRefs.set(`color.${alias.tokenId}`, `color.${publicName}`)
+    aliasRefs.set(`color.${alias.name}`, `color.${publicName}`)
+  }
   const formatRef = (ref: string): string => {
     const mapped = aliasRefs.get(ref) ?? ref
-    const value = tokens ? resolveTokenRefValue(tokens, mapped) : null
+    const directlyResolved = tokens ? resolveTokenRefValue(tokens, ref) : null
+    const sourceRef = [...aliasRefs.entries()].find(
+      ([candidate, publicRef]) =>
+        publicRef === mapped && tokens?.colors[candidate.slice('color.'.length)] !== undefined,
+    )?.[0]
+    const value = directlyResolved || (tokens && sourceRef ? resolveTokenRefValue(tokens, sourceRef) : null)
     return value ? `\`${mapped}\` (${value})` : `\`${mapped}\``
   }
-  const claimOptions = { formatRef }
+  const formatText = (text: string): string =>
+    [...aliasRefs.entries()].reduce((value, [source, target]) => {
+      const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
+    }, text)
+  const claimOptions = { formatRef, formatText }
   const uncertainties = uniqueUncertainties(profile)
   const componentGroups = new Map<string, Array<(typeof profile.componentGrammar)[number]>>()
   for (const component of profile.componentGrammar) {
@@ -150,6 +172,7 @@ export function generateDesignProfileMarkdown(
     ...claimLines(zh ? '设计主张' : 'Design Thesis', [profile.thesis], labels, lowBucket, {
       keepLow: true,
       formatRef,
+      formatText,
     }),
     ...claimLines(
       zh ? '标志性手法' : 'Signature Moves',
@@ -175,10 +198,7 @@ export function generateDesignProfileMarkdown(
       zh ? '注意力层级' : 'Attention Hierarchy',
       [
         { ...profile.attention.entryPoint, label: 'entryPoint' },
-        ...profile.attention.visualSequence.map((claim, index) => ({
-          ...claim,
-          label: `visualSequence.${index + 1}`,
-        })),
+        ...numberedVisibleClaims(profile.attention.visualSequence, 'visualSequence'),
         { ...profile.attention.actionHierarchy, label: 'actionHierarchy' },
         { ...profile.attention.contrastStrategy, label: 'contrastStrategy' },
       ],
@@ -205,19 +225,13 @@ export function generateDesignProfileMarkdown(
     ...claimLines(
       zh ? '交互语言' : 'Interaction Language',
       [
-        ...profile.interactionLanguage.primaryDrivers.map((claim, index) => ({
-          ...claim,
-          label: `primaryDriver.${index + 1}`,
-        })),
+        ...numberedVisibleClaims(profile.interactionLanguage.primaryDrivers, 'primaryDriver'),
         { ...profile.interactionLanguage.feedbackStyle, label: 'feedbackStyle' },
         { ...profile.interactionLanguage.stateChangeAmplitude, label: 'stateChangeAmplitude' },
         ...(profile.interactionLanguage.scrollNarrative
           ? [{ ...profile.interactionLanguage.scrollNarrative, label: 'scrollNarrative' }]
           : []),
-        ...profile.interactionLanguage.continuityRules.map((claim, index) => ({
-          ...claim,
-          label: `continuity.${index + 1}`,
-        })),
+        ...numberedVisibleClaims(profile.interactionLanguage.continuityRules, 'continuity'),
       ],
       labels,
       lowBucket,
@@ -240,10 +254,17 @@ export function generateDesignProfileMarkdown(
       claimLines(
         `${zh ? '组件语法' : 'Component Grammar'} · ${componentType}`,
         components.flatMap((component) =>
-          component.rules.map((claim, index) => ({
-            ...claim,
-            label: component.rules.length > 1 ? `${component.role}.${index + 1}` : component.role,
-          })),
+          (() => {
+            const visibleCount = component.rules.filter((claim) => claim.confidence !== 'low').length
+            let visibleIndex = 0
+            return component.rules.map((claim) => ({
+              ...claim,
+              label:
+                visibleCount > 1
+                  ? `${component.role}.${claim.confidence === 'low' ? 0 : ++visibleIndex}`
+                  : component.role,
+            }))
+          })(),
         ),
         labels,
         lowBucket,
@@ -264,42 +285,14 @@ export function generateDesignProfileMarkdown(
         claimOptions,
       ),
     ),
-    ...claimLines(zh ? '必须保持' : 'Preserve', profile.transferRules.preserve, labels, lowBucket, {
-      keepLow: true,
-      formatRef,
-    }),
-    ...claimLines(zh ? '可以适配' : 'Adapt', profile.transferRules.adapt, labels, lowBucket, {
-      keepLow: true,
-      formatRef,
-    }),
-    ...claimLines(zh ? '必须避免' : 'Avoid', profile.transferRules.avoid, labels, lowBucket, {
-      keepLow: true,
-      formatRef,
-    }),
-    ...(profile.tokenAliases && profile.tokenAliases.length > 0
-      ? [
-          `### ${zh ? '建议 Token 别名' : 'Suggested Token Aliases'}`,
-          '',
-          ...profile.tokenAliases.map((alias) => `- \`${alias.tokenId}\` → \`${alias.name}\``),
-          '',
-        ]
-      : []),
+    ...claimLines(zh ? '必须保持' : 'Preserve', profile.transferRules.preserve, labels, lowBucket, claimOptions),
+    ...claimLines(zh ? '可以适配' : 'Adapt', profile.transferRules.adapt, labels, lowBucket, claimOptions),
+    ...claimLines(zh ? '必须避免' : 'Avoid', profile.transferRules.avoid, labels, lowBucket, claimOptions),
     ...(uncertainties.length > 0
       ? [
           `### ${zh ? '不确定性' : 'Uncertainties'}`,
           '',
-          ...uncertainties.map((item) => `- ${item.topic}: ${item.reason}`),
-          '',
-        ]
-      : []),
-    ...(lowBucket.length > 0
-      ? [
-          `### ${zh ? '低置信度推断（谨慎采纳）' : 'Low-confidence inferences (use with caution)'}`,
-          '',
-          ...uniqueLowConfidenceEntries(lowBucket).map(
-            (entry) =>
-              `- **[${entry.section}${entry.label ? ` · ${entry.label}` : ''}]** ${entry.claim.statement} — ${entry.claim.implementation}`,
-          ),
+          ...uncertainties.map((item) => `- ${formatText(item.topic)}: ${formatText(item.reason)}`),
           '',
         ]
       : []),

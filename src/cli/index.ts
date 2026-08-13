@@ -12,7 +12,11 @@ import { applyColorRenames } from '../core/analyzer/token-renamer.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
 import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
-import { generateReconstructionBrief } from '../core/design-intelligence/reconstruction-brief.js'
+import {
+  generateReconstructionBrief,
+  getReconstructionBriefEligibility,
+  reconstructionBriefUnavailableMessage,
+} from '../core/design-intelligence/reconstruction-brief.js'
 import type {
   DesignIntelligenceMeta,
   DesignIntelligenceStatus,
@@ -31,6 +35,7 @@ import {
   generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import { resolveCliExportFormats } from './export-formats.js'
 
 interface CliOptions {
   format: string
@@ -110,6 +115,9 @@ async function main() {
   if (!['none', 'structural', 'vision'].includes(options.intelligence)) {
     throw new Error('--intelligence must be none, structural, or vision')
   }
+  if (['reconstruction', 'brief'].includes(options.format) && options.intelligence === 'none') {
+    throw new Error(reconstructionBriefUnavailableMessage('no-profile'))
+  }
   if (!Number.isFinite(options.maxPages) || options.maxPages < 1 || options.maxPages > 5) {
     throw new Error('--pages must be an integer from 1 to 5')
   }
@@ -158,7 +166,7 @@ async function main() {
   let profile: DesignProfile | null = null
   let intelligenceMeta: DesignIntelligenceMeta | undefined
   let intelligenceStatus: DesignIntelligenceStatus | undefined
-  let reconstructionBrief: string | undefined
+  let reconstructionBrief: string | null = null
   let finalTiming = result.timing
   if (options.intelligence !== 'none') {
     const apiKey = providerApiKey(options.provider)
@@ -185,7 +193,7 @@ async function main() {
     intelligenceMeta = interpreted.meta
     intelligenceStatus = interpreted.meta.status
     finalTiming = mergeAnalysisTimings(result.timing, interpreted.meta.timing)
-    reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens)
+    reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens, interpreted.meta)
   }
 
   const aliasResult =
@@ -214,7 +222,6 @@ async function main() {
     [],
     result.designEvidence,
     profile || undefined,
-    reconstructionBrief,
     intelligenceStatus,
     intelligenceMeta ? { ...intelligenceMeta, timing: finalTiming } : undefined,
   )
@@ -247,10 +254,10 @@ async function main() {
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
-  const formats =
-    options.format === 'all'
-      ? ['design.md', 'tailwind', 'css', 'scss', 'json', 'evidence', ...(profile ? ['profile'] : []), 'pdf']
-      : [options.format]
+  const formats = resolveCliExportFormats(options.format, {
+    hasProfile: profile !== null,
+    hasReconstructionBrief: reconstructionBrief !== null,
+  })
 
   for (const format of formats) {
     let filename: string
@@ -287,6 +294,23 @@ async function main() {
         filename = 'design-profile.json'
         content = generateDesignProfileJson(profile)
         break
+      case 'reconstruction': {
+        if (!reconstructionBrief) {
+          const eligibility = getReconstructionBriefEligibility(
+            profile,
+            intelligenceMeta || {
+              status: 'not-requested',
+              capabilityLevel: 'evidence-only',
+            },
+          )
+          throw new Error(
+            reconstructionBriefUnavailableMessage(eligibility.eligible ? 'status-not-eligible' : eligibility.reason),
+          )
+        }
+        filename = 'RECONSTRUCTION.md'
+        content = reconstructionBrief
+        break
+      }
       case 'components':
         filename = 'component-specs.json'
         content = generateComponentSpecsJson(result.designEvidence)
@@ -324,7 +348,7 @@ function printUsage() {
     imprint extract <url> [options]
 
   Options:
-    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
+    --format <type>     Output: design.md | reconstruction | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
@@ -356,6 +380,7 @@ function printUsage() {
     imprint extract https://github.com --format design.md --output ./design/
     imprint extract https://stripe.com --format json --json-stdout | jq .colors
     imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
+    imprint extract https://example.com --intelligence structural --provider openai --format reconstruction
 
 `)
 }

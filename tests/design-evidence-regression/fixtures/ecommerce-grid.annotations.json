@@ -1,0 +1,13 @@
+{
+  "fixture": "ecommerce-grid",
+  "description": "Outdoor apparel shop: sticky header, split hero with CSS-background visual, 4-up product grid with price and CTA.",
+  "expectedSectionRoles": ["header", "hero", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["css-background"],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3
+}

@@ -1004,7 +1004,9 @@ export function validateDesignProfile(
       .filter((url): url is string => Boolean(url)),
   ).size
   const observedSectionRoles = new Set(
-    evidence.sections.filter((section) => validIds.has(section.id)).map((section) => section.role),
+    evidence.sections
+      .filter((section) => validIds.has(section.id) && section.role !== 'unknown')
+      .map((section) => section.role),
   )
   const interactionIds = new Set(
     evidence.interactionObservations

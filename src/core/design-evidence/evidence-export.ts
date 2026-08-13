@@ -1,4 +1,5 @@
 import type { DocLanguage } from '../analyzer/agent-guide.js'
+import { hasVisibleBorder, hasVisibleShadow, isTransparentColor } from '../analyzer/component-detect.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
 import type { DesignEvidence } from './types.js'
 
@@ -26,9 +27,157 @@ function typographyValueForRef(evidence: DesignEvidence, ref: string): string | 
   return values[group][index] ?? null
 }
 
-function markdownCodeList(values: ReadonlySet<string>): string {
-  const selected = [...values].slice(0, 4)
+function markdownCodeList(values: ReadonlyMap<string, number>): string {
+  const selected = [...values.entries()]
+    .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+    .slice(0, 4)
+    .map(([value]) => value)
   return selected.length > 0 ? selected.map((value) => `\`${value.replace(/`/g, '')}\``).join(', ') : '—'
+}
+
+function incrementValue(values: Map<string, number>, value: string): void {
+  values.set(value, (values.get(value) || 0) + 1)
+}
+
+function displaySectionRole(role: string | undefined): string {
+  return !role || role === 'unknown' ? 'content' : role
+}
+
+function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
+  if (typeof value !== 'string') return null
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
+  if (!match) return null
+  const amount = Number.parseFloat(match[1])
+  return amount > 0 && amount <= maximum ? value : null
+}
+
+function compactRoles(roles: string[]): string[] {
+  const groups: Array<{ role: string; count: number }> = []
+  for (const role of roles) {
+    const last = groups[groups.length - 1]
+    if (last?.role === role) last.count += 1
+    else groups.push({ role, count: 1 })
+  }
+  return groups.map(({ role, count }) => (count > 1 ? `${role} ×${count}` : role))
+}
+
+function canonicalPageIds(evidence: DesignEvidence): Set<string> {
+  const pagesByUrl = new Map<string, DesignEvidence['pages']>()
+  for (const page of evidence.pages) {
+    const pages = pagesByUrl.get(page.url) || []
+    pages.push(page)
+    pagesByUrl.set(page.url, pages)
+  }
+  return new Set(
+    [...pagesByUrl.values()].flatMap((pages) => {
+      const preferred = pages.find((page) => page.viewport === 'desktop') || pages[0]
+      return preferred ? [preferred.id] : []
+    }),
+  )
+}
+
+function isUsefulPseudoValue(property: string, value: string): boolean {
+  if (property === 'backgroundColor') return !isTransparentColor(value)
+  if (property === 'boxShadow') return value !== 'none'
+  return !/^(?:none|normal|auto|0px|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\))$/i.test(value)
+}
+
+function visiblePseudoStyles(
+  kind: NonNullable<DesignEvidence['pseudoElements']>[number]['kind'],
+  styles: Readonly<Record<string, string>>,
+): Array<[string, string]> {
+  const entries = Object.entries(styles).filter(([property, value]) => isUsefulPseudoValue(property, value))
+  if (kind === 'first-letter') return entries
+  const content = styles.content?.replace(/^['"]|['"]$/g, '').trim()
+  const result: Array<[string, string]> = []
+  let hasMaterial = false
+  if (content && !/^(?:none|normal)$/i.test(content)) {
+    result.push(
+      ...entries.filter(([property]) =>
+        ['content', 'color', 'fontFamily', 'fontSize', 'fontWeight'].includes(property),
+      ),
+    )
+  }
+  if (styles.backgroundColor && !isTransparentColor(styles.backgroundColor)) {
+    result.push(['backgroundColor', styles.backgroundColor])
+    hasMaterial = true
+  }
+  const borderGroups = new Map<string, string[]>()
+  for (const [property, value] of Object.entries(styles)) {
+    if (!/^border(?:Top|Right|Bottom|Left)$/.test(property) || !hasVisibleBorder(value)) continue
+    const sides = borderGroups.get(value) || []
+    sides.push(property.replace(/^border/, '').toLowerCase())
+    borderGroups.set(value, sides)
+  }
+  for (const [value, sides] of borderGroups) {
+    result.push([sides.length === 4 ? 'border' : `border-${sides.join('/')}`, value])
+    hasMaterial = true
+  }
+  if (hasVisibleShadow(styles.boxShadow)) {
+    result.push(['boxShadow', styles.boxShadow!])
+    hasMaterial = true
+  }
+  if (hasMaterial) {
+    if (styles.borderRadius && /[1-9]/.test(styles.borderRadius)) result.push(['borderRadius', styles.borderRadius])
+    for (const property of ['width', 'height'] as const) {
+      const value = styles[property]
+      if (value && /[1-9]/.test(value)) result.push([property, value])
+    }
+    if (styles.transform && !/^(?:none|matrix\(1, 0, 0, 1, 0, 0\))$/.test(styles.transform)) {
+      result.push(['transform', styles.transform])
+    }
+  }
+  return result
+}
+
+function displayedResponsiveChangeType(
+  original: DesignEvidence['responsiveObservations'][number]['changeType'],
+  properties: readonly string[],
+): DesignEvidence['responsiveObservations'][number]['changeType'] {
+  return properties.length > 0 && properties.every((property) => property === 'order') ? 'reorder' : original
+}
+
+function compactVisibleBorders(borders: Readonly<Record<string, string>>): string[] {
+  const groups = new Map<string, string[]>()
+  for (const [side, value] of Object.entries(borders)) {
+    if (!hasVisibleBorder(value)) continue
+    const sides = groups.get(value) || []
+    sides.push(side.replace(/^border/, '').toLowerCase())
+    groups.set(value, sides)
+  }
+  return [...groups.entries()].map(([value, sides]) =>
+    sides.length === 4 ? `border: ${value}` : `border-${sides.join('/')}: ${value}`,
+  )
+}
+
+function isUsefulResponsiveChange(
+  property: string,
+  values: { from?: string | number; to?: string | number },
+  sectionRole: string | undefined,
+): boolean {
+  if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) return false
+  if (
+    [
+      'gridTemplateColumns',
+      'childGridTemplateColumns',
+      'node.heading.fontSize',
+      'layoutMode',
+      'position',
+      'order',
+    ].includes(property)
+  ) {
+    return true
+  }
+  if (property === 'height' || property.endsWith('.height')) {
+    return (
+      ['header', 'navigation', 'action'].includes(sectionRole || '') &&
+      Boolean(boundedPixelValue(values.from) && boundedPixelValue(values.to))
+    )
+  }
+  if (/^border(?:Top|Right|Bottom|Left)$/.test(property)) {
+    return [values.from, values.to].some((value) => typeof value === 'string' && hasVisibleBorder(value))
+  }
+  return property === 'boxShadow'
 }
 
 function observedLineHeight(node: DesignEvidence['layoutNodes'][number]): string | null {
@@ -45,16 +194,22 @@ function observedLineHeight(node: DesignEvidence['layoutNodes'][number]): string
 function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, zh: boolean): void {
   const rows = new Map<
     NonNullable<DesignEvidence['layoutNodes'][number]['textRole']>,
-    { count: number; font: Set<string>; size: Set<string>; weight: Set<string>; lineHeight: Set<string> }
+    {
+      count: number
+      font: Map<string, number>
+      size: Map<string, number>
+      weight: Map<string, number>
+      lineHeight: Map<string, number>
+    }
   >()
   for (const node of evidence.layoutNodes) {
     if (!node.textRole) continue
     const row = rows.get(node.textRole) || {
       count: 0,
-      font: new Set<string>(),
-      size: new Set<string>(),
-      weight: new Set<string>(),
-      lineHeight: new Set<string>(),
+      font: new Map<string, number>(),
+      size: new Map<string, number>(),
+      weight: new Map<string, number>(),
+      lineHeight: new Map<string, number>(),
     }
     row.count += 1
     const resolvedGroups = new Set<(typeof TYPOGRAPHY_REF_GROUPS)[keyof typeof TYPOGRAPHY_REF_GROUPS]>()
@@ -63,16 +218,16 @@ function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, z
       const destination = TYPOGRAPHY_REF_GROUPS[group]
       const value = typographyValueForRef(evidence, ref)
       if (destination && value) {
-        row[destination].add(value)
+        incrementValue(row[destination], value)
         resolvedGroups.add(destination)
       }
     }
     const observed = node.observedTypography
-    if (observed?.fontFamily && !resolvedGroups.has('font')) row.font.add(observed.fontFamily)
-    if (observed?.fontSize && !resolvedGroups.has('size')) row.size.add(observed.fontSize)
-    if (observed?.fontWeight && !resolvedGroups.has('weight')) row.weight.add(observed.fontWeight)
+    if (observed?.fontFamily && !resolvedGroups.has('font')) incrementValue(row.font, observed.fontFamily)
+    if (observed?.fontSize && !resolvedGroups.has('size')) incrementValue(row.size, observed.fontSize)
+    if (observed?.fontWeight && !resolvedGroups.has('weight')) incrementValue(row.weight, observed.fontWeight)
     const lineHeight = observedLineHeight(node)
-    if (lineHeight && !resolvedGroups.has('lineHeight')) row.lineHeight.add(lineHeight)
+    if (lineHeight && !resolvedGroups.has('lineHeight')) incrementValue(row.lineHeight, lineHeight)
     rows.set(node.textRole, row)
   }
   if (rows.size === 0) return
@@ -109,6 +264,8 @@ export function generateDesignEvidenceBrief(
   const zh = language === 'zh-CN'
   const lines: string[] = []
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
+  const urlCoverage = evidence.coverage.urlCoverage
+  const captureCoverage = evidence.coverage.captureCoverage
   const stateMetrics = computeInteractionStateMetrics(evidence)
   const iconRegions = evidence.coverage.mediaCoverage.iconRegions ?? 0
 
@@ -132,8 +289,8 @@ export function generateDesignEvidenceBrief(
   )
   lines.push(
     zh
-      ? `- 覆盖：${pageCount} 个页面、${evidence.pages.length} 个页面/视口证据、${evidence.sections.length} 个区块、${evidence.components.length} 个组件实例`
-      : `- Coverage: ${pageCount} pages, ${evidence.pages.length} page/viewport captures, ${evidence.sections.length} sections, ${evidence.components.length} component instances`,
+      ? `- 覆盖：URL ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}；页面×视口 ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected}（${captureCoverage.status === 'complete' ? '完整' : '部分'}）` : evidence.pages.length}；${evidence.sections.length} 个区块观察、${evidence.components.length} 个跨捕获组件观察（不是页面实例数）`
+      : `- Coverage: URLs ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}; page×viewport captures ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected} (${captureCoverage.status})` : evidence.pages.length}; ${evidence.sections.length} section observations and ${evidence.components.length} component observations across captures (not page instance counts)`,
   )
   lines.push(
     zh
@@ -146,6 +303,17 @@ export function generateDesignEvidenceBrief(
       : `- Media evidence: ${evidence.coverage.mediaCoverage.majorRegions} major regions (${evidence.coverage.mediaCoverage.classifiedRegions} classified), plus ${iconRegions} icon instances not counted as major regions`,
   )
   lines.push('')
+
+  if (evidence.deterministicClaims?.length) {
+    lines.push(zh ? '### 基于证据的确定性主张' : '### Evidence-backed Deterministic Claims')
+    lines.push('')
+    for (const claim of evidence.deterministicClaims) {
+      lines.push(
+        `- **${claim.label}** (${claim.confidence}) — ${claim.reasons.join(' ')} [${claim.evidenceRefs.map((ref) => `\`${ref}\``).join(', ')}]`,
+      )
+    }
+    lines.push('')
+  }
 
   appendTypographyRoleMatrix(lines, evidence, zh)
 
@@ -161,7 +329,10 @@ export function generateDesignEvidenceBrief(
           : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
       )
       for (const source of page.horizontalOverflowSources?.slice(0, 3) || []) {
-        const sectionContext = [source.sectionRole, source.sectionId ? `\`${source.sectionId}\`` : '']
+        const sectionContext = [
+          source.sectionRole ? displaySectionRole(source.sectionRole) : '',
+          source.sectionId ? `\`${source.sectionId}\`` : '',
+        ]
           .filter(Boolean)
           .join(' · ')
         lines.push(
@@ -173,9 +344,76 @@ export function generateDesignEvidenceBrief(
     }
     const roles = topologyPage.sectionIds
       .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
-      .filter((r) => Boolean(r) && r !== 'unknown')
+      .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown')
     if (roles.length === 0) continue
-    lines.push(`- \`${page.viewport}\` ${page.url}: ${roles.join(' → ')}`)
+    lines.push(`- \`${page.viewport}\` ${page.url}: ${compactRoles(roles).join(' → ')}`)
+  }
+
+  const structuralFacts = evidence.sections.flatMap((section) => {
+    const styles = section.observedStyles
+    if (!styles) return []
+    const facts = [
+      styles.layout?.maxWidth ? `max-width: ${styles.layout.maxWidth}` : '',
+      styles.layout?.gridTemplateColumns ? `grid: ${styles.layout.gridTemplateColumns}` : '',
+      styles.layout?.childGridTemplateColumns ? `child grid: ${styles.layout.childGridTemplateColumns}` : '',
+      section.layoutMode !== 'flow' ? `position: ${section.layoutMode}` : '',
+      (section.layoutMode !== 'flow' || ['header', 'navigation'].includes(section.role)) &&
+      boundedPixelValue(styles.layout?.height)
+        ? `height: ${styles.layout?.height}`
+        : '',
+      ...compactVisibleBorders(styles.borders || {}),
+    ].filter(Boolean)
+    return facts.length > 0 ? [{ section, facts }] : []
+  })
+  const dedupedStructuralFacts = [
+    ...new Map(
+      structuralFacts.map((item) => [`${displaySectionRole(item.section.role)}|${item.facts.join('|')}`, item]),
+    ).values(),
+  ]
+  if (dedupedStructuralFacts.length > 0) {
+    lines.push('')
+    lines.push(zh ? '### 结构事实' : '### Structural Facts')
+    lines.push('')
+    for (const { section, facts } of dedupedStructuralFacts.slice(0, 24)) {
+      lines.push(
+        `- ${displaySectionRole(section.role)} · \`${section.id}\`: ${facts.map((fact) => `\`${fact}\``).join(' · ')}`,
+      )
+    }
+  }
+
+  if ((evidence.pseudoElements?.length || 0) > 0) {
+    const canonicalPages = canonicalPageIds(evidence)
+    const pseudoGroups = new Map<
+      string,
+      {
+        pseudo: NonNullable<DesignEvidence['pseudoElements']>[number]
+        styles: Array<[string, string]>
+        count: number
+      }
+    >()
+    for (const pseudo of evidence.pseudoElements || []) {
+      if (!canonicalPages.has(pseudo.pageId)) continue
+      const section = evidence.sections.find((candidate) => candidate.id === pseudo.sectionId)
+      const styles = visiblePseudoStyles(pseudo.kind, pseudo.styles)
+      if (styles.length === 0) continue
+      const key = `${section?.role || 'content'}|${pseudo.kind}|${JSON.stringify(styles)}`
+      const group = pseudoGroups.get(key)
+      if (group) group.count += 1
+      else pseudoGroups.set(key, { pseudo, styles, count: 1 })
+    }
+    const pseudoLines: string[] = []
+    for (const { pseudo, styles: visibleStyles, count } of [...pseudoGroups.values()].slice(0, 12)) {
+      const section = evidence.sections.find((candidate) => candidate.id === pseudo.sectionId)
+      const styles = visibleStyles.map(([property, value]) => `${property}: ${value}`).join('; ')
+      const role = !section?.role || section.role === 'unknown' ? 'content' : section.role
+      pseudoLines.push(`- \`::${pseudo.kind}\` · ${role}${count > 1 ? ` ×${count}` : ''}: \`${styles}\``)
+    }
+    if (pseudoLines.length > 0) {
+      lines.push('')
+      lines.push(zh ? '### 伪元素与首字处理' : '### Pseudo-element Treatments')
+      lines.push('')
+      lines.push(...pseudoLines)
+    }
   }
 
   if (evidence.techStack) {
@@ -206,7 +444,8 @@ export function generateDesignEvidenceBrief(
     )
     const passiveCounts = new Map<string, number>()
     const activeDriverCounts = new Map<string, number>()
-    const propertyCounts = new Map<string, number>()
+    const passivePropertyCounts = new Map<string, number>()
+    const activePropertyCounts = new Map<string, number>()
     for (const obs of evidence.interactionObservations) {
       if (obs.safety === 'passive') {
         const passiveLabel = obs.trigger.kind.startsWith('css-pseudo-class:')
@@ -217,7 +456,8 @@ export function generateDesignEvidenceBrief(
         activeDriverCounts.set(obs.driver, (activeDriverCounts.get(obs.driver) || 0) + 1)
       }
       for (const prop of obs.changedProperties) {
-        propertyCounts.set(prop, (propertyCounts.get(prop) || 0) + 1)
+        const counts = obs.safety === 'passive' ? passivePropertyCounts : activePropertyCounts
+        counts.set(prop, (counts.get(prop) || 0) + 1)
       }
     }
     lines.push(
@@ -240,27 +480,99 @@ export function generateDesignEvidenceBrief(
       .map(([driver, count]) => `${driver} ×${count}`)
       .join(', ')
     if (activeDriverSummary) lines.push(`- ${zh ? '实际驱动' : 'Executed drivers'}: ${activeDriverSummary}`)
-    const propSummary = [...propertyCounts.entries()]
+    const passivePropSummary = [...passivePropertyCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([prop, count]) => `${prop} ×${count}`)
       .join(', ')
-    lines.push(`- ${zh ? '变化属性' : 'Changed properties'}: ${propSummary}`)
+    if (passivePropSummary) {
+      lines.push(`- ${zh ? '被动声明属性' : 'Passively declared properties'}: ${passivePropSummary}`)
+    }
+    const activePropSummary = [...activePropertyCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([prop, count]) => `${prop} ×${count}`)
+      .join(', ')
+    if (activePropSummary) {
+      lines.push(`- ${zh ? '已执行变化属性' : 'Executed changed properties'}: ${activePropSummary}`)
+    }
+    const detailObservations = [
+      ...new Map(
+        [
+          ...activeObservations,
+          ...passiveObservations.filter((observation) => Object.keys(observation.before).length > 0),
+        ].flatMap((observation) => {
+          const changes = observation.changedProperties.flatMap((property) => {
+            const before = observation.before[property]
+            const after = observation.after[property]
+            return before !== undefined && after !== undefined && before !== after
+              ? [`${property}:${before}->${after}`]
+              : []
+          })
+          return changes.length > 0
+            ? [
+                [
+                  [observation.safety, observation.driver, observation.trigger.kind, changes.join('|')].join('|'),
+                  observation,
+                ] as const,
+              ]
+            : []
+        }),
+      ).values(),
+    ]
+    if (detailObservations.length > 0) {
+      lines.push(`- ${zh ? '代表性状态值' : 'Representative state values'}:`)
+    }
+    for (const observation of detailObservations.slice(0, 8)) {
+      const values = observation.changedProperties
+        .flatMap((property) => {
+          const before = observation.before[property]
+          const after = observation.after[property]
+          return before !== undefined && after !== undefined && before !== after
+            ? [`${property}: ${before} → ${after}`]
+            : []
+        })
+        .slice(0, 4)
+        .join('; ')
+      if (!values) continue
+      const observationKind =
+        observation.safety === 'safe-active'
+          ? zh
+            ? '安全主动实测'
+            : 'safe active observation'
+          : zh
+            ? '计算样式观察（未点击）'
+            : 'computed-state observation (no click)'
+      lines.push(`  - \`${observation.driver}\` · ${observationKind}: ${values}`)
+    }
   }
 
-  if (evidence.responsiveObservations.length > 0) {
+  const usefulResponsiveObservations = evidence.responsiveObservations.flatMap((observation) => {
+    const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+    const changes = Object.entries(observation.changes || {}).filter(([property, values]) =>
+      isUsefulResponsiveChange(property, values, section?.role),
+    )
+    return changes.length > 0 ? [{ observation, section, changes }] : []
+  })
+  if (usefulResponsiveObservations.length > 0) {
     lines.push('')
     lines.push(zh ? '### 响应式结构观察' : '### Responsive Structure Observations')
     lines.push('')
-    for (const observation of evidence.responsiveObservations.slice(0, 20)) {
-      const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
+    for (const { observation, section, changes } of usefulResponsiveObservations.slice(0, 20)) {
       const page = section ? evidence.pages.find((candidate) => candidate.id === section.pageId) : undefined
-      const context = `${page?.url || evidence.source.finalUrl} · ${section?.role || 'unknown'} · \`${observation.sectionId}\``
+      const context = `${page?.url || evidence.source.finalUrl} · ${displaySectionRole(section?.role)} · \`${observation.sectionId}\``
+      const properties = changes.map(([property]) => property)
+      const changeType = displayedResponsiveChangeType(observation.changeType, properties)
       lines.push(
         zh
-          ? `- ${context}：${observation.fromViewport} → ${observation.toViewport}，${observation.changeType}（${observation.changedProperties.join('、')}）`
-          : `- ${context}: ${observation.fromViewport} → ${observation.toViewport}, ${observation.changeType} (${observation.changedProperties.join(', ')})`,
+          ? `- ${context}：${observation.fromViewport} → ${observation.toViewport}，${changeType}（${properties.join('、')}）`
+          : `- ${context}: ${observation.fromViewport} → ${observation.toViewport}, ${changeType} (${properties.join(', ')})`,
       )
+      const values = changes
+        .slice(0, 12)
+        .map(([property, value]) => `${property}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`)
+        .join('; ')
+      if (values) lines.push(`  - ${values}`)
     }
   }
 
@@ -279,6 +591,10 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
   'fewer-pages-than-requested': {
     en: 'Fewer pages were analyzed than requested',
     zh: '实际分析页面数少于请求数',
+  },
+  'fewer-page-viewports-than-requested': {
+    en: 'At least one requested page×viewport capture is missing; cross-viewport coverage is partial',
+    zh: '至少缺少一个请求的页面×视口捕获；跨视口覆盖不完整',
   },
   'single-viewport': {
     en: 'Only a single viewport size was captured',

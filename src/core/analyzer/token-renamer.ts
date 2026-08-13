@@ -105,17 +105,17 @@ function conflictsWithObservedRole(
   name: string,
 ): boolean {
   const compatible = PREFIX_COMPATIBLE_ROLES[name.split('-', 1)[0]]
-  if (!compatible) return false
   const dominant = dominantObservedRole(tokens, tokenId)
-  if (dominant) return !compatible.includes(dominant)
   const sources = tokens.evidence?.[`colors.${tokenId}`]?.sources
-  if (!sources) return false
+  const hasTokenEvidence = Boolean(tokens.evidence?.[`colors.${tokenId}`])
   const roles = new Set(
-    sources
+    (sources || [])
       .map((source) => ROLE_SOURCE_PATTERNS.find(([pattern]) => pattern.test(source))?.[1])
       .filter((role): role is ObservedRole => Boolean(role)),
   )
-  if (roles.size === 0) return false
+  if (!compatible) return Boolean(dominant || roles.size > 0 || hasTokenEvidence)
+  if (dominant) return !compatible.includes(dominant)
+  if (roles.size === 0) return hasTokenEvidence
   return ![...roles].some((role) => compatible.includes(role))
 }
 

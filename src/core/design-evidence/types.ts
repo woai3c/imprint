@@ -38,6 +38,8 @@ export interface EvidencePage {
   id: string
   url: string
   viewport: string
+  title?: string
+  siteName?: string
   role?: PageRole
   viewportWidth?: number
   viewportHeight?: number
@@ -90,6 +92,27 @@ export interface SectionEvidence {
   interactionRefs: string[]
   mediaLayerRefs: string[]
   evidenceRefs: string[]
+  observedStyles?: {
+    backgroundColor?: string
+    borderRadius?: string
+    gradient?: SectionGradientEvidence
+    layout?: Record<string, string>
+    borders?: Record<string, string>
+    boxShadow?: string
+  }
+}
+
+export interface SectionGradientEvidence {
+  type:
+    | 'linear-gradient'
+    | 'radial-gradient'
+    | 'conic-gradient'
+    | 'repeating-linear-gradient'
+    | 'repeating-radial-gradient'
+    | 'repeating-conic-gradient'
+  direction?: string
+  stops: string[]
+  value: string
 }
 
 export interface ComponentEvidence {
@@ -97,6 +120,7 @@ export interface ComponentEvidence {
   pageId: string
   sectionId: string
   type: string
+  elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
   rect: NormalizedRect
   styles: Record<string, string>
@@ -132,7 +156,18 @@ export interface LayoutEvidenceNode {
     fontWeight?: string
     lineHeight?: string
   }
+  observedStyles?: Record<string, string>
   traits: string[]
+}
+
+export interface PseudoElementEvidence {
+  id: string
+  pageId: string
+  sectionId: string
+  target: string
+  kind: 'before' | 'after' | 'first-letter'
+  styles: Record<string, string>
+  evidenceRefs: string[]
 }
 
 export interface InteractionObservation {
@@ -164,6 +199,7 @@ export interface ResponsiveSectionObservation {
   toViewport: string
   changeType: 'scale' | 'reflow' | 'reorder' | 'visibility' | 'interaction' | 'mixed'
   changedProperties: string[]
+  changes?: Record<string, { from?: string | number; to?: string | number }>
   summary: string
   evidenceRefs: string[]
 }
@@ -188,6 +224,16 @@ export interface MediaLayerEvidence {
 
 export interface EvidenceCoverage {
   pageCoverage: 'complete' | 'partial'
+  urlCoverage?: {
+    requested: number
+    captured: number
+  }
+  captureCoverage?: {
+    expected: number
+    captured: number
+    status: 'complete' | 'partial'
+    requestedViewports: string[]
+  }
   sectionCoverage: number
   viewportCoverage: string[]
   interactionCoverage: {
@@ -212,14 +258,18 @@ export interface DesignEvidence {
     finalUrl: string
     accessMode: 'anonymous' | 'managed'
     language?: string
+    title?: string
+    siteName?: string
   }
   pages: EvidencePage[]
   tokens: DesignToken
   featureTags: string[]
+  deterministicClaims?: DeterministicClaim[]
   topology: PageTopology
   sections: SectionEvidence[]
   components: ComponentEvidence[]
   layoutNodes: LayoutEvidenceNode[]
+  pseudoElements?: PseudoElementEvidence[]
   interactionStyles: InteractionStyles
   interactionObservations: InteractionObservation[]
   breakpoints: ResponsiveBreakpoint[]
@@ -229,6 +279,17 @@ export interface DesignEvidence {
   coverage: EvidenceCoverage
   limitations: string[]
   techStack?: TechStackInfo
+}
+
+export interface DeterministicClaim {
+  label: string
+  confidence: 'high' | 'medium' | 'low'
+  reasons: string[]
+  evidenceRefs: string[]
+  provenance: Array<{
+    source: 'color-role-observation' | 'section-observation' | 'component-observation' | 'token-usage'
+    ref: string
+  }>
 }
 
 export interface TechStackInfo {

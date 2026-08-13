@@ -1,5 +1,6 @@
 import type { Locator, Page } from 'playwright-core'
 
+import { ROLE_CANDIDATE_RULES } from './role-candidates.js'
 import type { ExtractedStyles, InteractionStyles } from './types.js'
 
 /**
@@ -7,7 +8,7 @@ import type { ExtractedStyles, InteractionStyles } from './types.js'
  * This runs entirely in the browser context - no LLM tokens consumed.
  */
 export async function extractStyles(page: Page): Promise<ExtractedStyles> {
-  return await page.evaluate(() => {
+  return await page.evaluate((candidateRules) => {
     const styles: ExtractedStyles = {
       colors: [],
       fontFamilies: [],
@@ -26,6 +27,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       transitions: [],
       usageCount: {},
       valueSources: {},
+      colorRoleObservations: [],
     }
 
     const countUsage = (category: string, value: string, amount = 1) => {
@@ -149,8 +151,186 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     colorProbe.remove()
 
     // 2. Walk the DOM and extract computed styles from visible elements
-    const elements = [document.documentElement, document.body, ...document.querySelectorAll('body *')]
+    // The root element frequently contributes only user-agent defaults (`#000`, Times)
+    // while the authored body supplies the actual page system. CSS custom properties are
+    // still collected from `:root` above, so sample rendered styles from body downward.
+    const elements = [document.body, ...document.querySelectorAll('body *')]
     const seen = new Set<string>()
+    const actionTokenPattern = new RegExp(candidateRules.actionTokenPattern, 'i')
+    const primaryActionPattern = new RegExp(candidateRules.primaryActionPattern, 'i')
+    const destructiveActionPattern = new RegExp(candidateRules.destructiveActionPattern, 'i')
+    const directStatusPattern = new RegExp(candidateRules.directStatusPattern, 'i')
+    const statusSubjectPattern = new RegExp(candidateRules.statusSubjectPattern, 'i')
+    const statusDirectionPattern = new RegExp(candidateRules.statusDirectionPattern, 'i')
+    const positiveStatusPattern = new RegExp(candidateRules.positiveStatusPattern, 'i')
+    const warningStatusPattern = new RegExp(candidateRules.warningStatusPattern, 'i')
+    const negativeStatusPattern = new RegExp(candidateRules.negativeStatusPattern, 'i')
+    const elementContext = (element: Element, includeText = false): string =>
+      [
+        typeof element.className === 'string' ? element.className : '',
+        element.id,
+        element.getAttribute('data-variant'),
+        element.getAttribute('data-intent'),
+        element.getAttribute('data-state'),
+        element.getAttribute('data-status'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('type'),
+        element.getAttribute('value'),
+        includeText ? (element.textContent || '').slice(0, 80) : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+    const locatorFor = (element: Element): string => {
+      if (element === document.body) return 'body'
+      const parts: string[] = []
+      let current: Element | null = element
+      while (current && current !== document.body) {
+        const parent: Element | null = current.parentElement
+        if (!parent) break
+        const tag = current.tagName.toLowerCase()
+        const sameTagSiblings = [...parent.children].filter((sibling) => sibling.tagName === current?.tagName)
+        parts.unshift(`${tag}:nth-of-type(${Math.max(1, sameTagSiblings.indexOf(current) + 1)})`)
+        current = parent
+      }
+      return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
+    }
+    const statusIntentFor = (context: string): 'positive' | 'warning' | 'negative' | 'neutral' => {
+      if (positiveStatusPattern.test(context)) return 'positive'
+      if (warningStatusPattern.test(context)) return 'warning'
+      if (negativeStatusPattern.test(context)) return 'negative'
+      return 'neutral'
+    }
+    const statusCandidateKind = (element: Element): 'native' | 'heuristic' | null => {
+      const statusContext = elementContext(element)
+      const role = element.getAttribute('role') || ''
+      const ariaLive = element.getAttribute('aria-live')
+      if (element.matches(candidateRules.broadActionSelector)) return null
+      const nativeStatus = ['status', 'alert'].includes(role) || Boolean(ariaLive && ariaLive !== 'off')
+      if (nativeStatus) {
+        if (element.parentElement?.closest(candidateRules.nativeStatusSelector)) return null
+        return 'native'
+      }
+      if (
+        element.parentElement?.closest(`${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`)
+      ) {
+        return null
+      }
+      const boundedTrend = statusSubjectPattern.test(statusContext) && statusDirectionPattern.test(statusContext)
+      return directStatusPattern.test(statusContext) || boundedTrend ? 'heuristic' : null
+    }
+    const statusCandidateKinds = new Map<Element, 'native' | 'heuristic'>()
+    for (const element of elements) {
+      const kind = statusCandidateKind(element)
+      if (kind) statusCandidateKinds.set(element, kind)
+    }
+    const statusCandidates = new Set(statusCandidateKinds.keys())
+    const candidatesWithNativeDescendants = new Set<Element>()
+    for (const [element, kind] of statusCandidateKinds) {
+      let ancestor = element.parentElement
+      while (ancestor) {
+        if (statusCandidates.has(ancestor)) {
+          if (kind === 'native') candidatesWithNativeDescendants.add(ancestor)
+        }
+        ancestor = ancestor.parentElement
+      }
+    }
+    const hasStrongStatusVisualBoundary = (element: Element): boolean => {
+      const computed = getComputedStyle(element)
+      const paintedFill = Boolean(normalizeObservedColor(computed.backgroundColor))
+      const paintedBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle],
+        [computed.borderRightWidth, computed.borderRightStyle],
+        [computed.borderBottomWidth, computed.borderBottomStyle],
+        [computed.borderLeftWidth, computed.borderLeftStyle],
+      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+      return paintedFill || paintedBorder
+    }
+    const stronglyBoundedCandidates = new Set([...statusCandidates].filter(hasStrongStatusVisualBoundary))
+    const independentStrongDescendantCounts = new Map<Element, number>()
+    for (const element of stronglyBoundedCandidates) {
+      let ancestor = element.parentElement
+      while (ancestor) {
+        if (statusCandidates.has(ancestor)) {
+          independentStrongDescendantCounts.set(ancestor, (independentStrongDescendantCounts.get(ancestor) || 0) + 1)
+          if (stronglyBoundedCandidates.has(ancestor)) break
+        }
+        ancestor = ancestor.parentElement
+      }
+    }
+    const preferredStatusCandidates = new Set(
+      [...statusCandidates].filter((element) => {
+        if (statusCandidateKinds.get(element) === 'native') return true
+        if (candidatesWithNativeDescendants.has(element)) return false
+        return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2
+      }),
+    )
+    const statusRoots = new Set(
+      [...preferredStatusCandidates].filter((element) => {
+        let ancestor = element.parentElement
+        while (ancestor) {
+          if (preferredStatusCandidates.has(ancestor)) return false
+          ancestor = ancestor.parentElement
+        }
+        return true
+      }),
+    )
+    const roleCandidateFor = (element: Element, computed: CSSStyleDeclaration, rect: DOMRect) => {
+      if (statusCandidates.has(element)) {
+        if (!statusRoots.has(element)) return null
+        const statusContext = elementContext(element, true)
+        const delta = statusSubjectPattern.test(statusContext) && statusDirectionPattern.test(statusContext)
+        return {
+          elementKind: 'status' as const,
+          role: 'status' as const,
+          statusKind: delta ? ('delta' as const) : ('status' as const),
+          statusIntent: statusIntentFor(statusContext),
+        }
+      }
+      const ancestorCandidate = element.parentElement?.closest(
+        `${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`,
+      )
+      if (ancestorCandidate) return null
+      const actionContext = elementContext(element, true)
+      const role = element.getAttribute('role') || ''
+      const tagName = element.tagName.toLowerCase()
+      const nativeButton = tagName === 'button'
+      const inputButton = tagName === 'input' && ['button', 'submit'].includes(element.getAttribute('type') || '')
+      const roleButton = role === 'button'
+      const anchor = tagName === 'a' && element.hasAttribute('href')
+
+      if (!nativeButton && !inputButton && !roleButton && !anchor) return null
+      if (anchor) {
+        const paintedFill = Boolean(normalizeObservedColor(computed.backgroundColor))
+        const paintedBorder = [
+          [computed.borderTopWidth, computed.borderTopStyle],
+          [computed.borderRightWidth, computed.borderRightStyle],
+          [computed.borderBottomWidth, computed.borderBottomStyle],
+          [computed.borderLeftWidth, computed.borderLeftStyle],
+        ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+        const controlGeometry =
+          rect.width >= 44 &&
+          rect.height >= 28 &&
+          (Number.parseFloat(computed.paddingLeft) + Number.parseFloat(computed.paddingRight) >= 16 ||
+            Number.parseFloat(computed.paddingTop) + Number.parseFloat(computed.paddingBottom) >= 12)
+        if (!(actionTokenPattern.test(actionContext) && (paintedFill || paintedBorder || controlGeometry))) return null
+      }
+      const roleCandidate = primaryActionPattern.test(actionContext)
+        ? ('primary-action' as const)
+        : destructiveActionPattern.test(actionContext)
+          ? ('destructive-action' as const)
+          : ('action' as const)
+      return {
+        elementKind: anchor
+          ? ('anchor' as const)
+          : inputButton
+            ? ('input' as const)
+            : roleButton && !nativeButton
+              ? ('role-button' as const)
+              : ('button' as const),
+        role: roleCandidate,
+      }
+    }
 
     for (const el of elements) {
       const computed = getComputedStyle(el)
@@ -168,61 +348,24 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
           'a, button, input, select, textarea, [role="button"], [role="link"], [aria-current], [aria-selected="true"]',
         ),
       )
-      const action = Boolean(el.closest('button, [role="button"], input[type="button"], input[type="submit"]'))
-      const link = Boolean(el.closest('a, [role="link"]'))
-      const selected = Boolean(el.closest('[aria-current], [aria-selected="true"], [data-state="active"]'))
-      const actionElement = el.closest('button, [role="button"], input[type="button"], input[type="submit"]')
-      const actionContext = actionElement
-        ? [
-            actionElement.className,
-            actionElement.id,
-            actionElement.getAttribute('data-variant'),
-            actionElement.getAttribute('data-intent'),
-            actionElement.getAttribute('aria-label'),
-            actionElement.getAttribute('type'),
-            (actionElement.textContent || '').slice(0, 80),
-          ]
-            .join(' ')
-            .toLowerCase()
-        : ''
-      const statusAction =
-        action &&
-        /(?:^|\W)(?:danger|destructive|delete|error|invalid|warning|success|alert)(?:\W|$)|删除|危险|错误|警告/.test(
-          actionContext,
-        )
-      const primaryAction =
-        action &&
-        !statusAction &&
-        /(?:^|\W)(?:primary|cta|submit|confirm|purchase|checkout|continue)(?:\W|$)|确认|提交|继续|购买/.test(
-          actionContext,
-        )
+      const roleCandidate = roleCandidateFor(el, computed, rect)
+      const linkRoot = el.matches('a, [role="link"]')
+      const selectedRoot = el.matches('[aria-current], [aria-selected="true"], [data-state="active"]')
 
       if (color) {
         styles.textColors.push(color)
         styles.colors.push(color)
         countUsage('textColor', color)
         addValueSource('textColor', color, 'computed:text')
-        if (interactive && !statusAction) {
+        if (linkRoot && !roleCandidate) {
           countUsage('accentColor', color)
-          addValueSource('accentColor', color, 'element:interactive')
+          addValueSource('accentColor', color, 'element:link')
         }
-        if (action && !statusAction) {
-          countUsage('actionColor', color)
-          addValueSource('actionColor', color, 'element:action')
-        }
-        if (primaryAction) {
-          countUsage('primaryActionColor', color)
-          addValueSource('primaryActionColor', color, 'element:primary-action')
-        }
-        if (statusAction) {
-          countUsage('statusColor', color)
-          addValueSource('statusColor', color, 'element:status')
-        }
-        if (link) {
+        if (linkRoot) {
           countUsage('linkColor', color)
           addValueSource('linkColor', color, 'element:link')
         }
-        if (selected) {
+        if (selectedRoot && roleCandidate?.role !== 'status') {
           countUsage('selectedColor', color)
           addValueSource('selectedColor', color, 'element:selected')
         }
@@ -232,23 +375,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         styles.colors.push(bgColor)
         countUsage('bgColor', bgColor)
         addValueSource('bgColor', bgColor, 'computed:background')
-        if (interactive && !statusAction) {
-          countUsage('accentColor', bgColor)
-          addValueSource('accentColor', bgColor, 'element:interactive')
-        }
-        if (action && !statusAction) {
-          countUsage('actionColor', bgColor)
-          addValueSource('actionColor', bgColor, 'element:action')
-        }
-        if (primaryAction) {
-          countUsage('primaryActionColor', bgColor)
-          addValueSource('primaryActionColor', bgColor, 'element:primary-action')
-        }
-        if (statusAction) {
-          countUsage('statusColor', bgColor)
-          addValueSource('statusColor', bgColor, 'element:status')
-        }
-        if (selected) {
+        if (selectedRoot && roleCandidate?.role !== 'status') {
           countUsage('selectedColor', bgColor)
           addValueSource('selectedColor', bgColor, 'element:selected')
         }
@@ -258,6 +385,56 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
         const visibleAreaShare = (visibleWidth * visibleHeight) / viewportArea
         if (visibleAreaShare > 0) countUsage('bgArea', bgColor, visibleAreaShare)
+      }
+
+      if (roleCandidate) {
+        const categoryPrefix =
+          roleCandidate.role === 'status'
+            ? `${roleCandidate.statusKind || 'status'}${
+                roleCandidate.statusIntent
+                  ? `${roleCandidate.statusIntent[0].toUpperCase()}${roleCandidate.statusIntent.slice(1)}`
+                  : ''
+              }`
+            : roleCandidate.role === 'primary-action'
+              ? 'primaryAction'
+              : roleCandidate.role === 'destructive-action'
+                ? 'destructiveAction'
+                : 'action'
+        if (color) {
+          countUsage(`${categoryPrefix}ForegroundColor`, color)
+          addValueSource(`${categoryPrefix}ForegroundColor`, color, `element:${roleCandidate.role}`)
+          if (roleCandidate.role === 'status') countUsage('statusForegroundColor', color)
+        }
+        if (bgColor) {
+          countUsage(`${categoryPrefix}BackgroundColor`, bgColor)
+          addValueSource(`${categoryPrefix}BackgroundColor`, bgColor, `element:${roleCandidate.role}`)
+          if (roleCandidate.role === 'status') countUsage('statusBackgroundColor', bgColor)
+          if (roleCandidate.role === 'action' || roleCandidate.role === 'primary-action') {
+            countUsage('accentColor', bgColor)
+            addValueSource('accentColor', bgColor, `element:${roleCandidate.role}`)
+          }
+        }
+        const borderColor = [
+          [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+          [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+          [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+          [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+        ]
+          .flatMap(([width, style, value]) =>
+            Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) ? [normalizeObservedColor(value)] : [],
+          )
+          .find((value): value is string => Boolean(value))
+        styles.colorRoleObservations?.push({
+          captureId: `${location.href}|${window.innerWidth}x${window.innerHeight}`,
+          elementRef: locatorFor(el),
+          elementKind: roleCandidate.elementKind,
+          role: roleCandidate.role,
+          ...(roleCandidate.statusKind ? { statusKind: roleCandidate.statusKind } : {}),
+          ...(roleCandidate.statusIntent ? { statusIntent: roleCandidate.statusIntent } : {}),
+          ...(color ? { foreground: color } : {}),
+          ...(bgColor ? { background: bgColor } : {}),
+          ...(borderColor ? { borderColor } : {}),
+        })
       }
 
       // Only count borders that are actually painted. Sampling borderTopColor alone also records zero-width defaults
@@ -404,8 +581,18 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       }
 
       // Border radius
-      const radius = computed.borderTopLeftRadius
-      if (radius && radius !== '0px') {
+      const radiusCorners = [
+        computed.borderTopLeftRadius,
+        computed.borderTopRightRadius,
+        computed.borderBottomRightRadius,
+        computed.borderBottomLeftRadius,
+      ].map((value) => value.replace(/\s+/g, ' ').trim())
+      const radius =
+        radiusCorners.every((value) => value === radiusCorners[0]) &&
+        /^(?:0|[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em))$/i.test(radiusCorners[0])
+          ? radiusCorners[0]
+          : null
+      if (radius && !/^(?:0|0px|0rem|0em)$/i.test(radius)) {
         styles.radii.push(radius)
         countUsage('radius', radius)
       }
@@ -419,7 +606,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     }
 
     return styles
-  })
+  }, ROLE_CANDIDATE_RULES)
 }
 
 const OBSERVED_INTERACTION_PROPERTIES = [
@@ -480,10 +667,16 @@ async function readInteractionState(locator: Locator): Promise<Record<string, st
 function changedInteractionState(
   before: Record<string, string> | null,
   after: Record<string, string> | null,
-): Record<string, string> | null {
+): { before: Record<string, string>; after: Record<string, string> } | null {
   if (!before || !after) return null
-  const changed = Object.fromEntries(Object.entries(after).filter(([property, value]) => value !== before[property]))
-  return Object.keys(changed).length > 0 ? changed : null
+  const changedAfter = Object.fromEntries(
+    Object.entries(after).filter(([property, value]) => value !== before[property]),
+  )
+  if (Object.keys(changedAfter).length === 0) return null
+  return {
+    before: Object.fromEntries(Object.keys(changedAfter).map((property) => [property, before[property]])),
+    after: changedAfter,
+  }
 }
 
 /** Observe browser-computed states so cross-origin stylesheets, CSS-in-JS, and
@@ -560,7 +753,7 @@ export async function extractObservedInteractionStyles(page: Page, limit = 16): 
         .catch(() => false)
       if (disabled) {
         const state = await readInteractionState(locator)
-        if (state) interactions.disabled?.push(state)
+        if (state) interactions.disabled?.push({ before: state, after: state })
         continue
       }
 
@@ -659,7 +852,7 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
       for (const rule of rules) {
         if (rule instanceof CSSStyleRule) {
           const selector = rule.selectorText
-          const targets: Array<Record<string, string>[]> = []
+          const targets: InteractionStyles[keyof InteractionStyles][] = []
           if (selector.includes(':hover')) targets.push(interactions.hover)
           if (selector.includes(':focus')) targets.push(interactions.focus)
           if (selector.includes(':active')) targets.push(interactions.active)
@@ -676,7 +869,7 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
           }
 
           if (Object.keys(props).length > 0) {
-            targets.forEach((target) => target.push(props))
+            targets.forEach((target) => target?.push({ before: {}, after: props }))
           }
           continue
         }

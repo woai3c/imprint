@@ -1,5 +1,5 @@
 import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
-import type { DesignToken, ExtractedStyles } from './types.js'
+import type { ColorRoleObservation, DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 
 interface ParsedColor {
@@ -52,13 +52,196 @@ function colorLuminance(value: string | undefined, backdrop?: string): number | 
   return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
 }
 
-function colorContrast(first: string, second: string): number | null {
+export function colorContrast(first: string, second: string): number | null {
   const firstLuminance = colorLuminance(first, second)
   const secondLuminance = colorLuminance(second)
   if (firstLuminance === null || secondLuminance === null) return null
   const lighter = Math.max(firstLuminance, secondLuminance)
   const darker = Math.min(firstLuminance, secondLuminance)
   return (lighter + 0.05) / (darker + 0.05)
+}
+
+function buildPrimaryActionColorRole(
+  primary: string | undefined,
+  styles: Pick<ExtractedStyles, 'colorRoleObservations'>,
+  foreground: string | undefined,
+): NonNullable<DesignToken['colorRoles']>['primaryAction'] | undefined {
+  const normalizedPrimary = primary ? normalizeColorValue(primary) : null
+  if (!normalizedPrimary) return undefined
+  const matching = (styles.colorRoleObservations || []).filter(
+    (observation) =>
+      (observation.role === 'action' || observation.role === 'primary-action') &&
+      observation.background !== undefined &&
+      normalizeColorValue(observation.background) === normalizedPrimary,
+  )
+  if (matching.length === 0) return undefined
+
+  const pairs = new Map<string, typeof matching>()
+  for (const observation of matching) {
+    const observedForeground = observation.foreground ? normalizeColorValue(observation.foreground) : undefined
+    const key = `${normalizedPrimary}|${observedForeground || ''}`
+    const observations = pairs.get(key) || []
+    observations.push(observation)
+    pairs.set(key, observations)
+  }
+  const selected = [...pairs.values()].sort((first, second) => {
+    const firstPrimary = first.some((observation) => observation.role === 'primary-action') ? 1 : 0
+    const secondPrimary = second.some((observation) => observation.role === 'primary-action') ? 1 : 0
+    return secondPrimary - firstPrimary || second.length - first.length
+  })[0]
+  const observedForeground = selected[0].foreground
+    ? normalizeColorValue(selected[0].foreground) || selected[0].foreground
+    : undefined
+  const contrast = observedForeground ? colorContrast(observedForeground, normalizedPrimary) : null
+  const targetContrastRatio = 4.5
+  // Keep near-threshold observed pairs faithful and report the warning. Swapping their foreground
+  // to black would be a disproportionate visual change; stronger failures still get a derived option.
+  const shouldRecommendDifferentForeground = contrast !== null && contrast < targetContrastRatio - 0.15
+  const recommendation = shouldRecommendDifferentForeground
+    ? [foreground, '#1a1a1a', '#000000', '#ffffff']
+        .flatMap((candidate) => {
+          const value = candidate ? normalizeColorValue(candidate) : null
+          const candidateContrast = value ? colorContrast(value, normalizedPrimary) : null
+          return value && candidateContrast !== null && candidateContrast >= targetContrastRatio
+            ? [{ value, contrastRatio: Number(candidateContrast.toFixed(2)) }]
+            : []
+        })
+        .find((candidate) => candidate.value !== observedForeground)
+    : undefined
+
+  return {
+    observedBackground: normalizedPrimary,
+    ...(observedForeground ? { observedForeground } : {}),
+    ...(contrast !== null ? { contrastRatio: Number(contrast.toFixed(2)) } : {}),
+    ...(contrast !== null && contrast < targetContrastRatio
+      ? {
+          contrastWarning: {
+            targetContrastRatio,
+            message: `Observed primary action contrast is below ${targetContrastRatio}:1 for normal text.`,
+          },
+        }
+      : {}),
+    ...(recommendation
+      ? {
+          recommendedOnPrimary: {
+            ...recommendation,
+            targetContrastRatio,
+            derived: true as const,
+          },
+        }
+      : {}),
+    provenance: selected.map(({ captureId, elementRef, elementKind, role }) => ({
+      captureId,
+      elementRef,
+      elementKind,
+      role,
+    })),
+  }
+}
+
+type SemanticPairName = keyof NonNullable<NonNullable<DesignToken['colorRoles']>['semanticPairs']>
+
+function buildSemanticColorPairs(
+  observations: readonly ColorRoleObservation[] | undefined,
+): NonNullable<NonNullable<DesignToken['colorRoles']>['semanticPairs']> | undefined {
+  const groups = new Map<SemanticPairName, ColorRoleObservation[]>()
+  for (const observation of observations || []) {
+    if (observation.role !== 'status' || !observation.statusIntent) continue
+    const kind = observation.statusKind || 'status'
+    if (kind === 'delta' && !['positive', 'negative'].includes(observation.statusIntent)) continue
+    const name = `${kind}-${observation.statusIntent}` as SemanticPairName
+    const group = groups.get(name) || []
+    group.push(observation)
+    groups.set(name, group)
+  }
+  if (groups.size === 0) return undefined
+  return Object.fromEntries(
+    [...groups.entries()].map(([name, group]) => {
+      const pairGroups = new Map<string, ColorRoleObservation[]>()
+      for (const observation of group) {
+        const background = observation.background ? normalizeColorValue(observation.background) : undefined
+        const foreground = observation.foreground ? normalizeColorValue(observation.foreground) : undefined
+        const key = `${background || ''}|${foreground || ''}`
+        const pairGroup = pairGroups.get(key) || []
+        pairGroup.push(observation)
+        pairGroups.set(key, pairGroup)
+      }
+      const selected = [...pairGroups.values()].sort((first, second) => second.length - first.length)[0]
+      const background = selected[0]?.background ? normalizeColorValue(selected[0].background) : undefined
+      const foreground = selected[0]?.foreground ? normalizeColorValue(selected[0].foreground) : undefined
+      return [
+        name,
+        {
+          ...(background ? { observedBackground: background } : {}),
+          ...(foreground ? { observedForeground: foreground } : {}),
+          provenance: selected.map(({ captureId, elementRef, elementKind, role, statusKind, statusIntent }) => ({
+            captureId,
+            elementRef,
+            elementKind,
+            role,
+            statusKind,
+            statusIntent,
+          })),
+        },
+      ]
+    }),
+  )
+}
+
+function hasObservedActionBackground(observations: readonly ColorRoleObservation[] | undefined): boolean {
+  if (observations === undefined) return true
+  return observations.some(
+    (observation) =>
+      (observation.role === 'action' || observation.role === 'primary-action') && Boolean(observation.background),
+  )
+}
+
+function observedTextOnlyAccent(observations: readonly ColorRoleObservation[] | undefined): string | undefined {
+  const frequency = new Map<string, number>()
+  for (const observation of observations || []) {
+    if (!['action', 'primary-action'].includes(observation.role) || observation.background || !observation.foreground)
+      continue
+    const foreground = normalizeColorValue(observation.foreground)
+    if (!foreground || isNeutralColor(foreground)) continue
+    frequency.set(foreground, (frequency.get(foreground) || 0) + 1)
+  }
+  return [...frequency.entries()].sort((first, second) => second[1] - first[1])[0]?.[0]
+}
+
+function observedSecondaryActionBackground(
+  observations: readonly ColorRoleObservation[] | undefined,
+  primary: string,
+): string | undefined {
+  const normalizedPrimary = normalizeColorValue(primary)
+  const elementsByBackground = new Map<string, Set<string>>()
+  for (const observation of observations || []) {
+    if (observation.role !== 'action' || !observation.background) continue
+    const background = normalizeColorValue(observation.background)
+    if (!background || background === normalizedPrimary || isNeutralColor(background)) continue
+    const elements = elementsByBackground.get(background) || new Set<string>()
+    elements.add(observation.elementRef)
+    elementsByBackground.set(background, elements)
+  }
+  const repeated = [...elementsByBackground]
+    .map(([background, elements]) => [background, elements.size] as const)
+    .filter(([, count]) => count >= 2)
+  return repeated.sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))[0]?.[0]
+}
+
+function hasColorUsageInCategories(
+  styles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations'>,
+  value: string,
+  categories: readonly string[],
+): boolean {
+  if (styles.colorRoleObservations === undefined) return true
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return false
+  const renderedCategories = new Set(categories)
+  return Object.entries(styles.usageCount).some(([key, count]) => {
+    const separator = key.indexOf(':')
+    if (separator < 0 || count <= 0 || !renderedCategories.has(key.slice(0, separator))) return false
+    return normalizeColorValue(key.slice(separator + 1)) === normalized
+  })
 }
 
 function isNeutralColor(value: string): boolean {
@@ -176,7 +359,7 @@ function pairedLineHeightFrequency(styles: ExtractedStyles): Map<string, number>
 export function buildDesignTokens(
   styles: ExtractedStyles,
   clusteredColors: ClusteredColors,
-  roleStyles: Pick<ExtractedStyles, 'usageCount'> = styles,
+  roleStyles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations'> = styles,
 ): DesignToken {
   // Build color map
   const colors: Record<string, string> = {}
@@ -206,12 +389,34 @@ export function buildDesignTokens(
     if (mutedForeground) colors['muted-foreground'] = mutedForeground
   }
 
-  // Assign accent/primary colors
+  // A primary action is optional. Generic palette, decorative, border, and text-only
+  // accents must not be promoted to an action role merely because they are chromatic.
   if (clusteredColors.accents.length > 0) {
-    colors['primary'] = clusteredColors.accents[0]
-    if (clusteredColors.accents.length > 1) {
-      colors['accent'] = clusteredColors.accents[1]
+    if (hasObservedActionBackground(roleStyles.colorRoleObservations)) {
+      colors['primary'] = clusteredColors.accents[0]
+      const secondaryAccent =
+        observedSecondaryActionBackground(roleStyles.colorRoleObservations, colors['primary']) ||
+        clusteredColors.accents
+          .slice(1)
+          .find((candidate) =>
+            hasColorUsageInCategories(roleStyles, candidate, [
+              'primaryActionBackgroundColor',
+              'actionBackgroundColor',
+              'selectedColor',
+            ]),
+          )
+      if (secondaryAccent) colors['accent'] = secondaryAccent
+    } else {
+      colors['editorial-accent'] = clusteredColors.accents[0]
+      const decorativeAccent = clusteredColors.accents
+        .slice(1)
+        .find((candidate) => hasColorUsageInCategories(roleStyles, candidate, ['accentColor', 'bgColor', 'bgArea']))
+      if (decorativeAccent) colors['decorative-accent'] = decorativeAccent
     }
+  }
+  if (!colors.primary && !colors['editorial-accent']) {
+    const editorialAccent = observedTextOnlyAccent(roleStyles.colorRoleObservations)
+    if (editorialAccent) colors['editorial-accent'] = editorialAccent
   }
 
   // Prefer borders observed outside controls. Action/focus borders belong to the primary or ring role and should not
@@ -270,7 +475,7 @@ export function buildDesignTokens(
   const spacings = sortByFrequency(spacingFreq)
     .filter((v) => {
       const num = parseFloat(v)
-      return !isNaN(num) && num > 0 && num <= 200
+      return !isNaN(num) && num > 0 && num <= 96
     })
     .filter(uniqueFilter())
     .slice(0, 12)
@@ -302,6 +507,7 @@ export function buildDesignTokens(
       : frequencyForCategory(styles, 'fontFamily', styles.fontFamilies)
   const fontStacks = sortByFrequency(fontFamilyFrequency)
     .map((f) => f.replace(/"/g, '').trim())
+    .filter((stack) => !/^(?:inherit|initial|unset|revert|revert-layer)$/i.test(stack))
     .filter(uniqueFilter())
     .slice(0, 5)
 
@@ -330,6 +536,8 @@ export function buildDesignTokens(
     .filter(uniqueFilter())
     .slice(0, 6)
     .sort((first, second) => durationInMilliseconds(first) - durationInMilliseconds(second))
+  const primaryAction = buildPrimaryActionColorRole(colors.primary, roleStyles, colors.foreground)
+  const semanticPairs = buildSemanticColorPairs(roleStyles.colorRoleObservations)
 
   return {
     colors,
@@ -347,6 +555,9 @@ export function buildDesignTokens(
     borders,
     zIndices,
     transitions,
+    ...(primaryAction || semanticPairs
+      ? { colorRoles: { ...(primaryAction ? { primaryAction } : {}), ...(semanticPairs ? { semanticPairs } : {}) } }
+      : {}),
     usageCount: normalizeDesignTokenUsageCount(styles.usageCount),
   }
 }

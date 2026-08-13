@@ -1,0 +1,42 @@
+{
+  "fixture": "editorial-serif",
+  "description": "Serif editorial magazine: narrow measure, drop cap, single accent color, generous whitespace.",
+  "expectedPageRole": "content",
+  "expectedSectionRoles": ["header", "hero", "content", "feature-group", "footer"],
+  "minSections": 5,
+  "expectedComponentTypes": ["navigation", "button", "card"],
+  "expectedDesktopComponentCounts": {
+    "card": 3
+  },
+  "expectedDesignDocComponentCounts": {
+    "card": 3
+  },
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "forbiddenPrimary": true,
+  "expectedColorTokens": {
+    "border": "#d8d2c6",
+    "editorial-accent": "#9a3b2e"
+  },
+  "expectedMaxWidths": ["720px", "640px", "960px"],
+  "expectedResponsiveColumns": [{ "from": 3, "to": 1 }],
+  "expectedResponsiveValues": [{ "property": "node.heading.fontSize", "from": "52px", "to": "34px" }],
+  "expectedPseudoKinds": ["first-letter"],
+  "expectedLayoutBorders": ["3px solid rgb(154, 59, 46)"],
+  "forbiddenColors": ["#000000"],
+  "forbiddenFontFamilies": ["Times New Roman"],
+  "expectedDesignDocStrings": ["first-letter", "3px solid rgb(154, 59, 46)"],
+  "expectedReconstructionSummaryStrings": [
+    "first-letter",
+    "3px solid rgb(154, 59, 46)",
+    "hero max-width: 720px",
+    "feature-group max-width: 640px",
+    "content max-width: 960px",
+    "columns 3 → 1",
+    "heading font-size 52px → 34px"
+  ]
+}

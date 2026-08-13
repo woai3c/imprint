@@ -1,0 +1,13 @@
+{
+  "fixture": "app-shell",
+  "description": "App shell: dark header, layered wrapper divs around a repeated ticket feed, sticky right rail, utility footer.",
+  "expectedSectionRoles": ["header", "feature-group", "aside", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["visibility", "reflow", "scale"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": [],
+  "minSectionCoverage": 0.3
+}

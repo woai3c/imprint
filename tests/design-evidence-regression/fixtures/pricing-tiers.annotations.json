@@ -1,0 +1,14 @@
+{
+  "fixture": "pricing-tiers",
+  "description": "SaaS pricing: centered hero, three tiers with escalating elevation, one filled primary CTA on the featured tier.",
+  "expectedSectionRoles": ["header", "hero", "content", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "card"],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": ["reflow", "scale", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3,
+  "expectedFeatureTags": ["layered elevation system"]
+}

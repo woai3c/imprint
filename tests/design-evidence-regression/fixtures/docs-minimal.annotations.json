@@ -1,0 +1,13 @@
+{
+  "fixture": "docs-minimal",
+  "description": "Minimal docs site: sidebar nav with grouped links, long-form article, code blocks, blue accent only for active/links.",
+  "expectedSectionRoles": ["header", "hero", "footer"],
+  "minSections": 3,
+  "expectedComponentTypes": ["navigation", "input", "button", "list"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3
+}

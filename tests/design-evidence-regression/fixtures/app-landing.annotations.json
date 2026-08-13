@@ -1,0 +1,13 @@
+{
+  "fixture": "app-landing",
+  "description": "Sleep app landing: sky-blue palette, split hero with CSS phone mock, soft rounded cards, pill preview button.",
+  "expectedSectionRoles": ["header", "hero", "content", "action", "footer"],
+  "minSections": 4,
+  "expectedComponentTypes": ["navigation", "button"],
+  "minSafelyObservedInteractions": 1,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 1,
+  "expectedMediaKinds": ["css-background"],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0.3
+}

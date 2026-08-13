@@ -362,15 +362,6 @@ export function DesignDnaPanel({
       ]
     : []
 
-  const _copyText = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      notify(t('feedback.copied'))
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
-    }
-  }
-
   const generateValidation = async (scenario: 'workflow' | 'content' | 'states') => {
     if (!result.analysisId) return
     setValidating(true)

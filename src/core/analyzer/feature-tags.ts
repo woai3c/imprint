@@ -207,7 +207,7 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
     if (radius.value >= 12) {
       tags.push('large-radius rounded style')
     } else if (radius.value <= 4 && radius.smallShare >= 0.5) {
-      tags.push('small-radius geometric style')
+      tags.push('compact-radius surfaces observed')
     }
   }
 
@@ -230,10 +230,10 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
 
   // CSS variable usage
   if (Object.keys(styles.cssVariables).length > 20) {
-    tags.push('design-token-driven')
+    tags.push('extensive CSS variable usage')
   }
 
-  return tags.slice(0, 5)
+  return tags
 }
 
 function hueFamiliesForCategories(styles: ExtractedStyles, categories: ReadonlySet<string>): Map<number, number> {
@@ -453,5 +453,5 @@ function dominantSpacingRhythm(tokens: DesignToken, styles: ExtractedStyles): nu
         entry.value !== null && entry.value >= 4 && entry.value <= 96,
     )
     .sort((first, second) => second.count - first.count || first.value - second.value)
-  return [...new Set(observations.slice(0, 3).map((observation) => observation.value))]
+  return [...new Set(observations.slice(0, 3).map((observation) => observation.value))].sort((a, b) => a - b)
 }

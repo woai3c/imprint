@@ -48,7 +48,7 @@ describe('design feature tags', () => {
     })
 
     const tags = generateFeatureTags(designTokens, styles)
-    expect(tags).toContain('spacing rhythm led by 16px, 8px, 4px')
+    expect(tags).toContain('spacing rhythm led by 4px, 8px, 16px')
     expect(tags.join(' ')).not.toContain('base grid spacing')
   })
 
@@ -91,7 +91,7 @@ describe('design feature tags', () => {
     })
 
     const tags = generateFeatureTags(designTokens, styles)
-    expect(tags).toContain('small-radius geometric style')
+    expect(tags).toContain('compact-radius surfaces observed')
     expect(tags).not.toContain('large-radius rounded style')
   })
 

@@ -1,0 +1,147 @@
+{
+  "common": {
+    "and": " and ",
+    "listSeparator": ", ",
+    "clauseSeparator": "; ",
+    "absent": "absent"
+  },
+  "app": {
+    "tray": {
+      "tooltip": "Imprint",
+      "open": "Open Imprint",
+      "quit": "Quit Imprint"
+    }
+  },
+  "export": {
+    "reconstruction": {
+      "heading": "### Reconstruction Summary",
+      "labels": {
+        "siteThesis": "Site thesis",
+        "pageThesis": "Page thesis",
+        "entryHierarchy": "Entry-page section hierarchy",
+        "sectionHierarchy": "Section hierarchy",
+        "signatureMoves": "Signature moves",
+        "keyStructure": "Key structure",
+        "siteVariants": "Canonical component variants across pages",
+        "pageVariants": "Component variants",
+        "responsiveFacts": "Responsive facts",
+        "preserve": "Preserve",
+        "avoid": "Avoid"
+      },
+      "thesis": "{{title}} is an observed {{role}} page.",
+      "preserveFact": "Preserve the observed fact: {{fact}}.",
+      "avoidActionSubstitution": "Do not substitute decorative, status, or border colors for the observed action role.",
+      "avoidInventedPrimary": "Do not invent a primary action color; none was stably observed.",
+      "avoidGeometryGeneralization": "Do not generalize one-off geometry into the reusable spacing scale.",
+      "terms": {
+        "desktop": "desktop",
+        "tablet": "tablet",
+        "mobile": "mobile",
+        "entry": "entry",
+        "navigation": "navigation",
+        "header": "header",
+        "content": "content",
+        "aside": "aside",
+        "featureGroup": "feature-group",
+        "hero": "hero",
+        "action": "action",
+        "footer": "footer",
+        "maxWidth": "max-width",
+        "headingFontSize": "heading font-size",
+        "columns": "columns",
+        "layoutMode": "layoutMode",
+        "position": "position",
+        "height": "height",
+        "order": "order",
+        "borderBottom": "borderBottom",
+        "boxShadow": "boxShadow",
+        "sticky": "sticky",
+        "top": "top"
+      },
+      "pageRoles": {
+        "page": "page",
+        "landing": "landing",
+        "content": "content",
+        "listing": "listing",
+        "dashboard": "dashboard",
+        "article": "article",
+        "product": "product"
+      }
+    },
+    "featureTags": {
+      "line": "**Design Features:** {{tags}}",
+      "spacingRhythm": "spacing rhythm led by {{values}}",
+      "monospaceTypography": "monospace typography",
+      "serifEditorialStyle": "serif editorial style",
+      "singleFontSystem": "single-font system",
+      "monochromePalette": "monochrome palette",
+      "largeRadiusRoundedStyle": "large-radius rounded style",
+      "compactRadiusSurfaces": "compact-radius surfaces observed",
+      "noStableShadowScale": "no stable shadow scale observed",
+      "layeredElevationSystem": "layered elevation system",
+      "weightContrastHierarchy": "weight contrast hierarchy",
+      "extensiveCssVariableUsage": "extensive CSS variable usage"
+    },
+    "contrast": {
+      "heading": "### Component Contrast Notes",
+      "inferredSurface": "inferred surface",
+      "observedBackground": "observed background",
+      "iconControl": "icon control",
+      "textControl": "text control",
+      "inferredSuffix": " The background comes from the shared-surface assumption for a transparent component; verify it in the real container.",
+      "warning": "- `{{name}}`: foreground `{{foreground}}` over {{backgroundKind}} `{{background}}` is {{ratio}}:1, below the {{target}}:1 target for this {{controlKind}}.{{inferredSuffix}}",
+      "iconSchemaNote": "- `{{name}}`: foreground `{{foreground}}` over {{backgroundKind}} `{{background}}` is {{ratio}}:1 and meets the 3:1 non-text icon target. The DESIGN.md alpha component field represents it as `textColor`, so a general validator may still apply the 4.5:1 text target."
+    }
+  },
+  "intelligence": {
+    "componentShape": {
+      "names": {
+        "primary": "primary button",
+        "secondary": "secondary button",
+        "destructive": "destructive button",
+        "text": "text button",
+        "icon": "icon button"
+      },
+      "shapes": {
+        "pill": "pill",
+        "rounded": "rounded",
+        "sharp": "sharp-cornered"
+      },
+      "variantObservation": "{{name}} includes {{shapes}} variants",
+      "mixedStatement": "The cited evidence shows that {{observations}}.",
+      "mixedImplementation": "Implement each variant with its observed corner shape; do not generalize all cited components to one silhouette.",
+      "unsupportedRounded": "observed rounded",
+      "unsupportedSharp": "observed sharp-cornered",
+      "primaryStatement": "The cited primary button is a compact solid pill with an accent fill and contrasting foreground.",
+      "primaryImplementation": "Keep the observed pill silhouette and compact size for the primary CTA; do not rewrite it as square or small-radius."
+    },
+    "responsive": {
+      "properties": {
+        "layoutMode": "layout-mode",
+        "position": "position",
+        "height": "height",
+        "borderTop": "top border",
+        "borderRight": "right border",
+        "borderBottom": "bottom border",
+        "borderLeft": "left border",
+        "boxShadow": "shadow",
+        "order": "order",
+        "display": "display",
+        "gridTemplateColumns": "grid columns",
+        "childGridTemplateColumns": "child grid columns",
+        "fontSize": "font size",
+        "lineHeight": "line height"
+      },
+      "headerStatement": "Header positioning changes from {{from}} to {{to}} across {{transition}}{{companionClause}}.",
+      "headerCompanionClause": "; the same evidence also records {{changes}}",
+      "headerImplementation": "Implement the positioning change at the observed viewport range{{companionClause}}.",
+      "headerImplementationCompanion": " and preserve {{properties}} changes from the same responsive evidence",
+      "mobileTopic": "Mobile structure coverage",
+      "mobilePartialCoverage": "{{captured}} of {{expected}} planned page×viewport captures completed; the uncaptured viewport and cross-page consistency still need confirmation.",
+      "mobileObservedCoverage": "These facts apply only to captured pages; other pages and cross-page consistency still need confirmation.",
+      "mobileReason": "{{captures}} mobile page/viewport captures include screenshots, and {{sequences}} include section sequences; {{coverage}}",
+      "mobilePartialNeeded": "The uncaptured mobile viewport and cross-page consistency",
+      "mobileObservedNeeded": "Mobile structure on other pages and cross-page consistency"
+    }
+  }
+}

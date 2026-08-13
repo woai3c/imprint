@@ -20,6 +20,7 @@ export interface ComponentPattern {
   evidence: string[]
   elementKinds?: string[]
   semanticRole?: string
+  sampleSize?: { width: number; height: number }
 }
 
 export type ComponentVariant = 'primary' | 'secondary' | 'destructive' | 'text' | 'icon'
@@ -315,6 +316,12 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       if (group.candidates.length === 0) return []
       const confidence =
         group.candidates.reduce((sum, candidate) => sum + candidate.confidence, 0) / group.candidates.length
+      const measuredCandidates = group.candidates
+        .filter((candidate): candidate is ComponentVariantCandidate & { widthPx: number; heightPx: number } =>
+          Boolean(candidate.widthPx && candidate.heightPx),
+        )
+        .sort((first, second) => first.widthPx * first.heightPx - second.widthPx * second.heightPx)
+      const sample = measuredCandidates[Math.floor(measuredCandidates.length / 2)]
       return [
         {
           type: group.type,
@@ -326,6 +333,7 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
           name: group.semanticRole || [group.type, group.variant, group.size].filter(Boolean).join('-'),
           ...(group.variant ? { variant: group.variant } : {}),
           ...(group.semanticRole ? { semanticRole: group.semanticRole } : {}),
+          ...(sample ? { sampleSize: { width: Math.round(sample.widthPx), height: Math.round(sample.heightPx) } } : {}),
           elementKinds: [...new Set(group.candidates.flatMap((candidate) => candidate.elementKind || []))].sort(),
         },
       ]

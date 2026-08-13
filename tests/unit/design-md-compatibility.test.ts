@@ -361,6 +361,28 @@ describe('Google DESIGN.md alpha compatibility', () => {
 
     expect(explicitBackgroundDoc).toContain('observed background `#ffffff`')
     expect(explicitBackgroundDoc).not.toContain('shared-surface assumption')
+
+    const iconDoc = generateDesignDoc(
+      { ...tokens, colors: { ...tokens.colors, surface: '#ffffff', 'palette-5': '#8491a5' } },
+      'https://example.com/',
+      [],
+      undefined,
+      [],
+      [
+        {
+          type: 'button',
+          count: 1,
+          selectors: ['button'],
+          styles: { color: '#8491a5', backgroundColor: '#ffffff', borderRadius: '9999px' },
+          confidence: 0.98,
+          evidence: ['native-element'],
+        },
+      ],
+      'en',
+    )
+
+    expect(iconDoc).toContain('meets the 3:1 non-text icon target')
+    expect(iconDoc).toContain('general validator may still apply the 4.5:1 text target')
   })
 
   test('keeps detailed token evidence out of the compact front matter', () => {

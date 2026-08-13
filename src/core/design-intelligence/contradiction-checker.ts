@@ -7,6 +7,7 @@ import {
 } from '../analyzer/component-detect.js'
 import type { ComponentType } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { coreT } from '../i18n/index.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
 export interface ContradictionCheckResult {
@@ -54,6 +55,8 @@ const EXHAUSTIVE_RESPONSIVE_LIST_ASSERTION =
   /\b(?:only|sole)\b[^.!?]{0,48}\b(?:record(?:ed|s)?|observ(?:ed|es)?)\b|(?:只|仅)(?:记录|观察|检测)到/i
 const HEADER_RELATIVE_POSITION_ASSERTION =
   /(?:\b(?:header|top\s*bar|app\s*bar)\b[^.!?]{0,64}\brelative\s+position(?:ed|ing)?\b|(?:顶栏|头部|顶部栏)[^。！？]{0,40}相对定位)/i
+const HEADER_INVARIANT_ASSERTION =
+  /(?:\b(?:across|on)\s+(?:all\s+)?pages?\b[^.!?]{0,64}\b(?:same|consistent|uniform)\b[^.!?]{0,40}\b(?:header|top\s*bar|app\s*bar)?\s*(?:height|position)|\b(?:header|top\s*bar|app\s*bar)\b[^.!?]{0,64}\b(?:same|consistent|uniform)\b[^.!?]{0,40}\b(?:height|position))|(?:(?:跨页面|各页|全站)[^。！？]{0,48}(?:同一套|一致|相同|保持)[^。！？]{0,32}(?:顶栏|头部|顶部栏)?(?:高度|位置|贴顶)|(?:顶栏|头部|顶部栏)[^。！？]{0,40}(?:跨页面|各页|全站)[^。！？]{0,32}(?:一致|相同|保持)[^。！？]{0,24}(?:高度|位置|贴顶))/i
 
 function normalizeLength(value: string): string {
   const normalized = value.trim().toLowerCase()
@@ -163,14 +166,8 @@ function replaceRepeatedCardGrammar(value: string, language: DesignProfile['lang
 }
 
 function repairPrimaryPillClaim(claim: DesignClaim, language: DesignProfile['language']): void {
-  if (language === 'zh-CN') {
-    claim.statement = '已引用的主按钮是紧凑的实心胶囊按钮，使用强调色填充和对比前景。'
-    claim.implementation = '主 CTA 保留已观察到的胶囊轮廓与紧凑尺寸；不要将它改写成方形或小圆角按钮。'
-  } else {
-    claim.statement = 'The cited primary button is a compact solid pill with an accent fill and contrasting foreground.'
-    claim.implementation =
-      'Keep the observed pill silhouette and compact size for the primary CTA; do not rewrite it as square or small-radius.'
-  }
+  claim.statement = coreT(language, 'intelligence.componentShape.primaryStatement')
+  claim.implementation = coreT(language, 'intelligence.componentShape.primaryImplementation')
 }
 
 function repairUnsupportedPillClaim(
@@ -185,42 +182,61 @@ function repairUnsupportedPillClaim(
   },
   language: DesignProfile['language'],
 ): void {
+  const pill = components.some((component) => isPillRadius(component.styles, componentContext(component)))
   const rounded = components.some(
     (component) =>
       !isPillRadius(component.styles, componentContext(component)) && /[1-9]/.test(component.styles.borderRadius || ''),
   )
-  const replacement =
-    language === 'zh-CN'
-      ? rounded
-        ? '已观察到的圆角'
-        : '已观察到的直角'
-      : rounded
-        ? 'observed rounded'
-        : 'observed sharp-cornered'
+  const sharp = components.some(
+    (component) =>
+      !isPillRadius(component.styles, componentContext(component)) &&
+      !/[1-9]/.test(component.styles.borderRadius || ''),
+  )
+  if (pill && (rounded || sharp)) {
+    const variants = new Map<string, Set<string>>()
+    for (const component of components) {
+      const variant = classifyComponentVariant(
+        component.type as ComponentType,
+        component.styles,
+        componentContext(component),
+      )
+      const name = variant
+        ? coreT(language, `intelligence.componentShape.names.${variant}`)
+        : component.role || component.type
+      const shape = isPillRadius(component.styles, componentContext(component))
+        ? coreT(language, 'intelligence.componentShape.shapes.pill')
+        : /[1-9]/.test(component.styles.borderRadius || '')
+          ? coreT(language, 'intelligence.componentShape.shapes.rounded')
+          : coreT(language, 'intelligence.componentShape.shapes.sharp')
+      const shapes = variants.get(name) || new Set<string>()
+      shapes.add(shape)
+      variants.set(name, shapes)
+    }
+    const observations = [...variants.entries()].map(([name, shapes]) =>
+      coreT(language, 'intelligence.componentShape.variantObservation', {
+        name,
+        shapes: [...shapes].join(coreT(language, 'common.and')),
+      }),
+    )
+    claim.statement = coreT(language, 'intelligence.componentShape.mixedStatement', {
+      observations: observations.join(coreT(language, 'common.clauseSeparator')),
+    })
+    claim.implementation = coreT(language, 'intelligence.componentShape.mixedImplementation')
+    return
+  }
+  const replacement = coreT(
+    language,
+    `intelligence.componentShape.${rounded ? 'unsupportedRounded' : 'unsupportedSharp'}`,
+  )
   claim.statement = claim.statement.replace(PILL_COMPONENT_ASSERTION, replacement)
   claim.implementation = claim.implementation.replace(PILL_COMPONENT_ASSERTION, replacement)
 }
 
 function responsivePropertyLabel(property: string, language: DesignProfile['language']): string {
   const normalized = property.replace(/^node\.[^.]+\./, '')
-  if (language !== 'zh-CN') return normalized.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-  const labels: Record<string, string> = {
-    layoutMode: '布局模式',
-    position: '定位',
-    height: '高度',
-    borderTop: '上边框',
-    borderRight: '右边框',
-    borderBottom: '下边框',
-    borderLeft: '左边框',
-    boxShadow: '阴影',
-    order: '顺序',
-    display: '显示方式',
-    gridTemplateColumns: '网格列',
-    childGridTemplateColumns: '子网格列',
-    fontSize: '字号',
-    lineHeight: '行高',
-  }
-  return labels[normalized] || normalized
+  const key = `intelligence.responsive.properties.${normalized}`
+  const translated = coreT(language, key)
+  return translated === key ? normalized.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`) : translated
 }
 
 function repairExhaustiveResponsiveClaim(
@@ -266,7 +282,12 @@ function scopeHeaderPositioning(
   const change = observation.changes?.position
   const from = change?.from === undefined ? 'relative' : String(change.from)
   const to = change?.to === undefined ? 'fixed' : String(change.to)
-  const transition = `${observation.fromViewport} → ${observation.toViewport}`
+  const viewportLabel = (viewport: string): string => {
+    const key = `export.reconstruction.terms.${viewport}`
+    const translated = coreT(language, key)
+    return translated === key ? viewport : translated
+  }
+  const transition = `${viewportLabel(observation.fromViewport)} → ${viewportLabel(observation.toViewport)}`
   const companionProperties = [
     ...new Set(
       observation.changedProperties
@@ -274,13 +295,36 @@ function scopeHeaderPositioning(
         .map((property) => responsivePropertyLabel(property, language)),
     ),
   ]
-  if (language === 'zh-CN') {
-    claim.statement = `顶栏定位在 ${transition} 间由 ${from} 变为 ${to}。`
-    claim.implementation = `按已观察的视口范围实现定位切换${companionProperties.length > 0 ? `，并保留同一响应式证据中的${companionProperties.join('、')}变化` : ''}。`
-  } else {
-    claim.statement = `Header positioning changes from ${from} to ${to} across ${transition}.`
-    claim.implementation = `Implement the positioning change at the observed viewport range${companionProperties.length > 0 ? ` and preserve ${companionProperties.join(', ')} changes from the same responsive evidence` : ''}.`
-  }
+  const companionChanges = observation.changedProperties
+    .filter((property) => property !== 'position' && !property.startsWith('rect.') && property !== 'visibility')
+    .flatMap((property) => {
+      const values = observation.changes?.[property]
+      if (!values || values.from === values.to) return []
+      const absent = coreT(language, 'common.absent')
+      return [`${responsivePropertyLabel(property, language)} ${values.from ?? absent} → ${values.to ?? absent}`]
+    })
+  const separator = coreT(language, 'common.listSeparator')
+  const statementCompanion =
+    companionChanges.length > 0
+      ? coreT(language, 'intelligence.responsive.headerCompanionClause', {
+          changes: companionChanges.join(separator),
+        })
+      : ''
+  const implementationCompanion =
+    companionProperties.length > 0
+      ? coreT(language, 'intelligence.responsive.headerImplementationCompanion', {
+          properties: companionProperties.join(separator),
+        })
+      : ''
+  claim.statement = coreT(language, 'intelligence.responsive.headerStatement', {
+    transition,
+    from,
+    to,
+    companionClause: statementCompanion,
+  })
+  claim.implementation = coreT(language, 'intelligence.responsive.headerImplementation', {
+    companionClause: implementationCompanion,
+  })
 }
 
 function replaceFontWeightTierCount(value: string, count: number, language: DesignProfile['language']): string {
@@ -695,7 +739,7 @@ export function checkProfileContradictions(
       }
       if (
         headerPositionChanges.length > 0 &&
-        HEADER_RELATIVE_POSITION_ASSERTION.test(text) &&
+        (HEADER_RELATIVE_POSITION_ASSERTION.test(text) || HEADER_INVARIANT_ASSERTION.test(text)) &&
         claim.evidence.some((reference) =>
           headerPositionChanges.some(
             (observation) => reference.evidenceId === observation.id || reference.evidenceId === observation.sectionId,
@@ -831,11 +875,14 @@ export function checkProfileContradictions(
         !hardRejectedClaims.has(record) &&
         assertsPillComponent &&
         referencedComponents.length > 0 &&
-        referencedComponents.every((component) => !isPillRadius(component.styles, componentContext(component)))
+        referencedComponents.some((component) => !isPillRadius(component.styles, componentContext(component)))
       ) {
+        const containsPill = referencedComponents.some((component) =>
+          isPillRadius(component.styles, componentContext(component)),
+        )
         repairUnsupportedPillClaim(claim, referencedComponents, componentContext, profile.language)
         if (claim.confidence === 'high') claim.confidence = 'medium'
-        rejected.push(`${path}:unsupported-pill-shape-sanitized`)
+        rejected.push(`${path}:${containsPill ? 'mixed' : 'unsupported'}-pill-shape-sanitized`)
         text = claimText(claim)
       }
       if (
@@ -984,7 +1031,7 @@ export function checkProfileContradictions(
     })
   }
   const mobileCaptures = evidence.pages.filter((page) => page.viewport === 'mobile' && page.images.length > 0)
-  if (mobileCaptures.length >= 2) {
+  if (mobileCaptures.length > 0) {
     const topologyByPageId = new Map(evidence.topology.pages.map((page) => [page.pageId, page]))
     const mobileSequenceCount = mobileCaptures.filter(
       (page) => (topologyByPageId.get(page.id)?.sectionIds.length || 0) > 0,
@@ -992,24 +1039,39 @@ export function checkProfileContradictions(
     const understatesMobileCaptures =
       /(?:移动端|mobile)[^。\.]{0,56}(?:仅|只有|only)[^。\.]{0,40}(?:一个|1\s*个?|one|page-)[^。\.]{0,40}(?:截图|捕获|screenshot|capture)/i
     const deniesMobileSequences =
-      /(?:移动端|mobile)[^。\.]{0,80}(?:(?:区块序列|section\s*[-_]?\s*sequence)[^。\.]{0,24}(?:为空|空白|无|没有|缺少|未提供|(?:is\s+)?empty|missing|not provided)|(?:无|没有|缺少|未提供|为空|空白|no|without|missing|empty)[^。\.]{0,40}(?:区块序列|section\s*[-_]?\s*sequence))/i
+      /(?:移动端|移动捕获|mobile)[^。\.]{0,80}(?:(?:区块序列|section\s*[-_]?\s*sequence)[^。\.]{0,24}(?:为空|空白|无|没有|缺少|未提供|未记录|(?:is\s+)?empty|missing|not provided|not recorded)|(?:无|没有|缺少|未提供|未记录|为空|空白|no|without|missing|empty|not recorded)[^。\.]{0,40}(?:区块序列|section\s*[-_]?\s*sequence))/i
+    const captureCoverage = evidence.coverage.captureCoverage
+    const coverageSuffix =
+      captureCoverage?.status === 'partial'
+        ? coreT(profile.language, 'intelligence.responsive.mobilePartialCoverage', {
+            captured: captureCoverage.captured,
+            expected: captureCoverage.expected,
+          })
+        : coreT(profile.language, 'intelligence.responsive.mobileObservedCoverage')
     profile.uncertainties = profile.uncertainties.map((item, index) => {
       const text = `${item.topic} ${item.reason}`
-      if (!understatesMobileCaptures.test(text) && !(mobileSequenceCount > 0 && deniesMobileSequences.test(text))) {
+      const namedMobileCaptures = mobileCaptures.filter((page) => text.includes(page.id))
+      const contradictsSequenceFacts =
+        deniesMobileSequences.test(text) &&
+        (namedMobileCaptures.length > 0
+          ? namedMobileCaptures.every((page) => (topologyByPageId.get(page.id)?.sectionIds.length || 0) > 0)
+          : mobileSequenceCount === mobileCaptures.length)
+      if (!(mobileCaptures.length >= 2 && understatesMobileCaptures.test(text)) && !contradictsSequenceFacts) {
         return item
       }
       rejected.push(`uncertainties.${index}:contradicts-mobile-capture-facts`)
       return {
         ...item,
-        topic: profile.language === 'zh-CN' ? '移动端结构覆盖' : 'Mobile structure coverage',
-        reason:
-          profile.language === 'zh-CN'
-            ? `已采集 ${mobileCaptures.length} 个移动端页面/视口且均有截图，其中 ${mobileSequenceCount} 个包含区块序列；尚未覆盖的页面及跨页一致性仍需确认。`
-            : `${mobileCaptures.length} mobile page/viewport captures include screenshots, and ${mobileSequenceCount} include section sequences; uncaptured pages and cross-page consistency still need confirmation.`,
+        topic: coreT(profile.language, 'intelligence.responsive.mobileTopic'),
+        reason: coreT(profile.language, 'intelligence.responsive.mobileReason', {
+          captures: mobileCaptures.length,
+          sequences: mobileSequenceCount,
+          coverage: coverageSuffix,
+        }),
         neededEvidence:
-          profile.language === 'zh-CN'
-            ? '尚未采集的移动端页面及跨页一致性'
-            : 'Uncaptured mobile pages and cross-page consistency',
+          captureCoverage?.status === 'partial'
+            ? coreT(profile.language, 'intelligence.responsive.mobilePartialNeeded')
+            : coreT(profile.language, 'intelligence.responsive.mobileObservedNeeded'),
       }
     })
   }

@@ -26,6 +26,7 @@ import { resolveDesignSystemName } from '../design-evidence/page-identity.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
 import type { DesignIntelligenceMeta, DesignIntelligenceStatus, DesignProfile } from '../design-intelligence/types.js'
+import { coreT } from '../i18n/index.js'
 import { designMdColorEntries, designMdColorRefMap } from './design-md-color-names.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
@@ -502,8 +503,10 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
   confidence: number
   styles: Record<string, string>
   elementKinds: string[]
+  sampleSize?: { width: number; height: number }
 }> {
   if (!evidence) return []
+  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
   const groups = new Map<string, DesignEvidence['components']>()
   for (const component of canonicalEvidenceComponents(evidence)) {
     if (DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)) continue
@@ -512,15 +515,30 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
     group.push(component)
     groups.set(name, group)
   }
-  return [...groups.entries()].map(([name, components]) => ({
-    name,
-    count: components.length,
-    confidence:
-      Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) /
-      100,
-    styles: components[0]?.styles || {},
-    elementKinds: [...new Set(components.flatMap((component) => component.elementKind || []))],
-  }))
+  return [...groups.entries()].map(([name, components]) => {
+    const measured = components
+      .flatMap((component) => {
+        const page = pageById.get(component.pageId)
+        const pageWidth = page?.contentWidth || page?.viewportWidth
+        const pageHeight = page?.contentHeight || page?.viewportHeight
+        if (!pageWidth || !pageHeight) return []
+        const width = Math.round(component.rect.width * pageWidth)
+        const height = Math.round(component.rect.height * pageHeight)
+        return width > 0 && height > 0 ? [{ width, height }] : []
+      })
+      .sort((first, second) => first.width * first.height - second.width * second.height)
+    const sampleSize = measured[Math.floor(measured.length / 2)]
+    return {
+      name,
+      count: components.length,
+      confidence:
+        Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) /
+        100,
+      styles: components[0]?.styles || {},
+      elementKinds: [...new Set(components.flatMap((component) => component.elementKind || []))],
+      ...(sampleSize ? { sampleSize } : {}),
+    }
+  })
 }
 
 function tokenConfidenceSummary(tokens: DesignToken): Record<'high' | 'medium' | 'low', number> | undefined {
@@ -1110,7 +1128,7 @@ function renderDesignMdDocument(model: DesignMdDocumentModel): string {
     }),
     ...model.appendices.map((appendix) => appendix.trim()).filter(Boolean),
   ]
-  return blocks.join('\n\n')
+  return `${blocks.join('\n\n')}\n`
 }
 
 function withoutCanonicalHeading(markdown: string): string {
@@ -1141,6 +1159,62 @@ function scopedReconstructionFact(pageContext: string, fact: string): string {
 
 function scopedReconstructionGuidance(pageContext: string): string {
   return pageContext ? ` on ${pageContext}` : ''
+}
+
+function localizeReconstructionFact(value: string, language: DocLanguage): string {
+  const replacements: Array<[RegExp, string]> = [
+    [/\bdesktop\b/gi, coreT(language, 'export.reconstruction.terms.desktop')],
+    [/\btablet\b/gi, coreT(language, 'export.reconstruction.terms.tablet')],
+    [/\bmobile\b/gi, coreT(language, 'export.reconstruction.terms.mobile')],
+    [/\bentry\b/gi, coreT(language, 'export.reconstruction.terms.entry')],
+    [/\bnavigation\b/gi, coreT(language, 'export.reconstruction.terms.navigation')],
+    [/\bheader\b/gi, coreT(language, 'export.reconstruction.terms.header')],
+    [/\bcontent\b/gi, coreT(language, 'export.reconstruction.terms.content')],
+    [/\baside\b/gi, coreT(language, 'export.reconstruction.terms.aside')],
+    [/\bfeature-group\b/gi, coreT(language, 'export.reconstruction.terms.featureGroup')],
+    [/\bhero\b/gi, coreT(language, 'export.reconstruction.terms.hero')],
+    [/\baction\b/gi, coreT(language, 'export.reconstruction.terms.action')],
+    [/\bfooter\b/gi, coreT(language, 'export.reconstruction.terms.footer')],
+    [/\bmax-width\b/gi, coreT(language, 'export.reconstruction.terms.maxWidth')],
+    [/\bheading font-size\b/gi, coreT(language, 'export.reconstruction.terms.headingFontSize')],
+    [/\bcolumns\b/gi, coreT(language, 'export.reconstruction.terms.columns')],
+    [/\blayoutMode\b/g, coreT(language, 'export.reconstruction.terms.layoutMode')],
+    [/\bposition\b/gi, coreT(language, 'export.reconstruction.terms.position')],
+    [/\bheight\b/gi, coreT(language, 'export.reconstruction.terms.height')],
+    [/\border\b/gi, coreT(language, 'export.reconstruction.terms.order')],
+    [/\bborderBottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
+    [/\bboxShadow\b/g, coreT(language, 'export.reconstruction.terms.boxShadow')],
+    [/\bsticky\b/gi, coreT(language, 'export.reconstruction.terms.sticky')],
+    [/\btop(?=\s+\d)/gi, coreT(language, 'export.reconstruction.terms.top')],
+  ]
+  return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
+}
+
+function localizedFeatureTag(tag: string, language: DocLanguage): string {
+  const spacing = tag.match(/^spacing rhythm led by (.+)$/)
+  if (spacing) {
+    const values = spacing[1].replace(/,\s*/g, coreT(language, 'common.listSeparator'))
+    return coreT(language, 'export.featureTags.spacingRhythm', { values })
+  }
+  const keys: Record<string, string> = {
+    'monospace typography': 'monospaceTypography',
+    'serif editorial style': 'serifEditorialStyle',
+    'single-font system': 'singleFontSystem',
+    'monochrome palette': 'monochromePalette',
+    'large-radius rounded style': 'largeRadiusRoundedStyle',
+    'compact-radius surfaces observed': 'compactRadiusSurfaces',
+    'no stable shadow scale observed': 'noStableShadowScale',
+    'layered elevation system': 'layeredElevationSystem',
+    'weight contrast hierarchy': 'weightContrastHierarchy',
+    'extensive CSS variable usage': 'extensiveCssVariableUsage',
+  }
+  return keys[tag] ? coreT(language, `export.featureTags.${keys[tag]}`) : tag
+}
+
+function localizedPageRole(role: string, language: DocLanguage): string {
+  const key = `export.reconstruction.pageRoles.${role}`
+  const translated = coreT(language, key)
+  return translated === key ? role : translated
 }
 
 function topLevelGridColumnCount(value: string | number | undefined): number | null {
@@ -1202,13 +1276,29 @@ function usefulComponentStyles(styles: Readonly<Record<string, string>>, tokens:
 function componentContrastWarnings(
   components: readonly ComponentVariantPattern[],
   tokens: DesignToken,
-): Array<{ name: string; foreground: string; background: string; ratio: number; target: number; inferred: boolean }> {
+): Array<{
+  name: string
+  foreground: string
+  background: string
+  ratio: number
+  target: number
+  inferred: boolean
+  schemaTextColorNote?: boolean
+}> {
   const surface = tokens.colors.surface || tokens.colors.background
   if (!surface) return []
   const observedPrimary = tokens.colorRoles?.primaryAction
   const warnings = new Map<
     string,
-    { name: string; foreground: string; background: string; ratio: number; target: number; inferred: boolean }
+    {
+      name: string
+      foreground: string
+      background: string
+      ratio: number
+      target: number
+      inferred: boolean
+      schemaTextColorNote?: boolean
+    }
   >()
   for (const component of components) {
     const rawForeground = component.styles.color
@@ -1220,7 +1310,9 @@ function componentContrastWarnings(
     if (!background) continue
     const target = component.variant === 'icon' ? 3 : 4.5
     const ratio = colorContrast(foreground, background)
-    if (ratio === null || ratio >= target) continue
+    if (ratio === null) continue
+    const schemaTextColorNote = component.variant === 'icon' && ratio >= 3 && ratio < 4.5
+    if (ratio >= target && !schemaTextColorNote) continue
     const duplicatesPrimaryWarning =
       component.variant === 'primary' &&
       Boolean(
@@ -1237,6 +1329,7 @@ function componentContrastWarnings(
       ratio: Number(ratio.toFixed(2)),
       target,
       inferred,
+      ...(schemaTextColorNote ? { schemaTextColorNote } : {}),
     })
   }
   return [...warnings.values()]
@@ -1531,11 +1624,15 @@ function reconstructionSummary(
   tokens: DesignToken,
   components: ReadonlyArray<{ name: string; count: number; elementKinds?: string[] }>,
   profile: DesignProfile | null | undefined,
-  zh: boolean,
+  language: DocLanguage,
 ): string[] {
   const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop') || evidence.pages[0]
   const multiPage = new Set(evidence.pages.map((page) => page.url)).size > 1
-  const pageTitle = desktopPage?.title || evidence.source.title || new URL(evidence.source.finalUrl).hostname
+  const pageTitle =
+    evidence.source.siteName ||
+    evidence.source.title ||
+    desktopPage?.title ||
+    new URL(evidence.source.finalUrl).hostname
   const pageRole = !desktopPage?.role || desktopPage.role === 'unknown' ? 'page' : desktopPage.role
   const canonicalTopology = evidence.topology.pages.find((page) => page.pageId === desktopPage?.id)
   const sectionRoles = compactRoleSequence(
@@ -1559,7 +1656,12 @@ function reconstructionSummary(
     .filter((move) => move.confidence !== 'low' && move.id !== 'evidence-fallback')
     .slice(0, 2)
     .map((move) => formatProfileText(move.statement))
-  const thesis = profile ? formatProfileText(profile.thesis.statement) : `${pageTitle} is an observed ${pageRole} page.`
+  const thesis = profile
+    ? formatProfileText(profile.thesis.statement)
+    : coreT(language, 'export.reconstruction.thesis', {
+        title: pageTitle,
+        role: localizedPageRole(pageRole, language),
+      })
   const profilePreserve =
     profile?.transferRules.preserve
       .filter((claim) => claim.confidence !== 'low')
@@ -1568,7 +1670,11 @@ function reconstructionSummary(
   const preserve =
     profilePreserve.length > 0
       ? profilePreserve
-      : [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) => fact.guidance)
+      : [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
+          coreT(language, 'export.reconstruction.preserveFact', {
+            fact: localizeReconstructionFact(fact.fact, language),
+          }),
+        )
   const profileAvoid =
     profile?.transferRules.avoid
       .filter((claim) => claim.confidence !== 'low')
@@ -1579,37 +1685,28 @@ function reconstructionSummary(
       ? profileAvoid
       : [
           tokens.colors.primary
-            ? zh
-              ? '不要用装饰色、状态色或边框色替代已观察到的操作角色。'
-              : 'Do not substitute decorative, status, or border colors for the observed action role.'
-            : zh
-              ? '不要虚构主操作色；当前没有稳定观察到该角色。'
-              : 'Do not invent a primary action color; none was stably observed.',
-          zh
-            ? '不要把一次性几何值泛化进可复用间距刻度。'
-            : 'Do not generalize one-off geometry into the reusable spacing scale.',
+            ? coreT(language, 'export.reconstruction.avoidActionSubstitution')
+            : coreT(language, 'export.reconstruction.avoidInventedPrimary'),
+          coreT(language, 'export.reconstruction.avoidGeometryGeneralization'),
         ]
+  const label = (key: string): string => coreT(language, `export.reconstruction.labels.${key}`)
   return [
-    zh ? '### 重建摘要' : '### Reconstruction Summary',
+    coreT(language, 'export.reconstruction.heading'),
     '',
-    `- **${zh ? (multiPage ? '站点命题' : '页面命题') : multiPage ? 'Site thesis' : 'Page thesis'}:** ${thesis}`,
+    `- **${label(multiPage ? 'siteThesis' : 'pageThesis')}:** ${thesis}`,
     sectionRoles?.length
-      ? `- **${zh ? (multiPage ? '入口页区块层级' : '区块层级') : multiPage ? 'Entry-page section hierarchy' : 'Section hierarchy'}:** ${sectionRoles.join(' → ')}`
+      ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionRoles.map((role) => localizeReconstructionFact(role, language)).join(' → ')}`
       : '',
-    inferredSignatureMoves.length
-      ? `- **${zh ? '标志性手法' : 'Signature moves'}:** ${inferredSignatureMoves.join(' ')}`
-      : '',
+    inferredSignatureMoves.length ? `- **${label('signatureMoves')}:** ${inferredSignatureMoves.join(' ')}` : '',
     signatureFacts.length
-      ? `- **${zh ? '关键结构' : 'Key structure'}:** ${signatureFacts.map(({ fact }) => `\`${fact}\``).join(' · ')}`
+      ? `- **${label('keyStructure')}:** ${signatureFacts.map(({ fact }) => `\`${localizeReconstructionFact(fact, language)}\``).join(' · ')}`
       : '',
-    variants.length
-      ? `- **${zh ? (multiPage ? '跨页面 canonical 组件变体' : '组件变体') : multiPage ? 'Canonical component variants across pages' : 'Component variants'}:** ${variants.join(', ')}`
-      : '',
+    variants.length ? `- **${label(multiPage ? 'siteVariants' : 'pageVariants')}:** ${variants.join(', ')}` : '',
     responsiveFacts.length
-      ? `- **${zh ? '响应式事实' : 'Responsive facts'}:** ${responsiveFacts.map(({ fact }) => fact).join('; ')}`
+      ? `- **${label('responsiveFacts')}:** ${responsiveFacts.map(({ fact }) => localizeReconstructionFact(fact, language)).join('; ')}`
       : '',
-    preserve.length ? `- **${zh ? '保留' : 'Preserve'}:** ${preserve.join(' ')}` : '',
-    avoid.length ? `- **${zh ? '避免' : 'Avoid'}:** ${avoid.join(' ')}` : '',
+    preserve.length ? `- **${label('preserve')}:** ${preserve.join(' ')}` : '',
+    avoid.length ? `- **${label('avoid')}:** ${avoid.join(' ')}` : '',
   ].filter(Boolean)
 }
 
@@ -1672,17 +1769,14 @@ export function generateDesignDoc(
         tokens,
         [...freeformEvidenceComponents, ...documentComponents],
         designProfile,
-        zh,
+        language,
       ),
     )
   if (documentUrl) lines.push(zh ? `\n提取自：${documentUrl}` : `\nExtracted from: ${documentUrl}`)
 
   if (documentFeatureTags.length > 0) {
-    lines.push(
-      zh
-        ? `\n**设计特征：** ${documentFeatureTags.map((tag) => `\`${tag}\``).join(' · ')}`
-        : `\n**Design Features:** ${documentFeatureTags.map((tag) => `\`${tag}\``).join(' · ')}`,
-    )
+    const tags = documentFeatureTags.map((tag) => `\`${localizedFeatureTag(tag, language)}\``).join(' · ')
+    lines.push(`\n${coreT(language, 'export.featureTags.line', { tags })}`)
   }
 
   if (darkMode?.hasDarkMode) {
@@ -1990,7 +2084,15 @@ export function generateDesignDoc(
         .join('<br>')
       const elementKinds = 'elementKinds' in component ? (component.elementKinds as string[] | undefined) : undefined
       const kinds = elementKinds?.length ? elementKinds.join(', ') : '-'
-      const representative = [kinds !== '-' ? `\`elementKind: ${kinds}\`` : '', styles].filter(Boolean).join('<br>')
+      const sampleSize =
+        'sampleSize' in component ? (component.sampleSize as { width: number; height: number } | undefined) : undefined
+      const representative = [
+        kinds !== '-' ? `\`elementKind: ${kinds}\`` : '',
+        sampleSize ? `\`sample: ${sampleSize.width}×${sampleSize.height}px\`` : '',
+        styles,
+      ]
+        .filter(Boolean)
+        .join('<br>')
       lines.push(`| ${component.name} | ${component.count} | ${component.confidence} | ${representative || '-'} |`)
     })
     if (
@@ -2006,12 +2108,40 @@ export function generateDesignDoc(
     }
     const contrastWarnings = componentContrastWarnings(documentComponents, tokens)
     if (contrastWarnings.length > 0) {
-      lines.push(zh ? '\n### 组件对比度注意事项\n' : '\n### Component Contrast Notes\n')
+      lines.push(`\n${coreT(language, 'export.contrast.heading')}\n`)
       for (const warning of contrastWarnings) {
+        if (warning.schemaTextColorNote) {
+          lines.push(
+            coreT(language, 'export.contrast.iconSchemaNote', {
+              name: warning.name,
+              foreground: warning.foreground,
+              backgroundKind: coreT(
+                language,
+                warning.inferred ? 'export.contrast.inferredSurface' : 'export.contrast.observedBackground',
+              ),
+              background: warning.background,
+              ratio: warning.ratio.toFixed(2),
+            }),
+          )
+          continue
+        }
         lines.push(
-          zh
-            ? `- \`${warning.name}\`：前景 \`${warning.foreground}\` / ${warning.inferred ? '推定表面' : '已观察背景'} \`${warning.background}\` 为 ${warning.ratio.toFixed(2)}:1，低于该${warning.target === 3 ? '图标控件' : '文字控件'}的 ${warning.target}:1 目标。${warning.inferred ? '背景来自透明组件所在的通用表面假设，实施时应在真实容器中复核。' : ''}`
-            : `- \`${warning.name}\`: foreground \`${warning.foreground}\` over ${warning.inferred ? 'inferred surface' : 'observed background'} \`${warning.background}\` is ${warning.ratio.toFixed(2)}:1, below the ${warning.target}:1 target for this ${warning.target === 3 ? 'icon control' : 'text control'}.${warning.inferred ? ' The background comes from the shared-surface assumption for a transparent component; verify it in the real container.' : ''}`,
+          coreT(language, 'export.contrast.warning', {
+            name: warning.name,
+            foreground: warning.foreground,
+            backgroundKind: coreT(
+              language,
+              warning.inferred ? 'export.contrast.inferredSurface' : 'export.contrast.observedBackground',
+            ),
+            background: warning.background,
+            ratio: warning.ratio.toFixed(2),
+            target: warning.target,
+            controlKind: coreT(
+              language,
+              warning.target === 3 ? 'export.contrast.iconControl' : 'export.contrast.textControl',
+            ),
+            inferredSuffix: warning.inferred ? coreT(language, 'export.contrast.inferredSuffix') : '',
+          }),
         )
       }
     }

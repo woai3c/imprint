@@ -3,7 +3,8 @@
     "name": "Imprint",
     "switchToDark": "Switch to dark mode",
     "switchToLight": "Switch to light mode",
-    "switchLanguage": "Switch interface language"
+    "switchLanguage": "Switch interface language",
+    "languageSwitchTarget": "中"
   },
   "nav": {
     "analyze": "Analyze",

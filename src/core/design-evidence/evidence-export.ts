@@ -119,13 +119,6 @@ function visiblePseudoStyles(
   }
   if (hasMaterial) {
     if (styles.borderRadius && /[1-9]/.test(styles.borderRadius)) result.push(['borderRadius', styles.borderRadius])
-    for (const property of ['width', 'height'] as const) {
-      const value = styles[property]
-      if (value && /[1-9]/.test(value)) result.push([property, value])
-    }
-    if (styles.transform && !/^(?:none|matrix\(1, 0, 0, 1, 0, 0\))$/.test(styles.transform)) {
-      result.push(['transform', styles.transform])
-    }
   }
   return result
 }
@@ -498,16 +491,12 @@ export function generateDesignEvidenceBrief(
     }
     const detailObservations = [
       ...new Map(
-        [
-          ...activeObservations,
-          ...passiveObservations.filter((observation) => Object.keys(observation.before).length > 0),
-        ].flatMap((observation) => {
+        [...activeObservations, ...passiveObservations].flatMap((observation) => {
           const changes = observation.changedProperties.flatMap((property) => {
             const before = observation.before[property]
             const after = observation.after[property]
-            return before !== undefined && after !== undefined && before !== after
-              ? [`${property}:${before}->${after}`]
-              : []
+            if (after === undefined || before === after) return []
+            return [before === undefined ? `${property}:${after}` : `${property}:${before}->${after}`]
           })
           return changes.length > 0
             ? [
@@ -528,9 +517,8 @@ export function generateDesignEvidenceBrief(
         .flatMap((property) => {
           const before = observation.before[property]
           const after = observation.after[property]
-          return before !== undefined && after !== undefined && before !== after
-            ? [`${property}: ${before} → ${after}`]
-            : []
+          if (after === undefined || before === after) return []
+          return [before === undefined ? `${property}: ${after}` : `${property}: ${before} → ${after}`]
         })
         .slice(0, 4)
         .join('; ')

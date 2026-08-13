@@ -1142,6 +1142,11 @@ describe('Design intelligence', () => {
       implementation: '顶栏用白底、相对定位和轻投影。',
       evidence: [{ evidenceId: 'section-a', note: '顶栏' }],
     }
+    profile.composition.rhythm = {
+      ...claim('跨页面共用同一套顶栏高度与纵向节奏。'),
+      implementation: '顶栏在各页保持一致高度与贴顶位置。',
+      evidence: [{ evidenceId: 'section-a', note: '顶栏' }],
+    }
     profile.sectionGrammar[0].transitionToNext[0] = {
       ...claim('窄屏只记录到顶栏 layoutMode 与 height 的调整。'),
       evidence: [{ evidenceId: 'responsive-a', note: '响应式变化' }],
@@ -1153,6 +1158,8 @@ describe('Design intelligence', () => {
     expect(checked.profile.componentGrammar[0].rules[0].implementation).not.toContain('不加大圆角')
     expect(checked.profile.signatureMoves[0].statement).toContain('relative 变为 fixed')
     expect(checked.profile.signatureMoves[0].implementation).toContain('定位切换')
+    expect(checked.profile.composition.rhythm.statement).toContain('高度 62px → 53px')
+    expect(checked.profile.composition.rhythm.statement).not.toContain('同一套顶栏高度')
     expect(checked.profile.signatureMoves[0].evidence).toEqual(
       expect.arrayContaining([expect.objectContaining({ evidenceId: 'responsive-a' })]),
     )
@@ -1161,6 +1168,7 @@ describe('Design intelligence', () => {
       expect.arrayContaining([
         'componentGrammar.0.rules.0:primary-pill-shape-sanitized',
         'signatureMoves.0:header-position-scope-sanitized',
+        'composition.rhythm:header-position-scope-sanitized',
         'sectionGrammar.0.transitionToNext.0:responsive-property-list-sanitized',
       ]),
     )
@@ -1195,6 +1203,39 @@ describe('Design intelligence', () => {
     expect(checked.rejected).toContain('componentGrammar.0.rules.0:unsupported-pill-shape-sanitized')
   })
 
+  it('rewrites a pill claim when its cited components contain mixed corner shapes', () => {
+    const contradictionEvidence = structuredClone(evidence)
+    contradictionEvidence.components[0] = {
+      ...contradictionEvidence.components[0],
+      type: 'button',
+      styles: { color: '#111827', borderRadius: '3px' },
+    }
+    contradictionEvidence.components.push({
+      ...contradictionEvidence.components[0],
+      id: 'component-b',
+      role: 'primary-action',
+      styles: { color: '#ffffff', backgroundColor: '#2563eb', borderRadius: '9999px' },
+    })
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.componentGrammar[0].rules[0] = {
+      ...claim('主、次级按钮都使用胶囊形状。'),
+      implementation: '所有引用按钮都保持胶囊轮廓。',
+      evidence: [
+        { evidenceId: 'component-a', note: '小圆角按钮' },
+        { evidenceId: 'component-b', note: '胶囊按钮' },
+      ],
+    }
+
+    const checked = checkProfileContradictions(profile, contradictionEvidence)
+    const rule = checked.profile.componentGrammar[0].rules[0]
+
+    expect(rule.statement).toContain('文本按钮包含小圆角变体')
+    expect(rule.statement).toContain('主按钮包含胶囊变体')
+    expect(rule.statement).not.toContain('都使用胶囊形状')
+    expect(checked.rejected).toContain('componentGrammar.0.rules.0:mixed-pill-shape-sanitized')
+  })
+
   it('repairs uncertainty text that understates observed mobile captures and section sequences', () => {
     const mobileEvidence = structuredClone(evidence)
     mobileEvidence.pages.push({
@@ -1223,7 +1264,7 @@ describe('Design intelligence', () => {
     profile.uncertainties = [
       {
         topic: '移动端整页结构',
-        reason: '移动端页面 sectionSequence 为空，仅有零散的响应式差异事实，无法还原完整移动端顺序。',
+        reason: '移动捕获 page-c 未记录区块序列，移动端区块构成不完整。',
         neededEvidence: '移动端 section 序列',
       },
     ]
@@ -1233,9 +1274,29 @@ describe('Design intelligence', () => {
     expect(checked.rejected).toContain('uncertainties.0:contradicts-mobile-capture-facts')
     expect(checked.profile.uncertainties[0].topic).toBe('移动端结构覆盖')
     expect(checked.profile.uncertainties[0].reason).toBe(
-      '已采集 2 个移动端页面/视口且均有截图，其中 2 个包含区块序列；尚未覆盖的页面及跨页一致性仍需确认。',
+      '已采集 2 个移动端页面/视口且均有截图，其中 2 个包含区块序列；这些事实仅适用于已捕获页面，其他页面及跨页一致性仍需确认。',
     )
-    expect(checked.profile.uncertainties[0].neededEvidence).toBe('尚未采集的移动端页面及跨页一致性')
+    expect(checked.profile.uncertainties[0].neededEvidence).toBe('其他页面的移动端结构及跨页一致性')
+  })
+
+  it('keeps a sequence uncertainty when the named mobile capture is actually empty', () => {
+    const mobileEvidence = structuredClone(evidence)
+    const mobilePage = mobileEvidence.pages.find((page) => page.viewport === 'mobile')!
+    const topology = mobileEvidence.topology.pages.find((page) => page.pageId === mobilePage.id)!
+    topology.sectionIds = []
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.uncertainties = [
+      {
+        topic: '移动端结构',
+        reason: `移动捕获 ${mobilePage.id} 未记录区块序列。`,
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, mobileEvidence)
+
+    expect(checked.profile.uncertainties).toEqual(profile.uncertainties)
+    expect(checked.rejected).not.toContain('uncertainties.0:contradicts-mobile-capture-facts')
   })
 
   it('removes an obsolete uncertainty claiming validated token refs are undefined', () => {

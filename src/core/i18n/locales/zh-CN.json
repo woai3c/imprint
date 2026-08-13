@@ -1,0 +1,147 @@
+{
+  "common": {
+    "and": "与",
+    "listSeparator": "、",
+    "clauseSeparator": "；",
+    "absent": "缺失"
+  },
+  "app": {
+    "tray": {
+      "tooltip": "印记",
+      "open": "打开印记",
+      "quit": "退出印记"
+    }
+  },
+  "export": {
+    "reconstruction": {
+      "heading": "### 重建摘要",
+      "labels": {
+        "siteThesis": "站点命题",
+        "pageThesis": "页面命题",
+        "entryHierarchy": "入口页区块层级",
+        "sectionHierarchy": "区块层级",
+        "signatureMoves": "标志性手法",
+        "keyStructure": "关键结构",
+        "siteVariants": "跨页面 canonical 组件变体",
+        "pageVariants": "组件变体",
+        "responsiveFacts": "响应式事实",
+        "preserve": "保留",
+        "avoid": "避免"
+      },
+      "thesis": "{{title}} 是一个已观察到的{{role}}页面。",
+      "preserveFact": "保留已观察事实：{{fact}}。",
+      "avoidActionSubstitution": "不要用装饰色、状态色或边框色替代已观察到的操作角色。",
+      "avoidInventedPrimary": "不要虚构主操作色；当前没有稳定观察到该角色。",
+      "avoidGeometryGeneralization": "不要把一次性几何值泛化进可复用间距刻度。",
+      "terms": {
+        "desktop": "桌面端",
+        "tablet": "平板端",
+        "mobile": "移动端",
+        "entry": "入口页",
+        "navigation": "导航",
+        "header": "顶栏",
+        "content": "内容",
+        "aside": "侧栏",
+        "featureGroup": "功能组",
+        "hero": "首屏",
+        "action": "操作区",
+        "footer": "页脚",
+        "maxWidth": "最大宽度",
+        "headingFontSize": "标题字号",
+        "columns": "列数",
+        "layoutMode": "布局模式",
+        "position": "定位",
+        "height": "高度",
+        "order": "顺序",
+        "borderBottom": "下边框",
+        "boxShadow": "阴影",
+        "sticky": "粘性定位",
+        "top": "顶部偏移"
+      },
+      "pageRoles": {
+        "page": "普通",
+        "landing": "落地",
+        "content": "内容",
+        "listing": "列表",
+        "dashboard": "仪表盘",
+        "article": "文章",
+        "product": "产品"
+      }
+    },
+    "featureTags": {
+      "line": "**设计特征：** {{tags}}",
+      "spacingRhythm": "高频间距：{{values}}",
+      "monospaceTypography": "等宽字体排版",
+      "serifEditorialStyle": "衬线编辑风格",
+      "singleFontSystem": "单字体系统",
+      "monochromePalette": "单色调色板",
+      "largeRadiusRoundedStyle": "大圆角风格",
+      "compactRadiusSurfaces": "观察到以紧凑圆角为主的表面",
+      "noStableShadowScale": "未观察到稳定阴影刻度",
+      "layeredElevationSystem": "分层式高度系统",
+      "weightContrastHierarchy": "字重对比层级",
+      "extensiveCssVariableUsage": "大量使用 CSS 变量"
+    },
+    "contrast": {
+      "heading": "### 组件对比度注意事项",
+      "inferredSurface": "推定表面",
+      "observedBackground": "已观察背景",
+      "iconControl": "图标控件",
+      "textControl": "文字控件",
+      "inferredSuffix": "背景来自透明组件所在的通用表面假设，实施时应在真实容器中复核。",
+      "warning": "- `{{name}}`：前景 `{{foreground}}` / {{backgroundKind}} `{{background}}` 为 {{ratio}}:1，低于该{{controlKind}}的 {{target}}:1 目标。{{inferredSuffix}}",
+      "iconSchemaNote": "- `{{name}}`：前景 `{{foreground}}` / {{backgroundKind}} `{{background}}` 为 {{ratio}}:1，达到非文本图标的 3:1 目标；但 DESIGN.md alpha 组件字段只能将该颜色写为 `textColor`，通用校验器可能按 4.5:1 文字目标报警。"
+    }
+  },
+  "intelligence": {
+    "componentShape": {
+      "names": {
+        "primary": "主按钮",
+        "secondary": "次级按钮",
+        "destructive": "破坏性按钮",
+        "text": "文本按钮",
+        "icon": "图标按钮"
+      },
+      "shapes": {
+        "pill": "胶囊",
+        "rounded": "小圆角",
+        "sharp": "直角"
+      },
+      "variantObservation": "{{name}}包含{{shapes}}变体",
+      "mixedStatement": "引用证据显示：{{observations}}。",
+      "mixedImplementation": "按各变体的已观察圆角分别实现；不要用单一轮廓概括全部引用组件。",
+      "unsupportedRounded": "已观察到的圆角",
+      "unsupportedSharp": "已观察到的直角",
+      "primaryStatement": "已引用的主按钮是紧凑的实心胶囊按钮，使用强调色填充和对比前景。",
+      "primaryImplementation": "主 CTA 保留已观察到的胶囊轮廓与紧凑尺寸；不要将它改写成方形或小圆角按钮。"
+    },
+    "responsive": {
+      "properties": {
+        "layoutMode": "布局模式",
+        "position": "定位",
+        "height": "高度",
+        "borderTop": "上边框",
+        "borderRight": "右边框",
+        "borderBottom": "下边框",
+        "borderLeft": "左边框",
+        "boxShadow": "阴影",
+        "order": "顺序",
+        "display": "显示方式",
+        "gridTemplateColumns": "网格列",
+        "childGridTemplateColumns": "子网格列",
+        "fontSize": "字号",
+        "lineHeight": "行高"
+      },
+      "headerStatement": "顶栏在 {{transition}} 间的定位由 {{from}} 变为 {{to}}{{companionClause}}。",
+      "headerCompanionClause": "，同一证据还记录了{{changes}}",
+      "headerImplementation": "按已观察的视口范围实现定位切换{{companionClause}}。",
+      "headerImplementationCompanion": "，并保留同一响应式证据中的{{properties}}变化",
+      "mobileTopic": "移动端结构覆盖",
+      "mobilePartialCoverage": "计划的 {{expected}} 次页面×视口捕获完成 {{captured}} 次，未捕获视口及跨页一致性仍需确认。",
+      "mobileObservedCoverage": "这些事实仅适用于已捕获页面，其他页面及跨页一致性仍需确认。",
+      "mobileReason": "已采集 {{captures}} 个移动端页面/视口且均有截图，其中 {{sequences}} 个包含区块序列；{{coverage}}",
+      "mobilePartialNeeded": "未捕获的移动端视口及跨页一致性",
+      "mobileObservedNeeded": "其他页面的移动端结构及跨页一致性"
+    }
+  }
+}

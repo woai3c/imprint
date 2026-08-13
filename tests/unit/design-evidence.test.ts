@@ -230,6 +230,7 @@ describe('Design Evidence', () => {
     )
 
     expect(document).toContain('| button-primary | 1 |')
+    expect(document).toMatch(/`sample: \d+×\d+px`/)
     expect(document).not.toContain('| button-primary | 101 |')
     expect(document).toContain('| card | 5 |')
     expect(document).toContain('Instance counts use one canonical capture per page, preferring desktop')
@@ -391,6 +392,8 @@ describe('Design Evidence', () => {
     expect(document).toContain('content: "·"')
     expect(document).not.toContain('width: 366px')
     expect(document).toContain('border: 1px solid rgba(247, 122, 49, 0.3)')
+    expect(document).not.toContain('width: 134.75px')
+    expect(document).not.toContain('matrix(0.5, 0, 0, 0.5, 0, 0)')
     expect(document).not.toContain('borderRight: 1px solid rgba(247, 122, 49, 0.3)')
     expect(document).not.toContain('MOBILE-ONLY')
   })
@@ -421,6 +424,53 @@ describe('Design Evidence', () => {
     expect(brief).toContain('color: rgb(17, 24, 39) → rgb(37, 99, 235)')
     expect(brief).toContain('计算样式观察（未点击）')
     expect(brief).not.toContain('synthetic-target-id')
+  })
+
+  it('shows declared passive values when a stylesheet observation has no computed before value', () => {
+    const evidence = buildFixtureEvidence()
+    const page = evidence.pages[0]
+    const section = evidence.sections.find((candidate) => candidate.pageId === page.id)!
+    evidence.interactionObservations = [
+      {
+        id: 'interaction-declared-hover-value',
+        pageId: page.id,
+        sectionId: section.id,
+        targetId: 'synthetic-target-id',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class:hover' },
+        before: {},
+        after: { 'background-color': 'rgb(248, 250, 252)' },
+        changedProperties: ['background-color'],
+        evidenceRefs: [section.id],
+      },
+    ]
+
+    const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+
+    expect(brief).toContain('background-color: rgb(248, 250, 252)')
+    expect(brief).not.toContain('undefined')
+    expect(brief).toContain('计算样式观察（未点击）')
+  })
+
+  it('localizes deterministic reconstruction prose in a Chinese document', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.source.siteName = '示例站点'
+    evidence.featureTags = [
+      'spacing rhythm led by 4px, 8px, 16px',
+      'compact-radius surfaces observed',
+      'extensive CSS variable usage',
+    ]
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', [], evidence)
+    const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
+
+    expect(summary).toContain('示例站点 是一个已观察到的')
+    expect(summary).not.toContain('is an observed')
+    expect(summary).not.toContain('Implement the')
+    expect(document).toContain('`高频间距：4px、8px、16px`')
+    expect(document).toContain('`观察到以紧凑圆角为主的表面`')
+    expect(document).toContain('`大量使用 CSS 变量`')
   })
 
   it('labels cross-page reconstruction facts with their source route', () => {

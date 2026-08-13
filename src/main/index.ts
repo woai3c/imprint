@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 
 import { BrowserWindow, Menu, Tray, app, nativeImage, net, protocol } from 'electron'
 
+import { type CoreLanguage, coreT } from '../core/i18n/index.js'
 import { isLinux, isMacOS, isWindows } from '../shared/platform.js'
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
@@ -101,16 +102,16 @@ function createTray() {
   if (macOS && typeof trayImage !== 'string') trayImage.setTemplateImage(true)
 
   tray = new Tray(trayImage)
-  const zhCN = app.getLocale().toLowerCase().startsWith('zh')
-  tray.setToolTip(zhCN ? '印记' : 'Imprint')
+  const language: CoreLanguage = app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+  tray.setToolTip(coreT(language, 'app.tray.tooltip'))
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: zhCN ? '打开印记' : 'Open Imprint',
+      label: coreT(language, 'app.tray.open'),
       click: showMainWindow,
     },
     { type: 'separator' },
     {
-      label: zhCN ? '退出印记' : 'Quit Imprint',
+      label: coreT(language, 'app.tray.quit'),
       click: () => {
         isQuitting = true
         app.quit()

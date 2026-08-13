@@ -91,7 +91,7 @@ export function Layout() {
               aria-label={t('app.switchLanguage')}
               className="flex h-7 min-w-7 items-center justify-center rounded-md px-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
-              {i18n.language === 'zh-CN' ? 'EN' : '中'}
+              {t('app.languageSwitchTarget')}
             </button>
           </div>
         </header>

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest'
 
-import { generateDosAndDonts } from '../../src/core/analyzer/agent-guide.js'
+import {
+  generateAgentGuide,
+  generateDesignPrinciples,
+  generateDosAndDonts,
+} from '../../src/core/analyzer/agent-guide.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 
 const tokens: DesignToken = {
@@ -22,6 +26,17 @@ const tokens: DesignToken = {
 }
 
 describe('deterministic agent guidance', () => {
+  test('renders deterministic guidance through the selected locale catalog', () => {
+    const guide = generateAgentGuide(tokens, 'https://example.com', 'zh-CN')
+    const principles = generateDesignPrinciples(tokens, 'zh-CN')
+
+    expect(guide).toContain('## 给 AI 的使用说明')
+    expect(guide).toContain('使用这些设计令牌生成与 example.com 视觉风格一致的 UI。')
+    expect(principles).toContain('## 设计原则')
+    expect(guide).not.toContain('agentGuide.')
+    expect(principles).not.toContain('agentGuide.')
+  })
+
   test('reports missing shadow evidence without inferring flat-design intent', () => {
     const guide = generateDosAndDonts(tokens)
 

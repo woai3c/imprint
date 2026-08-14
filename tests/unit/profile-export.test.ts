@@ -98,6 +98,20 @@ const completeMeta: DesignIntelligenceMeta = {
 }
 
 describe('generateDesignProfileMarkdown', () => {
+  test('renders profile framework copy through the selected locale catalog', () => {
+    const chinese = generateDesignProfileMarkdown(makeProfile())
+    const englishProfile = makeProfile()
+    englishProfile.language = 'en'
+    const english = generateDesignProfileMarkdown(englishProfile)
+
+    expect(chinese).toContain('## AI 设计解读')
+    expect(chinese).toContain('### 必须保持')
+    expect(english).toContain('## AI Design Insights')
+    expect(english).toContain('### Preserve')
+    expect(chinese).not.toContain('profileExport.')
+    expect(english).not.toContain('profileExport.')
+  })
+
   test('omits low-confidence claims while keeping solid claims in the document', () => {
     const markdown = generateDesignProfileMarkdown(makeProfile())
 

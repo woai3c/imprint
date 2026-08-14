@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 
+import { coreTranslator } from '../../core/i18n/index'
 import dunhuangMuralBgUrl from '../assets/dunhuang-mural-bg.jpg'
 import inkLandscapeBgUrl from '../assets/ink-landscape-bg.jpg'
+import enCopy from '../i18n/locales/en.json'
 import { getColorModePreference, setColorModePreference } from '../lib/preferences'
 
 export type { ThemeExportFormat } from '../../shared/ipc-contract'
@@ -137,6 +139,17 @@ export interface AppTheme {
   identity: ThemeIdentity
   backgroundImage?: string
   designProfile?: ThemeDesignProfile
+}
+
+type BuiltinThemeId = keyof typeof enCopy.themes.presets
+
+function builtinThemeIdentity(id: BuiltinThemeId): ThemeIdentity {
+  const copy = enCopy.themes.presets[id]
+  return {
+    values: [...copy.values] as ThemeIdentity['values'],
+    patterns: [...copy.patterns] as ThemeIdentity['patterns'],
+    evidence: [...copy.evidence] as ThemeIdentity['evidence'],
+  }
 }
 
 type ThemeTokenOverrides = {
@@ -294,16 +307,12 @@ const DARK_DEFAULTS: ThemeColors = {
 export const builtinThemes: AppTheme[] = [
   {
     id: 'default',
-    name: '默认',
-    description: '清晰简洁的默认主题',
+    name: enCopy.themes.presets.default.name,
+    description: enCopy.themes.presets.default.description,
     category: 'foundation',
     colors: LIGHT_DEFAULTS,
     tokens: createThemeTokens(),
-    identity: {
-      values: ['清晰', '一致', '高效'],
-      patterns: ['语义层级', '渐进披露', '即时反馈'],
-      evidence: ['语义色定义主次和状态', '摘要先于令牌与导出细节', '选择、复制和导出均就地反馈'],
-    },
+    identity: builtinThemeIdentity('default'),
     designProfile: {
       thesis:
         'A neutral, systematic foundation that foregrounds content over decoration; every surface, color, and motion exists to serve clarity and reduce cognitive load.',
@@ -381,8 +390,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'chinese-landscape',
-    name: '国风山水画',
-    description: '宣纸留白，五色墨韵，朱砂点睛',
+    name: enCopy.themes.presets['chinese-landscape'].name,
+    description: enCopy.themes.presets['chinese-landscape'].description,
     category: 'narrative',
     backgroundImage: 'ink-landscape-bg.jpg',
     colors: {
@@ -437,11 +446,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
     }),
-    identity: {
-      values: ['留白', '含蓄', '气韵'],
-      patterns: ['低对比材质', '朱砂焦点', '宋黑分工'],
-      evidence: ['纸张纹理退居内容之后', '朱砂只承担选择与关键状态', '宋体标题、黑体正文、等宽代码'],
-    },
+    identity: builtinThemeIdentity('chinese-landscape'),
     designProfile: {
       thesis:
         'Evoke the quiet elegance of Chinese ink-wash painting through restrained materials — xuan-paper texture, five-tone ink hierarchy, and vermilion accents — while maintaining full modern usability.',
@@ -521,8 +526,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'cyberpunk',
-    name: '赛博朋克',
-    description: '深色信息舱，青色与琥珀信号克制发光',
+    name: enCopy.themes.presets.cyberpunk.name,
+    description: enCopy.themes.presets.cyberpunk.description,
     category: 'experimental',
     colors: {
       background: 'oklch(12% 0.018 250)',
@@ -584,11 +589,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
       },
     }),
-    identity: {
-      values: ['秩序', '信号', '节制'],
-      patterns: ['分层暗面', '局部发光', '青琥珀信号'],
-      evidence: ['外壳、卡片和控件使用不同明度', '光效仅服务焦点与关键操作', '青色表达操作与选择，琥珀只标记焦点'],
-    },
+    identity: builtinThemeIdentity('cyberpunk'),
     designProfile: {
       thesis:
         'A dark information cockpit where every luminance level and glow effect serves a strict signal function — cyan marks interactivity, amber marks focus, and darkness is the default state of rest.',
@@ -666,8 +667,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'nordic',
-    name: '北欧晨雾',
-    description: '晨雾柔光，克制自然的北欧质感',
+    name: enCopy.themes.presets.nordic.name,
+    description: enCopy.themes.presets.nordic.description,
     category: 'foundation',
     colors: {
       background: 'oklch(97% 0.012 92)',
@@ -729,11 +730,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
     }),
-    identity: {
-      values: ['平静', '自然', '友好'],
-      patterns: ['柔光分区', '实体白卡', '温暖点色'],
-      evidence: ['低饱和背景划分工作区域', '主要内容保持高不透明度', '暖色只停留在背景氛围层'],
-    },
+    identity: builtinThemeIdentity('nordic'),
     designProfile: {
       thesis:
         'A calm, daylight-inspired workspace that uses desaturated natural tones and generous whitespace to reduce visual fatigue — warmth appears only as atmospheric color, never as competing interface elements.',
@@ -811,8 +808,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'glassmorphism',
-    name: '极光玻璃',
-    description: '流动极光，悬浮而清晰的玻璃层次',
+    name: enCopy.themes.presets.glassmorphism.name,
+    description: enCopy.themes.presets.glassmorphism.description,
     category: 'experimental',
     colors: {
       background: 'oklch(94% 0.025 260)',
@@ -870,11 +867,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.2, 0, 0, 1)',
       },
     }),
-    identity: {
-      values: ['层次', '流动', '轻盈'],
-      patterns: ['功能层玻璃', '层压信息卡', '色彩折射'],
-      evidence: ['实时模糊仅用于固定外壳', '信息卡以半透明渐变和高光边缘塑造玻璃', '极光穿过内容空隙与卡片表面'],
-    },
+    identity: builtinThemeIdentity('glassmorphism'),
     designProfile: {
       thesis:
         'A prismatic glass interface where a vivid aurora passes through fixed translucent chrome and laminated content cards, restoring depth and color transmission without expensive per-card live blur.',
@@ -952,8 +945,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'dunhuang',
-    name: '敦煌壁彩',
-    description: '矿彩入壁，千年风化的温度',
+    name: enCopy.themes.presets.dunhuang.name,
+    description: enCopy.themes.presets.dunhuang.description,
     category: 'narrative',
     backgroundImage: 'dunhuang-mural-bg.jpg',
     colors: {
@@ -1011,11 +1004,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
     }),
-    identity: {
-      values: ['传承', '克制', '时间感'],
-      patterns: ['矿彩点色', '风化底纹', '现代排版'],
-      evidence: ['赭石与石青只标记关键状态', '壁面纹理不穿透正文表面', '传统材质沿用现代信息层级'],
-    },
+    identity: builtinThemeIdentity('dunhuang'),
     designProfile: {
       thesis:
         'Channel the warmth of Dunhuang mineral pigments and weathered fresco surfaces into a modern interface — ochre, azurite, and terra-cotta appear as controlled accents while aged plaster textures create atmospheric depth without compromising readability.',
@@ -1095,8 +1084,8 @@ export const builtinThemes: AppTheme[] = [
   },
   {
     id: 'blueprint',
-    name: '午夜蓝图',
-    description: '坐标网格，理性精密的创作画布',
+    name: enCopy.themes.presets.blueprint.name,
+    description: enCopy.themes.presets.blueprint.description,
     category: 'experimental',
     colors: {
       background: 'oklch(14% 0.032 246)',
@@ -1162,11 +1151,7 @@ export const builtinThemes: AppTheme[] = [
         easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
       },
     }),
-    identity: {
-      values: ['精确', '理性', '可追溯'],
-      patterns: ['坐标网格', '等宽标记', '青色状态'],
-      evidence: ['网格只出现在工作底板', '等宽字体用于数值与结构标记', '青色承担操作与选择，制图黄只标记焦点环'],
-    },
+    identity: builtinThemeIdentity('blueprint'),
     designProfile: {
       thesis:
         'A dark drafting-table environment where every element follows coordinate precision — monospace type, sharp edges, and a cyan-yellow signal pair create the aesthetic of architectural blueprints rendered on screen.',
@@ -1512,147 +1497,77 @@ export function generateThemeJson(theme: AppTheme): string {
 }
 
 export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en'): string {
-  const zh = language === 'zh-CN'
+  const t = coreTranslator(language, 'themeExport')
   const { typography, spacing, layout, shape, elevation, motion } = theme.tokens
-  const category = zh
-    ? { foundation: '基础主题', narrative: '叙事主题', experimental: '实验主题' }[theme.category]
-    : { foundation: 'Foundation', narrative: 'Narrative', experimental: 'Experimental' }[theme.category]
+  const category = t(`category.${theme.category}`)
 
-  const lines: string[] = [
-    `# ${theme.name}`,
-    '',
-    theme.description,
-    '',
-    `> ${zh ? '类别' : 'Category'}: ${category}`,
-    '',
-  ]
+  const lines: string[] = [`# ${theme.name}`, '', theme.description, '', `> ${t('category.label')}: ${category}`, '']
 
   // Design intent
-  lines.push(`## ${zh ? '设计意图' : 'Design intent'}`, '')
-  lines.push(`**${zh ? '价值' : 'Values'}:** ${theme.identity.values.join(' · ')}`, '')
+  lines.push(`## ${t('designIntent.heading')}`, '')
+  lines.push(`**${t('designIntent.values')}:** ${theme.identity.values.join(' · ')}`, '')
   theme.identity.patterns.forEach((pattern, index) => {
     lines.push(`### ${pattern}`, '', theme.identity.evidence[index], '')
   })
 
   // Design principles — universal composition rules grounded in this theme's token values
-  const densityLabel = zh
-    ? { compact: '紧凑', comfortable: '舒适', spacious: '宽松' }[spacing.density]
-    : spacing.density
-  lines.push(`## ${zh ? '设计原则' : 'Design principles'}`, '')
-  lines.push(
-    zh
-      ? '使用这些令牌进行排版组合的规则，由主题数值推导。'
-      : 'Composition rules for these tokens, derived from the theme values.',
-    '',
-  )
-  lines.push(`### ${zh ? '亲密性' : 'Proximity'}`, '')
-  lines.push(
-    zh
-      ? `- 相关元素间距不超过 \`calc(${spacing.unit} * 2)\`，分组之间使用 \`calc(${spacing.unit} * 6)\` 以上的间隔`
-      : `- Keep related items within \`calc(${spacing.unit} * 2)\`; separate groups with \`calc(${spacing.unit} * 6)\` or more`,
-  )
-  lines.push(
-    zh
-      ? `- 用间距刻度分组，而不是堆砌分割线（当前密度：${densityLabel}）`
-      : `- Group with the spacing scale instead of stacking dividers (density: ${densityLabel})`,
-    '',
-  )
-  lines.push(`### ${zh ? '对齐' : 'Alignment'}`, '')
-  lines.push(
-    zh
-      ? `- 尺寸与间距只取 ${spacing.unit} 的整数倍，不产生刻度外的任意值`
-      : `- Size and space in multiples of ${spacing.unit}; never use off-scale values`,
-  )
-  lines.push(
-    zh
-      ? `- 重复模块共享统一的起始边与栏宽（侧栏 ${layout.sidebarWidth}）`
-      : `- Repeated blocks share one inline start and column width (sidebar ${layout.sidebarWidth})`,
-    '',
-  )
-  lines.push(`### ${zh ? '重复' : 'Repetition'}`, '')
-  lines.push(
-    zh
-      ? '- 只复用语义令牌的既有档位（颜色、字号、圆角、阴影），不发明近似值'
-      : '- Reuse existing semantic token steps (colors, font sizes, radii, shadows); never invent near-duplicates',
-  )
-  lines.push(
-    zh
-      ? `- 圆角一律从 \`--radius-md\`（${shape.radiusBase}）派生 sm/lg/xl`
-      : `- Derive all radii from \`--radius-md\` (${shape.radiusBase}) — sm/lg/xl`,
-    '',
-  )
-  lines.push(`### ${zh ? '对比' : 'Contrast'}`, '')
-  lines.push(
-    zh
-      ? '- 正文用 `--color-foreground`，次要信息用 `--color-muted-foreground`；层级来自对比，而非堆砌字号'
-      : '- Body text uses `--color-foreground`, secondary text `--color-muted-foreground`; hierarchy comes from contrast, not font-size stacking',
-  )
-  lines.push(
-    zh
-      ? '- 每屏主操作只有一个（`--color-primary`）；hover、选中、焦点状态与主色保持同一色相家族，签名对比色只用于焦点环与选中指示'
-      : '- One primary action per view (`--color-primary`); hover, selected, and focus states stay in the primary hue family — the signature contrast color appears only in the focus ring and selection indicators',
-    '',
-  )
+  const densityLabel = t(`density.${spacing.density}`)
+  lines.push(`## ${t('principles.heading')}`, '', t('principles.intro'), '')
+  lines.push(`### ${t('principles.proximity')}`, '')
+  lines.push(t('principles.proximityScale', { unit: spacing.unit }))
+  lines.push(t('principles.proximityDensity', { density: densityLabel }), '')
+  lines.push(`### ${t('principles.alignment')}`, '')
+  lines.push(t('principles.alignmentScale', { unit: spacing.unit }))
+  lines.push(t('principles.alignmentSidebar', { sidebarWidth: layout.sidebarWidth }), '')
+  lines.push(`### ${t('principles.repetition')}`, '')
+  lines.push(t('principles.semanticSteps'))
+  lines.push(t('principles.radiusSteps', { radius: shape.radiusBase }), '')
+  lines.push(`### ${t('principles.contrast')}`, '')
+  lines.push(t('principles.textContrast'))
+  lines.push(t('principles.actionContrast'), '')
 
   // Colors
-  lines.push(`## ${zh ? '颜色' : 'Colors'}`, '')
-  lines.push(`| ${zh ? '令牌' : 'Token'} | ${zh ? '值' : 'Value'} | ${zh ? '用途' : 'Usage'} |`)
+  lines.push(`## ${t('colors.heading')}`, '')
+  lines.push(t('colors.tableHeader'))
   lines.push('|-------|-------|-------|')
-  const colorUsageMap: Record<string, string> = {
-    background: zh ? '页面背景' : 'Page background',
-    foreground: zh ? '正文文字' : 'Body text',
-    primary: zh ? '主操作、链接' : 'Primary action, links',
-    'primary-foreground': zh ? '主按钮文字' : 'Primary button text',
-    secondary: zh ? '次级容器' : 'Secondary surface',
-    'secondary-foreground': zh ? '次级文字' : 'Secondary text',
-    muted: zh ? '禁用区域' : 'Muted surface',
-    'muted-foreground': zh ? '辅助文字' : 'Muted text',
-    accent: zh ? '悬浮表面、次级强调' : 'Hover surface, secondary emphasis',
-    'accent-foreground': zh ? '悬浮表面文字' : 'Hover surface text',
-    card: zh ? '卡片背景' : 'Card background',
-    'card-foreground': zh ? '卡片文字' : 'Card text',
-    border: zh ? '边框' : 'Border',
-    ring: zh ? '焦点环' : 'Focus ring',
-    sidebar: zh ? '侧栏背景' : 'Sidebar background',
-    'sidebar-foreground': zh ? '侧栏文字' : 'Sidebar text',
-    'sidebar-accent': zh ? '侧栏高亮' : 'Sidebar accent',
-  }
   for (const [name, value] of Object.entries(theme.colors)) {
-    const usage = colorUsageMap[name] || '-'
+    const key = `colors.usage.${name}`
+    const translated = t(key)
+    const usage = translated === `themeExport.${key}` ? '-' : translated
     lines.push(`| \`--color-${name}\` | \`${value}\` | ${usage} |`)
   }
 
   // Typography
-  lines.push('', `## ${zh ? '排版' : 'Typography'}`, '')
-  lines.push(`**${zh ? '字体族' : 'Font families'}:**`, '')
-  lines.push(`- ${zh ? '正文' : 'Body'}: \`${typography.fontBody}\``)
-  lines.push(`- ${zh ? '标题' : 'Heading'}: \`${typography.fontHeading}\``)
-  lines.push(`- ${zh ? '等宽' : 'Monospace'}: \`${typography.fontMono}\``)
+  lines.push('', `## ${t('typography.heading')}`, '')
+  lines.push(`**${t('typography.fontFamilies')}:**`, '')
+  lines.push(`- ${t('typography.body')}: \`${typography.fontBody}\``)
+  lines.push(`- ${t('typography.title')}: \`${typography.fontHeading}\``)
+  lines.push(`- ${t('typography.monospace')}: \`${typography.fontMono}\``)
   lines.push('')
-  lines.push(`**${zh ? '字号' : 'Font sizes'}:**`, '')
-  lines.push(`| ${zh ? '级别' : 'Level'} | ${zh ? '值' : 'Value'} | ${zh ? '变量' : 'Variable'} |`)
+  lines.push(`**${t('typography.fontSizes')}:**`, '')
+  lines.push(t('typography.sizeTableHeader'))
   lines.push('|-------|-------|-------|')
   for (const [name, value] of Object.entries(typography.sizes)) {
     lines.push(`| ${name} | \`${value}\` | \`--text-${name}\` |`)
   }
   lines.push('')
-  lines.push(`**${zh ? '行高' : 'Line heights'}:**`, '')
-  lines.push(`- ${zh ? '正文' : 'Body'}: \`${typography.lineHeight.body}\``)
-  lines.push(`- ${zh ? '标题' : 'Heading'}: \`${typography.lineHeight.heading}\``)
+  lines.push(`**${t('typography.lineHeights')}:**`, '')
+  lines.push(`- ${t('typography.body')}: \`${typography.lineHeight.body}\``)
+  lines.push(`- ${t('typography.title')}: \`${typography.lineHeight.heading}\``)
   lines.push('')
-  lines.push(`**${zh ? '字间距' : 'Letter spacing'}:**`, '')
-  lines.push(`- ${zh ? '正文' : 'Body'}: \`${typography.letterSpacing.body}\``)
-  lines.push(`- ${zh ? '标题' : 'Heading'}: \`${typography.letterSpacing.heading}\``)
-  lines.push(`- ${zh ? '标签' : 'Label'}: \`${typography.letterSpacing.label}\``)
+  lines.push(`**${t('typography.letterSpacing')}:**`, '')
+  lines.push(`- ${t('typography.body')}: \`${typography.letterSpacing.body}\``)
+  lines.push(`- ${t('typography.title')}: \`${typography.letterSpacing.heading}\``)
+  lines.push(`- ${t('typography.label')}: \`${typography.letterSpacing.label}\``)
 
   // Spacing
-  lines.push('', `## ${zh ? '间距' : 'Spacing'}`, '')
-  lines.push(`- ${zh ? '基准单位' : 'Base unit'}: \`${spacing.unit}\``)
-  lines.push(`- ${zh ? '密度' : 'Density'}: \`${spacing.density}\``)
+  lines.push('', `## ${t('spacing.heading')}`, '')
+  lines.push(`- ${t('spacing.baseUnit')}: \`${spacing.unit}\``)
+  lines.push(`- ${t('spacing.density')}: \`${densityLabel}\``)
   lines.push('')
-  lines.push(zh ? '推导间距序列（基准 × 倍数）：' : 'Derived spacing scale (unit x multiplier):')
+  lines.push(t('spacing.derived'))
   lines.push('')
-  lines.push(`| ${zh ? '倍数' : 'Multiplier'} | ${zh ? '变量' : 'Variable'} |`)
+  lines.push(t('spacing.tableHeader'))
   lines.push('|-------|-------|')
   const spacingMultipliers = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16]
   for (const m of spacingMultipliers) {
@@ -1660,8 +1575,8 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
   }
 
   // Border Radius
-  lines.push('', `## ${zh ? '圆角' : 'Border radius'}`, '')
-  lines.push(`| ${zh ? '级别' : 'Level'} | ${zh ? '值' : 'Value'} | ${zh ? '变量' : 'Variable'} |`)
+  lines.push('', `## ${t('radius.heading')}`, '')
+  lines.push(t('radius.tableHeader'))
   lines.push('|-------|-------|-------|')
   lines.push(`| sm | \`max(0px, calc(${shape.radiusBase} - 0.25rem))\` | \`--radius-sm\` |`)
   lines.push(`| md | \`${shape.radiusBase}\` | \`--radius-md\` |`)
@@ -1669,8 +1584,8 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
   lines.push(`| xl | \`calc(${shape.radiusBase} + 0.5rem)\` | \`--radius-xl\` |`)
 
   // Shadows / Elevation
-  lines.push('', `## ${zh ? '阴影' : 'Shadows'}`, '')
-  lines.push(`| ${zh ? '级别' : 'Level'} | ${zh ? '值' : 'Value'} |`)
+  lines.push('', `## ${t('shadows.heading')}`, '')
+  lines.push(t('shadows.tableHeader'))
   lines.push('|-------|-------|')
   lines.push(`| sm | \`${elevation.sm}\` |`)
   lines.push(`| md | \`${elevation.md}\` |`)
@@ -1678,106 +1593,96 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
   lines.push(`| focus | \`${elevation.focus}\` |`)
 
   // Borders
-  lines.push('', `## ${zh ? '边框与描边' : 'Borders & strokes'}`, '')
-  lines.push(`- ${zh ? '边框宽度' : 'Border width'}: \`${shape.borderWidth}\``)
-  lines.push(`- ${zh ? '图标描边宽度' : 'Icon stroke width'}: \`${shape.iconStrokeWidth}\``)
+  lines.push('', `## ${t('borders.heading')}`, '')
+  lines.push(`- ${t('borders.width')}: \`${shape.borderWidth}\``)
+  lines.push(`- ${t('borders.iconWidth')}: \`${shape.iconStrokeWidth}\``)
 
   // Motion
-  lines.push('', `## ${zh ? '动效' : 'Motion'}`, '')
-  lines.push(`| ${zh ? '速度' : 'Speed'} | ${zh ? '时长' : 'Duration'} | ${zh ? '变量' : 'Variable'} |`)
+  lines.push('', `## ${t('motion.heading')}`, '')
+  lines.push(t('motion.tableHeader'))
   lines.push('|-------|-------|-------|')
-  lines.push(`| ${zh ? '快' : 'Fast'} | \`${motion.fast}\` | \`--motion-fast\` |`)
-  lines.push(`| ${zh ? '标准' : 'Normal'} | \`${motion.normal}\` | \`--motion-normal\` |`)
-  lines.push(`| ${zh ? '慢' : 'Slow'} | \`${motion.slow}\` | \`--motion-slow\` |`)
+  lines.push(`| ${t('motion.fast')} | \`${motion.fast}\` | \`--motion-fast\` |`)
+  lines.push(`| ${t('motion.normal')} | \`${motion.normal}\` | \`--motion-normal\` |`)
+  lines.push(`| ${t('motion.slow')} | \`${motion.slow}\` | \`--motion-slow\` |`)
   lines.push('')
-  lines.push(`**${zh ? '缓动曲线' : 'Easing'}:** \`${motion.easing}\``)
+  lines.push(`**${t('motion.easing')}:** \`${motion.easing}\``)
 
   // Layout
-  lines.push('', `## ${zh ? '布局' : 'Layout'}`, '')
-  lines.push(`- ${zh ? '侧栏宽度' : 'Sidebar width'}: \`${layout.sidebarWidth}\``)
-  lines.push(`- ${zh ? '内容最大宽度' : 'Content max width'}: \`${layout.contentMaxWidth}\``)
+  lines.push('', `## ${t('layout.heading')}`, '')
+  lines.push(`- ${t('layout.sidebarWidth')}: \`${layout.sidebarWidth}\``)
+  lines.push(`- ${t('layout.contentMaxWidth')}: \`${layout.contentMaxWidth}\``)
 
   // Background art direction
   const bgArtDirection = getThemeBackgroundCss(theme.id)
   if (bgArtDirection) {
-    lines.push('', `## ${zh ? '背景与氛围' : 'Background & atmosphere'}`, '')
-    lines.push(
-      zh
-        ? '本主题包含背景纹理或渐变来营造氛围。以下 CSS 可用于复现相似效果：'
-        : 'This theme uses background textures or gradients for atmosphere. The following CSS recreates the effect:',
-    )
+    lines.push('', `## ${t('background.heading')}`, '')
+    lines.push(t('background.intro'))
     lines.push('', '```css', bgArtDirection, '```')
   }
 
   // CSS variables
   const css = generateThemeCss(theme)
-  lines.push('', `## ${zh ? 'CSS 变量' : 'CSS variables'}`, '')
+  lines.push('', `## ${t('cssVariables')}`, '')
   lines.push('```css', css.trimEnd(), '```')
 
   // Design language profile (for built-in themes with hardcoded profiles)
   if (theme.designProfile) {
     lines.push('', '---', '')
-    lines.push(`## ${zh ? '设计语言解读' : 'Design Language Insights'}`, '')
-    lines.push(
-      zh
-        ? '> 以下设计语言描述由 Imprint 团队编写，阐述本主题的视觉理念和迁移规则。'
-        : '> The following design language descriptions are authored by the Imprint team, detailing this theme\u2019s visual philosophy and transfer rules.',
-    )
+    lines.push(`## ${t('profile.heading')}`, '')
+    lines.push(t('profile.notice'))
     lines.push('')
 
     const dp = theme.designProfile
-    lines.push(`### ${zh ? '设计主张' : 'Design Thesis'}`, '', dp.thesis, '')
+    lines.push(`### ${t('profile.thesis')}`, '', dp.thesis, '')
 
-    lines.push(`### ${zh ? '标志性手法' : 'Signature Moves'}`, '')
+    lines.push(`### ${t('profile.signatureMoves')}`, '')
     for (const move of dp.signatureMoves) {
       lines.push(`**${move.name}**`, '', move.description, '')
     }
 
-    lines.push(`### ${zh ? '构图方式' : 'Composition'}`, '')
-    lines.push(`- **${zh ? '容器策略' : 'Container strategy'}:** ${dp.composition.containerStrategy}`)
-    lines.push(`- **${zh ? '对齐策略' : 'Alignment strategy'}:** ${dp.composition.alignmentStrategy}`)
-    lines.push(`- **${zh ? '密度与留白' : 'Density & whitespace'}:** ${dp.composition.densityAndWhitespace}`)
-    lines.push(`- **${zh ? '节奏' : 'Rhythm'}:** ${dp.composition.rhythm}`)
+    lines.push(`### ${t('profile.composition')}`, '')
+    lines.push(`- **${t('profile.containerStrategy')}:** ${dp.composition.containerStrategy}`)
+    lines.push(`- **${t('profile.alignmentStrategy')}:** ${dp.composition.alignmentStrategy}`)
+    lines.push(`- **${t('profile.densityAndWhitespace')}:** ${dp.composition.densityAndWhitespace}`)
+    lines.push(`- **${t('profile.rhythm')}:** ${dp.composition.rhythm}`)
     lines.push('')
 
-    lines.push(`### ${zh ? '视觉语言' : 'Visual Language'}`, '')
-    lines.push(`- **${zh ? '色彩' : 'Color'}:** ${dp.visualLanguage.color}`)
-    lines.push(`- **${zh ? '排版' : 'Typography'}:** ${dp.visualLanguage.typography}`)
-    lines.push(`- **${zh ? '形状' : 'Shape'}:** ${dp.visualLanguage.shape}`)
-    lines.push(`- **${zh ? '表面' : 'Surfaces'}:** ${dp.visualLanguage.surfaces}`)
+    lines.push(`### ${t('profile.visualLanguage')}`, '')
+    lines.push(`- **${t('profile.color')}:** ${dp.visualLanguage.color}`)
+    lines.push(`- **${t('profile.typography')}:** ${dp.visualLanguage.typography}`)
+    lines.push(`- **${t('profile.shape')}:** ${dp.visualLanguage.shape}`)
+    lines.push(`- **${t('profile.surfaces')}:** ${dp.visualLanguage.surfaces}`)
     if (dp.visualLanguage.imagery) {
-      lines.push(`- **${zh ? '图像' : 'Imagery'}:** ${dp.visualLanguage.imagery}`)
+      lines.push(`- **${t('profile.imagery')}:** ${dp.visualLanguage.imagery}`)
     }
     if (dp.visualLanguage.motion) {
-      lines.push(`- **${zh ? '动效' : 'Motion'}:** ${dp.visualLanguage.motion}`)
+      lines.push(`- **${t('profile.motion')}:** ${dp.visualLanguage.motion}`)
     }
     lines.push('')
 
-    lines.push(`### ${zh ? '注意力层级' : 'Attention Hierarchy'}`, '')
-    lines.push(`- **${zh ? '视觉入口' : 'Entry point'}:** ${dp.attention.entryPoint}`)
-    lines.push(`- **${zh ? '行动层级' : 'Action hierarchy'}:** ${dp.attention.actionHierarchy}`)
-    lines.push(`- **${zh ? '对比策略' : 'Contrast strategy'}:** ${dp.attention.contrastStrategy}`)
+    lines.push(`### ${t('profile.attention')}`, '')
+    lines.push(`- **${t('profile.entryPoint')}:** ${dp.attention.entryPoint}`)
+    lines.push(`- **${t('profile.actionHierarchy')}:** ${dp.attention.actionHierarchy}`)
+    lines.push(`- **${t('profile.contrastStrategy')}:** ${dp.attention.contrastStrategy}`)
     lines.push('')
 
-    lines.push(`### ${zh ? '交互语言' : 'Interaction Language'}`, '')
-    lines.push(`- **${zh ? '反馈风格' : 'Feedback style'}:** ${dp.interactionLanguage.feedbackStyle}`)
-    lines.push(
-      `- **${zh ? '状态变化幅度' : 'State change amplitude'}:** ${dp.interactionLanguage.stateChangeAmplitude}`,
-    )
+    lines.push(`### ${t('profile.interaction')}`, '')
+    lines.push(`- **${t('profile.feedbackStyle')}:** ${dp.interactionLanguage.feedbackStyle}`)
+    lines.push(`- **${t('profile.stateChangeAmplitude')}:** ${dp.interactionLanguage.stateChangeAmplitude}`)
     lines.push('')
 
-    lines.push(`### ${zh ? '迁移规则' : 'Transfer Rules'}`, '')
-    lines.push(`**${zh ? '必须保持' : 'Preserve'}:**`, '')
+    lines.push(`### ${t('profile.transferRules')}`, '')
+    lines.push(`**${t('profile.preserve')}:**`, '')
     for (const rule of dp.transferRules.preserve) {
       lines.push(`- ${rule}`)
     }
     lines.push('')
-    lines.push(`**${zh ? '可以适配' : 'Adapt'}:**`, '')
+    lines.push(`**${t('profile.adapt')}:**`, '')
     for (const rule of dp.transferRules.adapt) {
       lines.push(`- ${rule}`)
     }
     lines.push('')
-    lines.push(`**${zh ? '必须避免' : 'Avoid'}:**`, '')
+    lines.push(`**${t('profile.avoid')}:**`, '')
     for (const rule of dp.transferRules.avoid) {
       lines.push(`- ${rule}`)
     }
@@ -1786,20 +1691,12 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
 
   // Agent Guide
   lines.push('', '---', '')
-  lines.push(`## ${zh ? '给 AI 的使用说明' : 'Agent prompt guide'}`, '')
-  lines.push(
-    zh
-      ? `使用这些设计令牌生成与 **${theme.name}** 视觉风格一致的 UI。`
-      : `Use these design tokens to generate UI that matches the **${theme.name}** visual style.`,
-  )
+  lines.push(`## ${t('agent.heading')}`, '')
+  lines.push(t('agent.intro', { theme: theme.name }))
   lines.push('')
-  lines.push(`### ${zh ? '示例组件提示' : 'Example component prompt'}`, '')
+  lines.push(`### ${t('agent.exampleHeading')}`, '')
   lines.push('```')
-  lines.push(
-    zh
-      ? `使用 ${theme.name} 设计系统构建一个卡片组件：`
-      : `Build a card component using the ${theme.name} design system:`,
-  )
+  lines.push(t('agent.examplePrompt', { theme: theme.name }))
   lines.push(`- Background: var(--color-card)`)
   lines.push(`- Text: var(--color-card-foreground)`)
   lines.push(`- Border radius: var(--radius-md)`)
@@ -1808,103 +1705,42 @@ export function generateThemeMarkdown(theme: AppTheme, language: 'zh-CN' | 'en')
   lines.push(`- Font: var(--font-body)`)
   lines.push('```')
   lines.push('')
-  lines.push(`### ${zh ? '实施规则' : 'Implementation rules'}`, '')
-  lines.push(
-    zh
-      ? '1. 将本文档作为视觉规则的唯一真源。'
-      : '1. Treat this document as the single source of truth for visual rules.',
-  )
-  lines.push(
-    zh
-      ? '2. 优先复用语义色、字体、间距、圆角、阴影和动效，不要自行发明近似值。'
-      : '2. Reuse semantic colors, fonts, spacing, radii, shadows, and motion — never invent approximations.',
-  )
-  lines.push(
-    zh
-      ? '3. 保留产品的信息层级和交互位置，只替换视觉表达。'
-      : '3. Preserve product hierarchy and interaction placement; only replace visual expression.',
-  )
-  lines.push(
-    zh
-      ? '4. 标题使用 `--font-heading` + `--tracking-heading` + `--leading-heading`。'
-      : '4. Headings use `--font-heading` + `--tracking-heading` + `--leading-heading`.',
-  )
-  lines.push(
-    zh
-      ? '5. 正文使用 `--font-body` + `--tracking-body` + `--leading-body`。'
-      : '5. Body text uses `--font-body` + `--tracking-body` + `--leading-body`.',
-  )
-  lines.push(
-    zh ? '6. 所有动画使用 `--motion-easing` 作为缓动曲线。' : '6. All animations use `--motion-easing` for easing.',
-  )
-  lines.push(
-    zh
-      ? '7. 聚焦状态使用 `--focus-ring-shadow` 而非自定义样式。'
-      : '7. Focus states use `--focus-ring-shadow` instead of custom styles.',
-  )
+  lines.push(`### ${t('agent.implementationHeading')}`, '')
+  for (const rule of ['source', 'reuse', 'hierarchy', 'heading', 'body', 'motion', 'focus']) {
+    lines.push(t(`agent.rules.${rule}`))
+  }
   lines.push('')
-  lines.push(`### ${zh ? '令牌使用速查' : 'Token usage reference'}`, '')
-  lines.push(`| ${zh ? '场景' : 'Context'} | ${zh ? '令牌' : 'Token'} |`)
+  lines.push(`### ${t('agent.tokenReference')}`, '')
+  lines.push(t('agent.tokenTableHeader'))
   lines.push('|---------|--------|')
-  lines.push(`| ${zh ? '页面背景' : 'Page background'} | \`--color-background\` |`)
-  lines.push(`| ${zh ? '卡片/容器' : 'Card/surface'} | \`--color-card\` |`)
-  lines.push(`| ${zh ? '正文文字' : 'Body text'} | \`--color-foreground\` |`)
-  lines.push(`| ${zh ? '辅助文字' : 'Muted text'} | \`--color-muted-foreground\` |`)
-  lines.push(`| ${zh ? '主操作' : 'Primary action'} | \`--color-primary\` |`)
-  lines.push(`| ${zh ? '强调/装饰' : 'Accent/decoration'} | \`--color-accent\` |`)
-  lines.push(`| ${zh ? '边框' : 'Border'} | \`--color-border\` |`)
-  lines.push(`| ${zh ? '焦点环' : 'Focus ring'} | \`--focus-ring-shadow\` |`)
-  lines.push(`| ${zh ? '正文字体' : 'Body font'} | \`--font-body\` |`)
-  lines.push(`| ${zh ? '标题字体' : 'Heading font'} | \`--font-heading\` |`)
-  lines.push(`| ${zh ? '代码字体' : 'Code font'} | \`--font-mono\` |`)
-  lines.push(`| ${zh ? '小间距' : 'Small gap'} | \`calc(var(--spacing) * 2)\` |`)
-  lines.push(`| ${zh ? '标准间距' : 'Standard gap'} | \`calc(var(--spacing) * 4)\` |`)
-  lines.push(`| ${zh ? '大间距' : 'Large gap'} | \`calc(var(--spacing) * 8)\` |`)
+  const tokenRows: Array<[string, string]> = [
+    ['pageBackground', '--color-background'],
+    ['surface', '--color-card'],
+    ['bodyText', '--color-foreground'],
+    ['mutedText', '--color-muted-foreground'],
+    ['primaryAction', '--color-primary'],
+    ['accent', '--color-accent'],
+    ['border', '--color-border'],
+    ['focusRing', '--focus-ring-shadow'],
+    ['bodyFont', '--font-body'],
+    ['headingFont', '--font-heading'],
+    ['codeFont', '--font-mono'],
+    ['smallGap', 'calc(var(--spacing) * 2)'],
+    ['standardGap', 'calc(var(--spacing) * 4)'],
+    ['largeGap', 'calc(var(--spacing) * 8)'],
+  ]
+  for (const [context, token] of tokenRows) lines.push(`| ${t(`agent.contexts.${context}`)} | \`${token}\` |`)
 
   // Do's and Don'ts
   lines.push('')
-  lines.push(`### ${zh ? '正确做法与避免事项' : "Do's and Don'ts"}`, '')
-  lines.push(zh ? '**正确做法：**' : "**Do's:**")
+  lines.push(`### ${t('agent.dosAndDonts')}`, '')
+  lines.push(`**${t('agent.dos')}**`)
   lines.push('')
-  lines.push(
-    zh
-      ? '- 使用语义色令牌（`--color-primary`），不要硬编码颜色值'
-      : '- Use semantic color tokens (`--color-primary`), not hardcoded color values',
-  )
-  lines.push(
-    zh
-      ? '- 使用间距倍数（`calc(var(--spacing) * N)`）保持节奏一致'
-      : '- Use spacing multipliers (`calc(var(--spacing) * N)`) for consistent rhythm',
-  )
-  lines.push(
-    zh
-      ? '- 使用 `--radius-md` 作为默认圆角，交互元素用 `--radius-sm`'
-      : '- Use `--radius-md` as default radius, `--radius-sm` for interactive elements',
-  )
-  lines.push(
-    zh
-      ? '- 阴影按层级递增：卡片 sm、弹出层 md、模态框 lg'
-      : '- Escalate shadows by level: cards sm, popovers md, modals lg',
-  )
+  for (const rule of ['colors', 'spacing', 'radius', 'shadows']) lines.push(t(`agent.doRules.${rule}`))
   lines.push('')
-  lines.push(zh ? '**避免：**' : "**Don'ts:**")
+  lines.push(`**${t('agent.donts')}**`)
   lines.push('')
-  lines.push(
-    zh
-      ? '- 不要混用不同字体族，严格按正文/标题/代码分工'
-      : "- Don't mix font families; strictly separate body/heading/code roles",
-  )
-  lines.push(zh ? '- 不要使用 CSS 变量以外的颜色值' : "- Don't use color values outside of the CSS variable system")
-  lines.push(
-    zh
-      ? '- 不要自定义动画缓动曲线，统一使用 `--motion-easing`'
-      : "- Don't create custom easing; use `--motion-easing` uniformly",
-  )
-  lines.push(
-    zh
-      ? '- 不要忽略密度设置，间距倍数应与当前 density 匹配'
-      : "- Don't ignore density; spacing multipliers should match the current density level",
-  )
+  for (const rule of ['fonts', 'colors', 'motion', 'density']) lines.push(t(`agent.dontRules.${rule}`))
 
   return `${lines.join('\n')}\n`
 }

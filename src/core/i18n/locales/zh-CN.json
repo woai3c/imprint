@@ -12,6 +12,305 @@
       "quit": "退出印记"
     }
   },
+  "agentGuide": {
+    "siteFallback": "目标站点",
+    "heading": "## 给 AI 的使用说明",
+    "intro": "使用这些设计令牌生成与 {{siteName}} 视觉风格一致的 UI。",
+    "example": {
+      "heading": "### 示例组件提示",
+      "prompt": "使用 {{siteName}} 设计系统构建一个卡片组件："
+    },
+    "implementation": {
+      "heading": "### 实施顺序",
+      "steps": {
+        "variables": "1. 建立 CSS 变量（颜色、字体、间距）",
+        "layout": "2. 用间距令牌搭建基础布局",
+        "typography": "3. 按字号阶梯设置排版",
+        "components": "4. 添加组件级样式（边框、阴影、圆角）",
+        "states": "5. 实现交互状态（hover/焦点颜色）"
+      }
+    },
+    "tokenReference": {
+      "heading": "### 令牌使用速查",
+      "tableHeader": "| 场景 | 令牌模式 |",
+      "pageBackground": "| 页面背景 | `--color-background` |",
+      "surface": "| 卡片/容器 | `--color-surface` |",
+      "bodyText": "| 正文文字 | `--color-foreground` |",
+      "mutedText": "| 辅助文字 | `--color-muted-foreground` |",
+      "primaryAction": "| 主操作 | `--color-primary` |",
+      "border": "| 边框 | `--color-border` 或 `--border-*` |",
+      "spacing": "| 间距（内边距/间隙） | `--spacing-1` 到 `--spacing-N` |",
+      "radius": "| 圆角 | `--radius-sm/md/lg` |"
+    },
+    "principles": {
+      "heading": "## 设计原则",
+      "intro": "使用这些令牌进行排版组合的规则，由提取数值推导。",
+      "proximity": {
+        "heading": "### 亲密性",
+        "related": "- 相关元素间距保持在 `{{related}}` 以内，分组之间使用 `{{group}}` 以上的间隔",
+        "group": "- 用间距刻度分组，而不是堆砌分割线"
+      },
+      "alignment": {
+        "heading": "### 对齐",
+        "scale": "- 重复模块对齐到统一边线；尺寸与间距只取刻度值，不产生刻度外的任意值",
+        "text": "- 同一区块内文本列保持统一起始边"
+      },
+      "repetition": {
+        "heading": "### 重复",
+        "colorCount": "{{count}} 种颜色",
+        "fontSizeCount": "{{count}} 个字号",
+        "radiusCount": "{{count}} 档圆角",
+        "shadowCount": "{{count}} 级阴影",
+        "scale": "- 严格复用提取刻度（{{counts}}），不发明近似值",
+        "coherence": "- 一致性来自重复复用令牌，而非装饰单个元素"
+      },
+      "contrast": {
+        "heading": "### 对比",
+        "muted": "- 正文用前景色，次要信息用柔和色（muted）",
+        "textRange": "- 用提取的最深与最浅文字色建立层级，而非只靠字号",
+        "primary": "- 主色每屏只承载一个关键操作，次要操作保持中性",
+        "states": "- hover、焦点、选中状态与操作色保持同一色相家族"
+      }
+    },
+    "dos": {
+      "heading": "### 正确做法",
+      "colorTokens": "- ✅ 使用已定义的颜色令牌，不要硬编码色值",
+      "spacingScale": "- ✅ 遵循间距刻度保持一致节奏",
+      "primaryFont": "- ✅ 使用 `{{font}}` 作为主字体栈",
+      "generousRadius": "- ✅ 使用较大的圆角，保持柔和友好的观感",
+      "compactPillRadius": "- ✅ 普通表面使用小圆角；胶囊和圆形按钮按已观察变体单独复用",
+      "compactRadius": "- ✅ 保持小圆角，维持锐利精确的气质",
+      "shadows": "- ✅ 用阴影层级建立视觉层次",
+      "noShadowScale": "- ✅ 未观察到稳定的阴影刻度；优先使用已观察到的边框与背景色变化建立层次",
+      "observedResponsive": "- ✅ 保留已观察到的响应式行为及其视口差异",
+      "declaredBreakpoints": "- 已声明断点，但本次捕获未观察到响应式行为",
+      "recurringSpacing": "- ✅ 重复间距优先使用间距刻度；组件和结构中的已观察例外保持精确值"
+    },
+    "donts": {
+      "heading": "### 避免",
+      "derivedColors": "- ❌ 不要把新颜色当成页面观察值；派生的无障碍建议必须明确标注并单独验证",
+      "newColors": "- ❌ 不要引入色板之外的新颜色",
+      "spacingSystems": "- ❌ 不要混用不同的间距体系",
+      "fontFamilies": "- ❌ 不要混用多种字体，保持单一字体族",
+      "fontWeights": "- ❌ 不要使用以下之外的字重：{{weights}}"
+    },
+    "examples": {
+      "heading": "## 示例组件",
+      "intro": "以下 HTML 示例由已配置的 AI 根据提取的设计令牌、设计规则与组件模式生成。"
+    }
+  },
+  "profileExport": {
+    "heading": "## AI 设计解读",
+    "layerNotice": "> 层级：Inferred / 已推断。以下主张来自经校验的证据综合，不代表原设计师的真实意图。",
+    "inputMode": "输入模式",
+    "status": "状态",
+    "evidenceFallbackNotice": "> 状态：`evidence-fallback`。AI 输出未通过校验；下列解读是确定性证据兜底，不是有效的 AI 视觉综合。",
+    "partialNotice": "> 部分 AI 字段未通过确定性校验，已被省略、降为低置信度或替换为证据兜底；使用前请复核。",
+    "labels": {
+      "confidence": "置信度",
+      "evidence": "证据",
+      "tokens": "Token 引用"
+    },
+    "sections": {
+      "thesis": "设计主张",
+      "signatureMoves": "标志性手法",
+      "composition": "构图方式",
+      "attention": "注意力层级",
+      "visualLanguage": "视觉语言",
+      "interactionLanguage": "交互语言",
+      "sectionGrammar": "区块语法",
+      "componentGrammar": "组件语法",
+      "transferablePattern": "可迁移模式",
+      "preserve": "必须保持",
+      "adapt": "可以适配",
+      "avoid": "必须避免",
+      "uncertainties": "不确定性"
+    }
+  },
+  "themeExport": {
+    "category": {
+      "label": "类别",
+      "foundation": "基础主题",
+      "narrative": "叙事主题",
+      "experimental": "实验主题"
+    },
+    "designIntent": {
+      "heading": "设计意图",
+      "values": "价值"
+    },
+    "principles": {
+      "heading": "设计原则",
+      "intro": "使用这些令牌进行排版组合的规则，由主题数值推导。",
+      "proximity": "亲密性",
+      "proximityScale": "- 相关元素间距不超过 `calc({{unit}} * 2)`，分组之间使用 `calc({{unit}} * 6)` 以上的间隔",
+      "proximityDensity": "- 用间距刻度分组，而不是堆砌分割线（当前密度：{{density}}）",
+      "alignment": "对齐",
+      "alignmentScale": "- 尺寸与间距只取 {{unit}} 的整数倍，不产生刻度外的任意值",
+      "alignmentSidebar": "- 重复模块共享统一的起始边与栏宽（侧栏 {{sidebarWidth}}）",
+      "repetition": "重复",
+      "semanticSteps": "- 只复用语义令牌的既有档位（颜色、字号、圆角、阴影），不发明近似值",
+      "radiusSteps": "- 圆角一律从 `--radius-md`（{{radius}}）派生 sm/lg/xl",
+      "contrast": "对比",
+      "textContrast": "- 正文用 `--color-foreground`，次要信息用 `--color-muted-foreground`；层级来自对比，而非堆砌字号",
+      "actionContrast": "- 每屏主操作只有一个（`--color-primary`）；hover、选中、焦点状态与主色保持同一色相家族，签名对比色只用于焦点环与选中指示"
+    },
+    "density": {
+      "compact": "紧凑",
+      "comfortable": "舒适",
+      "spacious": "宽松"
+    },
+    "colors": {
+      "heading": "颜色",
+      "tableHeader": "| 令牌 | 值 | 用途 |",
+      "usage": {
+        "background": "页面背景",
+        "foreground": "正文文字",
+        "primary": "主操作、链接",
+        "primary-foreground": "主按钮文字",
+        "secondary": "次级容器",
+        "secondary-foreground": "次级文字",
+        "muted": "禁用区域",
+        "muted-foreground": "辅助文字",
+        "accent": "悬浮表面、次级强调",
+        "accent-foreground": "悬浮表面文字",
+        "card": "卡片背景",
+        "card-foreground": "卡片文字",
+        "border": "边框",
+        "ring": "焦点环",
+        "sidebar": "侧栏背景",
+        "sidebar-foreground": "侧栏文字",
+        "sidebar-accent": "侧栏高亮"
+      }
+    },
+    "typography": {
+      "heading": "排版",
+      "fontFamilies": "字体族",
+      "body": "正文",
+      "title": "标题",
+      "monospace": "等宽",
+      "fontSizes": "字号",
+      "sizeTableHeader": "| 级别 | 值 | 变量 |",
+      "lineHeights": "行高",
+      "letterSpacing": "字间距",
+      "label": "标签"
+    },
+    "spacing": {
+      "heading": "间距",
+      "baseUnit": "基准单位",
+      "density": "密度",
+      "derived": "推导间距序列（基准 × 倍数）：",
+      "tableHeader": "| 倍数 | 变量 |"
+    },
+    "radius": {
+      "heading": "圆角",
+      "tableHeader": "| 级别 | 值 | 变量 |"
+    },
+    "shadows": {
+      "heading": "阴影",
+      "tableHeader": "| 级别 | 值 |"
+    },
+    "borders": {
+      "heading": "边框与描边",
+      "width": "边框宽度",
+      "iconWidth": "图标描边宽度"
+    },
+    "motion": {
+      "heading": "动效",
+      "tableHeader": "| 速度 | 时长 | 变量 |",
+      "fast": "快",
+      "normal": "标准",
+      "slow": "慢",
+      "easing": "缓动曲线"
+    },
+    "layout": {
+      "heading": "布局",
+      "sidebarWidth": "侧栏宽度",
+      "contentMaxWidth": "内容最大宽度"
+    },
+    "background": {
+      "heading": "背景与氛围",
+      "intro": "本主题包含背景纹理或渐变来营造氛围。以下 CSS 可用于复现相似效果："
+    },
+    "cssVariables": "CSS 变量",
+    "profile": {
+      "heading": "设计语言解读",
+      "notice": "> 以下设计语言描述由 Imprint 团队编写，阐述本主题的视觉理念和迁移规则。",
+      "thesis": "设计主张",
+      "signatureMoves": "标志性手法",
+      "composition": "构图方式",
+      "containerStrategy": "容器策略",
+      "alignmentStrategy": "对齐策略",
+      "densityAndWhitespace": "密度与留白",
+      "rhythm": "节奏",
+      "visualLanguage": "视觉语言",
+      "color": "色彩",
+      "typography": "排版",
+      "shape": "形状",
+      "surfaces": "表面",
+      "imagery": "图像",
+      "motion": "动效",
+      "attention": "注意力层级",
+      "entryPoint": "视觉入口",
+      "actionHierarchy": "行动层级",
+      "contrastStrategy": "对比策略",
+      "interaction": "交互语言",
+      "feedbackStyle": "反馈风格",
+      "stateChangeAmplitude": "状态变化幅度",
+      "transferRules": "迁移规则",
+      "preserve": "必须保持",
+      "adapt": "可以适配",
+      "avoid": "必须避免"
+    },
+    "agent": {
+      "heading": "给 AI 的使用说明",
+      "intro": "使用这些设计令牌生成与 **{{theme}}** 视觉风格一致的 UI。",
+      "exampleHeading": "示例组件提示",
+      "examplePrompt": "使用 {{theme}} 设计系统构建一个卡片组件：",
+      "implementationHeading": "实施规则",
+      "rules": {
+        "source": "1. 将本文档作为视觉规则的唯一真源。",
+        "reuse": "2. 优先复用语义色、字体、间距、圆角、阴影和动效，不要自行发明近似值。",
+        "hierarchy": "3. 保留产品的信息层级和交互位置，只替换视觉表达。",
+        "heading": "4. 标题使用 `--font-heading` + `--tracking-heading` + `--leading-heading`。",
+        "body": "5. 正文使用 `--font-body` + `--tracking-body` + `--leading-body`。",
+        "motion": "6. 所有动画使用 `--motion-easing` 作为缓动曲线。",
+        "focus": "7. 聚焦状态使用 `--focus-ring-shadow` 而非自定义样式。"
+      },
+      "tokenReference": "令牌使用速查",
+      "tokenTableHeader": "| 场景 | 令牌 |",
+      "contexts": {
+        "pageBackground": "页面背景",
+        "surface": "卡片/容器",
+        "bodyText": "正文文字",
+        "mutedText": "辅助文字",
+        "primaryAction": "主操作",
+        "accent": "强调/装饰",
+        "border": "边框",
+        "focusRing": "焦点环",
+        "bodyFont": "正文字体",
+        "headingFont": "标题字体",
+        "codeFont": "代码字体",
+        "smallGap": "小间距",
+        "standardGap": "标准间距",
+        "largeGap": "大间距"
+      },
+      "dosAndDonts": "正确做法与避免事项",
+      "dos": "正确做法：",
+      "doRules": {
+        "colors": "- 使用语义色令牌（`--color-primary`），不要硬编码颜色值",
+        "spacing": "- 使用间距倍数（`calc(var(--spacing) * N)`）保持节奏一致",
+        "radius": "- 使用 `--radius-md` 作为默认圆角，交互元素用 `--radius-sm`",
+        "shadows": "- 阴影按层级递增：卡片 sm、弹出层 md、模态框 lg"
+      },
+      "donts": "避免：",
+      "dontRules": {
+        "fonts": "- 不要混用不同字体族，严格按正文/标题/代码分工",
+        "colors": "- 不要使用 CSS 变量以外的颜色值",
+        "motion": "- 不要自定义动画缓动曲线，统一使用 `--motion-easing`",
+        "density": "- 不要忽略密度设置，间距倍数应与当前 density 匹配"
+      }
+    }
+  },
   "export": {
     "reconstruction": {
       "heading": "### 重建摘要",

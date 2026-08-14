@@ -23,3 +23,8 @@ void instance.init({
 export function coreT(language: CoreLanguage, key: string, options: TOptions = {}): string {
   return instance.t(key, { ...options, lng: language })
 }
+
+export function coreTranslator(language: CoreLanguage, namespace?: string) {
+  return (key: string, options: TOptions = {}): string =>
+    coreT(language, namespace ? `${namespace}.${key}` : key, options)
+}

@@ -1,4 +1,5 @@
 import type { DesignToken } from '../analyzer/types.js'
+import { coreTranslator } from '../i18n/index.js'
 import type { DesignClaim, DesignIntelligenceStatus, DesignProfile } from './types.js'
 
 // Token refs in claims follow the evidence-package scheme: `color.<name>` plus 1-based array
@@ -100,14 +101,15 @@ export function generateDesignProfileMarkdown(
   status?: DesignIntelligenceStatus,
   publicColorNames: ReadonlyMap<string, string> = new Map(),
 ): string {
-  const zh = profile.language === 'zh-CN'
+  const t = coreTranslator(profile.language, 'profileExport')
   const evidenceFallback = profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
   const displayedStatus = evidenceFallback ? 'evidence-fallback' : status
   const labels = {
-    confidence: zh ? '置信度' : 'Confidence',
-    evidence: zh ? '证据' : 'Evidence',
-    tokens: zh ? 'Token 引用' : 'Token refs',
+    confidence: t('labels.confidence'),
+    evidence: t('labels.evidence'),
+    tokens: t('labels.tokens'),
   }
+  const section = (key: string): string => t(`sections.${key}`)
   const lowBucket: LowConfidenceEntry[] = []
   // Claims were written before color renaming, so their refs still use palette-N names. Map them
   // to the applied aliases and append the resolved value so refs are checkable within the document.
@@ -144,38 +146,22 @@ export function generateDesignProfileMarkdown(
     componentGroups.set(component.component, group)
   }
   return [
-    zh ? '## AI 设计解读' : '## AI Design Insights',
+    t('heading'),
     '',
-    zh
-      ? '> 层级：Inferred / 已推断。以下主张来自经校验的证据综合，不代表原设计师的真实意图。'
-      : '> Layer: Inferred. These claims synthesize validated evidence and do not assert the original designer’s intent.',
+    t('layerNotice'),
     '',
-    `**${zh ? '输入模式' : 'Input mode'}:** \`${profile.inputMode}\``,
+    `**${t('inputMode')}:** \`${profile.inputMode}\``,
     '',
-    ...(displayedStatus ? [`**${zh ? '状态' : 'Status'}:** \`${displayedStatus}\``, ''] : []),
-    ...(evidenceFallback
-      ? [
-          zh
-            ? '> 状态：`evidence-fallback`。AI 输出未通过校验；下列解读是确定性证据兜底，不是有效的 AI 视觉综合。'
-            : '> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.',
-          '',
-        ]
-      : []),
-    ...(!evidenceFallback && status === 'partial'
-      ? [
-          zh
-            ? '> 部分 AI 字段未通过确定性校验，已被省略、降为低置信度或替换为证据兜底；使用前请复核。'
-            : '> Some AI fields failed deterministic validation and were omitted, demoted, or replaced with evidence fallbacks; review before use.',
-          '',
-        ]
-      : []),
-    ...claimLines(zh ? '设计主张' : 'Design Thesis', [profile.thesis], labels, lowBucket, {
+    ...(displayedStatus ? [`**${t('status')}:** \`${displayedStatus}\``, ''] : []),
+    ...(evidenceFallback ? [t('evidenceFallbackNotice'), ''] : []),
+    ...(!evidenceFallback && status === 'partial' ? [t('partialNotice'), ''] : []),
+    ...claimLines(section('thesis'), [profile.thesis], labels, lowBucket, {
       keepLow: true,
       formatRef,
       formatText,
     }),
     ...claimLines(
-      zh ? '标志性手法' : 'Signature Moves',
+      section('signatureMoves'),
       profile.signatureMoves.map((move) => ({
         ...move,
         label: move.name,
@@ -185,7 +171,7 @@ export function generateDesignProfileMarkdown(
       claimOptions,
     ),
     ...claimLines(
-      zh ? '构图方式' : 'Composition',
+      section('composition'),
       Object.entries(profile.composition).map(([label, claim]) => ({
         ...claim,
         label,
@@ -195,7 +181,7 @@ export function generateDesignProfileMarkdown(
       claimOptions,
     ),
     ...claimLines(
-      zh ? '注意力层级' : 'Attention Hierarchy',
+      section('attention'),
       [
         { ...profile.attention.entryPoint, label: 'entryPoint' },
         ...numberedVisibleClaims(profile.attention.visualSequence, 'visualSequence'),
@@ -207,7 +193,7 @@ export function generateDesignProfileMarkdown(
       claimOptions,
     ),
     ...claimLines(
-      zh ? '视觉语言' : 'Visual Language',
+      section('visualLanguage'),
       Object.entries(profile.visualLanguage).flatMap(([label, claim]) =>
         claim
           ? [
@@ -223,7 +209,7 @@ export function generateDesignProfileMarkdown(
       claimOptions,
     ),
     ...claimLines(
-      zh ? '交互语言' : 'Interaction Language',
+      section('interactionLanguage'),
       [
         ...numberedVisibleClaims(profile.interactionLanguage.primaryDrivers, 'primaryDriver'),
         { ...profile.interactionLanguage.feedbackStyle, label: 'feedbackStyle' },
@@ -239,7 +225,7 @@ export function generateDesignProfileMarkdown(
     ),
     ...profile.sectionGrammar.flatMap((section) =>
       claimLines(
-        `${zh ? '区块语法' : 'Section Grammar'} · ${section.role}`,
+        `${t('sections.sectionGrammar')} · ${section.role}`,
         [
           ...section.composition.map((claim) => ({ ...claim, label: 'composition' })),
           ...section.contentRhythm.map((claim) => ({ ...claim, label: 'contentRhythm' })),
@@ -252,7 +238,7 @@ export function generateDesignProfileMarkdown(
     ),
     ...[...componentGroups.entries()].flatMap(([componentType, components]) =>
       claimLines(
-        `${zh ? '组件语法' : 'Component Grammar'} · ${componentType}`,
+        `${section('componentGrammar')} · ${componentType}`,
         components.flatMap((component) =>
           (() => {
             const visibleCount = component.rules.filter((claim) => claim.confidence !== 'low').length
@@ -273,7 +259,7 @@ export function generateDesignProfileMarkdown(
     ),
     ...(profile.patterns || []).flatMap((pattern) =>
       claimLines(
-        `${zh ? '可迁移模式' : 'Transferable Pattern'} · ${pattern.name}`,
+        `${section('transferablePattern')} · ${pattern.name}`,
         [
           ...pattern.structureRules.map((claim) => ({ ...claim, label: 'structure' })),
           ...pattern.visualRules.map((claim) => ({ ...claim, label: 'visual' })),
@@ -285,12 +271,12 @@ export function generateDesignProfileMarkdown(
         claimOptions,
       ),
     ),
-    ...claimLines(zh ? '必须保持' : 'Preserve', profile.transferRules.preserve, labels, lowBucket, claimOptions),
-    ...claimLines(zh ? '可以适配' : 'Adapt', profile.transferRules.adapt, labels, lowBucket, claimOptions),
-    ...claimLines(zh ? '必须避免' : 'Avoid', profile.transferRules.avoid, labels, lowBucket, claimOptions),
+    ...claimLines(section('preserve'), profile.transferRules.preserve, labels, lowBucket, claimOptions),
+    ...claimLines(section('adapt'), profile.transferRules.adapt, labels, lowBucket, claimOptions),
+    ...claimLines(section('avoid'), profile.transferRules.avoid, labels, lowBucket, claimOptions),
     ...(uncertainties.length > 0
       ? [
-          `### ${zh ? '不确定性' : 'Uncertainties'}`,
+          `### ${section('uncertainties')}`,
           '',
           ...uncertainties.map((item) => `- ${formatText(item.topic)}: ${formatText(item.reason)}`),
           '',

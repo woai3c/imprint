@@ -12,6 +12,305 @@
       "quit": "Quit Imprint"
     }
   },
+  "agentGuide": {
+    "siteFallback": "target site",
+    "heading": "## Agent Prompt Guide",
+    "intro": "Use these design tokens to generate UI that matches the visual style of {{siteName}}.",
+    "example": {
+      "heading": "### Example Component Prompt",
+      "prompt": "Build a card component using the {{siteName}} design system:"
+    },
+    "implementation": {
+      "heading": "### Implementation Order",
+      "steps": {
+        "variables": "1. Set up CSS variables (colors, typography, spacing)",
+        "layout": "2. Apply base layout with spacing tokens",
+        "typography": "3. Style typography using font scale",
+        "components": "4. Add component-level styles (borders, shadows, radii)",
+        "states": "5. Implement interaction states (hover/focus colors)"
+      }
+    },
+    "tokenReference": {
+      "heading": "### Token Usage Reference",
+      "tableHeader": "| Context | Token Pattern |",
+      "pageBackground": "| Page background | `--color-background` |",
+      "surface": "| Card/surface | `--color-surface` |",
+      "bodyText": "| Body text | `--color-foreground` |",
+      "mutedText": "| Muted/secondary text | `--color-muted-foreground` |",
+      "primaryAction": "| Primary action | `--color-primary` |",
+      "border": "| Borders | `--color-border` or `--border-*` |",
+      "spacing": "| Spacing (padding/gap) | `--spacing-1` through `--spacing-N` |",
+      "radius": "| Border radius | `--radius-sm/md/lg` |"
+    },
+    "principles": {
+      "heading": "## Design Principles",
+      "intro": "Composition rules for using these tokens, derived from the extracted values.",
+      "proximity": {
+        "heading": "### Proximity",
+        "related": "- Keep related items within `{{related}}`; separate groups with `{{group}}` or more",
+        "group": "- Group with space from the scale instead of adding divider lines"
+      },
+      "alignment": {
+        "heading": "### Alignment",
+        "scale": "- Align repeated blocks to shared edges; size and space with the scale steps, never off-scale values",
+        "text": "- Keep text columns on one inline start within a section"
+      },
+      "repetition": {
+        "heading": "### Repetition",
+        "colorCount": "{{count}} colors",
+        "fontSizeCount": "{{count}} font sizes",
+        "radiusCount": "{{count}} radii",
+        "shadowCount": "{{count}} shadows",
+        "scale": "- Reuse the extracted scale exactly ({{counts}}) — never invent near-duplicate values",
+        "coherence": "- Coherence comes from repeating the same tokens, not from decorating individual elements"
+      },
+      "contrast": {
+        "heading": "### Contrast",
+        "muted": "- Use the foreground color for primary text and the muted color for secondary text",
+        "textRange": "- Establish text hierarchy with the darkest and lightest extracted text colors, not size alone",
+        "primary": "- Reserve the primary color for one key action per view; supporting actions stay neutral",
+        "states": "- Keep hover, focus, and selected states in the same hue family as the action color"
+      }
+    },
+    "dos": {
+      "heading": "### Do's",
+      "colorTokens": "- ✅ Use the defined color tokens instead of hardcoded hex values",
+      "spacingScale": "- ✅ Follow the spacing scale for consistent rhythm",
+      "primaryFont": "- ✅ Use `{{font}}` as the primary font stack",
+      "generousRadius": "- ✅ Use generous border-radius for a soft, friendly feel",
+      "compactPillRadius": "- ✅ Use compact radii on ordinary surfaces; preserve observed pill and circular button variants separately",
+      "compactRadius": "- ✅ Keep border-radius minimal for a sharp, precise aesthetic",
+      "shadows": "- ✅ Use elevation (shadows) to create visual hierarchy",
+      "noShadowScale": "- ✅ No stable shadow scale was observed; prefer observed borders and background shifts for hierarchy",
+      "observedResponsive": "- ✅ Preserve the observed responsive behavior across viewports",
+      "declaredBreakpoints": "- Breakpoints were declared, but responsive behavior was not observed in this capture",
+      "recurringSpacing": "- ✅ Use the spacing scale for recurring rhythm; keep observed component and structural exceptions exact"
+    },
+    "donts": {
+      "heading": "### Don'ts",
+      "derivedColors": "- ❌ Don't present new colors as observed values; label and validate derived accessibility recommendations separately",
+      "newColors": "- ❌ Don't introduce new colors outside the defined palette",
+      "spacingSystems": "- ❌ Don't mix different spacing systems",
+      "fontFamilies": "- ❌ Don't mix multiple font families — stick to the single typeface",
+      "fontWeights": "- ❌ Don't use font weights outside: {{weights}}"
+    },
+    "examples": {
+      "heading": "## Example Components",
+      "intro": "The configured AI generated these HTML examples from the extracted tokens, design rules, and component patterns."
+    }
+  },
+  "profileExport": {
+    "heading": "## AI Design Insights",
+    "layerNotice": "> Layer: Inferred. These claims synthesize validated evidence and do not assert the original designer’s intent.",
+    "inputMode": "Input mode",
+    "status": "Status",
+    "evidenceFallbackNotice": "> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.",
+    "partialNotice": "> Some AI fields failed deterministic validation and were omitted, demoted, or replaced with evidence fallbacks; review before use.",
+    "labels": {
+      "confidence": "Confidence",
+      "evidence": "Evidence",
+      "tokens": "Token refs"
+    },
+    "sections": {
+      "thesis": "Design Thesis",
+      "signatureMoves": "Signature Moves",
+      "composition": "Composition",
+      "attention": "Attention Hierarchy",
+      "visualLanguage": "Visual Language",
+      "interactionLanguage": "Interaction Language",
+      "sectionGrammar": "Section Grammar",
+      "componentGrammar": "Component Grammar",
+      "transferablePattern": "Transferable Pattern",
+      "preserve": "Preserve",
+      "adapt": "Adapt",
+      "avoid": "Avoid",
+      "uncertainties": "Uncertainties"
+    }
+  },
+  "themeExport": {
+    "category": {
+      "label": "Category",
+      "foundation": "Foundation",
+      "narrative": "Narrative",
+      "experimental": "Experimental"
+    },
+    "designIntent": {
+      "heading": "Design intent",
+      "values": "Values"
+    },
+    "principles": {
+      "heading": "Design principles",
+      "intro": "Composition rules for these tokens, derived from the theme values.",
+      "proximity": "Proximity",
+      "proximityScale": "- Keep related items within `calc({{unit}} * 2)`; separate groups with `calc({{unit}} * 6)` or more",
+      "proximityDensity": "- Group with the spacing scale instead of stacking dividers (density: {{density}})",
+      "alignment": "Alignment",
+      "alignmentScale": "- Size and space in multiples of {{unit}}; never use off-scale values",
+      "alignmentSidebar": "- Repeated blocks share one inline start and column width (sidebar {{sidebarWidth}})",
+      "repetition": "Repetition",
+      "semanticSteps": "- Reuse existing semantic token steps (colors, font sizes, radii, shadows); never invent near-duplicates",
+      "radiusSteps": "- Derive all radii from `--radius-md` ({{radius}}) — sm/lg/xl",
+      "contrast": "Contrast",
+      "textContrast": "- Body text uses `--color-foreground`, secondary text `--color-muted-foreground`; hierarchy comes from contrast, not font-size stacking",
+      "actionContrast": "- One primary action per view (`--color-primary`); hover, selected, and focus states stay in the primary hue family — the signature contrast color appears only in the focus ring and selection indicators"
+    },
+    "density": {
+      "compact": "compact",
+      "comfortable": "comfortable",
+      "spacious": "spacious"
+    },
+    "colors": {
+      "heading": "Colors",
+      "tableHeader": "| Token | Value | Usage |",
+      "usage": {
+        "background": "Page background",
+        "foreground": "Body text",
+        "primary": "Primary action, links",
+        "primary-foreground": "Primary button text",
+        "secondary": "Secondary surface",
+        "secondary-foreground": "Secondary text",
+        "muted": "Muted surface",
+        "muted-foreground": "Muted text",
+        "accent": "Hover surface, secondary emphasis",
+        "accent-foreground": "Hover surface text",
+        "card": "Card background",
+        "card-foreground": "Card text",
+        "border": "Border",
+        "ring": "Focus ring",
+        "sidebar": "Sidebar background",
+        "sidebar-foreground": "Sidebar text",
+        "sidebar-accent": "Sidebar accent"
+      }
+    },
+    "typography": {
+      "heading": "Typography",
+      "fontFamilies": "Font families",
+      "body": "Body",
+      "title": "Heading",
+      "monospace": "Monospace",
+      "fontSizes": "Font sizes",
+      "sizeTableHeader": "| Level | Value | Variable |",
+      "lineHeights": "Line heights",
+      "letterSpacing": "Letter spacing",
+      "label": "Label"
+    },
+    "spacing": {
+      "heading": "Spacing",
+      "baseUnit": "Base unit",
+      "density": "Density",
+      "derived": "Derived spacing scale (unit x multiplier):",
+      "tableHeader": "| Multiplier | Variable |"
+    },
+    "radius": {
+      "heading": "Border radius",
+      "tableHeader": "| Level | Value | Variable |"
+    },
+    "shadows": {
+      "heading": "Shadows",
+      "tableHeader": "| Level | Value |"
+    },
+    "borders": {
+      "heading": "Borders & strokes",
+      "width": "Border width",
+      "iconWidth": "Icon stroke width"
+    },
+    "motion": {
+      "heading": "Motion",
+      "tableHeader": "| Speed | Duration | Variable |",
+      "fast": "Fast",
+      "normal": "Normal",
+      "slow": "Slow",
+      "easing": "Easing"
+    },
+    "layout": {
+      "heading": "Layout",
+      "sidebarWidth": "Sidebar width",
+      "contentMaxWidth": "Content max width"
+    },
+    "background": {
+      "heading": "Background & atmosphere",
+      "intro": "This theme uses background textures or gradients for atmosphere. The following CSS recreates the effect:"
+    },
+    "cssVariables": "CSS variables",
+    "profile": {
+      "heading": "Design Language Insights",
+      "notice": "> The following design language descriptions are authored by the Imprint team, detailing this theme’s visual philosophy and transfer rules.",
+      "thesis": "Design Thesis",
+      "signatureMoves": "Signature Moves",
+      "composition": "Composition",
+      "containerStrategy": "Container strategy",
+      "alignmentStrategy": "Alignment strategy",
+      "densityAndWhitespace": "Density & whitespace",
+      "rhythm": "Rhythm",
+      "visualLanguage": "Visual Language",
+      "color": "Color",
+      "typography": "Typography",
+      "shape": "Shape",
+      "surfaces": "Surfaces",
+      "imagery": "Imagery",
+      "motion": "Motion",
+      "attention": "Attention Hierarchy",
+      "entryPoint": "Entry point",
+      "actionHierarchy": "Action hierarchy",
+      "contrastStrategy": "Contrast strategy",
+      "interaction": "Interaction Language",
+      "feedbackStyle": "Feedback style",
+      "stateChangeAmplitude": "State change amplitude",
+      "transferRules": "Transfer Rules",
+      "preserve": "Preserve",
+      "adapt": "Adapt",
+      "avoid": "Avoid"
+    },
+    "agent": {
+      "heading": "Agent prompt guide",
+      "intro": "Use these design tokens to generate UI that matches the **{{theme}}** visual style.",
+      "exampleHeading": "Example component prompt",
+      "examplePrompt": "Build a card component using the {{theme}} design system:",
+      "implementationHeading": "Implementation rules",
+      "rules": {
+        "source": "1. Treat this document as the single source of truth for visual rules.",
+        "reuse": "2. Reuse semantic colors, fonts, spacing, radii, shadows, and motion — never invent approximations.",
+        "hierarchy": "3. Preserve product hierarchy and interaction placement; only replace visual expression.",
+        "heading": "4. Headings use `--font-heading` + `--tracking-heading` + `--leading-heading`.",
+        "body": "5. Body text uses `--font-body` + `--tracking-body` + `--leading-body`.",
+        "motion": "6. All animations use `--motion-easing` for easing.",
+        "focus": "7. Focus states use `--focus-ring-shadow` instead of custom styles."
+      },
+      "tokenReference": "Token usage reference",
+      "tokenTableHeader": "| Context | Token |",
+      "contexts": {
+        "pageBackground": "Page background",
+        "surface": "Card/surface",
+        "bodyText": "Body text",
+        "mutedText": "Muted text",
+        "primaryAction": "Primary action",
+        "accent": "Accent/decoration",
+        "border": "Border",
+        "focusRing": "Focus ring",
+        "bodyFont": "Body font",
+        "headingFont": "Heading font",
+        "codeFont": "Code font",
+        "smallGap": "Small gap",
+        "standardGap": "Standard gap",
+        "largeGap": "Large gap"
+      },
+      "dosAndDonts": "Do's and Don'ts",
+      "dos": "Do's:",
+      "doRules": {
+        "colors": "- Use semantic color tokens (`--color-primary`), not hardcoded color values",
+        "spacing": "- Use spacing multipliers (`calc(var(--spacing) * N)`) for consistent rhythm",
+        "radius": "- Use `--radius-md` as default radius, `--radius-sm` for interactive elements",
+        "shadows": "- Escalate shadows by level: cards sm, popovers md, modals lg"
+      },
+      "donts": "Don'ts:",
+      "dontRules": {
+        "fonts": "- Don't mix font families; strictly separate body/heading/code roles",
+        "colors": "- Don't use color values outside of the CSS variable system",
+        "motion": "- Don't create custom easing; use `--motion-easing` uniformly",
+        "density": "- Don't ignore density; spacing multipliers should match the current density level"
+      }
+    }
+  },
   "export": {
     "reconstruction": {
       "heading": "### Reconstruction Summary",

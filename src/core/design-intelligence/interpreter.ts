@@ -14,6 +14,7 @@ import {
   buildCompactDesignInterpretationPrompt,
   prepareAnalysisDigestPackageForPrompt,
 } from './prompt.js'
+import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type {
   AnalysisCapabilityLevel,
   AnalysisTiming,
@@ -172,14 +173,27 @@ export async function runInterpretationPipeline(
   const expanded = compactCandidate
     ? expandCompactProfileCandidate(compactCandidate, digestPackage, options.language, options.mode)
     : { profile: extractProfileCandidate(response.text), aliases: [] }
-  const validation = validateDesignProfile(
-    expanded.profile,
-    evidence,
-    options.mode,
-    options.language,
-    listEvidencePackageIds(evidencePackage),
-    options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
-  )
+  const candidateSchemaVersion =
+    expanded.profile && typeof expanded.profile === 'object' && 'schemaVersion' in expanded.profile
+      ? String(expanded.profile.schemaVersion)
+      : null
+  const validation =
+    candidateSchemaVersion === DESIGN_PROFILE_SCHEMA_VERSION
+      ? validateDesignProfile(
+          expanded.profile,
+          evidence,
+          options.mode,
+          options.language,
+          listEvidencePackageIds(evidencePackage),
+          options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
+        )
+      : {
+          profile: null,
+          status: 'failed' as const,
+          rejected: [
+            `root:stale-schemaVersion(${JSON.stringify(candidateSchemaVersion)},expected=${JSON.stringify(DESIGN_PROFILE_SCHEMA_VERSION)})`,
+          ],
+        }
   const evidenceFallback = !validation.profile
   const fallbackReason = `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`
   const validatedProfile =
@@ -321,7 +335,7 @@ export async function interpretDesignEvidence(
       provider: options.provider.provider,
       model: result.model || model,
       generatedAt: new Date().toISOString(),
-      schemaVersion: '1',
+      schemaVersion: result.profile.schemaVersion,
       promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
       pipeline: result.pipeline,
       inputFingerprint: createEvidenceFingerprint(
@@ -331,7 +345,7 @@ export async function interpretDesignEvidence(
         result.model || model,
         evidencePackage.imageIds,
         DESIGN_PROFILE_PROMPT_VERSION,
-        '1',
+        DESIGN_PROFILE_SCHEMA_VERSION,
         options.language,
       ),
       inputImageCount: images.length,

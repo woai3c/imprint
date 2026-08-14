@@ -6,6 +6,8 @@ import {
   isPillRadius,
 } from '../analyzer/component-detect.js'
 import type { ComponentType, ComponentVariant } from '../analyzer/component-detect.js'
+import { focusIndicatorVisibility } from '../design-evidence/interaction-visibility.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { distillInteractionChanges } from './evidence-selector.js'
 import type { EvidencePackage, IntelligenceInputMode, InteractionChange } from './types.js'
@@ -24,7 +26,8 @@ export interface AnalysisDigest {
     role: string
     viewport: string
     images: string[]
-    sectionSequence: string[]
+    sectionSequence: Array<{ role: string; id?: string }>
+    sectionDetailsOmitted?: boolean
     overflow?: {
       viewportWidth: number
       contentWidth: number
@@ -66,7 +69,7 @@ export interface AnalysisDigest {
     pages: string[]
     sampleSize?: { width: number; height: number; shape: 'square' | 'wide' | 'tall' }
     cornerShape?: 'pill' | 'rounded' | 'sharp'
-    exactStyles: Record<string, string>
+    exactStyles: Record<string, string | boolean>
     tokenRefs: string[]
     stateChanges: InteractionChange[]
     sampleEvidenceIds: string[]
@@ -87,6 +90,7 @@ export interface AnalysisDigest {
     trigger: string
     changes: InteractionChange[]
     changedProperties: string[]
+    visibleIndicator?: boolean
   }>
   responsiveFacts: Array<{
     id: string
@@ -216,9 +220,11 @@ function safeExactStyles(styles: Record<string, string>): Record<string, string>
   )
 }
 
-function comparableStyleValue(value: string): string {
-  const color = normalizeColorValue(value)
-  if (color) return color
+function comparableStyleValue(value: string, normalizeColor: boolean): string {
+  if (normalizeColor) {
+    const color = normalizeColorValue(value)
+    if (color) return color
+  }
   const normalized = value.toLowerCase().replace(/\s+/g, ' ').trim()
   const length = normalized.match(/^(-?\d+(?:\.\d+)?)(px|em|rem)$/)
   if (!length) return normalized
@@ -227,9 +233,29 @@ function comparableStyleValue(value: string): string {
   return `${Number(rem.toFixed(4))}rem`
 }
 
+function isStandaloneColorProperty(property: string): boolean {
+  return /^(?:color|backgroundColor|borderColor|outlineColor|textDecorationColor|fill|stroke)$/.test(property)
+}
+
+function tokenRefCompatibleWithStyle(property: string, tokenRef: string): boolean {
+  if (isStandaloneColorProperty(property)) return tokenRef.startsWith('color.')
+  if (property === 'border') return tokenRef.startsWith('border.')
+  if (property === 'borderRadius') return tokenRef.startsWith('radius.')
+  if (property === 'boxShadow') return tokenRef.startsWith('shadow.')
+  if (property === 'fontFamily') return /^typography\.font-(?:family|stack)\./.test(tokenRef)
+  if (property === 'fontSize') return tokenRef.startsWith('typography.font-size.')
+  if (property === 'fontWeight') return tokenRef.startsWith('typography.font-weight.')
+  if (property === 'lineHeight') return tokenRef.startsWith('typography.line-height.')
+  if (property === 'letterSpacing') return tokenRef.startsWith('typography.letter-spacing.')
+  if (/^(?:gap|rowGap|columnGap|padding(?:Top|Right|Bottom|Left)?)$/.test(property)) {
+    return tokenRef.startsWith('spacing.')
+  }
+  return false
+}
+
 function tokenValueByRef(evidence: DesignEvidence): Map<string, string> {
   const result = new Map<string, string>()
-  const add = (ref: string, value: string) => result.set(ref, comparableStyleValue(value))
+  const add = (ref: string, value: string) => result.set(ref, comparableStyleValue(value, ref.startsWith('color.')))
   Object.entries(evidence.tokens.colors).forEach(([name, value]) => add(`color.${name}`, value))
   evidence.tokens.typography.fontFamilies.forEach((value, index) => add(`typography.font-family.${index + 1}`, value))
   evidence.tokens.typography.fontStacks.forEach((value, index) => add(`typography.font-stack.${index + 1}`, value))
@@ -289,7 +315,7 @@ function promptSectionObservedStyles(
 
 function usefulResponsiveProperties(observation: ResponsiveObservation, sectionRole: string): string[] {
   const reusableProperty =
-    /^(?:order|layoutMode|position|display|gridTemplateColumns|childGridTemplateColumns|maxWidth|gap|padding(?:Top|Right|Bottom|Left)?|borderRadius|border(?:Top|Right|Bottom|Left)|boxShadow|interactionModel|node\.[^.]+\.(?:fontSize|lineHeight|display))$/
+    /^(?:sequenceIndex|layoutMode|position|display|gridTemplateColumns|childGridTemplateColumns|maxWidth|gap|padding(?:Top|Right|Bottom|Left)?|borderRadius|border(?:Top|Right|Bottom|Left)|boxShadow|interactionModel|node\.[^.]+\.(?:fontSize|lineHeight|display))$/
   return observation.changedProperties.filter((property) => {
     if (property === 'height') {
       const change = observation.changes?.[property]
@@ -353,8 +379,11 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
   const promptSafeStyles = (styles: Record<string, string>, tokenRefs: string[]): Record<string, string> =>
     Object.fromEntries(
       Object.entries(safeExactStyles(styles)).flatMap(([property, value]) => {
-        const comparable = comparableStyleValue(value)
-        const matchingTokenRef = tokenRefs.find((tokenRef) => knownTokenValues.get(tokenRef) === comparable)
+        const comparable = comparableStyleValue(value, isStandaloneColorProperty(property))
+        const matchingTokenRef = tokenRefs.find(
+          (tokenRef) =>
+            tokenRefCompatibleWithStyle(property, tokenRef) && knownTokenValues.get(tokenRef) === comparable,
+        )
         if (matchingTokenRef) return [[property, tokens.add(matchingTokenRef)]]
         // Exact DOM values such as 9999px radii and negative positioning offsets are useful
         // extraction evidence, but they are not reusable design tokens. Do not expose them to
@@ -382,13 +411,24 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
       10,
     )
 
+  const allSectionsById = new Map(evidence.sections.map((section) => [section.id, section]))
   const pages = selected.pages.map((page) => {
-    const sectionSequence = selected.sections
-      .filter((section) => section.pageId === page.id)
-      .sort((first, second) => first.order - second.order)
-      .map((section) => sectionShortId(section.id))
+    const topologySectionIds =
+      evidence.topology.pages.find((candidate) => candidate.pageId === page.id)?.sectionIds || []
+    const sectionSequence = topologySectionIds.flatMap((sectionId) => {
+      const section = allSectionsById.get(sectionId)
+      if (!section) return []
+      return [
+        {
+          role: section.role,
+          ...(selectedSectionIds.has(section.id) ? { id: sectionShortId(section.id) } : {}),
+        },
+      ]
+    })
+    const sectionDetailsOmitted = sectionSequence.some((section) => !section.id)
     const limitations: string[] = []
     if (page.horizontalOverflow) limitations.push('horizontal-overflow-observed')
+    if (hasSevereHorizontalOverflow(page)) limitations.push('inference-excluded:severe-horizontal-overflow')
     for (const issue of page.health?.issues || []) limitations.push(`page-health:${issue.code}`)
     if (selected.coverage.accessRestrictions.includes('auth-wall-resolved-by-managed-access')) {
       limitations.push('authenticated-managed-capture')
@@ -403,6 +443,7 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
         return shortId ? [shortId] : []
       }),
       sectionSequence,
+      ...(sectionDetailsOmitted ? { sectionDetailsOmitted: true } : {}),
       ...(page.horizontalOverflow && page.viewportWidth && page.contentWidth
         ? {
             overflow: {
@@ -539,10 +580,18 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
           ),
           ...(sampleSize ? { sampleSize } : {}),
           cornerShape,
-          exactStyles: promptSafeStyles(
-            group[0].styles,
-            group.flatMap((component) => component.tokenRefs),
-          ),
+          exactStyles: {
+            ...promptSafeStyles(
+              group[0].styles,
+              group.flatMap((component) => component.tokenRefs),
+            ),
+            ...(Object.hasOwn(sample.styles, 'border')
+              ? { borderVisible: hasVisibleBorder(sample.styles.border) }
+              : {}),
+            ...(Object.hasOwn(sample.styles, 'boxShadow')
+              ? { shadowVisible: hasVisibleShadow(sample.styles.boxShadow) }
+              : {}),
+          },
           tokenRefs: tokenShortIds(group.flatMap((component) => component.tokenRefs)),
           stateChanges: relatedInteractions.flatMap(distillInteractionChanges).slice(0, 6),
           sampleEvidenceIds: samples.map((component) => ids.evidenceShortIdMap.get(component.id)!),
@@ -568,15 +617,23 @@ export function buildAnalysisDigest(evidence: DesignEvidence, evidencePackage: E
   }))
 
   const sectionById = new Map(selected.sections.map((section) => [section.id, section]))
-  const interactionFacts = selected.interactionObservations.slice(0, 12).map((observation) => ({
-    id: ids.evidenceShortIdMap.get(observation.id)!,
-    section: sectionShortId(observation.sectionId),
-    driver: observation.driver,
-    safety: observation.safety,
-    trigger: observation.trigger.kind,
-    changes: observation.changes.slice(0, 6),
-    changedProperties: observation.changedProperties.slice(0, 8),
-  }))
+  const fullInteractionsById = new Map(
+    evidence.interactionObservations.map((observation) => [observation.id, observation]),
+  )
+  const interactionFacts = selected.interactionObservations.slice(0, 12).map((observation) => {
+    const fullObservation = fullInteractionsById.get(observation.id)
+    const visibility = fullObservation ? focusIndicatorVisibility(fullObservation) : null
+    return {
+      id: ids.evidenceShortIdMap.get(observation.id)!,
+      section: sectionShortId(observation.sectionId),
+      driver: observation.driver,
+      safety: observation.safety,
+      trigger: observation.trigger.kind,
+      changes: observation.changes.slice(0, 6),
+      changedProperties: observation.changedProperties.slice(0, 8),
+      ...(visibility !== null ? { visibleIndicator: visibility } : {}),
+    }
+  })
   const responsiveFacts = selected.responsiveObservations
     .slice(0, 24)
     .flatMap((observation) => {

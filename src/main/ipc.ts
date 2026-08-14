@@ -26,6 +26,7 @@ import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   DESIGN_PROFILE_PROMPT_VERSION,
+  DESIGN_PROFILE_SCHEMA_VERSION,
   buildAnalysisDigest,
   createEvidenceFingerprint,
   createInterpretationCacheKey,
@@ -111,7 +112,7 @@ function createIntelligenceCacheKey(
     thinkingEnabled: settings.thinkingEnabled === true,
     language,
     promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
-    schemaVersion: '1',
+    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
     accessMode,
   })
 }
@@ -1022,7 +1023,7 @@ export function registerIpcHandlers() {
       route.model,
       expectedImageIds,
       DESIGN_PROFILE_PROMPT_VERSION,
-      '1',
+      DESIGN_PROFILE_SCHEMA_VERSION,
       outputLanguage,
     )
     const cacheKey = createIntelligenceCacheKey(
@@ -1038,7 +1039,7 @@ export function registerIpcHandlers() {
       (existingMeta.status === 'complete' || existingMeta.status === 'partial') &&
       existingMeta.cacheKey === cacheKey &&
       existingMeta.inputFingerprint === expectedFingerprint &&
-      existingMeta.schemaVersion === '1' &&
+      existingMeta.schemaVersion === DESIGN_PROFILE_SCHEMA_VERSION &&
       existingMeta.promptVersion === DESIGN_PROFILE_PROMPT_VERSION
     ) {
       const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile

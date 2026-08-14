@@ -79,12 +79,21 @@ describe('shared action and status role candidates', () => {
 
   test.each([
     [{ tagName: 'input', type: 'submit', isCandidateRoot: true }, 'primary-action'],
-    [{ tagName: 'button', text: '确认', isCandidateRoot: true }, 'primary-action'],
-    [{ tagName: 'button', text: 'Delete', isCandidateRoot: true }, 'destructive-action'],
-    [{ tagName: 'button', text: '删除', isCandidateRoot: true }, 'destructive-action'],
-  ] as const)('preserves submit, confirmation, and destructive semantics for %o', (candidate, role) => {
+    [{ tagName: 'button', dataIntent: 'primary', text: 'متابعة', isCandidateRoot: true }, 'primary-action'],
+    [{ tagName: 'button', dataIntent: 'destructive', text: '削除', isCandidateRoot: true }, 'destructive-action'],
+    [{ tagName: 'button', className: 'danger', text: 'Eliminar', isCandidateRoot: true }, 'destructive-action'],
+  ] as const)('uses machine semantics consistently for %o', (candidate, role) => {
     expect(classifyRoleCandidate(candidate)).toMatchObject({ role })
   })
+
+  test.each(['确认', 'Delete', '删除', 'Eliminar', '削除', 'حذف'])(
+    'does not derive action intent from localized visible text: %s',
+    (text) => {
+      expect(classifyRoleCandidate({ tagName: 'button', text, isCandidateRoot: true })).toMatchObject({
+        role: 'action',
+      })
+    },
+  )
 
   test('does not treat generic button text mentioning status as a status color', () => {
     expect(

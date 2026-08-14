@@ -27,9 +27,6 @@ export async function detectAuthWall(page: Page, responseStatus?: number): Promi
 
   const signals = await page
     .evaluate(() => {
-      const loginPattern =
-        /登录|登入|登錄|登陆|扫码|掃碼|sign\s*in|log\s*in|authenticate|authentication|connexion|anmelden/i
-
       const isVisible = (element: Element): boolean => {
         const htmlElement = element as HTMLElement
         const style = window.getComputedStyle(htmlElement)
@@ -46,35 +43,45 @@ export async function detectAuthWall(page: Page, responseStatus?: number): Promi
       const visiblePasswordInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(isVisible)
       const visibleInputs = Array.from(document.querySelectorAll('input, button, select, textarea')).filter(isVisible)
       const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim()
-      const verificationPattern =
-        /验证码|驗證碼|短信|簡訊|手机|手機|手机号|手機號|verification\s*code|one[-\s]*time|phone|mobile/i
-      const credentialFieldPattern =
-        /账号|帳號|用户名|使用者名稱|邮箱|郵箱|手机|手機|手机号|手機號|验证码|驗證碼|account|username|e-?mail|phone|mobile|verification/i
       const credentialInputs = Array.from(document.querySelectorAll('input'))
         .filter(isVisible)
         .filter((element) => {
           const input = element as HTMLInputElement
           const type = input.type.toLowerCase()
           const autocomplete = input.autocomplete.toLowerCase()
-          const fieldText = [input.name, input.placeholder, input.getAttribute('aria-label') || ''].join(' ')
           return (
             type === 'password' ||
             type === 'email' ||
             type === 'tel' ||
-            /username|current-password|one-time-code|email|tel/.test(autocomplete) ||
-            credentialFieldPattern.test(fieldText)
+            ['username', 'current-password', 'new-password', 'one-time-code', 'email', 'tel'].includes(autocomplete)
           )
         })
-      const actionText = Array.from(
+      const strongCredentialInputs = credentialInputs.filter((element) => {
+        const input = element as HTMLInputElement
+        return (
+          input.type.toLowerCase() === 'password' ||
+          ['username', 'current-password', 'new-password', 'one-time-code'].includes(input.autocomplete.toLowerCase())
+        )
+      })
+      const machineAuthPattern = /(?:^|[\s_-])(?:auth|login|signin|sign-in|sso|passport)(?:$|[\s_-])/i
+      const isAuthForm = (form: HTMLFormElement): boolean => {
+        const identity = [
+          form.id,
+          typeof form.className === 'string' ? form.className : '',
+          form.getAttribute('data-testid') || '',
+          form.getAttribute('data-purpose') || '',
+          form.getAttribute('action') || '',
+        ].join(' ')
+        return machineAuthPattern.test(identity) || Boolean(form.querySelector('input[type="password"]'))
+      }
+      const visibleForms = Array.from(document.querySelectorAll('form')).filter(isVisible)
+      const visibleAuthForms = visibleForms.filter(isAuthForm)
+      const hasSubmitControl = Array.from(
+        document.querySelectorAll('button[type="submit"], input[type="submit"], form button:not([type])'),
+      ).some(isVisible)
+      const hasActionControl = Array.from(
         document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]'),
-      )
-        .filter(isVisible)
-        .map((element) => (element instanceof HTMLInputElement ? element.value : element.textContent || ''))
-        .join(' ')
-      const headingText = Array.from(document.querySelectorAll('h1, h2, [role="heading"]'))
-        .filter(isVisible)
-        .map((element) => element.textContent || '')
-        .join(' ')
+      ).some(isVisible)
 
       const dialogSelectors = [
         'dialog[open]',
@@ -91,25 +98,25 @@ export async function detectAuthWall(page: Page, responseStatus?: number): Promi
         .some((element) => {
           const rect = element.getBoundingClientRect()
           const style = window.getComputedStyle(element)
-          const text = element.textContent || ''
           const coversEnoughSpace = (rect.width * rect.height) / viewportArea >= 0.2
           const overlaysContent =
             style.position === 'fixed' || style.position === 'sticky' || element.tagName === 'DIALOG'
-          return loginPattern.test(text) && coversEnoughSpace && overlaysContent
+          const containsCredential = Boolean(
+            element.querySelector(
+              'input[type="password"], input[autocomplete="username"], input[autocomplete="current-password"], input[autocomplete="one-time-code"]',
+            ),
+          )
+          const containsAuthForm = Array.from(element.querySelectorAll('form')).some((form) =>
+            isAuthForm(form as HTMLFormElement),
+          )
+          return (containsCredential || containsAuthForm) && coversEnoughSpace && overlaysContent
         })
 
-      const hasLoginHeading = loginPattern.test(headingText)
-      const hasLoginForm = Array.from(document.querySelectorAll('form'))
-        .filter(isVisible)
-        .some((form) => loginPattern.test(form.textContent || '') || form.querySelector('input[type="password"]'))
-      const hasLoginAction = loginPattern.test(actionText)
-      const hasVerificationEvidence = verificationPattern.test(bodyText)
       const compactAuthSurface = bodyText.length > 0 && bodyText.length < 5000 && visibleInputs.length <= 30
-      const loginOnlyPage =
-        compactAuthSurface &&
-        ((hasLoginHeading && (hasLoginForm || credentialInputs.length > 0)) ||
-          (hasLoginForm && hasLoginAction) ||
-          (hasLoginAction && credentialInputs.length > 0 && (hasVerificationEvidence || credentialInputs.length >= 2)))
+      const hasCredentialFlow =
+        strongCredentialInputs.length > 0 &&
+        ((credentialInputs.length > 0 && hasSubmitControl) || (credentialInputs.length >= 2 && hasActionControl))
+      const loginOnlyPage = compactAuthSurface && (visibleAuthForms.length > 0 || hasCredentialFlow)
 
       return {
         blockingLoginDialog,

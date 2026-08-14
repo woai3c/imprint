@@ -106,10 +106,25 @@
     "status": "Status",
     "evidenceFallbackNotice": "> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.",
     "partialNotice": "> Some AI fields failed deterministic validation and were omitted, demoted, or replaced with evidence fallbacks; review before use.",
+    "coverageRepair": {
+      "name": "Structural evidence coverage repair",
+      "distinctiveness": "Restores only required fields removed by validation; the full AI interpretation did not fall back.",
+      "component": {
+        "buttonVariants": "Observed button variants in canonical page captures: {{variants}}.",
+        "canonicalCount": "Observed {{count}} {{type}} instances in canonical page captures.",
+        "cardCount": "Observed {{count}} {{type}} instances in the {{style}} family in canonical page captures.",
+        "buttonImplementation": "Preserve each variant's fill, foreground, border, radius, and element kind{{elementKinds}}; do not promote one variant to a global button rule.",
+        "genericImplementation": "Base the implementation on the cited instances and token combinations; separately verify unexecuted states.",
+        "evidenceNote": "Programmatically extracted component evidence",
+        "observedRole": "Observed {{type}} component",
+        "cardRole": "Observed {{type}} family ({{style}})"
+      }
+    },
     "labels": {
       "confidence": "Confidence",
       "evidence": "Evidence",
-      "tokens": "Token refs"
+      "tokens": "Token refs",
+      "assertions": "Validated assertions"
     },
     "sections": {
       "thesis": "Design Thesis",
@@ -393,6 +408,12 @@
     }
   },
   "intelligence": {
+    "assertions": {
+      "unsupportedStatement": "This interpretation was removed because its structured assertion did not match the extracted facts.",
+      "unsupportedImplementation": "Use only the cited extracted evidence and verify the intended rule before implementation.",
+      "evidenceNote": "Programmatically extracted page evidence",
+      "digestEvidenceNote": "Digest evidence {{id}}"
+    },
     "componentShape": {
       "names": {
         "primary": "primary button",

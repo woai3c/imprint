@@ -256,6 +256,55 @@ function rawProfile(mode: 'structural-only' | 'multimodal' = 'structural-only') 
   }
 }
 
+function structuredProfile(): DesignProfile {
+  const profile = rawProfile() as unknown as DesignProfile
+  profile.schemaVersion = '2'
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    if (
+      typeof record.statement === 'string' &&
+      typeof record.implementation === 'string' &&
+      Array.isArray(record.evidence)
+    ) {
+      const evidenceIds = record.evidence.flatMap((reference) =>
+        reference &&
+        typeof reference === 'object' &&
+        typeof (reference as { evidenceId?: unknown }).evidenceId === 'string'
+          ? [(reference as { evidenceId: string }).evidenceId]
+          : [],
+      )
+      record.assertions = [
+        {
+          kind: 'evidence',
+          target: 'design-thesis',
+          predicate: 'supports',
+          scope: 'instance',
+          evidenceIds,
+        },
+      ]
+    }
+    Object.entries(record).forEach(([key, item]) => {
+      if (key !== 'assertions') visit(item)
+    })
+  }
+  visit(profile)
+  profile.componentGrammar[0].rules[0].assertions = [
+    {
+      kind: 'component',
+      target: 'button',
+      predicate: 'present',
+      scope: 'instance',
+      evidenceIds: ['component-a'],
+    },
+  ]
+  return profile
+}
+
 function multiUrlEvidence(): DesignEvidence {
   return {
     ...evidence,
@@ -266,6 +315,293 @@ function multiUrlEvidence(): DesignEvidence {
 }
 
 describe('Design intelligence', () => {
+  it('validates schema v2 facts without interpreting the prose language', () => {
+    const profile = structuredProfile()
+    const rule = profile.componentGrammar[0].rules[0]
+    rule.statement = 'زر الإجراء ظاهر في القسم الرئيسي.'
+    rule.implementation = 'ヘルプ文は任意の言語で表現できる。'
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.componentGrammar[0].rules[0].statement).toBe(rule.statement)
+    expect(checked.rejected).not.toEqual(expect.arrayContaining([expect.stringContaining('component-fact-mismatch')]))
+  })
+
+  it('rejects a false schema v2 assertion regardless of localized prose', () => {
+    const profile = structuredProfile()
+    profile.transferRules.adapt[0] = {
+      ...profile.transferRules.adapt[0],
+      statement: 'モバイルでは要素が非表示になります。',
+      implementation: 'تُخفى الكتلة في العرض الضيق.',
+      evidence: [{ evidenceId: 'responsive-a', note: 'Viewport observation' }],
+      assertions: [
+        {
+          kind: 'responsive',
+          target: 'hero',
+          predicate: 'visibility-hidden',
+          scope: 'instance',
+          evidenceIds: ['responsive-a'],
+        },
+      ],
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.transferRules.adapt).toEqual([])
+    expect(checked.rejected).toContain('transferRules.adapt.0.assertions.0:responsive-fact-mismatch')
+  })
+
+  it('rejects a false visible-focus assertion regardless of localized prose', () => {
+    const focusEvidence = structuredClone(evidence)
+    focusEvidence.interactionObservations = [
+      {
+        id: 'interaction-focus-hidden',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'target-focus',
+        driver: 'focus',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo' },
+        before: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': 'rgba(0, 0, 0, 0)',
+          'box-shadow': '0 0 0 2px rgba(0, 0, 0, 0)',
+        },
+        after: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': '#2563eb',
+          'box-shadow': '0 0 0 2px rgba(0, 0, 0, 0)',
+        },
+        changedProperties: ['outline-color'],
+        evidenceRefs: ['section-a'],
+      },
+    ]
+    const profile = structuredProfile()
+    profile.interactionLanguage.primaryDrivers = [
+      {
+        ...profile.interactionLanguage.primaryDrivers[0],
+        statement: 'يظهر مؤشر تركيز واضح عند استخدام لوحة المفاتيح.',
+        implementation: 'フォーカス時に見えるリングを表示する。',
+        evidence: [{ evidenceId: 'interaction-focus-hidden', note: 'Observed focus declaration' }],
+        assertions: [
+          {
+            kind: 'interaction',
+            target: 'focus',
+            predicate: 'visible-indicator',
+            value: true,
+            scope: 'instance',
+            evidenceIds: ['interaction-focus-hidden'],
+          },
+        ],
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, focusEvidence)
+
+    expect(checked.profile.interactionLanguage.primaryDrivers).toEqual([])
+    expect(checked.rejected).toContain('interactionLanguage.primaryDrivers.0.assertions.0:interaction-fact-mismatch')
+  })
+
+  it('rejects an entire structured claim when any assertion is syntactically invalid', () => {
+    const profile = structuredProfile()
+    const rule = profile.componentGrammar[0].rules[0]
+    rule.assertions = [
+      {
+        kind: 'component',
+        target: 'button',
+        predicate: 'present',
+        scope: 'instance',
+        evidenceIds: ['component-a'],
+      },
+      {
+        kind: 'component',
+        target: 'button',
+        predicate: 'invented-predicate',
+        scope: 'instance',
+        evidenceIds: ['component-a'],
+      } as unknown as NonNullable<typeof rule.assertions>[number],
+    ]
+
+    const validation = validateDesignProfile(profile, evidence, 'structural-only', 'en')
+
+    expect(validation.profile?.componentGrammar).toEqual([])
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'componentGrammar.0.rules.0.assertions.1:invalid-assertion',
+        'componentGrammar.0.rules.0:invalid-structured-assertion',
+      ]),
+    )
+  })
+
+  it('rejects a focus claim that omits the deterministic visibility result', () => {
+    const focusEvidence = structuredClone(evidence)
+    focusEvidence.interactionObservations = [
+      {
+        id: 'interaction-focus-hidden',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'target-focus',
+        driver: 'focus',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo' },
+        before: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': 'rgba(0, 0, 0, 0)',
+          'box-shadow': 'none',
+        },
+        after: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': '#2563eb',
+          'box-shadow': 'none',
+        },
+        changedProperties: ['outline-color'],
+        evidenceRefs: ['section-a'],
+      },
+    ]
+    const profile = structuredProfile()
+    profile.interactionLanguage.primaryDrivers = [
+      {
+        ...profile.interactionLanguage.primaryDrivers[0],
+        statement: '焦点样式提供了键盘操作反馈。',
+        implementation: 'Use the declared focus treatment as keyboard feedback.',
+        evidence: [{ evidenceId: 'interaction-focus-hidden', note: 'Observed focus declaration' }],
+        assertions: [
+          {
+            kind: 'interaction',
+            target: 'focus',
+            predicate: 'property-change',
+            property: 'outline-color',
+            scope: 'instance',
+            evidenceIds: ['interaction-focus-hidden'],
+          },
+        ],
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, focusEvidence)
+
+    expect(checked.profile.interactionLanguage.primaryDrivers).toEqual([])
+    expect(checked.rejected).toContain('interactionLanguage.primaryDrivers.0:missing-focus-visibility-assertion')
+  })
+
+  it('rejects a secondary-button claim that omits observed border visibility', () => {
+    const borderlessEvidence = structuredClone(evidence)
+    borderlessEvidence.components[0] = {
+      ...borderlessEvidence.components[0],
+      styles: {
+        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+        color: '#2563eb',
+        border: '0px none #2563eb',
+        borderRadius: '9999px',
+        padding: '8px 18px',
+      },
+    }
+    const profile = structuredProfile()
+    profile.signatureMoves = [
+      {
+        ...profile.signatureMoves[0],
+        statement: '次要行动采用蓝色描边药丸按钮。',
+        implementation: 'Apply a visible blue outline to the cited secondary button.',
+        evidence: [{ evidenceId: 'component-a', note: 'Observed secondary control' }],
+        assertions: [
+          {
+            kind: 'component',
+            target: 'button',
+            predicate: 'variant',
+            value: 'secondary',
+            scope: 'instance',
+            evidenceIds: ['component-a'],
+          },
+          {
+            kind: 'component',
+            target: 'button',
+            predicate: 'corner-shape',
+            value: 'pill',
+            scope: 'instance',
+            evidenceIds: ['component-a'],
+          },
+        ],
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, borderlessEvidence)
+
+    expect(checked.profile.signatureMoves).toEqual([])
+    expect(checked.rejected).toContain('signatureMoves.0:missing-secondary-border-assertion')
+  })
+
+  it('rejects structured token references that belong to a different design dimension', () => {
+    const profile = structuredProfile()
+    profile.composition.rhythm.tokenRefs = ['color.primary']
+
+    const validation = validateDesignProfile(profile, evidence, 'structural-only', 'en')
+
+    expect(validation.rejected).toContain('composition.rhythm:token-role-mismatch')
+    expect(validation.profile?.composition.rhythm.tokenRefs || []).not.toContain('color.primary')
+  })
+
+  it('accepts direct schema v2 responsive facts and validates cross-page scope by URL', () => {
+    const responsiveEvidence = structuredClone(evidence)
+    responsiveEvidence.responsiveObservations[0] = {
+      ...responsiveEvidence.responsiveObservations[0],
+      changeType: 'visibility',
+      changedProperties: ['display'],
+      changes: { display: { from: 'block', to: 'none' } },
+    }
+    const profile = structuredProfile()
+    profile.transferRules.adapt[0] = {
+      ...profile.transferRules.adapt[0],
+      evidence: [{ evidenceId: 'responsive-a', note: 'Direct visibility observation' }],
+      assertions: [
+        {
+          kind: 'responsive',
+          target: 'hero',
+          predicate: 'visibility-hidden',
+          scope: 'instance',
+          evidenceIds: ['responsive-a'],
+        },
+      ],
+    }
+    profile.thesis.assertions = [
+      {
+        kind: 'evidence',
+        target: 'design-thesis',
+        predicate: 'supports',
+        scope: 'cross-page',
+        evidenceIds: ['section-a', 'section-b'],
+      },
+    ]
+
+    const sameUrl = checkProfileContradictions(profile, responsiveEvidence)
+    expect(sameUrl.rejected).toContain('thesis.assertions.0:unsupported-cross-page-scope')
+
+    const crossUrlEvidence = multiUrlEvidence()
+    crossUrlEvidence.responsiveObservations = responsiveEvidence.responsiveObservations
+    const crossUrl = checkProfileContradictions(profile, crossUrlEvidence)
+    expect(crossUrl.profile.thesis.statement).toBe(profile.thesis.statement)
+    expect(crossUrl.profile.transferRules.adapt).toHaveLength(1)
+    expect(crossUrl.rejected).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('unsupported-cross-page-scope')]),
+    )
+  })
+
+  it('validates arbitrary-language schema v2 prose when its assertions are well formed', () => {
+    const profile = structuredProfile()
+    profile.thesis.statement = 'تتدرج الصفحة بصريًا من المقدمة إلى المحتوى.'
+    profile.thesis.implementation = '構造化された証拠に従って階層を実装する。'
+    profile.attention.visualSequence = []
+
+    const validation = validateDesignProfile(profile, evidence, 'structural-only', 'en')
+
+    expect(validation.profile?.schemaVersion).toBe('2')
+    expect(validation.profile?.thesis.statement).toBe(profile.thesis.statement)
+    expect(validation.rejected).not.toEqual(expect.arrayContaining([expect.stringContaining('invalid-statement')]))
+  })
+
   it('keeps safe structural section treatments in synthesis and repair evidence', () => {
     const structuralEvidence = structuredClone(evidence)
     structuralEvidence.sections[0].observedStyles = {
@@ -537,6 +873,79 @@ describe('Design intelligence', () => {
     expect(new Set(selected.evidence.pages.map((page) => page.url)).size).toBe(2)
   })
 
+  it('keeps an overflowing capture as a limitation but excludes its details from inference', () => {
+    const overflowEvidence: DesignEvidence = {
+      ...evidence,
+      pages: [
+        ...evidence.pages,
+        {
+          id: 'page-c',
+          url: 'https://example.com/column-square',
+          viewport: 'desktop',
+          role: 'content',
+          images: [],
+        },
+        {
+          id: 'page-d',
+          url: 'https://example.com/column-square',
+          viewport: 'mobile',
+          role: 'content',
+          viewportWidth: 375,
+          contentWidth: 1_032,
+          horizontalOverflow: true,
+          horizontalOverflowSources: [
+            {
+              locator: 'main > section',
+              overflowPx: 657,
+              width: 1_032,
+              position: 'static',
+              sectionId: 'section-d',
+              sectionRole: 'content',
+            },
+          ],
+          images: [],
+        },
+      ],
+      sections: [
+        ...evidence.sections,
+        {
+          ...evidence.sections[0],
+          id: 'section-d',
+          pageId: 'page-d',
+          role: 'content',
+          componentRefs: [],
+          evidenceRefs: [],
+        },
+      ],
+      topology: {
+        ...evidence.topology,
+        pages: [
+          ...evidence.topology.pages,
+          { pageId: 'page-c', role: 'content', sectionIds: [] },
+          { pageId: 'page-d', role: 'content', sectionIds: ['section-d'] },
+        ],
+      },
+    }
+
+    const selected = selectEvidencePackage(overflowEvidence, 'structural-only', { maxPages: 2 })
+
+    expect(selected.selectedPageIds).toEqual(['page-a', 'page-b', 'page-c', 'page-d'])
+    expect(selected.selectedSectionIds).not.toContain('section-d')
+    expect(selected.evidence.pages.find((page) => page.id === 'page-d')).toMatchObject({
+      horizontalOverflow: true,
+      viewportWidth: 375,
+      contentWidth: 1_032,
+    })
+    expect(selected.omittedEvidence).toContainEqual({
+      kind: 'capture-details',
+      reason: 'severe-horizontal-overflow',
+    })
+    const digest = buildAnalysisDigest(overflowEvidence, selected).digest
+    expect(digest.pages.find((page) => page.overflow?.contentWidth === 1_032)?.limitations).toContain(
+      'inference-excluded:severe-horizontal-overflow',
+    )
+  })
+
   it('round-robins section evidence across selected URLs', () => {
     const crossPageEvidence: DesignEvidence = {
       ...evidence,
@@ -753,6 +1162,7 @@ describe('Design intelligence', () => {
       ...claim('所有内容模块都是白色卡片。'),
       implementation: '模块一律放进白色卡片，每个按钮都使用蓝色填充。',
       confidence: 'high',
+      evidence: [{ evidenceId: 'image-a', note: 'Visible module composition' }],
     }
 
     const checked = checkProfileContradictions(profile, evidence)
@@ -854,20 +1264,72 @@ describe('Design intelligence', () => {
     expect(checked.rejected).toContain('attention.actionHierarchy:button-outline-contradiction')
   })
 
+  it('recognizes an outlined pill phrase and rejects a borderless cited button', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.attention.actionHierarchy = {
+      ...claim('蓝色实心或蓝色描边的 pill 按钮形成行动层级。'),
+      implementation: '次要操作沿用蓝色描边的胶囊按钮。',
+      evidence: [{ evidenceId: 'component-a', note: '观察到的按钮' }],
+    }
+    const borderlessEvidence = structuredClone(evidence)
+    borderlessEvidence.components[0] = {
+      ...borderlessEvidence.components[0],
+      styles: {
+        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+        color: '#2563eb',
+        border: '0px none #2563eb',
+        borderRadius: '999px',
+      },
+    }
+
+    const checked = checkProfileContradictions(profile, borderlessEvidence)
+
+    expect(checked.profile.attention.actionHierarchy.confidence).toBe('low')
+    expect(checked.rejected).toContain('attention.actionHierarchy:button-outline-contradiction')
+  })
+
+  it('rejects component claims cited only by another component type while allowing image evidence', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.visualLanguage.surfaces = {
+      ...claim('Cards use elevated rounded surfaces.'),
+      implementation: 'Apply the observed card shadow and corner treatment.',
+      evidence: [{ evidenceId: 'section-a', note: 'Section containing only an unrelated button' }],
+    }
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.visualLanguage.surfaces.statement).toBe(
+      'The exact boundary of this rule is not supported by deterministic evidence.',
+    )
+    expect(checked.rejected).toContain('visualLanguage.surfaces:component-type-not-cited(card)')
+
+    const imageProfile = rawProfile() as unknown as DesignProfile
+    imageProfile.visualLanguage.surfaces = {
+      ...claim('Cards use elevated rounded surfaces.'),
+      implementation: 'Apply the visible card shadow and corner treatment.',
+      evidence: [{ evidenceId: 'image-a', note: 'Visible surface composition' }],
+    }
+    const imageChecked = checkProfileContradictions(imageProfile, evidence)
+
+    expect(imageChecked.profile.visualLanguage.surfaces.statement).toContain('Cards use elevated')
+    expect(imageChecked.rejected).not.toContain('visualLanguage.surfaces:component-type-not-cited(card)')
+  })
+
   it('repairs universal button radius and shadow claims when observed variants contradict them', () => {
     const profile = rawProfile() as unknown as DesignProfile
     profile.language = 'zh-CN'
     profile.visualLanguage.shape = {
       ...claim('形状语言以紧凑表面为主。'),
-      implementation: '卡片、按钮、输入框统一小圆角。',
+      implementation: '按钮统一小圆角。',
     }
     profile.visualLanguage.surfaces = {
-      ...claim('按钮默认无阴影，仅浮层卡片使用浅阴影。'),
+      ...claim('按钮默认无阴影。'),
       implementation: '按钮与导航一律 boxShadow:none。',
     }
     profile.transferRules.preserve[0] = {
       ...claim('保留小圆角与无阴影按钮的扁平表面语言。'),
-      implementation: '按钮与输入框维持小圆角、boxShadow:none。',
+      implementation: '按钮维持小圆角、boxShadow:none。',
     }
     const variantEvidence = structuredClone(evidence)
     variantEvidence.components = [
@@ -985,6 +1447,7 @@ describe('Design intelligence', () => {
     }
     const borderEvidence = structuredClone(evidence)
     borderEvidence.tokens.borders = ['1px solid #e5e7eb']
+    borderEvidence.components[0].type = 'card'
     borderEvidence.components[0].tokenRefs.push('border.1')
 
     const checked = checkProfileContradictions(profile, borderEvidence)
@@ -1071,6 +1534,23 @@ describe('Design intelligence', () => {
     expect(validation.profile?.transferRules.avoid[0].evidence[0].evidenceId).toBe('section-b')
     expect(validation.rejected).toContain('transferRules.avoid.0:overflow-evidence-scope-repaired')
 
+    const scopedRaw = rawProfile()
+    scopedRaw.transferRules.avoid = [
+      {
+        ...claim('Avoid preserving the horizontal overflow observed on the narrow capture.'),
+        evidence: [{ evidenceId: 'section-a', note: 'Unrelated selected section' }],
+      },
+    ]
+    const scopedValidation = validateDesignProfile(
+      scopedRaw,
+      overflowEvidence,
+      'structural-only',
+      'en',
+      new Set(['section-a']),
+    )
+    expect(scopedValidation.profile?.transferRules.avoid[0].evidence[0].evidenceId).toBe('section-b')
+    expect(scopedValidation.rejected).toContain('transferRules.avoid.0:overflow-evidence-scope-repaired')
+
     const profile = rawProfile() as unknown as DesignProfile
     profile.language = 'zh-CN'
     profile.uncertainties = [
@@ -1120,13 +1600,23 @@ describe('Design intelligence', () => {
     }
     contradictionEvidence.responsiveObservations[0] = {
       ...contradictionEvidence.responsiveObservations[0],
-      changedProperties: ['layoutMode', 'position', 'height', 'borderBottom', 'boxShadow'],
+      changedProperties: [
+        'layoutMode',
+        'position',
+        'height',
+        'borderBottom',
+        'boxShadow',
+        'node.action.lineHeight',
+        'node.media.lineHeight',
+      ],
       changes: {
         layoutMode: { from: 'flow', to: 'fixed' },
         position: { from: 'relative', to: 'fixed' },
         height: { from: '62px', to: '53px' },
         borderBottom: { from: '0px none #111827', to: '1px solid #e5e7eb' },
         boxShadow: { from: 'none', to: '0 1px 3px rgba(0, 0, 0, 0.1)' },
+        'node.action.lineHeight': { from: 'normal', to: '50px' },
+        'node.media.lineHeight': { from: 'normal', to: '50px' },
       },
     }
     const profile = rawProfile() as unknown as DesignProfile
@@ -1164,6 +1654,8 @@ describe('Design intelligence', () => {
       expect.arrayContaining([expect.objectContaining({ evidenceId: 'responsive-a' })]),
     )
     expect(checked.profile.sectionGrammar[0].transitionToNext[0].statement).toMatch(/定位|下边框|阴影/)
+    expect(checked.profile.sectionGrammar[0].transitionToNext[0].statement).toContain('行高 (action)')
+    expect(checked.profile.sectionGrammar[0].transitionToNext[0].statement).toContain('行高 (media)')
     expect(checked.rejected).toEqual(
       expect.arrayContaining([
         'componentGrammar.0.rules.0:primary-pill-shape-sanitized',
@@ -1234,6 +1726,23 @@ describe('Design intelligence', () => {
     expect(rule.statement).toContain('主按钮包含胶囊变体')
     expect(rule.statement).not.toContain('都使用胶囊形状')
     expect(checked.rejected).toContain('componentGrammar.0.rules.0:mixed-pill-shape-sanitized')
+  })
+
+  it('rejects an avoid rule that tells the same button variants to both avoid and preserve a shape', () => {
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.language = 'zh-CN'
+    profile.transferRules.avoid = [
+      {
+        ...claim('避免把图标与文本按钮改成直角。'),
+        implementation: '小尺寸 icon/text 按钮保持 sharp 与 box-shadow:none。',
+        evidence: [{ evidenceId: 'component-a', note: '按钮证据' }],
+      },
+    ]
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.transferRules.avoid).toHaveLength(0)
+    expect(checked.rejected).toContain('transferRules.avoid.0:internally-contradictory-shape-directive')
   })
 
   it('repairs uncertainty text that understates observed mobile captures and section sequences', () => {
@@ -1473,7 +1982,10 @@ describe('Design intelligence', () => {
     profile.attention.visualSequence = []
     profile.sectionGrammar.push({ role: 'content', composition: [], contentRhythm: [], transitionToNext: [] })
     profile.interactionLanguage.primaryDrivers = []
-    profile.componentGrammar = [{ component: 'button', role: 'primary action', rules: [] }]
+    profile.componentGrammar = [
+      { component: 'button', role: 'primary action', rules: [] },
+      { component: 'button', role: 'duplicate empty shell', rules: [] },
+    ]
     profile.transferRules = { preserve: [], adapt: [], avoid: [] }
 
     const repaired = repairProfileCoverage(profile, evidence)
@@ -1497,6 +2009,8 @@ describe('Design intelligence', () => {
         evidence: [expect.objectContaining({ evidenceId: 'component-a' })],
       }),
     ])
+    expect(repaired.profile.componentGrammar.filter((component) => component.component === 'button')).toHaveLength(1)
+    expect(repaired.repaired.filter((path) => path === 'componentGrammar.button')).toHaveLength(1)
     expect(repaired.profile.transferRules.preserve.length).toBeGreaterThan(0)
     expect(repaired.profile.transferRules.adapt.length).toBeGreaterThan(0)
     expect(repaired.profile.transferRules.avoid.length).toBeGreaterThan(0)
@@ -1529,6 +2043,49 @@ describe('Design intelligence', () => {
         statement: expect.stringContaining('Observed button variants'),
       }),
     )
+  })
+
+  it('preserves distinct observed card families in deterministic coverage repair', () => {
+    const cardEvidence = structuredClone(evidence)
+    cardEvidence.components.push(
+      {
+        ...cardEvidence.components[0],
+        id: 'card-flat',
+        type: 'card',
+        styles: {
+          backgroundColor: '#ffffff',
+          border: '0px none transparent',
+          borderRadius: '2px',
+          boxShadow: 'none',
+        },
+      },
+      {
+        ...cardEvidence.components[0],
+        id: 'card-elevated',
+        type: 'card',
+        styles: {
+          backgroundColor: '#ffffff',
+          border: '0px none transparent',
+          borderRadius: '20px',
+          boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.12)',
+        },
+      },
+    )
+    const profile = rawProfile() as unknown as DesignProfile
+    profile.componentGrammar = []
+
+    const repaired = repairProfileCoverage(profile, cardEvidence)
+    const cards = repaired.profile.componentGrammar.filter((component) => component.component === 'card')
+
+    expect(cards).toHaveLength(2)
+    expect(cards.map((component) => component.role).sort()).toEqual([
+      'Observed card family (elevated-r20)',
+      'Observed card family (flat-r2)',
+    ])
+    expect(cards.flatMap((component) => component.rules[0].evidence.map((reference) => reference.evidenceId))).toEqual(
+      expect.arrayContaining(['card-flat', 'card-elevated']),
+    )
+    expect(repaired.repaired.filter((path) => path === 'componentGrammar.card')).toHaveLength(1)
   })
 
   it('removes false extrema and color-role claims instead of retaining them as low-confidence facts', () => {
@@ -1640,6 +2197,22 @@ describe('Design intelligence', () => {
     expect(validation.rejected).not.toContain('transferRules.preserve.0:single-page-preserve-rule')
   })
 
+  it('hides cross-page section claims that cite only one page', () => {
+    const raw = rawProfile()
+    raw.sectionGrammar[0].transitionToNext = [
+      {
+        ...claim('Content regions remain consistent across pages.'),
+        evidence: [{ evidenceId: 'section-a', note: 'Entry page only' }],
+      },
+    ]
+
+    const validation = validateDesignProfile(raw, multiUrlEvidence(), 'structural-only', 'en')
+
+    expect(validation.profile?.sectionGrammar[0].transitionToNext[0].confidence).toBe('low')
+    expect(validation.status).toBe('partial')
+    expect(validation.rejected).toContain('sectionGrammar.0.transitionToNext.0:unsupported-cross-page-scope')
+  })
+
   it('normalizes localized section role enums before validating evidence', () => {
     const raw = rawProfile()
     raw.language = 'zh-CN'
@@ -1747,7 +2320,7 @@ describe('Design intelligence', () => {
     ]
     const signatureResult = validateDesignProfile(utilitySignature, utilityEvidence, 'structural-only', 'en')
     expect(signatureResult.status).toBe('partial')
-    expect(signatureResult.profile?.signatureMoves[0].id).toBe('evidence-fallback')
+    expect(signatureResult.profile?.signatureMoves[0].id).toBe('evidence-coverage-repair')
     expect(signatureResult.rejected).toContain('signatureMoves.0:utility-only-evidence')
 
     // A signature move seen on only one of several pages is not site-wide.

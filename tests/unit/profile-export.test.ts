@@ -112,6 +112,26 @@ describe('generateDesignProfileMarkdown', () => {
     expect(english).not.toContain('profileExport.')
   })
 
+  test('exports schema v2 assertions as authoritative machine-readable facts', () => {
+    const profile = makeProfile()
+    profile.schemaVersion = '2'
+    profile.thesis.assertions = [
+      {
+        kind: 'section',
+        target: 'hero',
+        predicate: 'layout-mode',
+        value: 'flow',
+        scope: 'instance',
+        evidenceIds: ['section-a'],
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('已验证断言')
+    expect(markdown).toContain('`section:hero:layout-mode="flow"@instance`')
+  })
+
   test('omits low-confidence claims while keeping solid claims in the document', () => {
     const markdown = generateDesignProfileMarkdown(makeProfile())
 
@@ -207,6 +227,25 @@ describe('generateDesignProfileMarkdown', () => {
 
     expect(markdown).toContain('**状态:** `partial`')
     expect(markdown).toContain('部分 AI 字段未通过确定性校验')
+  })
+
+  test('does not label a partial AI profile as a full fallback after local coverage repair', () => {
+    const profile = makeProfile()
+    profile.inputMode = 'multimodal'
+    profile.signatureMoves = [
+      {
+        ...claim('Only the rejected signature move was repaired', 'low'),
+        id: 'evidence-fallback',
+        name: 'Local structural repair',
+        distinctiveness: 'The remaining AI fields are still validated.',
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile, undefined, 'partial', new Map(), 'multimodal-ai')
+
+    expect(markdown).toContain('**状态:** `partial`')
+    expect(markdown).toContain('部分 AI 字段未通过确定性校验')
+    expect(markdown).not.toContain('确定性证据兜底，不是有效的 AI 视觉综合')
   })
 
   test('omits low-confidence fallbacks and internal validation diagnostics', () => {

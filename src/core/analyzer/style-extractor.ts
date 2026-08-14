@@ -165,18 +165,16 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     const positiveStatusPattern = new RegExp(candidateRules.positiveStatusPattern, 'i')
     const warningStatusPattern = new RegExp(candidateRules.warningStatusPattern, 'i')
     const negativeStatusPattern = new RegExp(candidateRules.negativeStatusPattern, 'i')
-    const elementContext = (element: Element, includeText = false): string =>
+    const elementContext = (element: Element): string =>
       [
         typeof element.className === 'string' ? element.className : '',
         element.id,
+        element.getAttribute('role'),
         element.getAttribute('data-variant'),
         element.getAttribute('data-intent'),
         element.getAttribute('data-state'),
         element.getAttribute('data-status'),
-        element.getAttribute('aria-label'),
         element.getAttribute('type'),
-        element.getAttribute('value'),
-        includeText ? (element.textContent || '').slice(0, 80) : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -278,7 +276,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     const roleCandidateFor = (element: Element, computed: CSSStyleDeclaration, rect: DOMRect) => {
       if (statusCandidates.has(element)) {
         if (!statusRoots.has(element)) return null
-        const statusContext = elementContext(element, true)
+        const statusContext = elementContext(element)
         const delta = statusSubjectPattern.test(statusContext) && statusDirectionPattern.test(statusContext)
         return {
           elementKind: 'status' as const,
@@ -291,7 +289,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         `${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`,
       )
       if (ancestorCandidate) return null
-      const actionContext = elementContext(element, true)
+      const actionContext = elementContext(element)
       const role = element.getAttribute('role') || ''
       const tagName = element.tagName.toLowerCase()
       const nativeButton = tagName === 'button'
@@ -667,15 +665,19 @@ async function readInteractionState(locator: Locator): Promise<Record<string, st
 function changedInteractionState(
   before: Record<string, string> | null,
   after: Record<string, string> | null,
-): { before: Record<string, string>; after: Record<string, string> } | null {
+): { before: Record<string, string>; after: Record<string, string>; changedProperties: string[] } | null {
   if (!before || !after) return null
-  const changedAfter = Object.fromEntries(
-    Object.entries(after).filter(([property, value]) => value !== before[property]),
-  )
-  if (Object.keys(changedAfter).length === 0) return null
+  const changedProperties = Object.keys(after).filter((property) => after[property] !== before[property])
+  if (changedProperties.length === 0) return null
+  const retainedProperties = new Set(changedProperties)
+  if (changedProperties.some((property) => property.startsWith('outline-') || property === 'box-shadow')) {
+    for (const property of ['outline-color', 'outline-style', 'outline-width']) retainedProperties.add(property)
+    retainedProperties.add('box-shadow')
+  }
   return {
-    before: Object.fromEntries(Object.keys(changedAfter).map((property) => [property, before[property]])),
-    after: changedAfter,
+    before: Object.fromEntries([...retainedProperties].map((property) => [property, before[property]])),
+    after: Object.fromEntries([...retainedProperties].map((property) => [property, after[property]])),
+    changedProperties,
   }
 }
 

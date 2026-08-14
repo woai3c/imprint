@@ -218,6 +218,48 @@ test('distinguishes contained horizontal scrollers from page-level overflow', as
   await page.setViewportSize({ width: 1280, height: 800 })
 })
 
+test('resets scroll before measuring fixed sections and page-level overflow', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      header { position: fixed; inset: 0 0 auto 0; height: 56px; background: white; z-index: 2; }
+      main { width: 1000px; min-height: 1800px; padding-top: 72px; }
+    </style>
+    <body>
+      <header>Fixed navigation</header>
+      <main><h1>Wide document</h1><p>The page is both scrollable and wider than its mobile viewport.</p></main>
+    </body>`)
+
+  await page.evaluate(() => window.scrollTo(420, 640))
+  const scrollBeforeExtraction = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
+  assert.ok(scrollBeforeExtraction.x > 0)
+  assert.ok(scrollBeforeExtraction.y > 0)
+
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const scrollAfterExtraction = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
+  const header = evidence.sections.find((section) => section.role === 'header')
+
+  assert.deepEqual(scrollAfterExtraction, { x: 0, y: 0 })
+  assert.ok(header)
+  assert.equal(header.order, 0)
+  assert.equal(header.rect.x, 0)
+  assert.equal(header.rect.y, 0)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.ok(evidence.horizontalOverflowSources[0]?.locator.includes('main'))
+
+  await page.evaluate(() => window.scrollTo(420, 640))
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+  const scrollAfterHealth = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))
+  assert.deepEqual(scrollAfterHealth, { x: 0, y: 0 })
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
 test('separates major media from icons and dedupes repeated shapes', async () => {
   const iconSvg = '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>'
   await page.setContent(`<!doctype html>

@@ -31,6 +31,8 @@ export interface PageScreenshot {
   url: string
   path: string
   viewport: string
+  width?: number
+  height?: number
 }
 
 export interface ExtractedStyles {
@@ -69,6 +71,7 @@ export interface ColorRoleObservation {
 export interface InteractionStyleObservation {
   before: Record<string, string>
   after: Record<string, string>
+  changedProperties?: string[]
 }
 
 export interface InteractionStyles {

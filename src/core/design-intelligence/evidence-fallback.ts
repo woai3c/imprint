@@ -1,10 +1,25 @@
-import { classifyComponentVariant } from '../analyzer/component-detect.js'
+import { classifyCardStyle, classifyComponentVariant } from '../analyzer/component-detect.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { coreTranslator } from '../i18n/index.js'
+import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type { DesignClaim, DesignProfile, IntelligenceInputMode } from './types.js'
 
 export interface ProfileCoverageRepairResult {
   profile: DesignProfile
   repaired: string[]
+}
+
+export function markSignatureMovesAsCoverageRepair(
+  moves: DesignProfile['signatureMoves'],
+  language: DesignProfile['language'],
+): DesignProfile['signatureMoves'] {
+  const t = coreTranslator(language, 'profileExport.coverageRepair')
+  return moves.map((move) => ({
+    ...move,
+    id: 'evidence-coverage-repair',
+    name: t('name'),
+    distinctiveness: t('distinctiveness'),
+  }))
 }
 
 const VIEWPORT_PREFERENCE = ['desktop', 'tablet', 'mobile'] as const
@@ -61,24 +76,29 @@ function buildFallbackComponentGrammar(
   evidence: DesignEvidence,
   language: 'en' | 'zh-CN',
 ): DesignProfile['componentGrammar'] {
+  const t = coreTranslator(language, 'profileExport.coverageRepair.component')
   const componentPriority = ['button', 'card', 'navigation', 'input', 'tab', 'status', 'table', 'list', 'modal']
   const groups = new Map<string, typeof evidence.components>()
   for (const component of canonicalComponents(evidence)) {
-    const group = groups.get(component.type) || []
+    const key = component.type === 'card' ? `${component.type}|${classifyCardStyle(component.styles)}` : component.type
+    const group = groups.get(key) || []
     group.push(component)
-    groups.set(component.type, group)
+    groups.set(key, group)
   }
   return [...groups.entries()]
     .sort(([first], [second]) => {
-      const firstRank = componentPriority.indexOf(first)
-      const secondRank = componentPriority.indexOf(second)
+      const firstType = first.split('|')[0]
+      const secondType = second.split('|')[0]
+      const firstRank = componentPriority.indexOf(firstType)
+      const secondRank = componentPriority.indexOf(secondType)
       return (
         (firstRank < 0 ? componentPriority.length : firstRank) -
           (secondRank < 0 ? componentPriority.length : secondRank) || first.localeCompare(second)
       )
     })
-    .slice(0, 6)
-    .map(([type, components]) => {
+    .slice(0, 8)
+    .map(([key, components]) => {
+      const [type, cardStyle] = key.split('|')
       const roles = [...new Set(components.flatMap((component) => (component.role ? [component.role] : [])))].slice(
         0,
         3,
@@ -92,24 +112,20 @@ function buildFallbackComponentGrammar(
       const rule: DesignClaim = {
         statement:
           type === 'button' && variantSummary
-            ? language === 'zh-CN'
-              ? `各页面标准视口中观察到按钮变体：${variantSummary}。`
-              : `Observed button variants in canonical page captures: ${variantSummary}.`
-            : language === 'zh-CN'
-              ? `各页面标准视口中观察到 ${components.length} 个 ${type} 组件。`
-              : `${components.length} ${type} component${components.length === 1 ? '' : 's'} were observed in canonical page captures.`,
+            ? t('buttonVariants', { variants: variantSummary })
+            : cardStyle
+              ? t('cardCount', { count: components.length, type, style: cardStyle })
+              : t('canonicalCount', { count: components.length, type }),
         implementation:
           type === 'button'
-            ? language === 'zh-CN'
-              ? `分别保留各变体的填充、前景、边框、圆角与元素类型${observedElementKinds.length ? `（${observedElementKinds.join('/')}）` : ''}；不要把单一变体提升为全局按钮规则。`
-              : `Preserve each variant's fill, foreground, border, radius, and element kind${observedElementKinds.length ? ` (${observedElementKinds.join('/')})` : ''}; do not promote one variant to a global button rule.`
-            : language === 'zh-CN'
-              ? '以引用实例的令牌与样式组合为基准；未执行的交互状态需单独验证。'
-              : 'Base the implementation on the cited instances and token combinations; separately verify unexecuted states.',
+            ? t('buttonImplementation', {
+                elementKinds: observedElementKinds.length > 0 ? ` (${observedElementKinds.join('/')})` : '',
+              })
+            : t('genericImplementation'),
         confidence,
         evidence: components.slice(0, 2).map((component) => ({
           evidenceId: component.id,
-          note: language === 'zh-CN' ? '程序提取的组件证据' : 'Programmatically extracted component evidence',
+          note: t('evidenceNote'),
         })),
         ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
       }
@@ -118,9 +134,9 @@ function buildFallbackComponentGrammar(
         role:
           roles.length > 0
             ? roles.join(', ')
-            : language === 'zh-CN'
-              ? `已观察的 ${type} 组件`
-              : `Observed ${type} component`,
+            : cardStyle
+              ? t('cardRole', { type, style: cardStyle })
+              : t('observedRole', { type }),
         rules: [rule],
       }
     })
@@ -374,8 +390,8 @@ export function buildEvidenceFallbackProfile(
       )
   const componentGrammar = buildFallbackComponentGrammar(evidence, language)
   const sectionGrammar = buildFallbackSectionGrammar(evidence, language)
-  return {
-    schemaVersion: '1',
+  const profile: DesignProfile = {
+    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
     language,
     inputMode,
     thesis: structural,
@@ -418,6 +434,44 @@ export function buildEvidenceFallbackProfile(
       },
     ],
   }
+  const visited = new WeakSet<object>()
+  const addAssertions = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(addAssertions)
+      return
+    }
+    if (!value || typeof value !== 'object' || visited.has(value)) return
+    visited.add(value)
+    const record = value as Record<string, unknown>
+    if (
+      typeof record.statement === 'string' &&
+      typeof record.implementation === 'string' &&
+      Array.isArray(record.evidence) &&
+      !Array.isArray(record.assertions)
+    ) {
+      const evidenceIds = record.evidence.flatMap((reference) =>
+        reference &&
+        typeof reference === 'object' &&
+        typeof (reference as { evidenceId?: unknown }).evidenceId === 'string'
+          ? [(reference as { evidenceId: string }).evidenceId]
+          : [],
+      )
+      record.assertions = [
+        {
+          kind: 'evidence',
+          target: 'design-thesis',
+          predicate: 'supports',
+          scope: 'instance',
+          evidenceIds,
+        },
+      ]
+    }
+    Object.entries(record).forEach(([key, item]) => {
+      if (key !== 'assertions') addAssertions(item)
+    })
+  }
+  addAssertions(profile)
+  return profile
 }
 
 /**
@@ -439,7 +493,7 @@ export function repairProfileCoverage(
   )
   const repaired: string[] = []
   if (profile.signatureMoves.length === 0) {
-    profile.signatureMoves = fallback.signatureMoves
+    profile.signatureMoves = markSignatureMovesAsCoverageRepair(fallback.signatureMoves, profile.language)
     repaired.push('signatureMoves')
   }
   if (profile.attention.visualSequence.length === 0) {
@@ -465,19 +519,40 @@ export function repairProfileCoverage(
     repaired.push('sectionGrammar')
   }
 
-  const fallbackComponents = new Map(fallback.componentGrammar.map((component) => [component.component, component]))
+  const fallbackComponents = new Map<string, DesignProfile['componentGrammar']>()
+  for (const component of fallback.componentGrammar) {
+    const entries = fallbackComponents.get(component.component) || []
+    entries.push(component)
+    fallbackComponents.set(component.component, entries)
+  }
+  const populatedComponents = new Set(
+    profile.componentGrammar.filter((component) => component.rules.length > 0).map((component) => component.component),
+  )
+  const replacedComponents = new Set<string>()
   profile.componentGrammar = profile.componentGrammar.flatMap((component) => {
     if (component.rules.length > 0) return [component]
+    if (populatedComponents.has(component.component) || replacedComponents.has(component.component)) return []
+    const replacements = fallbackComponents.get(component.component) || []
+    if (replacements.length === 0) return []
+    replacedComponents.add(component.component)
     repaired.push(`componentGrammar.${component.component}`)
-    const replacement = fallbackComponents.get(component.component)
-    return replacement ? [replacement] : []
+    return replacements
   })
   const representedComponents = new Set(profile.componentGrammar.map((component) => component.component))
-  for (const component of fallback.componentGrammar) {
-    if (representedComponents.has(component.component)) continue
-    profile.componentGrammar.push(component)
-    repaired.push(`componentGrammar.${component.component}`)
+  for (const [type, components] of fallbackComponents) {
+    if (representedComponents.has(type)) continue
+    profile.componentGrammar.push(...components)
+    representedComponents.add(type)
+    repaired.push(`componentGrammar.${type}`)
   }
+
+  const seenComponentGrammar = new Set<string>()
+  profile.componentGrammar = profile.componentGrammar.filter((component) => {
+    const key = JSON.stringify(component)
+    if (seenComponentGrammar.has(key)) return false
+    seenComponentGrammar.add(key)
+    return true
+  })
 
   for (const kind of ['preserve', 'adapt', 'avoid'] as const) {
     if (profile.transferRules[kind].length > 0) continue

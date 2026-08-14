@@ -1182,6 +1182,7 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\bposition\b/gi, coreT(language, 'export.reconstruction.terms.position')],
     [/\bheight\b/gi, coreT(language, 'export.reconstruction.terms.height')],
     [/\border\b/gi, coreT(language, 'export.reconstruction.terms.order')],
+    [/\bsequenceIndex\b/g, coreT(language, 'export.reconstruction.terms.order')],
     [/\bborderBottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bboxShadow\b/g, coreT(language, 'export.reconstruction.terms.boxShadow')],
     [/\bsticky\b/gi, coreT(language, 'export.reconstruction.terms.sticky')],
@@ -1581,7 +1582,7 @@ function reconstructionResponsiveFacts(evidence: DesignEvidence): Reconstruction
       if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) continue
       const gridProperty = property === 'gridTemplateColumns' || property === 'childGridTemplateColumns'
       const headingProperty = property === 'node.heading.fontSize'
-      const layoutProperty = ['layoutMode', 'position', 'order'].includes(property)
+      const layoutProperty = ['layoutMode', 'position', 'order', 'sequenceIndex'].includes(property)
       const heightProperty = property === 'height' || property.endsWith('.height')
       const usefulHeight =
         heightProperty &&
@@ -2172,7 +2173,15 @@ export function generateDesignDoc(
 
   if (designProfile) {
     lines.push('')
-    lines.push(generateDesignProfileMarkdown(designProfile, tokens, designIntelligenceStatus, publicColorNames))
+    lines.push(
+      generateDesignProfileMarkdown(
+        designProfile,
+        tokens,
+        designIntelligenceStatus,
+        publicColorNames,
+        designIntelligenceMeta?.capabilityLevel,
+      ),
+    )
   } else if (
     designIntelligenceStatus &&
     ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
@@ -2227,7 +2236,9 @@ export function generateDesignDoc(
   }
 
   if (designEvidence) {
-    const evidenceFallback = designProfile?.signatureMoves.some((move) => move.id === 'evidence-fallback') ?? false
+    const evidenceFallback = designIntelligenceMeta
+      ? designIntelligenceMeta.capabilityLevel === 'evidence-fallback'
+      : (designProfile?.signatureMoves.some((move) => move.id === 'evidence-fallback') ?? false)
     lines.push('')
     lines.push(zh ? '## 如何使用' : '## How to Use')
     lines.push('')

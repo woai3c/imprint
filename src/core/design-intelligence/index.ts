@@ -53,6 +53,7 @@ export {
 } from './reconstruction-brief.js'
 export type { ReconstructionBriefEligibility, ReconstructionBriefIneligibilityReason } from './reconstruction-brief.js'
 export type * from './types.js'
+export { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 export { createValidationRecipe, validateRecipe } from './validation-recipe.js'
 export { extractProfileCandidate, validateDesignProfile } from './validator.js'
 export type { ProfileValidationResult } from './validator.js'

@@ -4,6 +4,7 @@ import {
   type ComponentCandidate,
   type ComponentVariantCandidate,
   classifyComponentVariant,
+  hasVisibleShadow,
   isOutlinedButton,
   isPillRadius,
   mergeComponentPatterns,
@@ -38,9 +39,9 @@ describe('component candidate summarization', () => {
       classifyComponentVariant(
         'button',
         { backgroundColor: '#2563eb', borderRadius: '999px', padding: '0px' },
-        { role: 'primary-action', primaryColor: '#2563eb', widthPx: 40, heightPx: 40 },
+        { role: 'primary-action', primaryColor: '#2563eb', widthPx: 34, heightPx: 34 },
       ),
-    ).toBe('primary')
+    ).toBe('icon')
     expect(
       classifyComponentVariant(
         'button',
@@ -53,6 +54,15 @@ describe('component candidate summarization', () => {
         { role: 'primary-action', primaryColor: '#1772f6', widthPx: 72, heightPx: 40 },
       ),
     ).toBe('text')
+  })
+
+  test('does not treat transparent or zero-geometry shadows as visible paint', () => {
+    expect(hasVisibleShadow('0 0 0 2px rgba(0, 0, 0, 0)')).toBe(false)
+    expect(hasVisibleShadow('rgba(0, 0, 0, 0) 0px 0px 0px 2px')).toBe(false)
+    expect(hasVisibleShadow('0 0 0 0 rgb(0, 0, 0)')).toBe(false)
+    expect(hasVisibleShadow('0 0 0 2px rgba(0, 0, 0, 0.2)')).toBe(true)
+    expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 0%)')).toBe(false)
+    expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 20%)')).toBe(true)
   })
 
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {
@@ -234,6 +244,95 @@ describe('component candidate summarization', () => {
       styles: { backgroundColor: 'rgba(0, 0, 0, 0)' },
     })
     expect(variants.reduce((total, variant) => total + variant.count, 0)).toBe(7)
+  })
+
+  test('keeps distinct borderless button surface and corner families separate', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      {
+        type: 'button',
+        confidence: 0.94,
+        evidence: ['native-element'],
+        primaryColor: '#2563eb',
+        widthPx: 108,
+        heightPx: 32,
+        styles: {
+          backgroundColor: 'rgba(37, 99, 235, 0.08)',
+          color: '#2563eb',
+          border: '0px none #2563eb',
+          borderRadius: '4px',
+          boxShadow: 'none',
+          padding: '6px 14px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.92,
+        evidence: ['native-element'],
+        primaryColor: '#2563eb',
+        widthPx: 108,
+        heightPx: 32,
+        styles: {
+          backgroundColor: 'rgba(37, 99, 235, 0.08)',
+          color: '#2563eb',
+          border: '0px none #2563eb',
+          borderRadius: '9999px',
+          boxShadow: 'none',
+          padding: '6px 14px',
+        },
+      },
+    ]
+
+    const variants = summarizeComponentVariants(candidates)
+
+    expect(variants.map((variant) => variant.name)).toEqual([
+      'button-secondary-pill-tinted',
+      'button-secondary-rounded-tinted',
+    ])
+    expect(variants.map((variant) => variant.count)).toEqual([1, 1])
+  })
+
+  test('keeps distinct card surface and radius families separate', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      ...Array.from({ length: 3 }, () => ({
+        type: 'card' as const,
+        confidence: 0.9,
+        evidence: ['repeated-sibling-structure'],
+        styles: {
+          backgroundColor: '#ffffff',
+          border: '0px none transparent',
+          borderRadius: '2px',
+          boxShadow: 'none',
+        },
+      })),
+      ...Array.from({ length: 2 }, () => ({
+        type: 'card' as const,
+        confidence: 0.86,
+        evidence: ['border-boundary'],
+        styles: {
+          backgroundColor: '#ffffff',
+          border: '1px solid #e5e7eb',
+          borderRadius: '16px',
+          boxShadow: 'none',
+        },
+      })),
+      {
+        type: 'card',
+        confidence: 0.82,
+        evidence: ['contained-spacing'],
+        styles: {
+          backgroundColor: '#ffffff',
+          border: '0px none transparent',
+          borderRadius: '20px',
+          boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.12)',
+        },
+      },
+    ]
+
+    const variants = summarizeComponentVariants(candidates)
+
+    expect(variants.map((variant) => variant.name)).toEqual(['card-elevated-r20', 'card-flat-r2', 'card-outlined-r16'])
+    expect(variants.find((variant) => variant.name === 'card-flat-r2')?.count).toBe(3)
+    expect(summarizeComponentVariants([candidates[0]])[0].name).toBe('card')
   })
 
   test('merges component evidence and counts across analyzed pages', () => {

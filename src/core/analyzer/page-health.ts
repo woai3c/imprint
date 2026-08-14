@@ -1,6 +1,6 @@
 import type { Page } from 'playwright-core'
 
-import { preparePageForExtraction } from './page-preparer.js'
+import { preparePageForExtraction, resetPageScroll } from './page-preparer.js'
 
 export type PageHealthStatus = 'healthy' | 'degraded' | 'unusable'
 
@@ -70,6 +70,7 @@ export function isPageHealthAiEligible(report: Pick<PageHealthReport, 'status' |
 }
 
 export async function inspectPageHealth(page: Page, options: PageHealthOptions): Promise<PageHealthReport> {
+  await resetPageScroll(page)
   const currentUrl = page.url()
   const responseStatus = options.responseStatus
   const facts = await page.evaluate(async () => {
@@ -121,7 +122,11 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     const main = document.querySelector('main, [role="main"]')
     const mainText = (main?.textContent || bodyText).replace(/\s+/g, ' ').trim()
     const meaningfulMedia = document.querySelectorAll('img[src], video, canvas, svg').length
-    const pageIdentity = `${document.title} ${bodyText.slice(0, 4_000)}`
+    const captcha = Boolean(
+      document.querySelector(
+        'iframe[src*="recaptcha" i], iframe[src*="hcaptcha" i], iframe[src*="captcha" i], [data-sitekey], [id*="recaptcha" i], [class*="recaptcha" i], [id*="hcaptcha" i], [class*="hcaptcha" i], input[name*="captcha" i]',
+      ),
+    )
     const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
     let contentWidth = viewportWidth
     const overflowStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
@@ -181,12 +186,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       skeletonRatio: skeletonElements / Math.max(visibleElements, 1),
       fontsReady: !document.fonts || document.fonts.status === 'loaded',
       authWall: !!document.querySelector('input[type="password"], input[autocomplete="current-password"]'),
-      captcha: bodyText.length < 2_000 && /captcha|recaptcha|hcaptcha|验证码|人机验证|robot check/i.test(pageIdentity),
-      rateLimited:
-        bodyText.length < 2_000 && /too many requests|rate limit|访问过于频繁|请求过多|稍后再试/i.test(pageIdentity),
-      errorPage:
-        bodyText.length < 2_000 &&
-        /page not found|server error|service unavailable|页面不存在|系统错误|服务不可用/i.test(pageIdentity),
+      captcha,
     }
   })
 
@@ -211,8 +211,8 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
   }
   if (facts.authWall) add({ code: 'auth-wall', severity: 'error', recoverable: false })
   if (facts.captcha) add({ code: 'captcha', severity: 'error', recoverable: false })
-  if (facts.rateLimited || responseStatus === 429) add({ code: 'rate-limited', severity: 'error', recoverable: false })
-  if (facts.errorPage || (responseStatus !== undefined && responseStatus >= 400)) {
+  if (responseStatus === 429) add({ code: 'rate-limited', severity: 'error', recoverable: false })
+  if (responseStatus !== undefined && responseStatus >= 400) {
     add({ code: 'error-page', severity: 'error', recoverable: false, detail: responseStatus?.toString() })
   }
   if (!sameOrigin(options.expectedUrl, currentUrl)) {

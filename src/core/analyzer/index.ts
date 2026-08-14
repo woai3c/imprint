@@ -739,6 +739,7 @@ export async function analyze(
     let evidenceMotion: MotionToken[] = []
     let techStack: import('../design-evidence/types.js').TechStackInfo | undefined
     let adaptiveMobileCaptured = false
+    let adaptiveMobilePlanned = false
 
     for (let i = 0; i < viewportNames.length; i++) {
       throwIfAnalysisAborted(options.signal)
@@ -762,7 +763,7 @@ export async function analyze(
           reason: issue.reason,
         })),
       )
-      const health = await measure('healthGateMs', () =>
+      let health = await measure('healthGateMs', () =>
         ensurePageHealth(page, { expectedUrl: url, responseStatus: pageResponseStatus }),
       )
       extractionIssues.push(
@@ -782,7 +783,6 @@ export async function analyze(
       const extractionStartedAt = Date.now()
       if (i === 0) {
         motion = await guardExtractionStage(extractionIssues, `${stagePrefix}:motion`, [], () => detectMotion(page))
-        if (health.aiEligible) evidenceMotion = motion
       }
       const animationIssue = await freezePageAnimations(page)
       if (animationIssue) {
@@ -792,24 +792,18 @@ export async function analyze(
         })
       }
 
-      const styles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
+      let styles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
         extractStyles(page),
       )
       allStyles.push(styles)
       styleCaptures.push({ url: page.url(), viewport: vpName, styles })
-      if (health.aiEligible) {
-        aiEligibleStyles.push(styles)
-        aiEligibleStyleCaptures.push({ url: page.url(), viewport: vpName, styles })
-      }
-      analyzedPages.set(pageIdentityUrl(page.url()), { source: 'requested', kind: 'entry' })
 
-      const pageInteractionStyles = await guardExtractionStage(
+      let pageInteractionStyles = await guardExtractionStage(
         extractionIssues,
         `${stagePrefix}:interaction-styles`,
         { hover: [], focus: [], active: [], disabled: [] },
         () => extractInteractionStyles(page),
       )
-      mergeInteractionStyles(allInteractions, pageInteractionStyles)
 
       if (i === 0 && options.extractDarkMode !== false) {
         darkModeResult = await guardExtractionStage(extractionIssues, `${stagePrefix}:dark-mode`, null, () =>
@@ -825,10 +819,86 @@ export async function analyze(
           detectBreakpoints(page),
         )
         entryBreakpointWidths = new Set(breakpoints.map((breakpoint) => breakpoint.width))
-        if (health.aiEligible) evidenceBreakpoints = breakpoints
         techStack = await guardExtractionStage(extractionIssues, `${stagePrefix}:tech-stack`, undefined, () =>
           detectTechStack(page),
         )
+      }
+
+      health = await measure('healthGateMs', () =>
+        ensurePageHealth(page, { expectedUrl: url, responseStatus: pageResponseStatus }),
+      )
+      extractionIssues.push(
+        ...health.issues.map((issue) => ({
+          stage: `${stagePrefix}:capture-health:${issue.code}`,
+          reason: issue.detail || issue.severity,
+        })),
+      )
+      const captureExplicitlyAnalyzableAccessSurface = health.issues.some(
+        (issue) => issue.code === 'auth-wall' || issue.code === 'captcha',
+      )
+      if (health.status === 'unusable' && !captureExplicitlyAnalyzableAccessSurface) {
+        analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}`)
+        allStyles.pop()
+        styleCaptures.pop()
+        if (i === 0) {
+          components = []
+          breakpoints = []
+          entryBreakpointWidths = new Set()
+          motion = []
+          darkModeResult = null
+          techStack = undefined
+        }
+        if (page !== initialPage) await page.close()
+        continue
+      }
+      if (health.recovered) {
+        styles = await guardExtractionStage(
+          extractionIssues,
+          `${stagePrefix}:capture-health:refresh-styles`,
+          styles,
+          () => extractStyles(page),
+        )
+        allStyles[allStyles.length - 1] = styles
+        styleCaptures[styleCaptures.length - 1] = { url: page.url(), viewport: vpName, styles }
+        pageInteractionStyles = await guardExtractionStage(
+          extractionIssues,
+          `${stagePrefix}:capture-health:refresh-interaction-styles`,
+          pageInteractionStyles,
+          () => extractInteractionStyles(page),
+        )
+        if (i === 0) {
+          components = await guardExtractionStage(
+            extractionIssues,
+            `${stagePrefix}:capture-health:refresh-components`,
+            components,
+            () => detectComponents(page),
+          )
+          breakpoints = await guardExtractionStage(
+            extractionIssues,
+            `${stagePrefix}:capture-health:refresh-breakpoints`,
+            breakpoints,
+            () => detectBreakpoints(page),
+          )
+          entryBreakpointWidths = new Set(breakpoints.map((breakpoint) => breakpoint.width))
+          if (options.extractDarkMode !== false) {
+            darkModeResult = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:capture-health:refresh-dark-mode`,
+              darkModeResult,
+              () => extractDarkMode(page, styles),
+            )
+          }
+        }
+      }
+      mergeInteractionStyles(allInteractions, pageInteractionStyles)
+      analyzedPages.set(pageIdentityUrl(page.url()), { source: 'requested', kind: 'entry' })
+      if (health.aiEligible) {
+        aiEligibleStyles.push(styles)
+        aiEligibleStyleCaptures.push({ url: page.url(), viewport: vpName, styles })
+        if (i === 0) {
+          evidenceMotion = motion
+          evidenceBreakpoints = breakpoints
+        }
       }
 
       const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
@@ -942,10 +1012,12 @@ export async function analyze(
         evidenceSnapshot.height,
       )
       screenshots.push(screenshotPath)
+      const screenshotDimensions = inspectPngDimensions(screenshotPath)
       const pageScreenshot = {
         url: page.url(),
         path: screenshotPath,
         viewport: vpName,
+        ...(screenshotDimensions || {}),
       }
       pageScreenshots.push(pageScreenshot)
       capturedPageEvidence.push({
@@ -1022,7 +1094,7 @@ export async function analyze(
               reason: issue.reason,
             })),
           )
-          const health = await measure('healthGateMs', () =>
+          let health = await measure('healthGateMs', () =>
             ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: subPageStatus }),
           )
           extractionIssues.push(
@@ -1036,8 +1108,6 @@ export async function analyze(
           const subPageMotion = await guardExtractionStage(extractionIssues, `${stagePrefix}:motion`, [], () =>
             detectMotion(subPage),
           )
-          motion = mergeMotionTokens([motion, subPageMotion])
-          if (health.aiEligible) evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
           const animationIssue = await freezePageAnimations(subPage)
           if (animationIssue) {
             extractionIssues.push({
@@ -1046,38 +1116,83 @@ export async function analyze(
             })
           }
 
-          const subStyles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
+          let subStyles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
             extractStyles(subPage),
           )
           allStyles.push(subStyles)
           styleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
-          if (health.aiEligible) {
-            aiEligibleStyles.push(subStyles)
-            aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
-          }
-          analyzedPages.set(pageIdentityUrl(subPage.url()), {
-            source: discoveredPage.source,
-            kind: discoveredPage.kind,
-          })
-          const pageInteractionStyles = await guardExtractionStage(
+          let pageInteractionStyles = await guardExtractionStage(
             extractionIssues,
             `${stagePrefix}:interaction-styles`,
             { hover: [], focus: [], active: [], disabled: [] },
             () => extractInteractionStyles(subPage),
           )
-          mergeInteractionStyles(allInteractions, pageInteractionStyles)
-          const subPageComponents = await guardExtractionStage(extractionIssues, `${stagePrefix}:components`, [], () =>
+          let subPageComponents = await guardExtractionStage(extractionIssues, `${stagePrefix}:components`, [], () =>
             detectComponents(subPage),
           )
-          components = mergeComponentPatterns([components, subPageComponents])
-          const subPageBreakpoints = await guardExtractionStage(
-            extractionIssues,
-            `${stagePrefix}:breakpoints`,
-            [],
-            () => detectBreakpoints(subPage),
+          let subPageBreakpoints = await guardExtractionStage(extractionIssues, `${stagePrefix}:breakpoints`, [], () =>
+            detectBreakpoints(subPage),
           )
+
+          health = await measure('healthGateMs', () =>
+            ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: subPageStatus }),
+          )
+          extractionIssues.push(
+            ...health.issues.map((issue) => ({
+              stage: `${stagePrefix}:capture-health:${issue.code}`,
+              reason: issue.detail || issue.severity,
+            })),
+          )
+          if (health.status === 'unusable') {
+            analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}`)
+            allStyles.pop()
+            styleCaptures.pop()
+            continue
+          }
+          if (health.recovered) {
+            subStyles = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:capture-health:refresh-styles`,
+              subStyles,
+              () => extractStyles(subPage),
+            )
+            allStyles[allStyles.length - 1] = subStyles
+            styleCaptures[styleCaptures.length - 1] = {
+              url: subPage.url(),
+              viewport: mainViewportName,
+              styles: subStyles,
+            }
+            pageInteractionStyles = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:capture-health:refresh-interaction-styles`,
+              pageInteractionStyles,
+              () => extractInteractionStyles(subPage),
+            )
+            subPageComponents = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:capture-health:refresh-components`,
+              subPageComponents,
+              () => detectComponents(subPage),
+            )
+            subPageBreakpoints = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:capture-health:refresh-breakpoints`,
+              subPageBreakpoints,
+              () => detectBreakpoints(subPage),
+            )
+          }
+          mergeInteractionStyles(allInteractions, pageInteractionStyles)
+          motion = mergeMotionTokens([motion, subPageMotion])
+          components = mergeComponentPatterns([components, subPageComponents])
           breakpoints = mergeResponsiveBreakpoints([breakpoints, subPageBreakpoints])
+          analyzedPages.set(pageIdentityUrl(subPage.url()), {
+            source: discoveredPage.source,
+            kind: discoveredPage.kind,
+          })
           if (health.aiEligible) {
+            evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
+            aiEligibleStyles.push(subStyles)
+            aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
             evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
           }
 
@@ -1108,10 +1223,12 @@ export async function analyze(
             evidenceSnapshot.height,
           )
           screenshots.push(screenshotPath)
+          const screenshotDimensions = inspectPngDimensions(screenshotPath)
           const pageScreenshot = {
             url: subPage.url(),
             path: screenshotPath,
             viewport: mainViewportName,
+            ...(screenshotDimensions || {}),
           }
           pageScreenshots.push(pageScreenshot)
           capturedPageEvidence.push({
@@ -1149,6 +1266,9 @@ export async function analyze(
             evidenceSnapshot.role !== 'unknown' && evidenceSnapshot.role !== entryRole,
             ['product', 'pricing', 'account', 'workspace'].includes(evidenceSnapshot.role),
           ]
+          if (!adaptiveMobileCaptured && mainViewportName !== 'mobile' && adaptiveSignals.some(Boolean)) {
+            adaptiveMobilePlanned = true
+          }
           const shouldCaptureMobile =
             !adaptiveMobileCaptured &&
             mainViewportName !== 'mobile' &&
@@ -1183,7 +1303,7 @@ export async function analyze(
               })),
             )
             if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
-            const mobileHealth = await measure('healthGateMs', () =>
+            let mobileHealth = await measure('healthGateMs', () =>
               runWithinDeadline(adaptiveDeadline, () =>
                 ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: mobilePageStatus }),
               ),
@@ -1197,7 +1317,7 @@ export async function analyze(
             if (mobileHealth.status !== 'unusable') {
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               const mobileExtractionStartedAt = Date.now()
-              const mobileStyles = await guardExtractionStage(
+              let mobileStyles = await guardExtractionStage(
                 extractionIssues,
                 `${mobileStagePrefix}:styles`,
                 mergeStyles([]),
@@ -1205,17 +1325,53 @@ export async function analyze(
               )
               allStyles.push(mobileStyles)
               styleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
-              if (mobileHealth.aiEligible) {
-                aiEligibleStyles.push(mobileStyles)
-                aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
-              }
-              const mobileInteractionStyles = await guardExtractionStage(
+              let mobileInteractionStyles = await guardExtractionStage(
                 extractionIssues,
                 `${mobileStagePrefix}:interaction-styles`,
                 { hover: [], focus: [], active: [], disabled: [] },
                 () => runWithinDeadline(adaptiveDeadline, () => extractInteractionStyles(subPage)),
               )
+              mobileHealth = await measure('healthGateMs', () =>
+                runWithinDeadline(adaptiveDeadline, () =>
+                  ensurePageHealth(subPage, { expectedUrl: subUrl, responseStatus: mobilePageStatus }),
+                ),
+              )
+              extractionIssues.push(
+                ...mobileHealth.issues.map((issue) => ({
+                  stage: `${mobileStagePrefix}:capture-health:${issue.code}`,
+                  reason: issue.detail || issue.severity,
+                })),
+              )
+              if (mobileHealth.status === 'unusable') {
+                allStyles.pop()
+                styleCaptures.pop()
+                throw new Error('adaptive-mobile-page-unusable')
+              }
+              if (mobileHealth.recovered) {
+                mobileStyles = await guardExtractionStage(
+                  extractionIssues,
+                  `${mobileStagePrefix}:capture-health:refresh-styles`,
+                  mobileStyles,
+                  () => runWithinDeadline(adaptiveDeadline, () => extractStyles(subPage)),
+                )
+                allStyles[allStyles.length - 1] = mobileStyles
+                styleCaptures[styleCaptures.length - 1] = {
+                  url: subPage.url(),
+                  viewport: 'mobile',
+                  styles: mobileStyles,
+                }
+                mobileInteractionStyles = await guardExtractionStage(
+                  extractionIssues,
+                  `${mobileStagePrefix}:capture-health:refresh-interaction-styles`,
+                  mobileInteractionStyles,
+                  () => runWithinDeadline(adaptiveDeadline, () => extractInteractionStyles(subPage)),
+                )
+              }
               mergeInteractionStyles(allInteractions, mobileInteractionStyles)
+              if (mobileHealth.aiEligible) {
+                aiEligibleStyles.push(mobileStyles)
+                aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+              }
               const mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () =>
                 extractPageEvidence(subPage, 'mobile'),
               )
@@ -1259,7 +1415,13 @@ export async function analyze(
                 mobileSnapshot.width,
                 mobileSnapshot.height,
               )
-              const mobilePageScreenshot = { url: subPage.url(), path: mobileOverviewPath, viewport: 'mobile' }
+              const screenshotDimensions = inspectPngDimensions(mobileOverviewPath)
+              const mobilePageScreenshot = {
+                url: subPage.url(),
+                path: mobileOverviewPath,
+                viewport: 'mobile',
+                ...(screenshotDimensions || {}),
+              }
               screenshots.push(mobileOverviewPath)
               pageScreenshots.push(mobilePageScreenshot)
               capturedPageEvidence.push({
@@ -1357,7 +1519,8 @@ export async function analyze(
       accessMode,
       authWallDetected,
       expectedPageCount: pageLimit,
-      expectedViewports: viewportNames,
+      expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
+      expectedCaptureCount: viewportNames.length + Math.max(0, pageLimit - 1) + (adaptiveMobilePlanned ? 1 : 0),
       tokens: evidenceTokens,
       featureTags,
       interactionStyles: allInteractions,

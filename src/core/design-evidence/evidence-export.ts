@@ -127,7 +127,9 @@ function displayedResponsiveChangeType(
   original: DesignEvidence['responsiveObservations'][number]['changeType'],
   properties: readonly string[],
 ): DesignEvidence['responsiveObservations'][number]['changeType'] {
-  return properties.length > 0 && properties.every((property) => property === 'order') ? 'reorder' : original
+  return properties.length > 0 && properties.every((property) => ['order', 'sequenceIndex'].includes(property))
+    ? 'reorder'
+    : original
 }
 
 function compactVisibleBorders(borders: Readonly<Record<string, string>>): string[] {
@@ -157,6 +159,7 @@ function isUsefulResponsiveChange(
       'layoutMode',
       'position',
       'order',
+      'sequenceIndex',
     ].includes(property)
   ) {
     return true

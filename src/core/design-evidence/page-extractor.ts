@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core'
 
+import { resetPageScroll } from '../analyzer/page-preparer.js'
 import { ROLE_CANDIDATE_RULES } from '../analyzer/role-candidates.js'
 import type { LayoutMode, NormalizedRect, PageRole, SectionRole } from './types.js'
 
@@ -121,6 +122,7 @@ export interface PageEvidenceSnapshot {
 }
 
 export async function extractPageEvidence(page: Page, viewport: string): Promise<PageEvidenceSnapshot> {
+  await resetPageScroll(page)
   const evaluationArgs = { viewportName: viewport, candidateRules: ROLE_CANDIDATE_RULES }
   return page.evaluate((args) => {
     const { viewportName, candidateRules } = args
@@ -267,19 +269,24 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     const pageRole = (): 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'workspace' | 'unknown' => {
       const path = location.pathname.toLowerCase()
       if (/\/(pricing|plans|billing)(\/|$)/.test(path)) return 'pricing'
-      if (/\/(workspace|editor|studio|console)(\/|$)/.test(path)) return 'workspace'
+      if (/\/(workspace|editor|studio|console|creator)(\/|$)/.test(path)) return 'workspace'
       if (/\/(account|profile|settings|dashboard)(\/|$)/.test(path)) return 'account'
       if (/\/(product|products|features)(\/|$)/.test(path)) return 'product'
-      if (/\/(article|blog|docs|guide|about)(\/|$)/.test(path)) return 'content'
-      if (path === '/' || path === '') return 'landing'
+      if (/\/(article|blog|docs|guide|about|column|column-square|explore|discover)(\/|$)/.test(path)) return 'content'
       const article = document.querySelector('article')
       if (article && (article.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) return 'content'
+      const main = document.querySelector('main, [role="main"]')
+      if (main && !main.querySelector('h1') && (main.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) {
+        return 'content'
+      }
       if (document.querySelector('table') && document.querySelector('header, nav, [role="navigation"]')) {
         return 'workspace'
       }
       if (document.querySelector('h1') && document.querySelectorAll('main > section, main section').length >= 2) {
         return 'landing'
       }
+      // A root path is not necessarily a marketing landing page (signed-in feeds commonly use `/`).
+      // Keep it unknown unless the DOM provides positive landing/content evidence.
       return 'unknown'
     }
 
@@ -339,7 +346,10 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         if (overflowPx <= 4) return []
         return [{ element, rect, overflowPx }]
       })
-      .sort((first, second) => second.overflowPx - first.overflowPx)
+      .sort(
+        (first, second) =>
+          Number(first.element === body) - Number(second.element === body) || second.overflowPx - first.overflowPx,
+      )
     const sourceCandidates: typeof overflowCandidates = []
     for (const candidate of overflowCandidates) {
       if (
@@ -581,6 +591,35 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       }
     }
 
+    const visualInputRoot = (source: Element): Element => {
+      const sourceRect = source.getBoundingClientRect()
+      const sourceStyle = computedFor(source)
+      const transparent = (color: string) =>
+        color === 'transparent' || /^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(color.trim())
+      let ancestor = source.parentElement
+      for (let depth = 0; ancestor && depth < 3; depth += 1, ancestor = ancestor.parentElement) {
+        if (!isVisible(ancestor)) continue
+        const rect = ancestor.getBoundingClientRect()
+        const computed = computedFor(ancestor)
+        const reasonableBounds =
+          rect.width >= sourceRect.width &&
+          rect.height >= sourceRect.height &&
+          rect.width <= Math.max(sourceRect.width * 1.8, sourceRect.width + 160) &&
+          rect.height <= Math.max(sourceRect.height * 3, 72)
+        const paintedBorder =
+          Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+        const rounded = Number.parseFloat(computed.borderTopLeftRadius || '0') > 0
+        const shadowed = computed.boxShadow !== 'none'
+        const distinctBackground =
+          !transparent(computed.backgroundColor) && computed.backgroundColor !== sourceStyle.backgroundColor
+        const addsVisibleBounds = rect.width > sourceRect.width + 2 || rect.height > sourceRect.height + 2
+        if (reasonableBounds && addsVisibleBounds && (paintedBorder || rounded || shadowed || distinctBackground)) {
+          return ancestor
+        }
+      }
+      return source
+    }
+
     const actionTokenPattern = new RegExp(candidateRules.actionTokenPattern, 'i')
     const primaryActionPattern = new RegExp(candidateRules.primaryActionPattern, 'i')
     const destructiveActionPattern = new RegExp(candidateRules.destructiveActionPattern, 'i')
@@ -596,18 +635,16 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (negativeStatusPattern.test(context)) return 'negative'
       return 'neutral'
     }
-    const roleCandidateContext = (element: Element, includeText = false): string =>
+    const roleCandidateContext = (element: Element): string =>
       [
         typeof element.className === 'string' ? element.className : '',
         element.id,
+        element.getAttribute('role'),
         element.getAttribute('data-variant'),
         element.getAttribute('data-intent'),
         element.getAttribute('data-state'),
         element.getAttribute('data-status'),
-        element.getAttribute('aria-label'),
         element.getAttribute('type'),
-        element.getAttribute('value'),
-        includeText ? (element.textContent || '').slice(0, 80) : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -634,7 +671,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     }
     const isStyledActionAnchor = (element: Element): boolean => {
       if (element.tagName !== 'A' || !element.hasAttribute('href')) return false
-      const context = roleCandidateContext(element, true)
+      const context = roleCandidateContext(element)
       if (!actionTokenPattern.test(context)) return false
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
@@ -737,7 +774,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return true
     })
     for (const element of statusRoots) {
-      const context = roleCandidateContext(element, true)
+      const context = roleCandidateContext(element)
       const kind = statusSubjectPattern.test(context) && statusDirectionPattern.test(context) ? 'delta' : 'status'
       componentCandidates.push({
         element,
@@ -760,9 +797,9 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       componentCandidates.push({
         element,
         type: 'button',
-        role: primaryActionPattern.test(roleCandidateContext(element, true))
+        role: primaryActionPattern.test(roleCandidateContext(element))
           ? 'primary-action'
-          : destructiveActionPattern.test(roleCandidateContext(element, true))
+          : destructiveActionPattern.test(roleCandidateContext(element))
             ? 'destructive-action'
             : 'action',
         elementKind:
@@ -786,9 +823,9 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       componentCandidates.push({
         element,
         type: 'button',
-        role: primaryActionPattern.test(roleCandidateContext(element, true))
+        role: primaryActionPattern.test(roleCandidateContext(element))
           ? 'primary-action'
-          : destructiveActionPattern.test(roleCandidateContext(element, true))
+          : destructiveActionPattern.test(roleCandidateContext(element))
             ? 'destructive-action'
             : 'action',
         elementKind: 'anchor',
@@ -796,34 +833,94 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       })
     }
     addComponents('nav, [role="navigation"]', 'navigation', 0.98)
-    addComponents(
+    for (const source of document.querySelectorAll(
       'input:not([type="hidden"]):not([type="button"]):not([type="submit"]), textarea, select, [role="textbox"], [role="combobox"]',
-      'input',
-      0.96,
-    )
+    )) {
+      if (!isVisible(source)) continue
+      const element = visualInputRoot(source)
+      if (componentCandidates.some((candidate) => candidate.element === element && candidate.type === 'input')) continue
+      componentCandidates.push({
+        element,
+        type: 'input',
+        role: source.getAttribute('role') || undefined,
+        elementKind: 'input',
+        confidence: 0.96,
+      })
+    }
     addComponents('table, [role="table"], [role="grid"]', 'table', 0.96)
     addComponents('dialog, [role="dialog"], [role="alertdialog"]', 'modal', 0.96)
     addComponents('ul, ol, [role="list"]', 'list', 0.9)
     const existingComponentElements = new Set(componentCandidates.map((candidate) => candidate.element))
     const deepCardElements = [...new Set(document.querySelectorAll('main *, [role="main"] *'))]
     const deepCardGroups = new Map<Element, Map<string, number>>()
-    const deepCardCandidates: Array<{ element: Element; parent: Element; signature: string }> = []
+    const excludedCardTags = new Set([
+      'NAV',
+      'HEADER',
+      'FOOTER',
+      'FORM',
+      'UL',
+      'OL',
+      'TABLE',
+      'DIALOG',
+      'BUTTON',
+      'INPUT',
+      'TEXTAREA',
+      'SELECT',
+    ])
+    const deepCardCandidates: Array<{
+      element: Element
+      parent: Element
+      signature: string
+      baseConfidence: number
+    }> = []
     for (const element of deepCardElements) {
-      if (!isVisible(element) || existingComponentElements.has(element) || !element.parentElement) continue
+      if (
+        excludedCardTags.has(element.tagName) ||
+        !isVisible(element) ||
+        existingComponentElements.has(element) ||
+        !element.parentElement
+      ) {
+        continue
+      }
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
-      const boundary =
-        computed.boxShadow !== 'none' ||
-        parseFloat(computed.borderTopWidth || '0') > 0 ||
-        parseFloat(computed.borderTopLeftRadius || '0') > 4
+      const isFullWidthPageSection =
+        rect.width >= window.innerWidth * 0.9 &&
+        Boolean(element.matches('main > section, main > article, [role="region"]'))
+      if (isFullWidthPageSection) continue
+      const hasShadow = computed.boxShadow !== 'none'
+      const hasBorder =
+        Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+      const hasRadius = Number.parseFloat(computed.borderTopLeftRadius || '0') > 4
       const padding = Math.max(
-        parseFloat(computed.paddingTop || '0'),
-        parseFloat(computed.paddingRight || '0'),
-        parseFloat(computed.paddingBottom || '0'),
-        parseFloat(computed.paddingLeft || '0'),
+        Number.parseFloat(computed.paddingTop || '0'),
+        Number.parseFloat(computed.paddingRight || '0'),
+        Number.parseFloat(computed.paddingBottom || '0'),
+        Number.parseFloat(computed.paddingLeft || '0'),
       )
-      if (!boundary || padding < 8 || rect.width < 120 || rect.height < 64) continue
+      if ((!hasShadow && !hasBorder && !hasRadius) || padding < 8 || rect.width < 120 || rect.height < 64) continue
       if (deepCardCandidates.length >= candidateRules.deepCardScanLimit) break
+      const parentBackground = computedFor(element.parentElement).backgroundColor
+      const background = computed.backgroundColor.trim().toLowerCase()
+      const hasDistinctSurface =
+        background !== 'transparent' &&
+        !/^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(background) &&
+        computed.backgroundColor !== parentBackground
+      const hasContent = (element.textContent || '').replace(/\s+/g, ' ').trim().length >= 12
+      const hasStructure = element.children.length >= 2
+      const hasMediaOrAction = Boolean(
+        element.querySelector('img, picture, svg, button, a[href], [role="button"], input, textarea, select'),
+      )
+      const isLargeLayout = rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.5
+      const baseConfidence =
+        (hasRadius ? 0.16 : 0) +
+        (hasShadow || hasBorder ? 0.22 : 0) +
+        0.16 +
+        (hasDistinctSurface ? 0.1 : 0) +
+        (hasContent ? 0.12 : 0) +
+        (hasStructure ? 0.08 : 0) +
+        (hasMediaOrAction ? 0.08 : 0) -
+        (isLargeLayout ? 0.2 : 0)
       const signature = [
         element.tagName,
         computed.backgroundColor,
@@ -833,11 +930,13 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const parentGroups = deepCardGroups.get(element.parentElement) || new Map<string, number>()
       parentGroups.set(signature, (parentGroups.get(signature) || 0) + 1)
       deepCardGroups.set(element.parentElement, parentGroups)
-      deepCardCandidates.push({ element, parent: element.parentElement, signature })
+      deepCardCandidates.push({ element, parent: element.parentElement, signature, baseConfidence })
     }
     for (const candidate of deepCardCandidates) {
-      if ((deepCardGroups.get(candidate.parent)?.get(candidate.signature) || 0) < 2) continue
-      componentCandidates.push({ element: candidate.element, type: 'card', confidence: 0.76 })
+      const repeated = (deepCardGroups.get(candidate.parent)?.get(candidate.signature) || 0) >= 2
+      const confidence = candidate.baseConfidence + (repeated ? 0.12 : 0)
+      if (confidence < 0.62) continue
+      componentCandidates.push({ element: candidate.element, type: 'card', confidence: Math.min(0.94, confidence) })
     }
 
     const components = componentCandidates.slice(0, 250).flatMap((candidate) => {

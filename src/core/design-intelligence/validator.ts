@@ -1,12 +1,16 @@
 import { isRecord } from '../../shared/type-guards.js'
 import { parseJsonObjects } from '../ai/json-payload.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import { buildEvidenceFallbackProfile } from './evidence-fallback.js'
+import { coreT } from '../i18n/index.js'
+import { isDesignAssertionKind, isDesignAssertionPredicate } from './assertion-schema.js'
+import { buildEvidenceFallbackProfile, markSignatureMovesAsCoverageRepair } from './evidence-fallback.js'
 import { listEvidenceIds } from './evidence-selector.js'
 import type {
   Confidence,
   DesignClaim,
+  DesignClaimAssertion,
   DesignProfile,
+  DesignProfileSchemaVersion,
   EvidenceRef,
   IntelligenceInputMode,
   PatternSpec,
@@ -62,14 +66,14 @@ const COMPONENT_TYPE_ALIASES: Record<string, string> = {
   表格: 'table',
 }
 
-function normalizeSectionRole(value: string): string {
+function normalizeSectionRole(value: string, schemaVersion: DesignProfileSchemaVersion): string {
   const normalized = value.trim().toLowerCase()
-  return SECTION_ROLE_ALIASES[normalized] || normalized
+  return schemaVersion === '1' ? SECTION_ROLE_ALIASES[normalized] || normalized : normalized
 }
 
-function normalizeComponentType(value: string): string {
+function normalizeComponentType(value: string, schemaVersion: DesignProfileSchemaVersion): string {
   const normalized = value.trim().toLowerCase()
-  return COMPONENT_TYPE_ALIASES[normalized] || normalized
+  return schemaVersion === '1' ? COMPONENT_TYPE_ALIASES[normalized] || normalized : normalized
 }
 
 function collectTokenColorValues(evidence: DesignEvidence): Set<string> {
@@ -118,7 +122,7 @@ export function extractProfileCandidate(response: string): unknown {
   for (let index = objects.length - 1; index >= 0; index -= 1) {
     const object = objects[index]
     if (isRecord(object) && isRecord(object.profile)) return object.profile
-    if (isRecord(object) && String(object.schemaVersion) === '1' && object.thesis) return object
+    if (isRecord(object) && ['1', '2'].includes(String(object.schemaVersion)) && object.thesis) return object
   }
   return null
 }
@@ -136,6 +140,82 @@ function parseEvidenceRefs(value: unknown, validIds: Set<string>): EvidenceRef[]
     }
     return [{ evidenceId: candidate.evidenceId, note: candidate.note.trim() }]
   })
+}
+
+function parseAssertions(
+  value: unknown,
+  validIds: Set<string>,
+  claimEvidenceIds: Set<string>,
+  path: string,
+  rejected: string[],
+): DesignClaimAssertion[] | null {
+  if (!Array.isArray(value)) return []
+  let invalid = false
+  const assertions = value.slice(0, 4).flatMap((candidate, index) => {
+    const assertionPath = `${path}.assertions.${index}`
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.kind !== 'string' ||
+      !isDesignAssertionKind(candidate.kind) ||
+      !isSafeText(candidate.target, 120) ||
+      typeof candidate.predicate !== 'string' ||
+      !isDesignAssertionPredicate(candidate.kind, candidate.predicate) ||
+      !['instance', 'page', 'cross-page'].includes(String(candidate.scope))
+    ) {
+      rejected.push(`${assertionPath}:invalid-assertion`)
+      invalid = true
+      return []
+    }
+    const evidenceIds = Array.isArray(candidate.evidenceIds)
+      ? candidate.evidenceIds.filter(
+          (evidenceId): evidenceId is string =>
+            typeof evidenceId === 'string' && validIds.has(evidenceId) && claimEvidenceIds.has(evidenceId),
+        )
+      : []
+    if (evidenceIds.length === 0) {
+      rejected.push(`${assertionPath}:missing-bound-evidence`)
+      invalid = true
+      return []
+    }
+    const property = isSafeText(candidate.property, 120) ? candidate.property.trim() : undefined
+    const rawValue = candidate.value
+    const assertionValue =
+      typeof rawValue === 'string' && isSafeText(rawValue, 160)
+        ? rawValue.trim()
+        : typeof rawValue === 'number' && Number.isFinite(rawValue)
+          ? rawValue
+          : typeof rawValue === 'boolean'
+            ? rawValue
+            : Array.isArray(rawValue) && rawValue.length <= 8 && rawValue.every((item) => isSafeText(item, 120))
+              ? rawValue.map((item) => item.trim())
+              : undefined
+    if (rawValue !== undefined && assertionValue === undefined) {
+      rejected.push(`${assertionPath}:invalid-value`)
+      invalid = true
+      return []
+    }
+    return [
+      {
+        kind: candidate.kind,
+        target: candidate.target.trim(),
+        predicate: candidate.predicate,
+        scope: candidate.scope as DesignClaimAssertion['scope'],
+        evidenceIds: [...new Set(evidenceIds)].slice(0, 3),
+        ...(property ? { property } : {}),
+        ...(assertionValue !== undefined ? { value: assertionValue } : {}),
+      },
+    ]
+  })
+  return invalid ? null : assertions
+}
+
+function tokenRefMatchesStructuredField(tokenRef: string, path: string): boolean {
+  if (/^composition\.(?:densityAndWhitespace|rhythm)$/.test(path)) return tokenRef.startsWith('spacing.')
+  if (path === 'attention.contrastStrategy' || path === 'visualLanguage.color') return tokenRef.startsWith('color.')
+  if (path === 'visualLanguage.typography') return tokenRef.startsWith('typography.')
+  if (path === 'visualLanguage.shape') return /^(?:radius|border)\./.test(tokenRef)
+  if (path === 'visualLanguage.surfaces') return /^(?:color|shadow|border)\./.test(tokenRef)
+  return true
 }
 
 function buildTokenEvidenceOwners(evidence: DesignEvidence, validIds: Set<string>): Map<string, string[]> {
@@ -217,6 +297,7 @@ function validateClaim(
   inputMode: IntelligenceInputMode,
   visualOnly = false,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim | null {
   if (!isRecord(value)) {
     rejected.push(`${path}:not-an-object`)
@@ -231,8 +312,8 @@ function validateClaim(
   if (
     !statement.trim() ||
     statement.length > 240 ||
-    GENERIC_ONLY.test(statement.trim()) ||
-    UNPROVABLE_INTENT.test(statement) ||
+    (schemaVersion === '1' && GENERIC_ONLY.test(statement.trim())) ||
+    (schemaVersion === '1' && UNPROVABLE_INTENT.test(statement)) ||
     HTML_OR_URL.test(statement)
   ) {
     rejected.push(`${path}:invalid-statement`)
@@ -241,7 +322,7 @@ function validateClaim(
   if (
     !implementation.trim() ||
     implementation.length > 360 ||
-    UNPROVABLE_INTENT.test(implementation) ||
+    (schemaVersion === '1' && UNPROVABLE_INTENT.test(implementation)) ||
     HTML_OR_URL.test(implementation)
   ) {
     rejected.push(`${path}:invalid-implementation`)
@@ -272,18 +353,38 @@ function validateClaim(
   if (confidence === 'high' && (evidence.length < 2 || !hasVisualOrLayoutEvidence)) confidence = 'medium'
   if (inputMode === 'structural-only' && visualOnly && confidence !== 'low') confidence = 'low'
   if (sanitizedTokenValue) confidence = 'low'
+  const assertions =
+    schemaVersion === '2'
+      ? parseAssertions(
+          value.assertions,
+          validIds,
+          new Set(evidence.map((reference) => reference.evidenceId)),
+          path,
+          rejected,
+        )
+      : []
+  if (assertions === null) {
+    rejected.push(`${path}:invalid-structured-assertion`)
+    return null
+  }
+  if (schemaVersion === '2' && assertions.length === 0) {
+    rejected.push(`${path}:missing-structured-assertion`)
+    return null
+  }
+  const tokenRefs = Array.isArray(value.tokenRefs)
+    ? value.tokenRefs.filter((tokenRef): tokenRef is string => typeof tokenRef === 'string').slice(0, 16)
+    : []
+  if (schemaVersion === '2' && tokenRefs.some((tokenRef) => !tokenRefMatchesStructuredField(tokenRef, path))) {
+    rejected.push(`${path}:token-role-mismatch`)
+    return null
+  }
   return {
     statement: statement.trim(),
     implementation: implementation.trim(),
     confidence,
     evidence,
-    ...(Array.isArray(value.tokenRefs) && value.tokenRefs.length > 0
-      ? {
-          tokenRefs: value.tokenRefs
-            .filter((tokenRef): tokenRef is string => typeof tokenRef === 'string')
-            .slice(0, 16),
-        }
-      : {}),
+    ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
+    ...(assertions.length > 0 ? { assertions } : {}),
   }
 }
 
@@ -296,12 +397,22 @@ function validateClaims(
   max: number,
   visualOnly = false,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim[] {
   if (!Array.isArray(value)) return []
   return value
     .slice(0, max)
     .map((candidate, index) =>
-      validateClaim(candidate, validIds, `${path}.${index}`, rejected, inputMode, visualOnly, knownColors),
+      validateClaim(
+        candidate,
+        validIds,
+        `${path}.${index}`,
+        rejected,
+        inputMode,
+        visualOnly,
+        knownColors,
+        schemaVersion,
+      ),
     )
     .filter((claim): claim is DesignClaim => claim !== null)
 }
@@ -314,12 +425,22 @@ function validateVisualSequenceClaims(
   inputMode: IntelligenceInputMode,
   max: number,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim[] {
   if (!Array.isArray(value)) return []
   return value.slice(0, max).flatMap((candidate, index) => {
     const itemPath = `${path}.${index}`
-    const claim = validateClaim(candidate, validIds, itemPath, rejected, inputMode, true, knownColors)
+    const claim = validateClaim(candidate, validIds, itemPath, rejected, inputMode, true, knownColors, schemaVersion)
     if (!claim) return []
+    if (schemaVersion === '2') {
+      if (
+        claim.assertions?.some((assertion) => assertion.kind === 'section' && assertion.predicate === 'ordered-before')
+      ) {
+        return [claim]
+      }
+      rejected.push(`${itemPath}:missing-ordered-sequence-assertion`)
+      return []
+    }
     if (ORDERED_VISUAL_SEQUENCE.test(`${claim.statement} ${claim.implementation}`)) return [claim]
     rejected.push(`${itemPath}:semantic-field-mismatch`)
     return []
@@ -335,15 +456,24 @@ function validateInteractionClaim(
   rejected: string[],
   inputMode: IntelligenceInputMode,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim | null {
-  const claim = validateClaim(value, validIds, path, rejected, inputMode, false, knownColors)
+  const claim = validateClaim(value, validIds, path, rejected, inputMode, false, knownColors, schemaVersion)
   if (!claim) return null
   const hasInteractionEvidence = claim.evidence.some((reference) => interactionIds.has(reference.evidenceId))
+  if (
+    schemaVersion === '2' &&
+    hasInteractionEvidence &&
+    !claim.assertions?.some((assertion) => assertion.kind === 'interaction')
+  ) {
+    rejected.push(`${path}:missing-interaction-assertion`)
+    return null
+  }
   if (!hasInteractionEvidence) {
     return { ...claim, confidence: 'low' }
   }
   const hasActiveEvidence = claim.evidence.some((reference) => activeInteractionIds.has(reference.evidenceId))
-  if (!hasActiveEvidence) {
+  if (!hasActiveEvidence && schemaVersion === '1') {
     const assertsUniversalBehavior = /\b(?:all|every|always|uniformly)\b|所有|全部|一律|均会|始终/i.test(
       `${claim.statement} ${claim.implementation}`,
     )
@@ -367,6 +497,7 @@ function validateInteractionClaims(
   inputMode: IntelligenceInputMode,
   max: number,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim[] {
   if (!Array.isArray(value)) return []
   return value
@@ -381,6 +512,7 @@ function validateInteractionClaims(
         rejected,
         inputMode,
         knownColors,
+        schemaVersion,
       ),
     )
     .filter((claim): claim is DesignClaim => claim !== null)
@@ -395,8 +527,18 @@ function requiredClaim(
   inputMode: IntelligenceInputMode,
   visualOnly = false,
   knownColors?: Set<string>,
+  schemaVersion: DesignProfileSchemaVersion = '1',
 ): DesignClaim | null {
-  return validateClaim(parent[key], validIds, `${path}.${key}`, rejected, inputMode, visualOnly, knownColors)
+  return validateClaim(
+    parent[key],
+    validIds,
+    `${path}.${key}`,
+    rejected,
+    inputMode,
+    visualOnly,
+    knownColors,
+    schemaVersion,
+  )
 }
 
 function requireEvidenceKind(
@@ -550,7 +692,6 @@ function groundOverflowClaims(
   profile: DesignProfile,
   evidence: DesignEvidence,
   scope: EvidenceScope,
-  validIds: Set<string>,
   rejected: string[],
 ): boolean {
   const overflowFacts = evidence.pages.flatMap((page) => {
@@ -559,7 +700,7 @@ function groundOverflowClaims(
       ...new Set(
         (page.horizontalOverflowSources || [])
           .map((source) => source.sectionId)
-          .filter((sectionId): sectionId is string => Boolean(sectionId && validIds.has(sectionId))),
+          .filter((sectionId): sectionId is string => Boolean(sectionId)),
       ),
     ]
     return [{ page, sourceSectionIds }]
@@ -592,11 +733,10 @@ function groundOverflowClaims(
           : citedPageIds.has(fact.page.id)
       if (grounded) return
 
-      const preferredIds = [
-        ...fact.sourceSectionIds,
-        ...fact.page.images.map((image) => image.id).filter((imageId) => validIds.has(imageId)),
-        ...(validIds.has(fact.page.id) ? [fact.page.id] : []),
-      ].slice(0, 2)
+      const preferredIds = [...fact.sourceSectionIds, ...fact.page.images.map((image) => image.id), fact.page.id].slice(
+        0,
+        2,
+      )
       if (preferredIds.length === 0) return
       claim.evidence = preferredIds.map((evidenceId) => ({
         evidenceId,
@@ -893,12 +1033,15 @@ function capSinglePageGlobalClaim<T extends DesignClaim>(
   claim: T,
   scope: EvidenceScope,
   availablePageCount: number,
+  schemaVersion: DesignProfileSchemaVersion,
 ): T {
   const referencedPages = referencedPageUrls(claim, scope).size
   const assertsUniversalCoverage =
-    /\b(?:all|every|only|unique|across all|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|唯一|每页|两个页面|三页|四页|均采用|均使用/i.test(
-      `${claim.statement} ${claim.implementation}`,
-    )
+    schemaVersion === '2'
+      ? Boolean(claim.assertions?.some((assertion) => assertion.scope === 'cross-page'))
+      : /\b(?:all|every|only|unique|across all|across pages?|cross-page|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|唯一|每页|各页|跨页面|多页|两个页面|三页|四页|均采用|均使用/i.test(
+          `${claim.statement} ${claim.implementation}`,
+        )
   if (assertsUniversalCoverage && availablePageCount > 1 && referencedPages < availablePageCount) {
     return { ...claim, confidence: 'low' } as T
   }
@@ -932,7 +1075,8 @@ export function validateDesignProfile(
   if (!isRecord(value)) {
     return { profile: null, status: 'failed', rejected: ['root:not-an-object'] }
   }
-  if (String(value.schemaVersion) !== '1') {
+  const schemaVersion = String(value.schemaVersion)
+  if (schemaVersion !== '1' && schemaVersion !== '2') {
     return {
       profile: null,
       status: 'failed',
@@ -963,7 +1107,7 @@ export function validateDesignProfile(
       }
     }
   }
-  value.schemaVersion = '1'
+  value.schemaVersion = schemaVersion
   if (value.tokens || value.tokenValues) rejected.push('root:unexpected-token-values')
   const requiredImageIds = options?.requireImageObservations || []
   let imageObservationsValid: boolean | undefined
@@ -1021,16 +1165,38 @@ export function validateDesignProfile(
   )
   const fallbackProfile = buildEvidenceFallbackProfile(evidence, language, claimMode, 'Required AI claim was unusable')
   let requiredFallbackUsed = false
-  const fallbackClaim = (claim: DesignClaim, preferredEvidence?: RegExp): DesignClaim => {
+  const assertionDimensionForPath = (path: string): string => {
+    if (path.startsWith('composition.')) return 'composition'
+    if (path.startsWith('attention.')) return 'attention'
+    if (path.startsWith('visualLanguage.')) return path.split('.')[1] || 'design-thesis'
+    if (path.startsWith('interactionLanguage.')) return 'interaction'
+    if (path.startsWith('transferRules.')) return 'transfer'
+    return 'design-thesis'
+  }
+  const fallbackClaim = (claim: DesignClaim, preferredEvidence?: RegExp, path = 'thesis'): DesignClaim => {
     const preferred = [...validIds].filter((evidenceId) => preferredEvidence?.test(evidenceId))
     const evidenceIds = preferred.length > 0 ? preferred : [...validIds]
+    const selectedEvidenceIds = evidenceIds.slice(0, 2)
     return {
       ...claim,
       confidence: 'low',
-      evidence: evidenceIds.slice(0, 2).map((evidenceId) => ({
+      evidence: selectedEvidenceIds.map((evidenceId) => ({
         evidenceId,
-        note: language === 'zh-CN' ? '程序提取的页面证据' : 'Programmatically extracted page evidence',
+        note: coreT(language, 'intelligence.assertions.evidenceNote'),
       })),
+      ...(schemaVersion === '2'
+        ? {
+            assertions: [
+              {
+                kind: 'evidence' as const,
+                target: assertionDimensionForPath(path),
+                predicate: 'supports',
+                scope: 'instance' as const,
+                evidenceIds: selectedEvidenceIds,
+              },
+            ],
+          }
+        : {}),
     }
   }
   const resolveRequiredClaim = (
@@ -1041,16 +1207,36 @@ export function validateDesignProfile(
     visualOnly = false,
     preferredEvidence?: RegExp,
   ): DesignClaim => {
-    const candidate = requiredClaim(parent, key, validIds, path, rejected, claimMode, visualOnly, knownColors)
+    const claimPath = `${path}.${key}`
+    const candidate = requiredClaim(
+      parent,
+      key,
+      validIds,
+      path,
+      rejected,
+      claimMode,
+      visualOnly,
+      knownColors,
+      schemaVersion,
+    )
     const validated = preferredEvidence
       ? requireEvidenceKind(candidate, preferredEvidence, `${path}.${key}`, rejected)
       : candidate
     if (validated) return validated
     requiredFallbackUsed = true
-    return fallbackClaim(fallback, preferredEvidence)
+    return fallbackClaim(fallback, preferredEvidence, claimPath)
   }
-  const thesisCandidate = validateClaim(value.thesis, validIds, 'thesis', rejected, claimMode, false, knownColors)
-  const thesis = thesisCandidate || fallbackClaim(fallbackProfile.thesis)
+  const thesisCandidate = validateClaim(
+    value.thesis,
+    validIds,
+    'thesis',
+    rejected,
+    claimMode,
+    false,
+    knownColors,
+    schemaVersion,
+  )
+  const thesis = thesisCandidate || fallbackClaim(fallbackProfile.thesis, undefined, 'thesis')
   if (!thesisCandidate) requiredFallbackUsed = true
   const signatureMoveInput = Array.isArray(value.signatureMoves) ? value.signatureMoves : []
   if (!Array.isArray(value.signatureMoves)) rejected.push('signatureMoves:not-an-array')
@@ -1059,7 +1245,16 @@ export function validateDesignProfile(
       rejected.push(`signatureMoves.${index}:invalid-identity`)
       return []
     }
-    const claim = validateClaim(candidate, validIds, `signatureMoves.${index}`, rejected, claimMode, false, knownColors)
+    const claim = validateClaim(
+      candidate,
+      validIds,
+      `signatureMoves.${index}`,
+      rejected,
+      claimMode,
+      false,
+      knownColors,
+      schemaVersion,
+    )
     if (!claim || !isSafeText(candidate.distinctiveness, 240)) return []
     // A site-wide signature needs recurring, non-incidental support. Single-page support caps
     // confidence instead of dropping the move (same treatment as patterns and global claims);
@@ -1082,7 +1277,10 @@ export function validateDesignProfile(
   })
   if (signatureMoves.length === 0) {
     requiredFallbackUsed = true
-    signatureMoves = fallbackProfile.signatureMoves.map((move) => ({ ...move, ...fallbackClaim(move) }))
+    signatureMoves = markSignatureMovesAsCoverageRepair(fallbackProfile.signatureMoves, language).map((move) => ({
+      ...move,
+      ...fallbackClaim(move, undefined, 'signatureMoves'),
+    }))
   }
 
   const compositionInput = isRecord(value.composition) ? value.composition : {}
@@ -1149,6 +1347,7 @@ export function validateDesignProfile(
       claimMode,
       5,
       knownColors,
+      schemaVersion,
     ),
     actionHierarchy: resolveRequiredClaim(
       attentionInput,
@@ -1172,6 +1371,7 @@ export function validateDesignProfile(
         claimMode,
         true,
         knownColors,
+        schemaVersion,
       )
     : undefined
   if (imagery && noClassifiedMedia && imagery.confidence === 'high') imagery.confidence = 'medium'
@@ -1200,6 +1400,7 @@ export function validateDesignProfile(
           claimMode,
           false,
           knownColors,
+          schemaVersion,
         )
       : undefined,
   }
@@ -1207,7 +1408,7 @@ export function validateDesignProfile(
   const sectionGrammar = Array.isArray(value.sectionGrammar)
     ? value.sectionGrammar.slice(0, 12).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.role, 80)) return []
-        const role = normalizeSectionRole(item.role)
+        const role = normalizeSectionRole(item.role, schemaVersion)
         if (!observedSectionRoles.has(role as (typeof evidence.sections)[number]['role'])) {
           rejected.push(`sectionGrammar.${index}:unobserved-role`)
           return []
@@ -1220,11 +1421,13 @@ export function validateDesignProfile(
             return Boolean(pageId && evidenceScope.sectionRolesByPageId.get(pageId)?.has(role))
           })
         const validateRoleClaims = (claims: unknown, path: string) =>
-          validateClaims(claims, validIds, path, rejected, claimMode, 5, false, knownColors).filter((claim) => {
-            if (keepRoleEvidence(claim)) return true
-            rejected.push(`${path}:mismatched-section-role`)
-            return false
-          })
+          validateClaims(claims, validIds, path, rejected, claimMode, 5, false, knownColors, schemaVersion).filter(
+            (claim) => {
+              if (keepRoleEvidence(claim)) return true
+              rejected.push(`${path}:mismatched-section-role`)
+              return false
+            },
+          )
         return [
           {
             role,
@@ -1244,6 +1447,7 @@ export function validateDesignProfile(
     rejected,
     claimMode,
     knownColors,
+    schemaVersion,
   )
   const stateChangeAmplitude = validateInteractionClaim(
     interactionLanguageInput.stateChangeAmplitude,
@@ -1254,19 +1458,27 @@ export function validateDesignProfile(
     rejected,
     claimMode,
     knownColors,
+    schemaVersion,
   )
-  const resolvedFeedbackStyle = feedbackStyle || fallbackClaim(fallbackProfile.interactionLanguage.feedbackStyle)
+  const resolvedFeedbackStyle =
+    feedbackStyle ||
+    fallbackClaim(fallbackProfile.interactionLanguage.feedbackStyle, undefined, 'interactionLanguage.feedbackStyle')
   const resolvedStateChangeAmplitude =
-    stateChangeAmplitude || fallbackClaim(fallbackProfile.interactionLanguage.stateChangeAmplitude)
+    stateChangeAmplitude ||
+    fallbackClaim(
+      fallbackProfile.interactionLanguage.stateChangeAmplitude,
+      undefined,
+      'interactionLanguage.stateChangeAmplitude',
+    )
   if (!feedbackStyle || !stateChangeAmplitude) requiredFallbackUsed = true
 
   const componentGrammar = Array.isArray(value.componentGrammar)
     ? value.componentGrammar.slice(0, 16).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.component, 80) || !isSafeText(item.role, 120)) return []
-        const componentType = normalizeComponentType(item.component)
+        const componentType = normalizeComponentType(item.component, schemaVersion)
         const matchingEvidenceIds = new Set(
           evidence.components
-            .filter((component) => normalizeComponentType(component.type) === componentType)
+            .filter((component) => normalizeComponentType(component.type, schemaVersion) === componentType)
             .map((component) => component.id),
         )
         if (matchingEvidenceIds.size === 0) {
@@ -1282,8 +1494,19 @@ export function validateDesignProfile(
           8,
           false,
           knownColors,
+          schemaVersion,
         ).filter((claim, ruleIndex) => {
-          if (claim.evidence.some((reference) => matchingEvidenceIds.has(reference.evidenceId))) return true
+          const citesMatchingComponent = claim.evidence.some((reference) =>
+            matchingEvidenceIds.has(reference.evidenceId),
+          )
+          const hasMatchingAssertion =
+            schemaVersion === '1' ||
+            claim.assertions?.some((assertion) => assertion.kind === 'component' && assertion.target === componentType)
+          if (citesMatchingComponent && hasMatchingAssertion) return true
+          if (citesMatchingComponent) {
+            rejected.push(`componentGrammar.${index}.rules.${ruleIndex}:missing-component-assertion`)
+            return false
+          }
           rejected.push(`componentGrammar.${index}.rules.${ruleIndex}:mismatched-component-type`)
           return false
         })
@@ -1336,13 +1559,14 @@ export function validateDesignProfile(
           6,
           false,
           knownColors,
+          schemaVersion,
         )
         if (singleViewport) {
           for (const rule of responsiveRules) {
             if (rule.confidence === 'high') rule.confidence = 'medium'
           }
         }
-        if (horizontalOverflowPageUrls.size > 0) {
+        if (schemaVersion === '1' && horizontalOverflowPageUrls.size > 0) {
           for (const rule of responsiveRules) {
             const appliesToOverflowPage = [...referencedPageUrls(rule, evidenceScope)].some((url) =>
               horizontalOverflowPageUrls.has(url),
@@ -1373,6 +1597,7 @@ export function validateDesignProfile(
               6,
               false,
               knownColors,
+              schemaVersion,
             ),
             visualRules: validateClaims(
               item.visualRules,
@@ -1383,6 +1608,7 @@ export function validateDesignProfile(
               6,
               true,
               knownColors,
+              schemaVersion,
             ),
             interactionRules: validateInteractionClaims(
               item.interactionRules,
@@ -1394,6 +1620,7 @@ export function validateDesignProfile(
               claimMode,
               6,
               knownColors,
+              schemaVersion,
             ),
             responsiveRules,
             tokenRefs: Array.isArray(item.tokenRefs)
@@ -1466,7 +1693,7 @@ export function validateDesignProfile(
   }
 
   const profile: DesignProfile = {
-    schemaVersion: '1',
+    schemaVersion,
     language,
     inputMode: claimMode,
     thesis,
@@ -1493,6 +1720,7 @@ export function validateDesignProfile(
         claimMode,
         5,
         knownColors,
+        schemaVersion,
       ),
       feedbackStyle: resolvedFeedbackStyle,
       stateChangeAmplitude: resolvedStateChangeAmplitude,
@@ -1508,6 +1736,7 @@ export function validateDesignProfile(
                 rejected,
                 claimMode,
                 knownColors,
+                schemaVersion,
               ) || undefined,
           }
         : {}),
@@ -1521,6 +1750,7 @@ export function validateDesignProfile(
         claimMode,
         6,
         knownColors,
+        schemaVersion,
       ),
     },
     componentGrammar,
@@ -1535,6 +1765,7 @@ export function validateDesignProfile(
         6,
         false,
         knownColors,
+        schemaVersion,
       ),
       adapt: validateClaims(
         transferRulesInput.adapt,
@@ -1545,6 +1776,7 @@ export function validateDesignProfile(
         6,
         false,
         knownColors,
+        schemaVersion,
       ),
       avoid: validateClaims(
         transferRulesInput.avoid,
@@ -1555,29 +1787,66 @@ export function validateDesignProfile(
         6,
         false,
         knownColors,
+        schemaVersion,
       ),
     },
     uncertainties: uncertainties.slice(0, 12),
   }
 
-  const colorGroundingGap = groundColorClaims(profile, evidence, evidenceScope, rejected)
-  const overflowGroundingGap = groundOverflowClaims(profile, evidence, evidenceScope, validIds, rejected)
-  const focusGroundingGap = validateVisibleFocusClaims(profile, evidence, rejected)
-  const interactionGroundingGap = validateInteractionClaimDetails(profile, evidence, evidenceScope, validIds, rejected)
-  const semanticGroundingGap = colorGroundingGap || overflowGroundingGap || focusGroundingGap || interactionGroundingGap
+  const semanticGroundingGap =
+    schemaVersion === '1' &&
+    [
+      groundColorClaims(profile, evidence, evidenceScope, rejected),
+      groundOverflowClaims(profile, evidence, evidenceScope, rejected),
+      validateVisibleFocusClaims(profile, evidence, rejected),
+      validateInteractionClaimDetails(profile, evidence, evidenceScope, validIds, rejected),
+    ].some(Boolean)
 
-  const constrainGlobal = <T extends DesignClaim>(claim: T): T =>
-    capSinglePageGlobalClaim(claim, evidenceScope, availablePageCount)
-  profile.thesis = constrainGlobal(profile.thesis)
-  profile.signatureMoves = profile.signatureMoves.map((claim) => constrainGlobal(claim))
-  for (const key of Object.keys(profile.composition) as Array<keyof DesignProfile['composition']>) {
-    profile.composition[key] = constrainGlobal(profile.composition[key])
+  let globalScopeGap = false
+  const constrainGlobal = <T extends DesignClaim>(claim: T, path: string): T => {
+    const constrained = capSinglePageGlobalClaim(claim, evidenceScope, availablePageCount, schemaVersion)
+    if (claim.confidence !== 'low' && constrained.confidence === 'low') {
+      globalScopeGap = true
+      rejected.push(`${path}:unsupported-cross-page-scope`)
+    }
+    return constrained
   }
-  profile.attention.actionHierarchy = constrainGlobal(profile.attention.actionHierarchy)
-  profile.attention.contrastStrategy = constrainGlobal(profile.attention.contrastStrategy)
+  profile.thesis = constrainGlobal(profile.thesis, 'thesis')
+  profile.signatureMoves = profile.signatureMoves.map((claim, index) =>
+    constrainGlobal(claim, `signatureMoves.${index}`),
+  )
+  for (const key of Object.keys(profile.composition) as Array<keyof DesignProfile['composition']>) {
+    profile.composition[key] = constrainGlobal(profile.composition[key], `composition.${key}`)
+  }
+  profile.attention.actionHierarchy = constrainGlobal(profile.attention.actionHierarchy, 'attention.actionHierarchy')
+  profile.attention.contrastStrategy = constrainGlobal(profile.attention.contrastStrategy, 'attention.contrastStrategy')
+  profile.attention.visualSequence = profile.attention.visualSequence.map((claim, index) =>
+    constrainGlobal(claim, `attention.visualSequence.${index}`),
+  )
   for (const key of ['color', 'typography', 'shape', 'surfaces', 'imagery', 'motion'] as const) {
     const claim = profile.visualLanguage[key]
-    if (claim) profile.visualLanguage[key] = constrainGlobal(claim)
+    if (claim) profile.visualLanguage[key] = constrainGlobal(claim, `visualLanguage.${key}`)
+  }
+  for (const [grammarIndex, grammar] of profile.sectionGrammar.entries()) {
+    grammar.composition = grammar.composition.map((claim, index) =>
+      constrainGlobal(claim, `sectionGrammar.${grammarIndex}.composition.${index}`),
+    )
+    grammar.contentRhythm = grammar.contentRhythm.map((claim, index) =>
+      constrainGlobal(claim, `sectionGrammar.${grammarIndex}.contentRhythm.${index}`),
+    )
+    grammar.transitionToNext = grammar.transitionToNext.map((claim, index) =>
+      constrainGlobal(claim, `sectionGrammar.${grammarIndex}.transitionToNext.${index}`),
+    )
+  }
+  for (const [grammarIndex, grammar] of profile.componentGrammar.entries()) {
+    grammar.rules = grammar.rules.map((claim, index) =>
+      constrainGlobal(claim, `componentGrammar.${grammarIndex}.rules.${index}`),
+    )
+  }
+  for (const kind of ['preserve', 'adapt', 'avoid'] as const) {
+    profile.transferRules[kind] = profile.transferRules[kind].map((claim, index) =>
+      constrainGlobal(claim, `transferRules.${kind}.${index}`),
+    )
   }
   if (availablePageCount > 1) {
     // Interaction evidence is usually concentrated on the entry page, so single-page continuity
@@ -1644,7 +1913,11 @@ export function validateDesignProfile(
   return {
     profile,
     status:
-      requiredFallbackUsed || imageObservationsValid === false || criticalCoverageGap || semanticGroundingGap
+      requiredFallbackUsed ||
+      imageObservationsValid === false ||
+      criticalCoverageGap ||
+      semanticGroundingGap ||
+      globalScopeGap
         ? 'partial'
         : 'complete',
     rejected,

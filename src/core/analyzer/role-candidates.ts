@@ -3,19 +3,16 @@ export const ROLE_CANDIDATE_RULES = {
   broadActionSelector: 'button, input[type="button"], input[type="submit"], [role="button"], a[href]',
   nativeStatusSelector: '[role="status"], [role="alert"], [aria-live]:not([aria-live="off"])',
   actionTokenPattern: '(?:^|[\\s_-])(?:btn|button|cta|pill|action|primary|secondary)(?:$|[\\s_-])',
-  primaryActionPattern:
-    '(?:(?:^|[\\s_-])(?:primary|cta|submit|confirm|purchase|checkout|continue)(?:$|[\\s_-])|确认|提交|继续|购买)',
-  destructiveActionPattern:
-    '(?:(?:^|[\\s_-])(?:error|danger|destructive|delete|remove|invalid)(?:$|[\\s_-])|删除|危险|错误)',
+  primaryActionPattern: '(?:^|[\\s_-])(?:primary|cta|submit|confirm|purchase|checkout|continue)(?:$|[\\s_-])',
+  destructiveActionPattern: '(?:^|[\\s_-])(?:error|danger|destructive|delete|remove|invalid)(?:$|[\\s_-])',
   directStatusPattern:
-    '(?:(?:^|[\\s_-])(?:status|success|successful|warning|warn|error|danger|destructive|delete|remove|healthy|health|ok|invalid)(?:$|[\\s_-])|删除|危险|错误|警告)',
+    '(?:^|[\\s_-])(?:status|success|successful|warning|warn|error|danger|destructive|delete|remove|healthy|health|ok|invalid)(?:$|[\\s_-])',
   statusSubjectPattern: '(?:^|[\\s_-])(?:delta|trend|change)(?:$|[\\s_-])',
   statusDirectionPattern: '(?:^|[\\s_-])(?:up|down|positive|negative|increase|decrease|gain|loss)(?:$|[\\s_-])',
-  positiveStatusPattern:
-    '(?:(?:^|[\\s_-])(?:success|successful|healthy|health|ok|up|positive|increase|gain)(?:$|[\\s_-])|成功|正常|健康)',
-  warningStatusPattern: '(?:(?:^|[\\s_-])(?:warning|warn)(?:$|[\\s_-])|警告)',
+  positiveStatusPattern: '(?:^|[\\s_-])(?:success|successful|healthy|health|ok|up|positive|increase|gain)(?:$|[\\s_-])',
+  warningStatusPattern: '(?:^|[\\s_-])(?:warning|warn)(?:$|[\\s_-])',
   negativeStatusPattern:
-    '(?:(?:^|[\\s_-])(?:error|danger|destructive|delete|remove|invalid|down|negative|decrease|loss)(?:$|[\\s_-])|删除|危险|错误)',
+    '(?:^|[\\s_-])(?:error|danger|destructive|delete|remove|invalid|down|negative|decrease|loss)(?:$|[\\s_-])',
   deepCardScanLimit: 1200,
 } as const
 
@@ -52,18 +49,16 @@ export interface ClassifiedRoleCandidate {
   statusIntent?: 'positive' | 'warning' | 'negative' | 'neutral'
 }
 
-function candidateContext(candidate: RoleCandidateSnapshot, includeText = false): string {
+function candidateContext(candidate: RoleCandidateSnapshot): string {
   return [
     candidate.className,
     candidate.id,
+    candidate.role,
     candidate.dataVariant,
     candidate.dataIntent,
     candidate.dataState,
     candidate.dataStatus,
-    candidate.ariaLabel,
     candidate.type,
-    candidate.value,
-    includeText ? candidate.text : undefined,
   ]
     .filter(Boolean)
     .join(' ')
@@ -90,7 +85,7 @@ export function classifyRoleCandidate(candidate: RoleCandidateSnapshot): Classif
   if (!candidate.isCandidateRoot) return null
   const tagName = candidate.tagName.toLowerCase()
   const statusContext = candidateContext(candidate)
-  const actionContext = candidateContext(candidate, true)
+  const actionContext = candidateContext(candidate)
   const nativeButton = tagName === 'button'
   const inputButton = tagName === 'input' && ['button', 'submit'].includes(candidate.type || '')
   const roleButton = candidate.role === 'button'

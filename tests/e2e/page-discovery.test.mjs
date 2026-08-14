@@ -61,7 +61,7 @@ before(async () => {
     if (request.url === '/campaign' || request.url === '/campaign-stuck') {
       const closeButton =
         request.url === '/campaign'
-          ? '<button aria-label="Close promotion" onclick="document.getElementById(\'campaign\').remove()">Close</button>'
+          ? '<button aria-label="إغلاق العرض" onclick="document.getElementById(\'campaign\').remove()">إغلاق</button>'
           : ''
       response.end(`<!doctype html><style>
         body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
@@ -69,6 +69,24 @@ before(async () => {
       </style><main><h1>Underlying product page</h1><section class="card"><h2>Stable design system</h2>
       <p>The analysis should use this content after closing the temporary promotion.</p></section></main>
       <div id="campaign" class="campaign" role="dialog" aria-modal="true"><div><h2>Limited promotion</h2>${closeButton}</div></div>`)
+      return
+    }
+    if (request.url === '/campaign-delayed') {
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
+        .card{padding:32px;border-radius:16px;background:#dbeafe}.campaign{position:fixed;inset:0;z-index:99;background:#ff00ff;color:#050505;display:grid;place-items:center}
+      </style><main><h1>Underlying delayed campaign page</h1><section class="card"><h2>Stable design system</h2>
+      <p>The late campaign should be removed before evidence and screenshots are captured.</p></section></main>
+      <script>
+        const observer = new MutationObserver((records) => {
+          const animationFreezeAdded = records.some((record) => [...record.addedNodes].some((node) =>
+            node instanceof HTMLStyleElement && node.textContent.includes('animation-duration: 1ms')))
+          if (!animationFreezeAdded) return
+          observer.disconnect()
+          document.body.insertAdjacentHTML('beforeend', '<div id="campaign" class="campaign" role="dialog" aria-modal="true"><button aria-label="プロモーションを閉じる" onclick="this.parentElement.remove()">閉じる</button></div>')
+        })
+        observer.observe(document.head, { childList:true })
+      </script>`)
       return
     }
     response.end(`<!doctype html><nav><a href="/pricing">Pricing</a></nav>
@@ -202,5 +220,28 @@ test(
     assert.equal(isolated.designEvidence.pages.length, 0)
     assert.deepEqual(isolated.designEvidence.tokens.colors, {})
     assert.ok(isolated.extractionIssues.some((issue) => issue.stage.includes('health:large-overlay')))
+  },
+)
+
+test(
+  'rechecks and refreshes evidence when an obstruction appears after the initial health gate',
+  { timeout: 120_000 },
+  async () => {
+    const result = await analyze(`${origin}/campaign-delayed`, {
+      viewports: ['desktop'],
+      maxPages: 1,
+      useSession: false,
+      pageDiscovery: 'links',
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-campaign-delayed-e2e-')),
+    })
+
+    assert.equal(result.designEvidence.pages.length, 1)
+    assert.equal(result.designEvidence.pages[0].health?.recovered, true)
+    assert.equal(JSON.stringify(result.tokens.colors).includes('255, 0, 255'), false)
+    assert.equal(JSON.stringify(result.designEvidence.tokens.colors).includes('255, 0, 255'), false)
+    assert.equal(
+      result.designEvidence.components.some((component) => component.type === 'modal'),
+      false,
+    )
   },
 )

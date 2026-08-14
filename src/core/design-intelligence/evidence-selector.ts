@@ -7,6 +7,7 @@ import {
   AI_VISUAL_TOKEN_BUDGET,
   estimateVisualTokens,
 } from '../ai/image-summary.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import { createEvidenceId } from '../design-evidence/stable-id.js'
 import type {
   ComponentEvidence,
@@ -235,7 +236,7 @@ function deduplicateComponents(components: ComponentEvidence[], limit: number): 
 }
 
 function layoutNodeSignature(n: LayoutEvidenceNode): string {
-  return `${n.role}|${n.textRole || ''}|${n.traits.sort().join(',')}`
+  return `${n.role}|${n.textRole || ''}|${[...n.traits].sort().join(',')}`
 }
 
 function deduplicateLayoutNodes(nodes: LayoutEvidenceNode[], limit: number): LayoutEvidenceNode[] {
@@ -248,7 +249,7 @@ function deduplicateLayoutNodes(nodes: LayoutEvidenceNode[], limit: number): Lay
 }
 
 function interactionSignature(obs: InteractionObservation): string {
-  return `${obs.driver}|${obs.trigger.kind}|${obs.changedProperties.sort().join(',')}`
+  return `${obs.driver}|${obs.trigger.kind}|${[...obs.changedProperties].sort().join(',')}`
 }
 
 function deduplicateInteractions(observations: InteractionObservation[], limit: number): InteractionObservation[] {
@@ -288,7 +289,16 @@ function selectRepresentativeSections<T extends { id: string; pageId: string }>(
   return selected
 }
 
-function selectRepresentativePages<T extends { url: string; viewport: string }>(pages: T[], maxPages: number): T[] {
+function selectRepresentativePages<
+  T extends {
+    url: string
+    viewport: string
+    horizontalOverflow?: boolean
+    viewportWidth?: number
+    contentWidth?: number
+    health?: { status: string }
+  },
+>(pages: T[], maxPages: number): T[] {
   const byUrl = new Map<string, T[]>()
   for (const page of pages) {
     const existing = byUrl.get(page.url) || []
@@ -305,6 +315,17 @@ function selectRepresentativePages<T extends { url: string; viewport: string }>(
     if (representative) result.push(representative)
     // Preserve the entry page's responsive comparison without letting it consume the distinct-page budget.
     if (index === 0 && desktop && mobile && desktop !== mobile) result.push(mobile)
+
+    // A degraded or overflowing capture is evidence about a failure mode, not a redundant
+    // viewport. Keep one such capture for every selected URL so the model cannot attribute
+    // a global limitation to a healthy representative from another page.
+    const criticalCapture = group.find(
+      (page) =>
+        page !== representative &&
+        !result.includes(page) &&
+        (page.horizontalOverflow === true || page.health?.status === 'degraded'),
+    )
+    if (criticalCapture) result.push(criticalCapture)
   }
   return result
 }
@@ -619,6 +640,7 @@ export function selectEvidencePackage(
   )
   const pages = selectRepresentativePages(eligiblePages, limits.maxPages)
   const selectedPageIds = pages.map((page) => page.id)
+  const inferencePageIds = new Set(pages.filter((page) => !hasSevereHorizontalOverflow(page)).map((page) => page.id))
   const pageUrlMap = new Map(pages.map((page) => [page.id, page.url]))
   const overflowSectionIds = new Set(
     pages.flatMap((page) =>
@@ -627,7 +649,7 @@ export function selectEvidencePackage(
   )
   const sectionDedup = new Set<string>()
   const sectionCandidates = evidence.sections
-    .filter((section) => selectedPageIds.includes(section.pageId))
+    .filter((section) => inferencePageIds.has(section.pageId))
     .filter((section) => {
       const url = pageUrlMap.get(section.pageId) || ''
       const key = `${url}|${section.role}|${section.order}`
@@ -664,13 +686,21 @@ export function selectEvidencePackage(
     .slice(0, limits.maxMediaLayers)
   const imageSelection =
     inputMode === 'multimodal'
-      ? selectRepresentativeImages(pages, evidence, limits.maxImages, limits.maxVisualTokens)
+      ? selectRepresentativeImages(
+          pages.filter((page) => inferencePageIds.has(page.id)),
+          evidence,
+          limits.maxImages,
+          limits.maxVisualTokens,
+        )
       : []
   const imageIds = imageSelection.map((selection) => selection.id)
 
   const omittedEvidence: EvidencePackage['omittedEvidence'] = []
   if (eligiblePages.length < evidence.pages.length) omittedEvidence.push({ kind: 'pages', reason: 'unsafe' })
   if (evidence.pages.length > pages.length) omittedEvidence.push({ kind: 'pages', reason: 'budget' })
+  if (inferencePageIds.size < pages.length) {
+    omittedEvidence.push({ kind: 'capture-details', reason: 'severe-horizontal-overflow' })
+  }
   if (evidence.sections.length > sections.length) omittedEvidence.push({ kind: 'sections', reason: 'budget' })
   if (evidence.components.length > components.length) omittedEvidence.push({ kind: 'components', reason: 'budget' })
   if (evidence.interactionObservations.length > interactionObservations.length) {

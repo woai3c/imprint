@@ -28,6 +28,25 @@ function prepareStatement(text: string): PreparedStatement {
   return { text: normalized, grams: new Set(normalized.split(' ').filter(Boolean)) }
 }
 
+function prepareClaim(claim: DesignClaim, schemaVersion: DesignProfile['schemaVersion']): PreparedStatement {
+  if (schemaVersion === '2' && claim.assertions && claim.assertions.length > 0) {
+    const assertions = claim.assertions
+      .map((assertion) =>
+        JSON.stringify({
+          kind: assertion.kind,
+          target: assertion.target,
+          predicate: assertion.predicate,
+          scope: assertion.scope,
+          property: assertion.property,
+          value: assertion.value,
+        }),
+      )
+      .sort()
+    return { text: assertions.join('|'), grams: new Set(assertions) }
+  }
+  return prepareStatement(claim.statement)
+}
+
 const SIMILARITY_THRESHOLD = 0.85
 const CONTAINMENT_LENGTH_RATIO = 0.7
 
@@ -58,14 +77,30 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
   let removed = 0
 
   const register = (claim: DesignClaim | undefined) => {
-    if (claim) kept.push(prepareStatement(claim.statement))
+    if (claim) kept.push(prepareClaim(claim, profile.schemaVersion))
   }
   const registerRequired = <T extends DesignClaim>(claim: T, fallback?: DesignClaim): T => {
-    const prepared = prepareStatement(claim.statement)
+    const prepared = prepareClaim(claim, profile.schemaVersion)
     if (fallback && prepared.text && kept.some((existing) => isNearDuplicate(existing, prepared))) {
       removed += 1
-      const replacement = { ...fallback, confidence: 'low' as const } as T
-      kept.push(prepareStatement(replacement.statement))
+      const replacement = {
+        ...fallback,
+        confidence: 'low' as const,
+        ...(profile.schemaVersion === '2'
+          ? {
+              assertions: [
+                {
+                  kind: 'evidence' as const,
+                  target: 'design-thesis',
+                  predicate: 'supports',
+                  scope: 'instance' as const,
+                  evidenceIds: fallback.evidence.map((reference) => reference.evidenceId).slice(0, 2),
+                },
+              ],
+            }
+          : {}),
+      } as T
+      kept.push(prepareClaim(replacement, profile.schemaVersion))
       return replacement
     }
     kept.push(prepared)
@@ -73,7 +108,7 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
   }
   const filterClaims = <T extends DesignClaim>(claims: T[]): T[] =>
     claims.filter((claim) => {
-      const prepared = prepareStatement(claim.statement)
+      const prepared = prepareClaim(claim, profile.schemaVersion)
       if (!prepared.text) return true
       if (kept.some((existing) => isNearDuplicate(existing, prepared))) {
         removed += 1
@@ -85,7 +120,7 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
   const filterLocalClaims = <T extends DesignClaim>(claims: T[]): T[] => {
     const localKept: PreparedStatement[] = []
     return claims.filter((claim) => {
-      const prepared = prepareStatement(claim.statement)
+      const prepared = prepareClaim(claim, profile.schemaVersion)
       if (!prepared.text) return true
       if (localKept.some((existing) => isNearDuplicate(existing, prepared))) {
         removed += 1

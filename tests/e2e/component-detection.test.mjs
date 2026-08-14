@@ -99,31 +99,99 @@ test('detects visible semantic components and a visually bounded card', async ()
   await page.close()
 })
 
-test('shares submit, localized confirmation, and destructive roles with style extraction', async () => {
+test('extracts the painted input wrapper and does not assume every root route is a landing page', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; color:#172033; }
+      main { min-height:500px; padding:32px; }
+      .search-shell { display:flex; width:360px; height:40px; padding:0 16px; border-radius:20px; background:rgb(243, 246, 250); }
+      input { width:100%; border:0; border-radius:0; padding:0; background:transparent; }
+    </style>
+    <main>
+      <div class="search-shell"><input role="combobox" aria-label="Search"></div>
+      <div class="feed"><h2>Recommended</h2><p>A signed-in feed can live at the root URL without being a landing page.</p></div>
+    </main>`)
+
+  const detected = await detectComponents(page)
+  const detectedInput = detected.find((component) => component.type === 'input')
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const evidenceInput = evidence.components.find((component) => component.type === 'input')
+
+  assert.equal(detectedInput?.styles.borderRadius, '20px')
+  assert.equal(detectedInput?.styles.backgroundColor, 'rgb(243, 246, 250)')
+  assert.equal(evidenceInput?.styles.borderRadius, '20px')
+  assert.equal(evidenceInput?.styles.backgroundColor, 'rgb(243, 246, 250)')
+  assert.equal(Math.round((evidenceInput?.rect.height || 0) * evidence.height), 40)
+  assert.equal(evidence.role, 'unknown')
+  await page.close()
+})
+
+test('classifies a long repeated feed as a content page while preserving its feature-group section', async () => {
+  const page = await browser.newPage({ viewport: { width: 375, height: 812 } })
+  await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })
+  const items = Array.from(
+    { length: 4 },
+    (_, index) =>
+      `<article><h2>Feed item ${index + 1}</h2><p>${'A repeated feed remains page-level content. '.repeat(8)}</p></article>`,
+  ).join('')
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; }
+      main { padding:16px; }
+      article { min-height:160px; padding:16px; border-bottom:1px solid #ddd; }
+    </style>
+    <main>${items}</main>`)
+
+  const evidence = await extractPageEvidence(page, 'mobile')
+
+  assert.equal(evidence.role, 'content')
+  assert.ok(evidence.sections.some((section) => section.role === 'feature-group'))
+  await page.close()
+})
+
+test('recognizes creator workspaces and column discovery routes', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.goto(new URL('/creator', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
+  const creator = await extractPageEvidence(page, 'desktop')
+
+  await page.goto(new URL('/column-square', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
+  const columns = await extractPageEvidence(page, 'desktop')
+
+  assert.equal(creator.role, 'workspace')
+  assert.equal(columns.role, 'content')
+  await page.close()
+})
+
+test('uses machine semantics for action intent across localized labels', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   await page.setContent(`<!doctype html>
     <style>
       main { display:block; min-height:400px; }
       button, input { display:block; width:120px; height:40px; margin:8px; border:0; color:white; }
-      input[type="submit"], #confirm { background:rgb(21, 94, 239); }
-      #delete-en, #delete-zh { background:rgb(180, 35, 24); }
+      input[type="submit"], [data-intent="primary"] { background:rgb(21, 94, 239); }
+      [data-intent="destructive"] { background:rgb(180, 35, 24); }
     </style>
     <main>
       <section>
         <input type="submit" value="Save">
-        <button id="confirm">确认</button>
-        <button id="delete-en">Delete</button>
-        <button id="delete-zh">删除</button>
+        <button data-intent="primary">متابعة</button>
+        <button data-intent="destructive">Eliminar</button>
+        <button data-intent="destructive">削除</button>
+        <button>删除</button>
       </section>
     </main>`)
 
   const evidence = await extractPageEvidence(page, 'desktop')
   const primaryActions = evidence.components.filter((component) => component.role === 'primary-action')
   const destructiveActions = evidence.components.filter((component) => component.role === 'destructive-action')
+  const genericActions = evidence.components.filter((component) => component.role === 'action')
   const statuses = evidence.components.filter((component) => component.type === 'status')
 
   assert.equal(primaryActions.length, 2)
   assert.equal(destructiveActions.length, 2)
+  assert.equal(genericActions.length, 1)
   assert.ok(destructiveActions.every((component) => component.type === 'button'))
   assert.equal(statuses.length, 0)
   await page.close()
@@ -349,6 +417,47 @@ test('applies the deep card limit after cheap candidate qualification', async ()
   const evidence = await extractPageEvidence(page, 'desktop')
 
   assert.equal(evidence.components.filter((component) => component.type === 'card').length, 2)
+  await page.close()
+})
+
+test('keeps a strongly bounded one-off dashboard panel as card evidence', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; background:#f3f4f6; }
+      main { padding:32px; }
+      .dashboard-panel { width:520px; min-height:180px; padding:24px; border:1px solid #d1d5db; border-radius:16px; background:white; }
+    </style>
+    <main><section class="dashboard-panel"><h2>Creator overview</h2><p>This panel is unique but has a clear visual surface.</p><button>Open report</button></section></main>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const panels = evidence.components.filter((component) => component.type === 'card')
+
+  assert.equal(panels.length, 1)
+  assert.ok(panels[0].confidence >= 0.62)
+  await page.close()
+})
+
+test('does not classify a full-width page section as a card component', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; }
+      .action-section { width:100%; padding:64px 24px; border-radius:48px 48px 0 0; background:#431407; color:white; text-align:center; }
+    </style>
+    <main><section class="action-section"><h2>Choose a path</h2><p>This is a page region, not a reusable card.</p><button>Continue</button></section></main>`)
+
+  const patterns = await detectComponents(page)
+  const evidence = await extractPageEvidence(page, 'desktop')
+
+  assert.equal(
+    patterns.some((component) => component.type === 'card'),
+    false,
+  )
+  assert.equal(
+    evidence.components.some((component) => component.type === 'card'),
+    false,
+  )
   await page.close()
 })
 

@@ -74,8 +74,11 @@ function colorAlpha(value: string | undefined): number | undefined {
   if (!value) return undefined
   const trimmed = value.trim().toLowerCase()
   if (trimmed === 'transparent') return 0
-  const rgba = trimmed.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)$/)
-  if (rgba) return Number.parseFloat(rgba[1])
+  const legacyAlpha = trimmed.match(/^(?:rgba|hsla)\([^,]+,[^,]+,[^,]+,\s*([\d.]+)(%)?\)$/)
+  if (legacyAlpha) {
+    const alpha = Number.parseFloat(legacyAlpha[1])
+    return legacyAlpha[2] ? alpha / 100 : alpha
+  }
   const modern = trimmed.match(/\/\s*([\d.]+)%?\s*\)$/)
   if (modern) {
     const alpha = Number.parseFloat(modern[1])
@@ -113,7 +116,44 @@ function hasNonzeroDimension(value: string | undefined): boolean {
 }
 
 export function hasVisibleShadow(value: string | undefined): boolean {
-  return Boolean(value && value !== 'none' && !/^rgba\([^)]*,\s*0\)\s+0px(?:\s+0px){2,}/i.test(value))
+  if (!value || value.trim().toLowerCase() === 'none') return false
+  const layers: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '(') depth += 1
+    else if (value[index] === ')') depth = Math.max(0, depth - 1)
+    else if (value[index] === ',' && depth === 0) {
+      layers.push(value.slice(start, index))
+      start = index + 1
+    }
+  }
+  layers.push(value.slice(start))
+
+  const colorPattern = /transparent|#[\da-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi
+  return layers.some((layer) => {
+    const colors = layer.match(colorPattern) || []
+    if (colors.length > 0 && colors.every((color) => isTransparentColor(color))) return false
+    const geometry = layer
+      .replace(colorPattern, ' ')
+      .replace(/\binset\b/gi, ' ')
+      .match(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:[a-z%]+)?/gi)
+    if (!geometry || geometry.length < 2) return false
+    const lengths = geometry.slice(0, 4).map((dimension) => Number.parseFloat(dimension))
+    const [offsetX = 0, offsetY = 0, blur = 0, spread = 0] = lengths
+    return Math.abs(offsetX) > 0.01 || Math.abs(offsetY) > 0.01 || blur > 0.01 || spread > 0.01
+  })
+}
+
+export function classifyCardStyle(styles: Readonly<Record<string, string>>): string {
+  const radius = Math.max(0, ...numericDimensions(styles.borderRadius))
+  const corner = radius > 0 ? `r${Number(radius.toFixed(2))}` : 'square'
+  const surface = hasVisibleShadow(styles.boxShadow)
+    ? 'elevated'
+    : hasVisibleBorder(styles.border)
+      ? 'outlined'
+      : 'flat'
+  return `${surface}-${corner}`
 }
 
 export function isPillRadius(
@@ -130,6 +170,23 @@ export function isPillRadius(
 export function isOutlinedButton(styles: Readonly<Record<string, string>>): boolean {
   const background = styles.backgroundColor
   return hasVisibleBorder(styles.border) && (!background || isContextDependentColor(background))
+}
+
+function classifyButtonStyleFamily(candidate: ComponentVariantCandidate): string {
+  const corner = isPillRadius(candidate.styles, candidate)
+    ? 'pill'
+    : hasNonzeroDimension(candidate.styles.borderRadius)
+      ? 'rounded'
+      : 'sharp'
+  const background = candidate.styles.backgroundColor
+  const surface = hasVisibleBorder(candidate.styles.border)
+    ? 'outlined'
+    : background && isContextDependentColor(background) && !isTransparentColor(background)
+      ? 'tinted'
+      : background && !isTransparentColor(background)
+        ? 'filled'
+        : 'flat'
+  return `${corner}-${surface}${hasVisibleShadow(candidate.styles.boxShadow) ? '-shadowed' : ''}`
 }
 
 function isIconSized(styles: Record<string, string>, context: ComponentVariantContext): boolean {
@@ -167,16 +224,22 @@ export function classifyComponentVariant(
     (alpha === undefined || alpha >= 0.5) &&
     (context.tokenRefs?.includes('color.primary') ||
       Boolean(normalizedBackground && normalizedPrimary && normalizedBackground === normalizedPrimary))
-  const hasPrimarySemanticRole = /\b(?:primary|main|cta)(?:-action)?\b|(?:主操作|主要操作|主按钮)/i.test(
-    context.role || '',
-  )
+  const hasPrimarySemanticRole = /^(?:primary|main|cta)(?:-action)?$/i.test(context.role || '')
+
+  const iconSized = isIconSized(styles, context)
+  const compactIconGeometry =
+    context.widthPx !== undefined && context.heightPx !== undefined && Math.max(context.widthPx, context.heightPx) <= 36
+
+  // Very compact square geometry wins even when an accessible label describes a primary action.
+  // Larger semantically primary circles may still be text-bearing floating action controls.
+  if (iconSized && (!hasPrimarySemanticRole || compactIconGeometry)) return 'icon'
 
   // Semantic labels identify intent, but they cannot turn a transparent compound-control segment
-  // into a visually filled primary button. A real primary fill still wins over square icon geometry.
+  // into a visually filled primary button.
   if (hasPrimarySemanticRole && (referencesPrimaryFill || (!transparent && alpha !== undefined && alpha >= 0.5))) {
     return 'primary'
   }
-  if (isIconSized(styles, context)) return 'icon'
+  if (iconSized) return 'icon'
   if (referencesPrimaryFill) return 'primary'
   if (transparent) return hasVisibleBorder(styles.border) ? 'secondary' : 'text'
 
@@ -280,18 +343,29 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       variant?: ComponentVariant
       size?: 'sm' | 'md' | 'lg'
       semanticRole?: string
+      cardStyle?: string
+      buttonStyle?: string
       candidates: ComponentVariantCandidate[]
     }
   >()
+  const cardStyles = new Set(
+    candidates.filter((candidate) => candidate.type === 'card').map((candidate) => classifyCardStyle(candidate.styles)),
+  )
   const sizeVariants = new Map<string, Set<string>>()
+  const buttonStyles = new Map<string, Set<string>>()
   for (const candidate of candidates) {
-    if (candidate.type !== 'button' || !candidate.heightPx) continue
+    if (candidate.type !== 'button') continue
     const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
-    const size = candidate.heightPx <= 36 ? 'sm' : candidate.heightPx <= 48 ? 'md' : 'lg'
     const key = `${candidate.type}|${variant || ''}`
-    const sizes = sizeVariants.get(key) || new Set<string>()
-    sizes.add(size)
-    sizeVariants.set(key, sizes)
+    const styles = buttonStyles.get(key) || new Set<string>()
+    styles.add(classifyButtonStyleFamily(candidate))
+    buttonStyles.set(key, styles)
+    if (candidate.heightPx) {
+      const size = candidate.heightPx <= 36 ? 'sm' : candidate.heightPx <= 48 ? 'md' : 'lg'
+      const sizes = sizeVariants.get(key) || new Set<string>()
+      sizes.add(size)
+      sizeVariants.set(key, sizes)
+    }
   }
   for (const candidate of candidates) {
     const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
@@ -305,8 +379,22 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
         : undefined
     const size = (sizeVariants.get(`${candidate.type}|${variant || ''}`)?.size || 0) > 1 ? measuredSize : undefined
     const semanticRole = candidate.type === 'status' ? candidate.role : undefined
-    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}`
-    const group = groups.get(key) || { type: candidate.type, variant, size, semanticRole, candidates: [] }
+    const cardStyle = candidate.type === 'card' ? classifyCardStyle(candidate.styles) : undefined
+    const buttonStyleKey = `${candidate.type}|${variant || ''}`
+    const buttonStyle =
+      candidate.type === 'button' && (buttonStyles.get(buttonStyleKey)?.size || 0) > 1
+        ? classifyButtonStyleFamily(candidate)
+        : undefined
+    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}|${cardStyle || ''}|${buttonStyle || ''}`
+    const group = groups.get(key) || {
+      type: candidate.type,
+      variant,
+      size,
+      semanticRole,
+      cardStyle,
+      buttonStyle,
+      candidates: [],
+    }
     group.candidates.push(candidate)
     groups.set(key, group)
   }
@@ -330,7 +418,17 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
           styles: selectRepresentativeStyles(group.type, group.candidates, group.variant === undefined),
           confidence: Math.round(confidence * 100) / 100,
           evidence: [...new Set(group.candidates.flatMap((candidate) => candidate.evidence))].sort(),
-          name: group.semanticRole || [group.type, group.variant, group.size].filter(Boolean).join('-'),
+          name:
+            group.semanticRole ||
+            [
+              group.type,
+              group.variant,
+              group.size,
+              group.buttonStyle,
+              group.type === 'card' && cardStyles.size > 1 ? group.cardStyle : undefined,
+            ]
+              .filter(Boolean)
+              .join('-'),
           ...(group.variant ? { variant: group.variant } : {}),
           ...(group.semanticRole ? { semanticRole: group.semanticRole } : {}),
           ...(sample ? { sampleSize: { width: Math.round(sample.widthPx), height: Math.round(sample.heightPx) } } : {}),
@@ -494,15 +592,45 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       })
     }
 
+    const visualInputRoot = (source: Element): Element => {
+      const sourceRect = source.getBoundingClientRect()
+      const sourceStyle = computedStyleFor(source)
+      const transparent = (color: string) =>
+        color === 'transparent' || /^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(color.trim())
+      let ancestor = source.parentElement
+      for (let depth = 0; ancestor && depth < 3; depth += 1, ancestor = ancestor.parentElement) {
+        if (!isVisible(ancestor)) continue
+        const rect = ancestor.getBoundingClientRect()
+        const computed = computedStyleFor(ancestor)
+        const reasonableBounds =
+          rect.width >= sourceRect.width &&
+          rect.height >= sourceRect.height &&
+          rect.width <= Math.max(sourceRect.width * 1.8, sourceRect.width + 160) &&
+          rect.height <= Math.max(sourceRect.height * 3, 72)
+        const paintedBorder =
+          Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+        const rounded = Number.parseFloat(computed.borderTopLeftRadius || '0') > 0
+        const shadowed = computed.boxShadow !== 'none'
+        const distinctBackground =
+          !transparent(computed.backgroundColor) && computed.backgroundColor !== sourceStyle.backgroundColor
+        const addsVisibleBounds = rect.width > sourceRect.width + 2 || rect.height > sourceRect.height + 2
+        if (reasonableBounds && addsVisibleBounds && (paintedBorder || rounded || shadowed || distinctBackground)) {
+          return ancestor
+        }
+      }
+      return source
+    }
+
     const collect = (
       type: BrowserComponentType,
       selector: string,
       confidence: number,
       evidence: string[],
       predicate: (element: Element) => boolean = () => true,
+      resolveElement: (element: Element) => Element = (element) => element,
     ): void => {
       for (const element of document.querySelectorAll(selector)) {
-        if (predicate(element)) addCandidate(type, element, confidence, evidence)
+        if (predicate(element)) addCandidate(type, resolveElement(element), confidence, evidence)
       }
     }
 
@@ -529,10 +657,17 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]), textarea, select',
       0.98,
       ['native-element'],
+      () => true,
+      visualInputRoot,
     )
-    collect('input', '[role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]', 0.88, [
-      'aria-role',
-    ])
+    collect(
+      'input',
+      '[role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]',
+      0.88,
+      ['aria-role'],
+      () => true,
+      visualInputRoot,
+    )
 
     collect('table', 'table', 0.98, ['native-element'])
     collect('table', '[role="table"]', 0.9, ['aria-role'])
@@ -621,6 +756,10 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const computed = computedStyleFor(element)
       const rect = element.getBoundingClientRect()
       if (rect.width < 120 || rect.height < 72) continue
+      const isFullWidthPageSection =
+        rect.width >= window.innerWidth * 0.9 &&
+        Boolean(element.matches('main > section, main > article, [role="region"]'))
+      if (isFullWidthPageSection) continue
 
       const radii = [
         computed.borderTopLeftRadius,

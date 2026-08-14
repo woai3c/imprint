@@ -4,6 +4,10 @@ import type { DesignEvidence } from '../design-evidence/types.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
 export type IntelligenceInputMode = 'multimodal' | 'structural-only'
+export const DESIGN_PROFILE_SCHEMA_VERSION = '2' as const
+export type DesignProfileSchemaVersion = '1' | typeof DESIGN_PROFILE_SCHEMA_VERSION
+export type DesignAssertionKind = 'evidence' | 'component' | 'section' | 'interaction' | 'responsive' | 'token'
+export type DesignAssertionScope = 'instance' | 'page' | 'cross-page'
 export type AnalysisCapabilityLevel = 'evidence-only' | 'structural-ai' | 'multimodal-ai' | 'evidence-fallback'
 export type DesignIntelligenceStatus =
   'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'skipped' | 'unsupported'
@@ -71,12 +75,27 @@ export interface EvidenceRef {
   note: string
 }
 
+/**
+ * Machine-readable claim semantics. Prose is presentation only in schema v2;
+ * deterministic validation operates exclusively on these fields and evidence IDs.
+ */
+export interface DesignClaimAssertion {
+  kind: DesignAssertionKind
+  target: string
+  predicate: string
+  scope: DesignAssertionScope
+  evidenceIds: string[]
+  property?: string
+  value?: string | number | boolean | string[]
+}
+
 export interface DesignClaim {
   statement: string
   implementation: string
   confidence: Confidence
   evidence: EvidenceRef[]
   tokenRefs?: string[]
+  assertions?: DesignClaimAssertion[]
 }
 
 export interface SignatureMove extends DesignClaim {
@@ -100,7 +119,7 @@ export interface PatternSpec {
 }
 
 export interface DesignProfile {
-  schemaVersion: '1'
+  schemaVersion: DesignProfileSchemaVersion
   language: 'en' | 'zh-CN'
   inputMode: IntelligenceInputMode
   thesis: DesignClaim
@@ -269,7 +288,7 @@ export interface EvidencePackage {
   evidence: AiSafeDesignEvidence
   omittedEvidence: Array<{
     kind: string
-    reason: 'budget' | 'privacy' | 'unsupported' | 'unsafe'
+    reason: 'budget' | 'privacy' | 'unsupported' | 'unsafe' | 'severe-horizontal-overflow'
   }>
 }
 

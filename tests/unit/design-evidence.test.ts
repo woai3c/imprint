@@ -426,6 +426,57 @@ describe('Design Evidence', () => {
     expect(brief).not.toContain('synthetic-target-id')
   })
 
+  it('prioritizes computed interaction observations over stylesheet declarations at the evidence cap', () => {
+    const snapshot = createSnapshot('desktop', 1_440)
+    const declaredFocusStyles = Array.from({ length: 12 }, (_, index) => ({
+      before: {},
+      after: { 'outline-color': `var(--focus-${index})` },
+    }))
+    const computedFocusStyle = {
+      before: {
+        'outline-style': 'none',
+        'outline-width': '0px',
+        'outline-color': 'rgba(0, 0, 0, 0)',
+      },
+      after: {
+        'outline-style': 'none',
+        'outline-width': '0px',
+        'outline-color': 'rgb(37, 99, 235)',
+      },
+      changedProperties: ['outline-color'],
+    }
+    const evidence = buildDesignEvidence({
+      analysisId: 'computed-interaction-priority',
+      requestedUrl: snapshot.url,
+      finalUrl: snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: snapshot.url, path: 'desktop.png', viewport: 'desktop' },
+          snapshot,
+          interactionStyles: {
+            hover: [],
+            focus: [...declaredFocusStyles, computedFocusStyle],
+            active: [],
+          },
+        },
+      ],
+    })
+    const focusObservations = evidence.interactionObservations.filter((observation) => observation.driver === 'focus')
+
+    expect(focusObservations).toHaveLength(12)
+    expect(focusObservations[0]).toMatchObject({
+      changedProperties: ['outline-color'],
+      after: { 'outline-style': 'none', 'outline-width': '0px', 'outline-color': 'rgb(37, 99, 235)' },
+    })
+  })
+
   it('shows declared passive values when a stylesheet observation has no computed before value', () => {
     const evidence = buildFixtureEvidence()
     const page = evidence.pages[0]
@@ -809,6 +860,38 @@ describe('Design Evidence', () => {
     expect(generateDesignEvidenceBrief(evidence)).toContain('page×viewport captures 1/2 (partial)')
   })
 
+  it('uses the analyzer adaptive capture plan instead of a page×viewport Cartesian product', () => {
+    const captures = [
+      ['https://example.com/', 'desktop', 1440],
+      ['https://example.com/', 'mobile', 375],
+      ['https://example.com/article', 'desktop', 1440],
+      ['https://example.com/article', 'mobile', 375],
+      ['https://example.com/profile', 'desktop', 1440],
+    ] as const
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-adaptive-capture-plan',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 3,
+      expectedViewports: ['desktop', 'mobile'],
+      expectedCaptureCount: 5,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: captures.map(([url, viewport, width], index) => {
+        const snapshot = createSnapshot(viewport, width)
+        snapshot.url = url
+        return { screenshot: { url, path: `capture-${index}.png`, viewport }, snapshot }
+      }),
+    })
+
+    expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 5, captured: 5, status: 'complete' })
+    expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
+  })
+
   it('counts unique requested URL and viewport combinations for capture coverage', () => {
     const desktop = createSnapshot('desktop', 1440)
     const duplicateDesktop = createSnapshot('desktop', 1440)
@@ -912,6 +995,37 @@ describe('Design Evidence', () => {
     expect(brief).toContain('section hero')
   })
 
+  it('uses the encoded screenshot dimensions instead of document geometry for image evidence', () => {
+    const snapshot = createSnapshot('mobile', 3_568)
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-screenshot-size',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: {
+            url: 'https://example.com/',
+            path: 'mobile.png',
+            viewport: 'mobile',
+            width: 3_686,
+            height: 2_294,
+          },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.pages[0].images[0]).toMatchObject({ width: 3_686, height: 2_294 })
+    expect(evidence.pages[0].contentWidth).toBe(3_568)
+  })
+
   it('does not infer responsive visibility from a horizontally clipped capture', () => {
     const desktop = createSnapshot('desktop', 1440)
     const mobile = createSnapshot('mobile', 1032)
@@ -945,6 +1059,65 @@ describe('Design Evidence', () => {
           observation.changeType === 'visibility' && observation.changedProperties.includes('visibility'),
       ),
     ).toBe(false)
+    expect(evidence.responsiveObservations).toEqual([])
+  })
+
+  it('keeps structural reflow facts while dropping geometry from moderate local overflow', () => {
+    const desktop = createSnapshot('desktop', 1_440)
+    const mobile = createSnapshot('mobile', 739)
+    desktop.sections.find((section) => section.key === 'hero:1')!.styles.gridTemplateColumns = '190px 1fr'
+    mobile.sections.find((section) => section.key === 'hero:1')!.styles.gridTemplateColumns = '1fr'
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-local-overflow-responsive',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const heroReflow = evidence.responsiveObservations.find((observation) =>
+      observation.changedProperties.includes('gridTemplateColumns'),
+    )
+
+    expect(heroReflow).toMatchObject({ changeType: 'reflow' })
+    expect(heroReflow?.changedProperties.some((property) => property.startsWith('rect.'))).toBe(false)
+  })
+
+  it('classifies a section height-only viewport difference as scale', () => {
+    const desktop = createSnapshot('desktop', 1_440)
+    const mobile = createSnapshot('mobile', 375)
+    mobile.sections = structuredClone(desktop.sections)
+    desktop.sections.find((section) => section.key === 'hero:1')!.styles.height = '480px'
+    mobile.sections.find((section) => section.key === 'hero:1')!.styles.height = '620px'
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-height-scale',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const heightChange = evidence.responsiveObservations.find((observation) =>
+      observation.changedProperties.includes('height'),
+    )
+
+    expect(heightChange).toMatchObject({ changeType: 'scale', changedProperties: ['height'] })
   })
 
   it('humanizes detailed extraction issues without exposing raw page-health IDs', () => {

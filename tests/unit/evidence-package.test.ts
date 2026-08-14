@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
+import { focusIndicatorVisibility } from '../../src/core/design-evidence/interaction-visibility.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   buildAnalysisDigest,
@@ -337,6 +338,119 @@ describe('selectEvidencePackage packaging', () => {
     })
   })
 
+  test('does not reinterpret a composite zero-width border as a color token', () => {
+    const evidence = makeEvidence()
+    evidence.tokens.colors = { primary: '#6b1eb9' }
+    evidence.tokens.radii = ['9999px']
+    evidence.sections[0].componentRefs = ['component-a']
+    evidence.components = [
+      {
+        id: 'component-a',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        type: 'button',
+        role: 'secondary-action',
+        rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.05 },
+        styles: {
+          backgroundColor: 'rgba(107, 30, 185, 0.08)',
+          color: 'rgb(107, 30, 185)',
+          border: '0px none rgb(107, 30, 185)',
+          borderRadius: '9999px',
+          boxShadow: 'none',
+          padding: '8px 18px',
+        },
+        tokenRefs: ['color.primary', 'radius.1'],
+        stateRefs: [],
+        confidence: 0.9,
+        evidenceRefs: ['section-a'],
+      },
+    ]
+
+    const digestPackage = buildAnalysisDigest(evidence, selectEvidencePackage(evidence, 'structural-only'))
+    const component = digestPackage.digest.componentPatterns[0]
+
+    expect(component).toMatchObject({ variant: 'secondary', cornerShape: 'pill' })
+    expect(component.exactStyles).toMatchObject({
+      color: digestPackage.tokenShortIdMap.get('color.primary'),
+      borderRadius: digestPackage.tokenShortIdMap.get('radius.1'),
+      borderVisible: false,
+      shadowVisible: false,
+    })
+    expect(component.exactStyles).not.toHaveProperty('border')
+  })
+
+  test('keeps the full section sequence when detailed sections exceed the prompt budget', () => {
+    const evidence = makeEvidence()
+    const selected = selectEvidencePackage(evidence, 'structural-only', { maxSections: 0 })
+    const digest = buildAnalysisDigest(evidence, selected).digest
+
+    expect(selected.evidence.topology.pages[0].sectionIds).toEqual([])
+    expect(digest.pages[0]).toMatchObject({
+      sectionSequence: [{ role: 'header' }],
+      sectionDetailsOmitted: true,
+    })
+  })
+
+  test('publishes deterministic focus-indicator visibility instead of inferring it from property names', () => {
+    const evidence = makeEvidence()
+    evidence.interactionObservations = [
+      {
+        id: 'interaction-focus',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'target-focus',
+        driver: 'focus',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo' },
+        before: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': 'rgba(0, 0, 0, 0)',
+          'box-shadow': '0 0 0 2px rgba(0, 0, 0, 0)',
+        },
+        after: {
+          'outline-style': 'none',
+          'outline-width': '0px',
+          'outline-color': 'rgb(37, 99, 235)',
+          'box-shadow': '0 0 0 2px rgba(0, 0, 0, 0)',
+        },
+        changedProperties: ['outline-color'],
+        evidenceRefs: ['section-a'],
+      },
+    ]
+
+    const digest = buildAnalysisDigest(evidence, selectEvidencePackage(evidence, 'structural-only')).digest
+
+    expect(digest.interactionFacts[0]).toMatchObject({
+      driver: 'focus',
+      changedProperties: ['outline-color'],
+      visibleIndicator: false,
+    })
+  })
+
+  test('leaves focus visibility unknown when paint support properties were not captured', () => {
+    const observation = {
+      id: 'interaction-focus-partial',
+      pageId: 'page-a',
+      sectionId: 'section-a',
+      targetId: 'target-focus',
+      driver: 'focus' as const,
+      safety: 'passive' as const,
+      trigger: { kind: 'css-pseudo' },
+      before: { 'outline-color': 'rgba(0, 0, 0, 0)' },
+      after: { 'outline-color': 'rgb(37, 99, 235)' },
+      changedProperties: ['outline-color'],
+      evidenceRefs: ['section-a'],
+    }
+
+    expect(focusIndicatorVisibility(observation)).toBeNull()
+
+    const evidence = makeEvidence()
+    evidence.interactionObservations = [observation]
+    const digest = buildAnalysisDigest(evidence, selectEvidencePackage(evidence, 'structural-only')).digest
+    expect(digest.interactionFacts[0]).not.toHaveProperty('visibleIndicator')
+  })
+
   test('keeps digest color counts when detailed token evidence falls outside the package cap', () => {
     const evidence = makeEvidence()
     evidence.tokens.colors = { primary: '#6b1eb9' }
@@ -606,7 +720,7 @@ describe('selectEvidencePackage packaging', () => {
     expect(selected.imageIds).not.toContain('long-overview')
   })
 
-  test('prioritizes an overflowing mobile viewport as the second visual summary', () => {
+  test('keeps severe overflow as a limitation without using its screenshot for design inference', () => {
     const evidence = makeEvidence()
     evidence.pages[0].images = [
       { id: 'desktop-viewport', kind: 'viewport-crop', path: 'desktop.png', width: 1_440, height: 900 },
@@ -625,15 +739,19 @@ describe('selectEvidencePackage packaging', () => {
       viewport: 'mobile',
       role: 'landing',
       viewportWidth: 375,
-      contentWidth: 720,
+      contentWidth: 1_032,
       horizontalOverflow: true,
       images: [{ id: 'mobile-overflow', kind: 'viewport-crop', path: 'mobile.png', width: 375, height: 812 }],
     })
     evidence.topology.pages.push({ pageId: 'page-mobile', role: 'landing', sectionIds: [] })
 
     const selected = selectEvidencePackage(evidence, 'multimodal')
-    expect(selected.imageIds).toEqual(['mobile-overflow', 'hero-region'])
-    expect(selected.imageSelection[0].reason).toContain('horizontal overflow')
+    expect(selected.imageIds).toEqual(['desktop-viewport', 'hero-region'])
+    expect(selected.imageIds).not.toContain('mobile-overflow')
+    expect(selected.omittedEvidence).toContainEqual({
+      kind: 'capture-details',
+      reason: 'severe-horizontal-overflow',
+    })
   })
 
   test('rejects an exact visual duplicate even when it belongs to a distinct page URL', () => {

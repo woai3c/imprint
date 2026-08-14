@@ -20,6 +20,7 @@ import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
   type CallDetail,
   DESIGN_PROFILE_PROMPT_VERSION,
+  DESIGN_PROFILE_SCHEMA_VERSION,
   type InterpretationInvoke,
   createEvidenceFingerprint,
   createValidationRecipe,
@@ -112,7 +113,7 @@ export function getInitialDesignIntelligenceMeta(
       inputMode: route.mode,
       provider: route.provider,
       model: route.model,
-      schemaVersion: '1',
+      schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
       promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
     }
   }
@@ -122,7 +123,7 @@ export function getInitialDesignIntelligenceMeta(
     inputMode: route.mode,
     provider: route.provider,
     model: route.model,
-    schemaVersion: '1',
+    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
     promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
   }
 }
@@ -439,7 +440,7 @@ export async function runDesignIntelligence(
         inputMode: 'structural-only',
         provider: route.provider,
         model: route.model,
-        schemaVersion: '1',
+        schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
         promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
         failureCode: 'no-ai-eligible-pages',
         failureReason: 'No page passed the AI evidence health gate.',
@@ -486,7 +487,7 @@ export async function runDesignIntelligence(
     route.model,
     evidencePackage.imageIds,
     DESIGN_PROFILE_PROMPT_VERSION,
-    '1',
+    DESIGN_PROFILE_SCHEMA_VERSION,
     language,
   )
   const baseMeta: DesignIntelligenceMeta = {
@@ -495,7 +496,7 @@ export async function runDesignIntelligence(
     inputMode: route.mode,
     provider: route.provider,
     model: route.model,
-    schemaVersion: '1',
+    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
     promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
     inputFingerprint: fingerprint,
     inputImageCount: evidencePackage.imageIds.length,

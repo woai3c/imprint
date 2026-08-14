@@ -8,6 +8,7 @@ import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
 import type { InteractionObservationSnapshot } from './interaction-observer.js'
 import type { PageEvidenceSnapshot, PageSectionSnapshot } from './page-extractor.js'
 import { pageIdentityFromMetadata } from './page-identity.js'
+import { hasSevereHorizontalOverflow } from './reliability.js'
 import { createEvidenceId } from './stable-id.js'
 import { safeSectionObservedStyles } from './structural-styles.js'
 import type {
@@ -38,6 +39,8 @@ export interface BuildDesignEvidenceInput {
   authWallDetected?: boolean
   expectedPageCount: number
   expectedViewports?: string[]
+  /** Actual page/viewport captures planned by the analyzer's adaptive strategy. */
+  expectedCaptureCount?: number
   tokens: DesignToken
   featureTags: string[]
   interactionStyles: InteractionStyles
@@ -178,7 +181,7 @@ function changedSectionValues(
   to: PageSectionSnapshot,
 ): Record<string, { from?: string | number; to?: string | number }> {
   const changes: Record<string, { from?: string | number; to?: string | number }> = {}
-  if (from.order !== to.order) changes.order = { from: from.order, to: to.order }
+  if (from.order !== to.order) changes.sequenceIndex = { from: from.order, to: to.order }
   if (from.layoutMode !== to.layoutMode) changes.layoutMode = { from: from.layoutMode, to: to.layoutMode }
   for (const key of new Set([...Object.keys(from.styles), ...Object.keys(to.styles)])) {
     if (from.styles[key] !== to.styles[key]) changes[key] = { from: from.styles[key], to: to.styles[key] }
@@ -215,6 +218,9 @@ function buildResponsiveObservations(
     for (let captureIndex = 0; captureIndex < pageCaptures.length - 1; captureIndex += 1) {
       const fromCapture = pageCaptures[captureIndex]
       const toCapture = pageCaptures[captureIndex + 1]
+      if (hasSevereHorizontalOverflow(fromCapture.snapshot) || hasSevereHorizontalOverflow(toCapture.snapshot)) {
+        continue
+      }
       const fromByKey = new Map(fromCapture.snapshot.sections.map((section) => [section.key, section]))
       const toByKey = new Map(toCapture.snapshot.sections.map((section) => [section.key, section]))
       for (const key of new Set([...fromByKey.keys(), ...toByKey.keys()])) {
@@ -248,6 +254,11 @@ function buildResponsiveObservations(
         }
 
         const changes = changedSectionValues(from, to)
+        if (fromCapture.snapshot.horizontalOverflow || toCapture.snapshot.horizontalOverflow) {
+          for (const property of Object.keys(changes)) {
+            if (property.startsWith('rect.')) delete changes[property]
+          }
+        }
         const fromNodes = new Map(
           fromCapture.snapshot.layoutNodes.filter((node) => node.sectionKey === key).map((node) => [node.key, node]),
         )
@@ -282,13 +293,14 @@ function buildResponsiveObservations(
         }
         if (changedProperties.length === 0) continue
         const reorderOnly =
-          changedProperties.includes('order') &&
-          changedProperties.every((property) => ['order', 'rect.x', 'rect.y'].includes(property))
+          changedProperties.includes('sequenceIndex') &&
+          changedProperties.every((property) => ['sequenceIndex', 'rect.x', 'rect.y'].includes(property))
         const structural = changedProperties.some((property) =>
-          ['order', 'layoutMode', 'display', 'gridTemplateColumns', 'rect.x', 'rect.y'].includes(property),
+          ['sequenceIndex', 'layoutMode', 'display', 'gridTemplateColumns', 'rect.x', 'rect.y'].includes(property),
         )
         const sizeOnly = changedProperties.every((property) =>
           [
+            'height',
             'rect.width',
             'rect.height',
             'maxWidth',
@@ -398,8 +410,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           id: imageId,
           kind: 'overview',
           path: capture.screenshot.path,
-          width: capture.snapshot.width,
-          height: capture.snapshot.height,
+          width: capture.screenshot.width || capture.snapshot.width,
+          height: capture.screenshot.height || capture.snapshot.height,
           contentHash: imageContentHash(capture.screenshot.path),
         },
         ...(capture.supplementalImages || []).map((image, index) => ({
@@ -618,7 +630,10 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       { driver: 'disabled', triggerKind: 'state:disabled', styles: interactionStyles.disabled || [] },
     ]
     for (const group of passiveStyles) {
-      group.styles.slice(0, 12).forEach((styles, index) => {
+      const representativeStyles = [...group.styles].sort(
+        (first, second) => Number(Boolean(second.changedProperties)) - Number(Boolean(first.changedProperties)),
+      )
+      representativeStyles.slice(0, 12).forEach((styles, index) => {
         const id = createEvidenceId('interaction', page.id, group.triggerKind, index)
         interactionObservations.push({
           id,
@@ -630,7 +645,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           trigger: { kind: group.triggerKind },
           before: styles.before,
           after: styles.after,
-          changedProperties: Object.keys(styles.after),
+          changedProperties: styles.changedProperties || Object.keys(styles.after),
           evidenceRefs: [firstSection.id, page.images[0]?.id].filter(Boolean),
         })
         firstSection.interactionRefs.push(id)
@@ -641,7 +656,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const uniqueUrls = new Set(pages.map((page) => page.url))
   const viewportCoverage = [...new Set(pages.map((page) => page.viewport))]
   const expectedViewports = [...new Set(input.expectedViewports || viewportCoverage)]
-  const expectedCaptureCount = input.expectedPageCount * Math.max(1, expectedViewports.length)
+  const expectedCaptureCount =
+    input.expectedCaptureCount ?? input.expectedPageCount * Math.max(1, expectedViewports.length)
   const expectedViewportSet = new Set(expectedViewports)
   const capturedExpectedCombinations = new Set(
     pages.filter((page) => expectedViewportSet.has(page.viewport)).map((page) => `${page.url}|${page.viewport}`),

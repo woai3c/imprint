@@ -95,99 +95,57 @@ if (prompt.includes('section observer')) {
 }
 if (prompt.includes('design-language interpreter')) {
   const unique = (values) => [...new Set(values)]
-  const ids = unique([...prompt.matchAll(/"id":"((?:section|layout|image|component|interaction|responsive)-[^"]+)"/g)].map((match) => match[1]))
-  const inputMode = prompt.includes('The input mode is multimodal') ? 'multimodal' : 'structural-only'
-  const attachedImageIds = unique(
-    [...prompt.matchAll(/- \\.\\/([\\w.-]+\\.(?:png|jpe?g|webp))/g)].map((match) => match[1].replace(/\\.[^.]+$/, '')),
-  )
-  const sectionIds = ids.filter((id) => id.startsWith('section-'))
-  const refs = (sectionIds.length >= 2 ? sectionIds.slice(0, 2) : ids.slice(0, 2)).map((evidenceId) => ({
-    evidenceId,
-    note: 'Observed fixture evidence'
-  }))
-  const claim = (statement = 'Centered content bands use deliberate spacing to establish a repeatable reading rhythm') => ({
-    statement,
-    implementation: 'Use centered content bands and keep the observed spacing rhythm across primary sections.',
-    confidence: refs.length >= 2 ? 'high' : 'medium',
-    evidence: refs
+  const shortIds = unique([...prompt.matchAll(/"((?:p|s|c|l|a|r|i|m)\\d+)"/g)].map((match) => match[1]))
+  const evidenceId = shortIds.find((id) => id.startsWith('s')) || shortIds.find((id) => id.startsWith('p'))
+  const attachedImageLine = prompt.match(/Attached images, in order: ([^\\n]+)/)?.[1] || ''
+  const attachedImageIds = unique([...attachedImageLine.matchAll(/\\bi\\d+\\b/g)].map((match) => match[0]))
+  const dimensions = [
+    'design-thesis', 'composition', 'attention', 'color', 'typography', 'shape',
+    'surfaces', 'imagery', 'motion', 'interaction', 'responsive', 'transfer'
+  ]
+  const claim = (index, scope = 'instance') => ({
+    id: 'q' + (index + 1),
+    s: 'Observed design rule ' + (index + 1) + ' uses a specific hierarchy and measured grouping.',
+    i: 'Use the observed grouping strategy while adapting content for the new page.',
+    c: 'medium',
+    e: [evidenceId],
+    t: [],
+    a: [{ k: 'evidence', x: dimensions[index], p: 'supports', sc: scope, e: [evidenceId] }]
   })
-  const responsiveId = ids.find((id) => id.startsWith('responsive-'))
-  const interactionId = ids.find((id) => id.startsWith('interaction-'))
-  const interactionClaim = {
-    ...claim('Small state changes provide restrained feedback without disrupting layout'),
-    confidence: 'medium',
-    evidence: interactionId ? [{ evidenceId: interactionId, note: 'Observed target state difference' }] : refs
-  }
-  const continuity = {
-    ...claim('Desktop groups reflow into a narrow single-column sequence while preserving hierarchy'),
-    confidence: 'medium',
-    evidence: responsiveId ? [{ evidenceId: responsiveId, note: 'Observed responsive reflow' }] : refs
-  }
+  const scopedClaim = (dimension, scope = 'page') => ({
+    s: 'The extracted evidence supports this local design decision.',
+    i: 'Keep the decision scoped to the cited evidence.',
+    c: 'medium',
+    e: [evidenceId],
+    t: [],
+    a: [{ k: 'evidence', x: dimension, p: 'supports', sc: scope, e: [evidenceId] }]
+  })
   await writeJsonAndExit({
-    schemaVersion: '1',
-    language: 'en',
-    inputMode,
-    imageObservations: attachedImageIds.map((imageId) => ({
-      imageId,
+    claims: dimensions.map((_, index) => claim(index)),
+    thesis: 'q1',
+    signatureMoves: [],
+    composition: { container: 'q2', alignment: 'q3', density: 'q4', rhythm: 'q5' },
+    attention: { entry: 'q6', sequence: [], action: 'q7', contrast: 'q8' },
+    visual: { color: 'q9', typography: 'q10', shape: 'q11', surfaces: 'q12' },
+    sections: [],
+    interaction: {
+      drivers: [],
+      feedback: scopedClaim('interaction'),
+      amplitude: scopedClaim('motion'),
+      continuity: []
+    },
+    components: [],
+    transfer: {
+      preserve: [scopedClaim('design-thesis')],
+      adapt: [scopedClaim('composition')],
+      avoid: [scopedClaim('transfer')]
+    },
+    uncertainties: [],
+    aliases: [],
+    imageObservations: attachedImageIds.map((image) => ({
+      image,
       description: 'Screenshot of the fixture page showing its hero band and card sections.'
-    })),
-    thesis: claim(),
-    signatureMoves: [{
-      ...claim('A saturated action accent punctuates otherwise quiet neutral content surfaces'),
-      id: 'move-accent-punctuation',
-      name: 'Accent punctuation',
-      distinctiveness: 'A focused action color is paired with broad neutral fields.'
-    }],
-    composition: {
-      containerStrategy: claim(),
-      alignmentStrategy: claim(),
-      densityAndWhitespace: claim(),
-      rhythm: claim()
-    },
-    attention: {
-      entryPoint: claim(),
-      visualSequence: [claim()],
-      actionHierarchy: claim(),
-      contrastStrategy: claim()
-    },
-    visualLanguage: {
-      color: claim(),
-      typography: claim(),
-      shape: claim(),
-      surfaces: claim()
-    },
-    sectionGrammar: [{
-      role: 'hero',
-      composition: [claim()],
-      contentRhythm: [claim()],
-      transitionToNext: [claim()]
-    }],
-    interactionLanguage: {
-      primaryDrivers: [interactionClaim],
-      feedbackStyle: interactionClaim,
-      stateChangeAmplitude: interactionClaim,
-      continuityRules: [continuity]
-    },
-    componentGrammar: [{ component: 'button', role: 'primary action', rules: [claim()] }],
-    patterns: [{
-      id: 'pattern-action-cluster',
-      name: 'Action cluster',
-      role: 'Keep related calls to action together',
-      structureRules: [claim()],
-      visualRules: [claim()],
-      interactionRules: [interactionClaim],
-      responsiveRules: [continuity],
-      tokenRefs: [],
-      evidenceRefs: refs.map((reference) => reference.evidenceId),
-      sourceInstances: 2,
-      confidence: 'medium'
-    }],
-    transferRules: {
-      preserve: [claim()],
-      adapt: [claim()],
-      avoid: [claim()]
-    },
-    uncertainties: []
+    }))
   })
 }
 const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''

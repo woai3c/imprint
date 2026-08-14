@@ -1,6 +1,6 @@
 import type { DesignToken } from '../analyzer/types.js'
 import { coreTranslator } from '../i18n/index.js'
-import type { DesignClaim, DesignIntelligenceStatus, DesignProfile } from './types.js'
+import type { AnalysisCapabilityLevel, DesignClaim, DesignIntelligenceStatus, DesignProfile } from './types.js'
 
 // Token refs in claims follow the evidence-package scheme: `color.<name>` plus 1-based array
 // paths like `spacing.2` or `typography.font-stack.1` (see buildTokenIndex in design-evidence).
@@ -58,7 +58,7 @@ function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainti
 function claimLines(
   title: string,
   claims: Array<DesignClaim & { label?: string }>,
-  labels: { confidence: string; evidence: string; tokens: string },
+  labels: { confidence: string; evidence: string; tokens: string; assertions: string },
   lowBucket: LowConfidenceEntry[],
   options: { keepLow?: boolean; formatRef?: (ref: string) => string; formatText?: (text: string) => string } = {},
 ) {
@@ -77,6 +77,17 @@ function claimLines(
       `  - ${options.formatText?.(claim.implementation) ?? claim.implementation}`,
       `  - ${labels.confidence}: ${claim.confidence}`,
       `  - ${labels.evidence}: ${claim.evidence.map((reference) => `\`${reference.evidenceId}\``).join(', ')}`,
+      ...(claim.assertions && claim.assertions.length > 0
+        ? [
+            `  - ${labels.assertions}: ${claim.assertions
+              .map((assertion) => {
+                const property = assertion.property ? `/${assertion.property}` : ''
+                const value = assertion.value === undefined ? '' : `=${JSON.stringify(assertion.value)}`
+                return `\`${assertion.kind}:${assertion.target}:${assertion.predicate}${property}${value}@${assertion.scope}\``
+              })
+              .join(', ')}`,
+          ]
+        : []),
       ...(claim.tokenRefs && claim.tokenRefs.length > 0
         ? [
             `  - ${labels.tokens}: ${claim.tokenRefs.map((reference) => options.formatRef?.(reference) ?? `\`${reference}\``).join(', ')}`,
@@ -100,14 +111,18 @@ export function generateDesignProfileMarkdown(
   tokens?: DesignToken,
   status?: DesignIntelligenceStatus,
   publicColorNames: ReadonlyMap<string, string> = new Map(),
+  capabilityLevel?: AnalysisCapabilityLevel,
 ): string {
   const t = coreTranslator(profile.language, 'profileExport')
-  const evidenceFallback = profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
+  const evidenceFallback = capabilityLevel
+    ? capabilityLevel === 'evidence-fallback'
+    : profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
   const displayedStatus = evidenceFallback ? 'evidence-fallback' : status
   const labels = {
     confidence: t('labels.confidence'),
     evidence: t('labels.evidence'),
     tokens: t('labels.tokens'),
+    assertions: t('labels.assertions'),
   }
   const section = (key: string): string => t(`sections.${key}`)
   const lowBucket: LowConfidenceEntry[] = []

@@ -15,6 +15,19 @@ function reasonFrom(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+export async function resetPageScroll(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const root = document.documentElement
+    const previousBehavior = root.style.getPropertyValue('scroll-behavior')
+    const previousPriority = root.style.getPropertyPriority('scroll-behavior')
+    root.style.setProperty('scroll-behavior', 'auto', 'important')
+    window.scrollTo(0, 0)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (previousBehavior) root.style.setProperty('scroll-behavior', previousBehavior, previousPriority)
+    else root.style.removeProperty('scroll-behavior')
+  })
+}
+
 async function waitForFonts(page: Page, timeoutMs: number): Promise<void> {
   await Promise.race([
     page.evaluate(() => document.fonts?.ready ?? Promise.resolve()),
@@ -48,15 +61,11 @@ function hideConsentObstructionsInDocument(): number {
     '.fc-consent-root',
     '[data-testid*="cookie" i]',
     '[data-testid*="consent" i]',
-    '[aria-label*="cookie" i]',
-    '[aria-label*="consent" i]',
     '[id*="cookie" i]',
     '[class*="cookie" i]',
     '[id*="consent" i]',
     '[class*="consent" i]',
   ]
-  const consentText =
-    /\b(?:cookie|cookies|consent|privacy preferences|privacy choices|accept all|manage preferences)\b|隐私|私隱|同意|쿠키|クッキー|confidentialité/i
   const candidates = new Set<Element>()
   const roots: Array<Document | ShadowRoot> = [document]
 
@@ -76,9 +85,6 @@ function hideConsentObstructionsInDocument(): number {
         // A hostile page can replace selector APIs. Other selectors still remain useful.
       }
     }
-    root.querySelectorAll('[role="dialog"], [aria-modal="true"]').forEach((element) => {
-      if (consentText.test((element.textContent || '').slice(0, 2_000))) candidates.add(element)
-    })
   }
 
   let hidden = 0
@@ -141,21 +147,14 @@ function dismissTransientObstructionsInDocument(): number {
     '[data-modal-close]',
     '[data-close]',
     '[data-dismiss="modal" i]',
-    'button[aria-label*="close" i]',
-    '[role="button"][aria-label*="close" i]',
-    'button[aria-label*="关闭"]',
-    '[role="button"][aria-label*="关闭"]',
-    '[title*="close" i]',
-    '[title*="dismiss" i]',
-    '[title*="关闭"]',
     '[class*="close" i]',
     '[class*="dismiss" i]',
   ]
   const excludedIdentity =
-    /\b(?:sign[ -]?in|sign[ -]?up|log[ -]?in|password|checkout|payment|paywall|cookie|consent|privacy)\b|登录|注册|密码|支付|验证码|隐私|同意/i
-  const excludedContent =
-    /\b(?:password|checkout|payment|paywall|cookie|consent|privacy preferences|privacy choices)\b|密码|支付|验证码|隐私设置|隐私选项/i
-  const exactCloseText = /^(?:×|✕|✖|x|close|dismiss|not now|maybe later|关闭|取消|稍后再说)$/i
+    /(?:^|[\s_-])(?:auth|login|signin|signup|password|checkout|payment|paywall|cookie|consent|privacy)(?:$|[\s_-])/i
+  const exactCloseSymbol = /^(?:×|✕|✖|x)$/i
+  const inlineDismissalOperation =
+    /(?:\.remove\s*\(|\.close\s*\(|style\.(?:display|visibility)\s*=|setAttribute\s*\(\s*['"](?:hidden|aria-hidden|open)['"]|removeAttribute\s*\(\s*['"]open['"])/i
   const roots: Array<Document | ShadowRoot> = [document]
   const candidates = new Set<Element>()
 
@@ -225,17 +224,17 @@ function dismissTransientObstructionsInDocument(): number {
     const surfaceIdentity = [
       candidate.id,
       typeof candidate.className === 'string' ? candidate.className : '',
-      candidate.getAttribute('aria-label') || '',
+      candidate.getAttribute('data-variant') || '',
+      candidate.getAttribute('data-intent') || '',
     ].join(' ')
-    const surfaceText = (candidate.textContent || '').slice(0, 2_000)
     const containsSensitiveForm = candidateRoots.some((root) =>
       Boolean(
         root.querySelector(
-          'input[type="password"], input[autocomplete="current-password"], form[action*="login" i], form[action*="signin" i], form[action*="checkout" i]',
+          'input[type="password"], input[autocomplete="current-password"], input[autocomplete="one-time-code"], form[action*="auth" i], form[action*="login" i], form[action*="signin" i], form[action*="checkout" i], form[action*="payment" i]',
         ),
       ),
     )
-    if (excludedIdentity.test(surfaceIdentity) || excludedContent.test(surfaceText) || containsSensitiveForm) continue
+    if (excludedIdentity.test(surfaceIdentity) || containsSensitiveForm) continue
 
     const closeCandidates = new Set<Element>()
     for (const root of candidateRoots) {
@@ -247,7 +246,10 @@ function dismissTransientObstructionsInDocument(): number {
         }
       }
       root.querySelectorAll('button, [role="button"]').forEach((element) => {
-        if (exactCloseText.test((element.textContent || '').trim())) closeCandidates.add(element)
+        if (exactCloseSymbol.test((element.textContent || '').trim())) closeCandidates.add(element)
+      })
+      root.querySelectorAll('button[onclick], [role="button"][onclick], input[onclick]').forEach((element) => {
+        if (inlineDismissalOperation.test(element.getAttribute('onclick') || '')) closeCandidates.add(element)
       })
     }
 

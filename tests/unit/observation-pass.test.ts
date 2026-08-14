@@ -244,8 +244,10 @@ function compactProfile() {
     c: 'medium',
     e: ['s1'],
     t: [],
+    a: [{ k: 'evidence', x: 'design-thesis', p: 'supports', sc: 'instance', e: ['s1'] }],
   }))
   claims[20].e = ['c1']
+  claims[20].a = [{ k: 'component', x: 'button', p: 'present', sc: 'instance', e: ['c1'] }]
   return {
     claims,
     thesis: 'q1',
@@ -300,7 +302,7 @@ describe('Section observation pass', () => {
     const calls: string[] = []
     const invoke: InterpretationInvoke = async (prompt) => {
       calls.push(prompt)
-      return { text: JSON.stringify(rawProfile()) }
+      return { text: JSON.stringify(compactProfile()) }
     }
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
@@ -308,91 +310,25 @@ describe('Section observation pass', () => {
       invoke,
     })
     expect(result.pipeline).toBe('single-pass')
-    expect(result.profile.thesis.statement).toContain('centered hero')
+    expect(result.profile.thesis.statement).toContain('design rule 1')
     expect(calls).toHaveLength(1)
     expect(calls[0]).toContain('UNTRUSTED_ANALYSIS_DIGEST')
     expect(calls[0]).not.toContain('SECTION_OBSERVATIONS')
     expect(result.callDetails.map((detail) => detail.pass)).toEqual(['synthesis'])
-    expect(result.repaired).toContain('componentGrammar.button')
     expect(result.rejected || []).not.toEqual(expect.arrayContaining([expect.stringContaining('coverage-repair')]))
   })
 
-  it('reports deterministic correction diagnostics as repaired instead of rejected', async () => {
-    const interactionEvidence = structuredClone(evidence)
-    interactionEvidence.interactionObservations = [
-      {
-        id: 'interaction-background',
-        pageId: 'page-a',
-        sectionId: 'section-a',
-        targetId: 'component-a',
-        driver: 'hover',
-        safety: 'passive',
-        trigger: { kind: 'css-pseudo-class:hover' },
-        before: {},
-        after: { 'background-color': '#111827' },
-        changedProperties: ['background-color'],
-        evidenceRefs: ['component-a', 'section-a'],
-      },
-      {
-        id: 'interaction-outline',
-        pageId: 'page-a',
-        sectionId: 'section-a',
-        targetId: 'component-a',
-        driver: 'hover',
-        safety: 'passive',
-        trigger: { kind: 'css-pseudo-class:hover' },
-        before: {},
-        after: { 'outline-color': '#2563eb' },
-        changedProperties: ['outline-color'],
-        evidenceRefs: ['component-a', 'section-a'],
-      },
-    ]
-    interactionEvidence.sections[0].interactionRefs = ['interaction-background', 'interaction-outline']
-    const candidate = rawProfile()
-    candidate.interactionLanguage.primaryDrivers = [
-      {
-        ...claim('Hover changes the outline of the control.'),
-        implementation: 'Apply the observed outline change on hover.',
-        evidence: [{ evidenceId: 'interaction-background', note: 'Wrong hover evidence' }],
-      },
-    ]
-    candidate.transferRules.avoid = [
-      {
-        ...claim('Avoid changing the control after clicking it.'),
-        evidence: [{ evidenceId: 'interaction-background', note: 'Passive declaration only' }],
-      },
-    ]
-    candidate.uncertainties = [
-      {
-        topic: 'Referenced tokens are undefined',
-        reason: 'Some referenced tokens are not present in the token facts.',
-        neededEvidence: 'Complete token definitions',
-      },
-    ]
-    const evidencePackage = selectEvidencePackage(interactionEvidence, 'structural-only')
-
-    const result = await runInterpretationPipeline(interactionEvidence, evidencePackage, {
+  it('rejects stale schema v1 output from fresh synthesis', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
       language: 'en',
-      invoke: async () => ({ text: JSON.stringify(candidate) }),
+      invoke: async () => ({ text: JSON.stringify(rawProfile()) }),
     })
 
-    const reason = 'interactionLanguage.primaryDrivers.0:interaction-evidence-scope-repaired(outline)'
-    expect(result.repaired).toContain(reason)
-    expect(result.rejected || []).not.toContain(reason)
-    expect(result.repaired).toContain('transferRules.avoid.0:passive-interaction-transfer-rule-sanitized')
-    expect(result.repaired).toContain('transferRules.avoid')
-    expect(result.repaired).toContain('uncertainties.0:contradicts-validated-token-refs')
-    expect(result.rejected || []).not.toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('passive-interaction-transfer-rule-sanitized'),
-        expect.stringContaining('contradicts-validated-token-refs'),
-      ]),
-    )
-    expect(result.profile.transferRules.avoid[0].statement).toBe(
-      'Unexecuted interaction states and untokenized raw DOM values are not design rules.',
-    )
-    expect(result.profile.uncertainties).toEqual([])
+    expect(result.evidenceFallback).toBe(true)
+    expect(result.profile.schemaVersion).toBe('2')
+    expect(result.rejected).toContain('root:stale-schemaVersion("1",expected="2")')
   })
 
   it('expands the compact claim pool into the existing DesignProfile schema', async () => {
@@ -449,7 +385,7 @@ describe('Section observation pass', () => {
       calls += 1
       expect(prompt).not.toContain('section observer')
       expect(prompt).not.toContain('repairing the citation fields')
-      return { text: JSON.stringify(rawProfile()) }
+      return { text: JSON.stringify(compactProfile()) }
     }
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only' as const,
@@ -463,7 +399,7 @@ describe('Section observation pass', () => {
   it('records compact prompt and timing budgets', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const invoke: InterpretationInvoke = async () => ({
-      text: JSON.stringify(rawProfile()),
+      text: JSON.stringify(compactProfile()),
       durationMs: 25,
       usage: { input: 1200, output: 800 },
     })
@@ -479,8 +415,9 @@ describe('Section observation pass', () => {
 
   it('fills an invalid required claim without discarding valid AI conclusions', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const invalid = rawProfile()
-    invalid.visualLanguage.color.evidence = []
+    const invalid = compactProfile()
+    invalid.claims[9].e = []
+    invalid.claims[9].a = []
     let calls = 0
     const invoke: InterpretationInvoke = async () => {
       calls += 1
@@ -494,7 +431,7 @@ describe('Section observation pass', () => {
     })
     expect(result.status).toBe('partial')
     expect(result.evidenceFallback).toBeUndefined()
-    expect(result.profile.signatureMoves[0].id).toBe('move-focused-opening')
+    expect(result.profile.thesis.statement).toContain('design rule 1')
     expect(result.profile.visualLanguage.color.confidence).toBe('low')
     expect(result.rejected).toContain('visualLanguage.color:missing-evidence')
     expect(calls).toBe(1)
@@ -502,8 +439,9 @@ describe('Section observation pass', () => {
 
   it('preserves multimodal mode when a required claim uses deterministic evidence', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'multimodal')
-    const invalid = rawProfile('multimodal')
-    invalid.visualLanguage.color.evidence = []
+    const invalid = compactProfile()
+    invalid.claims[9].e = []
+    invalid.claims[9].a = []
 
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'multimodal',
@@ -538,7 +476,12 @@ describe('Section observation pass', () => {
       invoke: async (prompt, images) => {
         receivedPrompt = prompt
         receivedImages = images
-        return { text: JSON.stringify(rawProfile('multimodal')) }
+        return {
+          text: JSON.stringify({
+            ...compactProfile(),
+            imageObservations: [{ image: 'i1', description: 'The hero and its primary action are visible.' }],
+          }),
+        }
       },
     })
 

@@ -1,7 +1,9 @@
 import { isRecord } from '../../shared/type-guards.js'
 import { parseJsonObjects } from '../ai/json-payload.js'
 import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
+import { coreT } from '../i18n/index.js'
 import type { AnalysisDigestPackage } from './analysis-digest.js'
+import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type { IntelligenceInputMode } from './types.js'
 
 interface ExpandedCompactCandidate {
@@ -58,25 +60,52 @@ export function expandCompactProfileCandidate(
     if (id && !claimPool.has(id)) claimPool.set(id, claim)
   }
 
+  const expandAssertionValue = (value: unknown): unknown => {
+    if (typeof value === 'string') return expandInlineReferences(value)
+    if (typeof value === 'number' || typeof value === 'boolean') return value
+    if (Array.isArray(value)) {
+      return value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => expandInlineReferences(item))
+    }
+    return undefined
+  }
+
+  const expandAssertions = (value: unknown): unknown[] =>
+    objectList(value, 4).map((assertion) => ({
+      kind: safeString(assertion.k),
+      target: expandInlineReferences(assertion.x),
+      predicate: safeString(assertion.p),
+      scope: safeString(assertion.sc, 'instance'),
+      evidenceIds: stringList(assertion.e, 3).flatMap((shortId) => {
+        const evidenceId = digestPackage.evidenceIdMap.get(shortId)
+        return evidenceId ? [evidenceId] : []
+      }),
+      ...(typeof assertion.prop === 'string' ? { property: safeString(assertion.prop) } : {}),
+      ...(expandAssertionValue(assertion.v) !== undefined ? { value: expandAssertionValue(assertion.v) } : {}),
+    }))
+
   const expandClaim = (claimInput: unknown): unknown => {
     const source = typeof claimInput === 'string' ? claimPool.get(claimInput) : isRecord(claimInput) ? claimInput : null
     if (!source) return null
     const evidence = stringList(source.e, 3).flatMap((shortId) => {
       const evidenceId = digestPackage.evidenceIdMap.get(shortId)
       return evidenceId
-        ? [{ evidenceId, note: language === 'zh-CN' ? `摘要证据 ${shortId}` : `Digest evidence ${shortId}` }]
+        ? [{ evidenceId, note: coreT(language, 'intelligence.assertions.digestEvidenceNote', { id: shortId }) }]
         : []
     })
     const tokenRefs = stringList(source.t, 8).flatMap((shortId) => {
       const tokenRef = digestPackage.tokenRefMap.get(shortId)
       return tokenRef ? [tokenRef] : []
     })
+    const assertions = expandAssertions(source.a)
     return {
       statement: expandInlineReferences(source.s),
       implementation: expandInlineReferences(source.i),
       confidence: safeString(source.c),
       evidence,
       ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
+      ...(assertions.length > 0 ? { assertions } : {}),
     }
   }
 
@@ -155,7 +184,7 @@ export function expandCompactProfileCandidate(
 
   return {
     profile: {
-      schemaVersion: '1',
+      schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
       language,
       inputMode,
       thesis: expandUniqueClaim(candidate.thesis),

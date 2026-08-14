@@ -1,4 +1,4 @@
-import { AlertTriangle, Info, Loader2 } from 'lucide-react'
+import { AlertTriangle, Info, Loader2, Square } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -47,6 +47,7 @@ export function AnalyzePage() {
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     const refresh = () => {
@@ -170,6 +171,7 @@ export function AnalyzePage() {
       if (res.cancelled) {
         store.setProgress(null)
         setAuthPrompt(null)
+        notify(t('analyze.cancelledTip'))
         return 'cancelled'
       }
       if (res.error) {
@@ -204,12 +206,14 @@ export function AnalyzePage() {
   const startAnalysis = async (targetUrl: string, authMode: AuthMode) => {
     store.clearResult()
     store.setAnalyzing(true)
+    setCancelling(false)
     store.setUrl(targetUrl)
     setAuthPrompt(null)
     store.setProgress({ step: t('analyze.preparing'), percent: 0 })
 
     const outcome = await runAnalysis(targetUrl, authMode)
     if (outcome !== 'auth-required') store.setAnalyzing(false)
+    setCancelling(false)
   }
 
   const handleAnalyze = async () => {
@@ -240,6 +244,19 @@ export function AnalyzePage() {
     setAuthPrompt(null)
     store.setProgress(null)
     store.setAnalyzing(false)
+    setCancelling(false)
+  }
+
+  const handleCancelAnalysis = async () => {
+    if (!analyzing || cancelling) return
+    setCancelling(true)
+    try {
+      const response = await window.electronAPI.cancelAnalysis()
+      if (!response.success) setCancelling(false)
+    } catch {
+      setCancelling(false)
+      notify(t('feedback.actionFailed'), 'error')
+    }
   }
 
   const handleLoginDecision = async (decision: LoginDecision) => {
@@ -401,9 +418,28 @@ export function AnalyzePage() {
 
         {progress && (
           <div className="mt-4" aria-live="polite">
-            <div className="flex justify-between text-sm mb-1.5">
+            <div className="mb-1.5 flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{translateStep(progress.step)}</span>
-              <span className="text-muted-foreground">{Math.round(progress.percent)}%</span>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">{Math.round(progress.percent)}%</span>
+                {analyzing && (
+                  <button
+                    type="button"
+                    data-testid="analysis-cancel"
+                    onClick={handleCancelAnalysis}
+                    disabled={cancelling}
+                    aria-label={cancelling ? t('analyze.cancelling') : t('analyze.cancel')}
+                    title={cancelling ? t('analyze.cancelling') : t('analyze.cancel')}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {cancelling ? (
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Square size={12} className="fill-current" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
             <div
               className="h-2 overflow-hidden rounded-full bg-secondary"

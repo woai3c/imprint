@@ -21,6 +21,7 @@ export interface ElectronAnalysisOptions {
   depth?: 'standard' | 'deep'
   pageDiscovery?: PageDiscoveryMode
   proxyServer?: string
+  signal?: AbortSignal
 }
 
 export async function analyzeUrl(

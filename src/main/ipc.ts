@@ -79,6 +79,7 @@ interface SaveTextFileOptions {
 
 const designIntelligenceControllers = new Map<string, AbortController>()
 const exampleGenerationControllers = new Map<string, AbortController>()
+const analysisControllers = new Map<number, AbortController>()
 const analysisProgramCompletedTimes = new Map<string, number>()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
@@ -774,6 +775,13 @@ export function registerIpcHandlers() {
     },
   )
 
+  ipcMain.handle('analysis:cancel', (event) => {
+    const controller = analysisControllers.get(event.sender.id)
+    if (!controller) return { success: false }
+    controller.abort()
+    return { success: true }
+  })
+
   ipcMain.handle('design-intelligence:cancel', (_event, analysisId: string) => {
     const controller = designIntelligenceControllers.get(analysisId)
     if (!controller) return { success: false }
@@ -814,6 +822,12 @@ export function registerIpcHandlers() {
       },
     ) => {
       const win = BrowserWindow.fromWebContents(event.sender)
+      const senderId = event.sender.id
+      const analysisController = new AbortController()
+      const abortWhenRendererCloses = () => analysisController.abort()
+      analysisControllers.get(senderId)?.abort()
+      analysisControllers.set(senderId, analysisController)
+      event.sender.once('destroyed', abortWhenRendererCloses)
       let analysisStage = 'progress.launchingBrowser'
 
       log.info(
@@ -828,6 +842,7 @@ export function registerIpcHandlers() {
           viewports:
             options?.viewports || (options?.depth === 'deep' ? ['desktop', 'tablet', 'mobile'] : ['desktop', 'mobile']),
           proxyServer: currentSettings.proxyServer || undefined,
+          signal: analysisController.signal,
         }
         const result = await analyzeUrl(
           url,
@@ -948,6 +963,10 @@ export function registerIpcHandlers() {
           designIntelligence: designIntelligenceMeta,
         }
       } catch (err: unknown) {
+        if (analysisController.signal.aborted) {
+          log.info('analysis', `cancelled: url=${url}`)
+          return { cancelled: true }
+        }
         if (err instanceof AuthenticationRequiredError) {
           log.info('analysis', `auth required: url=${url}`)
           return {
@@ -963,6 +982,9 @@ export function registerIpcHandlers() {
         log.error('analysis', `failed during ${analysisStage}: url=${url} error=${message}`)
         console.error(`[imprint] analysis failed during ${analysisStage}:`, err)
         return { error: true, message, stage: analysisStage }
+      } finally {
+        event.sender.removeListener('destroyed', abortWhenRendererCloses)
+        if (analysisControllers.get(senderId) === analysisController) analysisControllers.delete(senderId)
       }
     },
   )

@@ -254,6 +254,12 @@ async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
   if (runtime.browser) await closeWithin(runtime.browser.close(), 5000)
 }
 
+function throwIfAnalysisAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  if (signal.reason instanceof Error) throw signal.reason
+  throw new DOMException('Analysis cancelled', 'AbortError')
+}
+
 async function navigatePage(page: Page, url: string, timeout = 60000): Promise<number | undefined> {
   const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
   await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
@@ -279,12 +285,14 @@ async function switchManagedRuntimeToHeadless(
   viewportName: string,
   viewport: { width: number; height: number },
   proxyServer?: string,
+  signal?: AbortSignal,
 ): Promise<{
   runtime: BrowserRuntime
   page: Page
   responseStatus: number | undefined
   detection: Awaited<ReturnType<typeof detectAuthWall>>
 }> {
+  throwIfAnalysisAborted(signal)
   if (runtime.kind !== 'managed-profile' || detection.detected) {
     return { runtime, page, responseStatus, detection }
   }
@@ -296,12 +304,18 @@ async function switchManagedRuntimeToHeadless(
   }
 
   let headlessRuntime: BrowserRuntime | null = null
+  const closeHeadlessRuntime = () => {
+    if (headlessRuntime) void closeRuntime(headlessRuntime)
+  }
+  signal?.addEventListener('abort', closeHeadlessRuntime, { once: true })
   try {
     headlessRuntime = await launchRuntime(executablePath, 'managed', dataDir, url, true, proxyServer)
+    throwIfAnalysisAborted(signal)
     const headlessPage = headlessRuntime.context.pages()[0] || (await headlessRuntime.context.newPage())
     await configurePageViewport(headlessPage, viewportName, viewport)
     const headlessResponseStatus = await navigatePage(headlessPage, url)
     const headlessDetection = await detectAuthWall(headlessPage, headlessResponseStatus)
+    throwIfAnalysisAborted(signal)
     if (headlessDetection.detected) {
       await closeRuntime(headlessRuntime)
       return { runtime, page, responseStatus, detection }
@@ -316,7 +330,10 @@ async function switchManagedRuntimeToHeadless(
     }
   } catch {
     if (headlessRuntime) await closeRuntime(headlessRuntime)
+    throwIfAnalysisAborted(signal)
     return { runtime, page, responseStatus, detection }
+  } finally {
+    signal?.removeEventListener('abort', closeHeadlessRuntime)
   }
 }
 
@@ -418,15 +435,20 @@ function pageIdentityUrl(value: string): string {
   }
 }
 
-async function guardExtractionStage<T>(
+async function guardAnalysisExtractionStage<T>(
   issues: ExtractionIssue[],
   stage: string,
   fallback: T,
   run: () => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  throwIfAnalysisAborted(signal)
   try {
-    return await run()
+    const result = await run()
+    throwIfAnalysisAborted(signal)
+    return result
   } catch (error) {
+    throwIfAnalysisAborted(signal)
     issues.push({ stage, reason: extractionReason(error) })
     return fallback
   }
@@ -441,6 +463,7 @@ export async function analyze(
   options: AnalysisOptions,
   onProgress?: (step: string, percent: number) => void,
 ): Promise<AnalysisResult> {
+  throwIfAnalysisAborted(options.signal)
   const startTime = Date.now()
   let userWaitMs = 0
   const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
@@ -467,13 +490,18 @@ export async function analyze(
     key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs' | 'imageSummaryMs',
     run: () => Promise<T>,
   ) => {
+    throwIfAnalysisAborted(options.signal)
     const startedAt = Date.now()
     try {
-      return await run()
+      const result = await run()
+      throwIfAnalysisAborted(options.signal)
+      return result
     } finally {
       timing[key] = (timing[key] || 0) + (Date.now() - startedAt)
     }
   }
+  const guardExtractionStage = <T>(issues: ExtractionIssue[], stage: string, fallback: T, run: () => Promise<T>) =>
+    guardAnalysisExtractionStage(issues, stage, fallback, run, options.signal)
   const analysisId = randomUUID()
   const viewportNames = options.viewports || ['desktop', 'mobile']
   const pageLimit = Math.min(5, Math.max(1, Math.floor(options.maxPages ?? 3)))
@@ -497,9 +525,15 @@ export async function analyze(
   const initialViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
 
   let runtime: BrowserRuntime | null = null
+  let pendingRuntime: BrowserRuntime | null = null
   let initialPage: Page | null = null
   let authWallDetected = false
   let finalUrl = url
+  const closeActiveRuntime = () => {
+    if (runtime) void closeRuntime(runtime)
+    if (pendingRuntime && pendingRuntime !== runtime) void closeRuntime(pendingRuntime)
+  }
+  options.signal?.addEventListener('abort', closeActiveRuntime, { once: true })
 
   try {
     const initialExecutablePath =
@@ -507,6 +541,7 @@ export async function analyze(
         ? interactiveExecutablePath
         : headlessExecutablePath
     runtime = await launchRuntime(initialExecutablePath, accessMode, options.dataDir, url, true, options.proxyServer)
+    throwIfAnalysisAborted(options.signal)
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
     await configurePageViewport(initialPage, viewportNames[0], initialViewport)
 
@@ -535,6 +570,8 @@ export async function analyze(
           true,
           options.proxyServer,
         )
+        pendingRuntime = managedRuntime
+        throwIfAnalysisAborted(options.signal)
         const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
         await configurePageViewport(managedPage, viewportNames[0], initialViewport)
         const managedResponseStatus = await navigatePage(managedPage, url)
@@ -548,12 +585,15 @@ export async function analyze(
           finalUrl = managedDetection.finalUrl
           accessMode = 'managed'
           managedRuntime = null
+          pendingRuntime = null
           await closeRuntime(visitorRuntime)
         }
       } catch {
+        throwIfAnalysisAborted(options.signal)
         // A locked or unusable saved profile falls back to the already-loaded visitor page.
       } finally {
         if (managedRuntime) await closeRuntime(managedRuntime)
+        pendingRuntime = null
       }
 
       if (accessMode !== 'managed') {
@@ -582,17 +622,21 @@ export async function analyze(
         false,
         options.proxyServer,
       )
+      throwIfAnalysisAborted(options.signal)
       let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
       await configurePageViewport(loginPage, viewportNames[0], initialViewport)
       responseStatus = await navigatePage(loginPage, url)
       authDetection = await detectAuthWall(loginPage, responseStatus)
 
       const loginAbortController = new AbortController()
+      const abortLoginWait = () => loginAbortController.abort(options.signal?.reason)
       runtime.context.once('close', () => loginAbortController.abort())
+      options.signal?.addEventListener('abort', abortLoginWait, { once: true })
       let retry = false
       let continueAnonymously = false
 
       while (authDetection.detected) {
+        throwIfAnalysisAborted(options.signal)
         onProgress?.(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
         const waitStartedAt = Date.now()
         let decision: LoginDecision
@@ -621,6 +665,7 @@ export async function analyze(
         authDetection = await detectAuthWall(loginPage, responseStatus)
         retry = true
       }
+      options.signal?.removeEventListener('abort', abortLoginWait)
 
       if (continueAnonymously) {
         await closeRuntime(runtime)
@@ -632,6 +677,7 @@ export async function analyze(
           true,
           options.proxyServer,
         )
+        throwIfAnalysisAborted(options.signal)
         accessMode = 'anonymous'
         initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
         await configurePageViewport(initialPage, viewportNames[0], initialViewport)
@@ -656,6 +702,7 @@ export async function analyze(
         viewportNames[0],
         initialViewport,
         options.proxyServer,
+        options.signal,
       )
       runtime = switchedRuntime.runtime
       initialPage = switchedRuntime.page
@@ -694,6 +741,7 @@ export async function analyze(
     let adaptiveMobileCaptured = false
 
     for (let i = 0; i < viewportNames.length; i++) {
+      throwIfAnalysisAborted(options.signal)
       const vpName = viewportNames[i]
       const viewport = VIEWPORTS[vpName] || VIEWPORTS.desktop
       const progress = 10 + (i / viewportNames.length) * 70
@@ -879,6 +927,7 @@ export async function analyze(
               sectionKey: section.key,
             })
           } catch {
+            throwIfAnalysisAborted(options.signal)
             // Full-page evidence remains available when a dynamic region cannot be clipped reliably.
           }
         }
@@ -941,6 +990,7 @@ export async function analyze(
       if (!canReuseInitialPage) await discoveryPage.close()
 
       for (let i = 0; i < discoveredPages.length; i++) {
+        throwIfAnalysisAborted(options.signal)
         const discoveredPage = discoveredPages[i]
         const subUrl = discoveredPage.url
         onProgress?.(
@@ -1238,6 +1288,7 @@ export async function analyze(
             analysisLimitations.push('adaptive-mobile-skipped-budget')
           }
         } catch (error) {
+          throwIfAnalysisAborted(options.signal)
           // Sub-page failed to load, skip it
           const reason = extractionReason(error)
           if (reason.includes('adaptive-mobile-budget-exceeded')) {
@@ -1253,6 +1304,7 @@ export async function analyze(
       }
     }
 
+    throwIfAnalysisAborted(options.signal)
     onProgress?.('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const mergedStyles = mergeStyles(allStyles)
@@ -1331,6 +1383,7 @@ export async function analyze(
     })
     await prepareEvidenceImageFingerprints(runtime.context, designEvidence, fingerprintPackage.imageIds).catch(
       (error) => {
+        throwIfAnalysisAborted(options.signal)
         const issue = { stage: 'ai-image-fingerprint', reason: extractionReason(error) }
         extractionIssues.push(issue)
         appendExtractionIssueLimitation(designEvidence.limitations, issue)
@@ -1344,6 +1397,7 @@ export async function analyze(
       designEvidence,
       summaryPackage.imageIds,
     ).catch((error) => {
+      throwIfAnalysisAborted(options.signal)
       const issue = { stage: 'ai-image-summary', reason: extractionReason(error) }
       extractionIssues.push(issue)
       appendExtractionIssueLimitation(designEvidence.limitations, issue)
@@ -1361,11 +1415,13 @@ export async function analyze(
     if ((timing.imageSummaryMs || 0) > 15_000) timing.budgetExceeded?.push('image-summary')
     if (timing.totalMs > 120_000) timing.budgetExceeded?.push('program-analysis')
 
+    throwIfAnalysisAborted(options.signal)
     onProgress?.('progress.done', 100)
 
     if (accessMode === 'managed') {
       await saveManagedStorageState(runtime.context, options.dataDir, url).catch(() => {})
     }
+    throwIfAnalysisAborted(options.signal)
 
     return {
       analysisId,
@@ -1394,7 +1450,11 @@ export async function analyze(
         pages: [...analyzedPages].map(([pageUrl, metadata]) => ({ url: pageUrl, ...metadata })),
       },
     }
+  } catch (error) {
+    throwIfAnalysisAborted(options.signal)
+    throw error
   } finally {
+    options.signal?.removeEventListener('abort', closeActiveRuntime)
     await closeRuntime(runtime)
   }
 }

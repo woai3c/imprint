@@ -91,6 +91,7 @@ clear confirmation before execution.
 
 - the interface acknowledges an action visually within 100ms, even if the operation continues asynchronously;
 - every long-running operation exposes progress or a busy state and prevents accidental duplicate submission;
+- website analysis exposes a compact, accessible stop action beside its progress without shifting the URL controls;
 - every icon-only or color-only control has a visible or accessible name and an unambiguous selected state;
 - success, failure, disabled, selected, hover, keyboard-focus, and reduced-motion states are verified;
 - reversible actions happen directly; destructive or irreversible actions request confirmation;

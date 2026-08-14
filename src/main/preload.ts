@@ -27,6 +27,7 @@ const api = {
       depth?: 'standard' | 'deep'
     },
   ) => ipcRenderer.invoke('analyze:url', url, options),
+  cancelAnalysis: () => ipcRenderer.invoke('analysis:cancel'),
   startDesignIntelligence: (analysisId: string, language?: string) =>
     ipcRenderer.invoke('design-intelligence:start', analysisId, language),
   generateDesignExamples: (analysisId: string, language?: string) =>

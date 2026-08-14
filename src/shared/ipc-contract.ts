@@ -267,6 +267,7 @@ export interface ElectronAPI {
   deleteTheme: (id: string) => Promise<{ success: boolean }>
   exportTheme: (id: string, format: ThemeExportFormat) => Promise<FileOperationResult>
   analyzeUrl: (url: string, options?: AnalyzeOptions) => Promise<AnalyzeResponse>
+  cancelAnalysis: () => Promise<{ success: boolean }>
   startDesignIntelligence: (analysisId: string, language?: string) => Promise<DesignIntelligenceResponse>
   generateDesignExamples: (analysisId: string, language?: string) => Promise<DesignIntelligenceResponse>
   cancelDesignIntelligence: (analysisId: string) => Promise<{ success: boolean }>

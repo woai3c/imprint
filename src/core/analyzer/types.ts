@@ -23,6 +23,7 @@ export interface AnalysisOptions {
   dataDir: string
   browserResourcesDir?: string
   proxyServer?: string
+  signal?: AbortSignal
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
 }
 

@@ -94,7 +94,7 @@ function createTray() {
 
   const macOS = isMacOS(process.platform)
   const trayImage = macOS
-    ? nativeImage.createFromPath(getIconPath('png', 'icon-32.png')).resize({ width: 16, height: 16 })
+    ? nativeImage.createFromPath(getIconPath('tray', 'imprintTemplate.png'))
     : isWindows(process.platform)
       ? getIconPath('icon.ico')
       : getIconPath('png', 'icon-32.png')

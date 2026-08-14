@@ -20,6 +20,7 @@ prompt values so production output matches the image that was approved.
 
 - `imprint-mark.svg`: standalone mark for light and neutral surfaces
 - `imprint-mark-reverse.svg`: mark for dark surfaces
+- `imprint-tray-template.svg`: monochrome source for the macOS menu bar template images
 - `imprint-app-icon.svg`: paper-tile application icon master
 - `imprint-lockup-en.svg`: English horizontal lockup
 - `imprint-lockup-zh.svg`: Chinese horizontal lockup

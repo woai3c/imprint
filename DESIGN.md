@@ -121,6 +121,9 @@ lockup when only one product language is appropriate. Use the bilingual lockup f
 packaging, and other contexts shared by Chinese and international audiences. Do not place either product name inside the
 desktop application icon.
 
+On macOS, the menu bar uses a transparent monochrome template version of the standalone mark so the system can adapt it
+to light, dark, and highlighted menu bar states. The paper tile belongs only to the application icon.
+
 Brand vermilion is an identity accent, not the destructive-state token. In product UI, the ink color should carry the
 main visual weight and vermilion should remain a restrained signature. On dark or highly saturated themes, reverse the
 ink portion of the mark while preserving the vermilion modules.

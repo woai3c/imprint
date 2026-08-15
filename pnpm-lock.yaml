@@ -51,6 +51,9 @@ importers:
       '@electron-forge/plugin-vite':
         specifier: ^7.0.0
         version: 7.11.2
+      '@electron/rebuild':
+        specifier: ^3.7.2
+        version: 3.7.2
       '@google/design.md':
         specifier: 0.4.0
         version: 0.4.0

@@ -27,7 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "pnpm build && pnpm build:cli && node --test --test-concurrency=1 tests/e2e/*.test.mjs",
+    "test:e2e": "pnpm build && pnpm build:cli && pnpm exec electron-rebuild --force --only better-sqlite3 && node --test tests/e2e/*.test.mjs",
     "test:all": "pnpm test && pnpm test:e2e",
     "lint": "eslint . --fix",
     "format": "prettier --write .",
@@ -59,6 +59,7 @@
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
+    "@electron/rebuild": "^3.7.2",
     "@electron-forge/cli": "^7.0.0",
     "@electron-forge/maker-dmg": "^7.0.0",
     "@electron-forge/maker-zip": "^7.0.0",

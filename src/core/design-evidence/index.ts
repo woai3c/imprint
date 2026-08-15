@@ -1,3 +1,4 @@
+export { resolveScreenshotAssetCoverage, screenshotAssetIssueCount } from './asset-integrity.js'
 export { buildDesignEvidence } from './evidence-builder.js'
 export type { BuildDesignEvidenceInput, CapturedPageEvidence } from './evidence-builder.js'
 export { generateDesignEvidenceBrief, generateDesignEvidenceJson } from './evidence-export.js'

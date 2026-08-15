@@ -52,6 +52,23 @@ export interface DesignIntelligenceMeta {
   failureReason?: string
   rejected?: string[]
   repaired?: string[]
+  interpretationCoverage?: {
+    status: 'complete' | 'partial' | 'failed'
+    catalogClaims: number
+    selectedClaims: number
+    invalidSelections: number
+  }
+  diagnosticCounts?: {
+    rejectedClaims: number
+    rejectedAssertions: number
+    affectedClaimPaths: number
+    repairEvents: number
+    selectionDiagnostics?: number
+  }
+  curation?: {
+    selectedClaimIds: string[]
+    summaries?: Array<{ claimId: string; text: string }>
+  }
   pendingChoice?: 'model-no-vision'
   pipeline?: 'single-pass' | 'two-pass'
   timing?: AnalysisTiming
@@ -96,6 +113,8 @@ export interface DesignClaim {
   evidence: EvidenceRef[]
   tokenRefs?: string[]
   assertions?: DesignClaimAssertion[]
+  source?: 'deterministic-catalog' | 'unavailable'
+  catalogId?: string
 }
 
 export interface SignatureMove extends DesignClaim {
@@ -122,6 +141,8 @@ export interface DesignProfile {
   schemaVersion: DesignProfileSchemaVersion
   language: 'en' | 'zh-CN'
   inputMode: IntelligenceInputMode
+  claimSource?: 'ai-authored' | 'deterministic-catalog'
+  catalogVersion?: string
   thesis: DesignClaim
   signatureMoves: SignatureMove[]
   composition: {
@@ -174,6 +195,55 @@ export interface DesignProfile {
   }>
   patterns?: PatternSpec[]
   tokenAliases?: ColorRenameProposal[]
+}
+
+export type DesignClaimSingletonSlot =
+  | 'thesis'
+  | 'composition.container'
+  | 'composition.alignment'
+  | 'composition.density'
+  | 'composition.rhythm'
+  | 'attention.entry'
+  | 'attention.action'
+  | 'attention.contrast'
+  | 'visual.color'
+  | 'visual.typography'
+  | 'visual.shape'
+  | 'visual.surfaces'
+  | 'interaction.feedback'
+  | 'interaction.amplitude'
+
+export type DesignClaimCatalogPlacement =
+  | { kind: 'singleton'; slot: DesignClaimSingletonSlot }
+  | { kind: 'signature' }
+  | { kind: 'attention-sequence' }
+  | { kind: 'visual'; slot: 'imagery' | 'motion' }
+  | { kind: 'section'; role: string; bucket: 'composition' | 'contentRhythm' | 'transitionToNext' }
+  | { kind: 'interaction'; bucket: 'driver' | 'scrollNarrative' | 'continuity' }
+  | { kind: 'component'; component: string; role: string }
+  | { kind: 'transfer'; bucket: 'preserve' | 'adapt' | 'avoid' }
+
+export interface DesignClaimCatalogEntry {
+  id: string
+  placements: DesignClaimCatalogPlacement[]
+  claim: DesignClaim
+  title?: string
+  distinctiveness?: string
+}
+
+export interface DesignClaimCatalog {
+  schemaVersion: '1'
+  catalogVersion: string
+  language: 'en' | 'zh-CN'
+  inputMode: IntelligenceInputMode
+  claims: DesignClaimCatalogEntry[]
+  uncertainties: DesignProfile['uncertainties']
+}
+
+export interface DesignClaimSelection {
+  schemaVersion: '1'
+  selectedClaimIds: string[]
+  summaries?: Array<{ claimId: string; text: string }>
 }
 
 export interface ApproximateBounds {

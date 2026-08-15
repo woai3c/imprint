@@ -14,6 +14,7 @@ import type { DesignClaim, DesignClaimAssertion, DesignProfile } from './types.j
 interface StructuredContradictionCheckResult {
   profile: DesignProfile
   rejected: string[]
+  requiredFallbackUsed: boolean
 }
 
 function canonicalPageUrl(value: string): string {
@@ -54,6 +55,7 @@ export function checkStructuredProfileAssertions(
   const profile = structuredClone(inputProfile)
   const rejected: string[] = []
   const hardRejectedClaims = new WeakSet<object>()
+  let requiredFallbackUsed = false
   const pagesById = new Map(evidence.pages.map((page) => [page.id, page]))
   const sectionsById = new Map(evidence.sections.map((section) => [section.id, section]))
   const componentsById = new Map(evidence.components.map((component) => [component.id, component]))
@@ -368,9 +370,36 @@ export function checkStructuredProfileAssertions(
         rejected.push(`${path}:missing-focus-visibility-assertion`)
       }
       if (claim.tokenRefs) {
+        const citedEvidenceIds = new Set([
+          ...claim.evidence.map((reference) => reference.evidenceId),
+          ...assertions.flatMap((assertion) => assertion.evidenceIds),
+        ])
         const known = claim.tokenRefs.filter((tokenRef) => knownTokenRefs.has(tokenRef))
         if (known.length !== claim.tokenRefs.length) rejected.push(`${path}:unknown-token-ref`)
-        claim.tokenRefs = known
+        const cited = known.filter((tokenRef) =>
+          [...(tokenOwners.get(tokenRef) || [])].some((evidenceId) => citedEvidenceIds.has(evidenceId)),
+        )
+        if (cited.length !== known.length) {
+          rejected.push(`${path}:token-citation-mismatch-sanitized`)
+          if (claim.confidence === 'high') claim.confidence = 'medium'
+        }
+        if (cited.length > 0) claim.tokenRefs = cited
+        else delete claim.tokenRefs
+      }
+      const interactionEvidence = assertions
+        .filter((assertion) => assertion.kind === 'interaction')
+        .flatMap((assertion) => assertion.evidenceIds)
+        .flatMap((evidenceId) => {
+          const observation = interactionsById.get(evidenceId)
+          return observation ? [observation] : []
+        })
+      if (
+        claim.confidence === 'high' &&
+        interactionEvidence.length > 0 &&
+        interactionEvidence.every((observation) => observation.safety === 'passive')
+      ) {
+        claim.confidence = 'medium'
+        rejected.push(`${path}:passive-interaction-confidence-sanitized`)
       }
     }
     Object.entries(record).forEach(([key, item]) => {
@@ -422,7 +451,10 @@ export function checkStructuredProfileAssertions(
     for (const [key, item] of Object.entries(record)) {
       if (item && typeof item === 'object' && hardRejectedClaims.has(item)) {
         if (['imagery', 'motion', 'scrollNarrative'].includes(key)) delete record[key]
-        else record[key] = replacementClaim(item as DesignClaim)
+        else {
+          requiredFallbackUsed = true
+          record[key] = replacementClaim(item as DesignClaim)
+        }
       } else {
         prune(item)
       }
@@ -430,5 +462,5 @@ export function checkStructuredProfileAssertions(
   }
   prune(profile)
 
-  return { profile, rejected }
+  return { profile, rejected, requiredFallbackUsed }
 }

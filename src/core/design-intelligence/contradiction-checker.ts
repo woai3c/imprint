@@ -6,6 +6,7 @@ import type { DesignProfile } from './types.js'
 export interface ContradictionCheckResult {
   profile: DesignProfile
   rejected: string[]
+  requiredFallbackUsed?: boolean
 }
 
 /**

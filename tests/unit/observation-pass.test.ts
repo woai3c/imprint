@@ -5,14 +5,16 @@ import type { DesignToken } from '../../src/core/analyzer/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import {
   type InterpretationInvoke,
-  buildAnalysisDigest,
   buildDesignInterpretationPrompt,
+  buildDeterministicClaimCatalog,
   buildSectionObservationPrompt,
+  canonicalCatalogPageIds,
   extractObservationCandidate,
-  prepareAnalysisDigestPackageForPrompt,
+  materializeDesignProfile,
   runInterpretationPipeline,
   selectEvidencePackage,
   splitImagesByPass,
+  validateDesignClaimCatalog,
   validateSectionObservations,
 } from '../../src/core/design-intelligence/index.js'
 
@@ -151,80 +153,6 @@ const evidence: DesignEvidence = {
   limitations: [],
 }
 
-function claim(statement = 'The layout uses a centered hero with deliberate breathing room') {
-  return {
-    statement,
-    implementation: 'Use a centered container and keep wide outer gutters across primary sections.',
-    confidence: 'high',
-    evidence: [
-      { evidenceId: 'section-a', note: 'Desktop hero bounds' },
-      { evidenceId: 'section-b', note: 'Mobile hero bounds' },
-    ],
-  }
-}
-
-function rawProfile(mode: 'structural-only' | 'multimodal' = 'structural-only') {
-  return {
-    schemaVersion: '1',
-    language: 'en',
-    inputMode: mode,
-    thesis: claim(),
-    signatureMoves: [
-      {
-        ...claim('Large focused openings establish hierarchy before supporting detail'),
-        id: 'move-focused-opening',
-        name: 'Focused opening',
-        distinctiveness: 'The spacious opening and compact action cluster recur together.',
-      },
-    ],
-    composition: {
-      containerStrategy: claim(),
-      alignmentStrategy: claim(),
-      densityAndWhitespace: claim(),
-      rhythm: claim(),
-    },
-    attention: {
-      entryPoint: claim(),
-      visualSequence: [claim()],
-      actionHierarchy: claim(),
-      contrastStrategy: claim(),
-    },
-    visualLanguage: {
-      color: claim(),
-      typography: claim(),
-      shape: claim(),
-      surfaces: claim(),
-    },
-    sectionGrammar: [
-      {
-        role: 'hero',
-        composition: [claim()],
-        contentRhythm: [claim()],
-        transitionToNext: [claim()],
-      },
-    ],
-    interactionLanguage: {
-      primaryDrivers: [claim()],
-      feedbackStyle: claim(),
-      stateChangeAmplitude: claim(),
-      continuityRules: [
-        {
-          ...claim(),
-          evidence: [{ evidenceId: 'responsive-a', note: 'Observed desktop-to-mobile reflow' }],
-          confidence: 'medium',
-        },
-      ],
-    },
-    componentGrammar: [{ component: 'button', role: 'primary action', rules: [claim()] }],
-    transferRules: {
-      preserve: [claim()],
-      adapt: [claim()],
-      avoid: [claim()],
-    },
-    uncertainties: [],
-  }
-}
-
 function observationEntry(sectionId: string, evidenceIds: string[] = ['section-a']) {
   return {
     sectionId,
@@ -236,31 +164,11 @@ function observationEntry(sectionId: string, evidenceIds: string[] = ['section-a
   }
 }
 
-function compactProfile() {
-  const claims = Array.from({ length: 25 }, (_, index) => ({
-    id: `q${index + 1}`,
-    s: `Observed design rule ${index + 1} uses a specific hierarchy and measured grouping`,
-    i: `Use the observed grouping strategy ${index + 1} while adapting content for the new page.`,
-    c: 'medium',
-    e: ['s1'],
-    t: [],
-    a: [{ k: 'evidence', x: 'design-thesis', p: 'supports', sc: 'instance', e: ['s1'] }],
-  }))
-  claims[20].e = ['c1']
-  claims[20].a = [{ k: 'component', x: 'button', p: 'present', sc: 'instance', e: ['c1'] }]
+function claimSelection(source: DesignEvidence = evidence, mode: 'structural-only' | 'multimodal' = 'structural-only') {
+  const catalog = buildDeterministicClaimCatalog(source, 'en', mode)
   return {
-    claims,
-    thesis: 'q1',
-    signatureMoves: [{ q: 'q25', n: 'Measured grouping', d: 'Hierarchy and grouping recur as one move.' }],
-    composition: { container: 'q2', alignment: 'q3', density: 'q4', rhythm: 'q5' },
-    attention: { entry: 'q6', sequence: ['q7'], action: 'q8', contrast: 'q9' },
-    visual: { color: 'q10', typography: 'q11', shape: 'q12', surfaces: 'q13' },
-    sections: [{ role: 'hero', composition: ['q14'], rhythm: ['q15'], transition: ['q16'] }],
-    interaction: { drivers: ['q17'], feedback: 'q18', amplitude: 'q19', continuity: ['q20'] },
-    components: [{ component: 'button', role: 'primary action', rules: ['q21'] }],
-    transfer: { preserve: ['q22'], adapt: ['q23'], avoid: ['q24'] },
-    uncertainties: [],
-    aliases: [],
+    schemaVersion: '1',
+    selectedClaimIds: catalog.claims.slice(0, 4).map((claim) => claim.id),
   }
 }
 
@@ -297,12 +205,12 @@ describe('Section observation pass', () => {
     expect(prompt).toContain('"observations"')
   })
 
-  it('runs exactly one compact synthesis call', async () => {
+  it('runs exactly one finite-catalog curation call', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const calls: string[] = []
     const invoke: InterpretationInvoke = async (prompt) => {
       calls.push(prompt)
-      return { text: JSON.stringify(compactProfile()) }
+      return { text: JSON.stringify(claimSelection()) }
     }
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
@@ -310,72 +218,125 @@ describe('Section observation pass', () => {
       invoke,
     })
     expect(result.pipeline).toBe('single-pass')
-    expect(result.profile.thesis.statement).toContain('design rule 1')
+    expect(result.profile.claimSource).toBe('deterministic-catalog')
+    expect(result.profile.thesis.source).toBe('deterministic-catalog')
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toContain('UNTRUSTED_ANALYSIS_DIGEST')
+    expect(calls[0]).toContain('DETERMINISTIC_CLAIM_CATALOG')
+    expect(calls[0]).toContain('cannot create, rewrite, merge, repair, or extend a claim')
+    expect(calls[0]).toContain('Program rules independently choose and order every exported claim')
     expect(calls[0]).not.toContain('SECTION_OBSERVATIONS')
-    expect(result.callDetails.map((detail) => detail.pass)).toEqual(['synthesis'])
-    expect(result.rejected || []).not.toEqual(expect.arrayContaining([expect.stringContaining('coverage-repair')]))
+    expect(result.callDetails.map((detail) => detail.pass)).toEqual(['curation'])
+    expect(result.repaired).toBeUndefined()
   })
 
-  it('rejects stale schema v1 output from fresh synthesis', async () => {
+  it('falls back to the deterministic catalog when the model returns the old profile contract', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
       language: 'en',
-      invoke: async () => ({ text: JSON.stringify(rawProfile()) }),
+      invoke: async () => ({ text: JSON.stringify({ schemaVersion: '2', thesis: { statement: 'forged' } }) }),
     })
 
     expect(result.evidenceFallback).toBe(true)
     expect(result.profile.schemaVersion).toBe('2')
-    expect(result.rejected).toContain('root:stale-schemaVersion("1",expected="2")')
+    expect(result.profile.thesis.statement).not.toContain('forged')
+    expect(result.rejected).toContain('selection:invalid-payload')
   })
 
-  it('expands the compact claim pool into the existing DesignProfile schema', async () => {
+  it('materializes program-owned claims into the existing DesignProfile schema', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
       language: 'en',
-      invoke: async () => ({ text: JSON.stringify(compactProfile()) }),
+      invoke: async () => ({ text: JSON.stringify(claimSelection()) }),
     })
 
-    expect(result.profile.thesis.statement).toContain('design rule 1')
+    expect(result.profile.thesis.catalogId).toMatch(/^claim-/)
     expect(result.profile.thesis.evidence[0].evidenceId).toBe('section-a')
     expect(result.profile.componentGrammar[0].component).toBe('button')
     expect(result.pipeline).toBe('single-pass')
   })
 
-  it('reports and drops compact aliases without observed role support', async () => {
-    const aliasEvidence = structuredClone(evidence)
-    aliasEvidence.tokens.colors['palette-1'] = '#576b95'
-    aliasEvidence.tokens.evidence = {
-      'colors.palette-1': {
-        value: '#576b95',
-        confidence: 'high',
-        observationCount: 3,
-        pageCount: 1,
-        captureCount: 1,
-        pages: ['https://example.com/'],
-        sources: ['computed:color'],
-        reasons: ['observed without a supported role'],
-      },
+  it('ignores model-authored claims, evidence, assertions, confidence, and aliases', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const candidate = {
+      ...claimSelection(),
+      claims: [
+        {
+          statement: 'FORGED STATEMENT',
+          confidence: 'high',
+          evidence: [{ evidenceId: 'forged-evidence' }],
+          assertions: [{ kind: 'evidence', target: 'design-thesis', predicate: 'supports' }],
+          tokenRefs: ['color.forged'],
+        },
+      ],
+      aliases: [{ token: 'color.forged', name: 'forged' }],
     }
-    aliasEvidence.sections[0].tokenRefs.push('color.palette-1')
-    const evidencePackage = selectEvidencePackage(aliasEvidence, 'structural-only')
-    const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(aliasEvidence, evidencePackage))
-    const paletteToken = digestPackage.tokenShortIdMap.get('color.palette-1')
-    expect(paletteToken).toBeDefined()
-    const candidate = compactProfile()
-    candidate.aliases = [{ token: paletteToken!, name: 'ash-gray' }]
 
-    const result = await runInterpretationPipeline(aliasEvidence, evidencePackage, {
+    const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only',
       language: 'en',
       invoke: async () => ({ text: JSON.stringify(candidate) }),
     })
 
     expect(result.profile.tokenAliases).toEqual([])
-    expect(result.repaired).toEqual(expect.arrayContaining([expect.stringContaining('role-mismatch-sanitized')]))
+    expect(JSON.stringify(result.profile)).not.toContain('FORGED STATEMENT')
+    expect(JSON.stringify(result.profile)).not.toContain('forged-evidence')
+    expect(result.status).toBe('partial')
+    expect(result.rejected).toContain('selection:ignored-authoring-fields(aliases,claims)')
+  })
+
+  it('keeps a complete status without auto-filling component families omitted by a valid profile', async () => {
+    const supplementalEvidence = structuredClone(evidence)
+    supplementalEvidence.components.push({
+      ...supplementalEvidence.components[0],
+      id: 'component-card',
+      type: 'card',
+      styles: {
+        backgroundColor: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderRadius: '12px',
+        boxShadow: 'none',
+      },
+    })
+    supplementalEvidence.sections.splice(1, 0, {
+      ...supplementalEvidence.sections[0],
+      id: 'section-content-desktop',
+      order: 1,
+      role: 'content',
+      componentRefs: [],
+    })
+    supplementalEvidence.topology.pages[0].sectionIds.push('section-content-desktop')
+    const evidencePackage = selectEvidencePackage(supplementalEvidence, 'structural-only')
+    const result = await runInterpretationPipeline(supplementalEvidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(claimSelection(supplementalEvidence)) }),
+    })
+
+    expect(result.status).toBe('complete')
+    expect(result.repaired).toBeUndefined()
+    expect(result.profile.componentGrammar.some((component) => component.component === 'card')).toBe(true)
+  })
+
+  it('keeps curation complete but marks the overall analysis partial when reusable evidence is incomplete', async () => {
+    const partialEvidence = structuredClone(evidence)
+    partialEvidence.coverage.assetCoverage = {
+      expected: 2,
+      valid: 1,
+      status: 'partial',
+      issueCount: 1,
+    }
+    const evidencePackage = selectEvidencePackage(partialEvidence, 'structural-only')
+    const result = await runInterpretationPipeline(partialEvidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({ text: JSON.stringify(claimSelection(partialEvidence)) }),
+    })
+
+    expect(result.status).toBe('partial')
+    expect(result.interpretationCoverage.status).toBe('complete')
+    expect(result.evidenceFallback).toBeUndefined()
   })
 
   it('does not run an automatic observation or repair call', async () => {
@@ -385,7 +346,7 @@ describe('Section observation pass', () => {
       calls += 1
       expect(prompt).not.toContain('section observer')
       expect(prompt).not.toContain('repairing the citation fields')
-      return { text: JSON.stringify(compactProfile()) }
+      return { text: JSON.stringify(claimSelection()) }
     }
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'structural-only' as const,
@@ -396,10 +357,10 @@ describe('Section observation pass', () => {
     expect(calls).toBe(1)
   })
 
-  it('records compact prompt and timing budgets', async () => {
+  it('records catalog prompt and timing budgets', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
     const invoke: InterpretationInvoke = async () => ({
-      text: JSON.stringify(compactProfile()),
+      text: JSON.stringify(claimSelection()),
       durationMs: 25,
       usage: { input: 1200, output: 800 },
     })
@@ -413,11 +374,10 @@ describe('Section observation pass', () => {
     expect(result.timing).toMatchObject({ aiInvokeMs: 25, aiInputTokens: 1200, aiOutputTokens: 800, imageCount: 0 })
   })
 
-  it('fills an invalid required claim without discarding valid AI conclusions', async () => {
+  it('drops unknown IDs without changing any deterministic claim', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
-    const invalid = compactProfile()
-    invalid.claims[9].e = []
-    invalid.claims[9].a = []
+    const valid = claimSelection()
+    const invalid = { ...valid, selectedClaimIds: [...valid.selectedClaimIds, 'claim-forged'] }
     let calls = 0
     const invoke: InterpretationInvoke = async () => {
       calls += 1
@@ -430,28 +390,370 @@ describe('Section observation pass', () => {
       invoke,
     })
     expect(result.status).toBe('partial')
-    expect(result.evidenceFallback).toBeUndefined()
-    expect(result.profile.thesis.statement).toContain('design rule 1')
-    expect(result.profile.visualLanguage.color.confidence).toBe('low')
-    expect(result.rejected).toContain('visualLanguage.color:missing-evidence')
+    expect(result.evidenceFallback).toBe(true)
+    expect(result.profile.claimSource).toBe('deterministic-catalog')
+    expect(JSON.stringify(result.profile)).not.toContain('claim-forged')
+    expect(result.rejected).toContain(`selection.selectedClaimIds.${valid.selectedClaimIds.length}:unknown-claim-id`)
     expect(calls).toBe(1)
   })
 
-  it('preserves multimodal mode when a required claim uses deterministic evidence', async () => {
+  it('preserves multimodal mode when model curation is malformed', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'multimodal')
-    const invalid = compactProfile()
-    invalid.claims[9].e = []
-    invalid.claims[9].a = []
 
     const result = await runInterpretationPipeline(evidence, evidencePackage, {
       mode: 'multimodal',
       language: 'en',
-      invoke: async () => ({ text: JSON.stringify(invalid) }),
+      invoke: async () => ({ text: '{not json' }),
     })
 
-    expect(result.evidenceFallback).toBeUndefined()
+    expect(result.evidenceFallback).toBe(true)
     expect(result.status).toBe('partial')
     expect(result.profile.inputMode).toBe('multimodal')
+  })
+
+  it('keeps the materialized profile identical when only AI summaries change', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const selection = claimSelection()
+    const first = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({
+        text: JSON.stringify({
+          ...selection,
+          summaries: [{ claimId: selection.selectedClaimIds[0], text: 'First non-normative wording.' }],
+        }),
+      }),
+    })
+    const second = await runInterpretationPipeline(evidence, evidencePackage, {
+      mode: 'structural-only',
+      language: 'en',
+      invoke: async () => ({
+        text: JSON.stringify({
+          ...selection,
+          summaries: [{ claimId: selection.selectedClaimIds[0], text: 'Different non-normative wording.' }],
+        }),
+      }),
+    })
+
+    expect(second.profile).toEqual(first.profile)
+    expect(second.curation.summaries).not.toEqual(first.curation.summaries)
+    expect(JSON.stringify(first.profile)).not.toContain('non-normative wording')
+  })
+
+  it('keeps the materialized profile identical across AI selection order and failure', async () => {
+    const evidencePackage = selectEvidencePackage(evidence, 'structural-only')
+    const selection = claimSelection()
+    const run = (text: string) =>
+      runInterpretationPipeline(evidence, evidencePackage, {
+        mode: 'structural-only',
+        language: 'en',
+        invoke: async () => ({ text }),
+      })
+
+    const first = await run(JSON.stringify(selection))
+    const reordered = await run(
+      JSON.stringify({ ...selection, selectedClaimIds: [...selection.selectedClaimIds].reverse() }),
+    )
+    const malformed = await run('{not json')
+
+    expect(reordered.profile).toEqual(first.profile)
+    expect(malformed.profile).toEqual(first.profile)
+    expect(first.curation.selectedClaimIds).not.toEqual(reordered.curation.selectedClaimIds)
+    expect(malformed.evidenceFallback).toBe(true)
+  })
+
+  it('materializes bounded highlights with stable program ranking instead of AI selection order', () => {
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en', 'structural-only')
+    const candidates = catalog.claims.slice(0, 2)
+    expect(candidates).toHaveLength(2)
+    candidates.forEach((entry) =>
+      entry.placements.push({ kind: 'signature' }, { kind: 'interaction', bucket: 'driver' }),
+    )
+
+    const unselected = materializeDesignProfile(catalog)
+    expect(unselected.signatureMoves).toHaveLength(2)
+    expect(unselected.interactionLanguage.primaryDrivers).toHaveLength(2)
+
+    const materializedAgain = materializeDesignProfile(catalog)
+    expect(materializedAgain).toEqual(unselected)
+  })
+
+  it('validates every program-owned evidence and token reference before invoking AI', () => {
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en', 'structural-only')
+    expect(validateDesignClaimCatalog(catalog, evidence)).toEqual({ valid: true, errors: [] })
+
+    const tampered = structuredClone(catalog)
+    tampered.claims[0].claim.evidence[0].evidenceId = 'forged-evidence'
+    expect(validateDesignClaimCatalog(tampered, evidence)).toMatchObject({
+      valid: false,
+      errors: expect.arrayContaining([expect.stringContaining('unknown-evidence(forged-evidence)')]),
+    })
+  })
+
+  it('caps passive interaction claims at medium confidence and preserves exact changed properties', () => {
+    const interactiveEvidence = structuredClone(evidence)
+    interactiveEvidence.interactionObservations = [
+      {
+        id: 'interaction-passive-hover',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class' },
+        before: { backgroundColor: '#2563eb', transform: 'none' },
+        after: { backgroundColor: '#1d4ed8', transform: 'scale(1.02)' },
+        changedProperties: ['backgroundColor', 'transform'],
+        evidenceRefs: ['component-a'],
+      },
+      {
+        id: 'interaction-passive-hover-duplicate',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'component-a',
+        driver: 'hover',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo-class' },
+        before: { backgroundColor: '#2563eb', transform: 'none' },
+        after: { backgroundColor: '#1d4ed8', transform: 'scale(1.02)' },
+        changedProperties: ['backgroundColor', 'transform'],
+        evidenceRefs: ['component-a'],
+      },
+    ]
+    const catalog = buildDeterministicClaimCatalog(interactiveEvidence, 'en', 'structural-only')
+    const interactionClaim = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'interaction' && placement.bucket === 'driver'),
+    )
+
+    expect(interactionClaim?.claim.confidence).toBe('medium')
+    expect(interactionClaim?.claim.statement).toContain('2 observed passive hover states')
+    expect(interactionClaim?.claim.statement).toContain('backgroundColor, transform')
+    expect(
+      catalog.claims.filter((entry) =>
+        entry.placements.some((placement) => placement.kind === 'interaction' && placement.bucket === 'driver'),
+      ),
+    ).toHaveLength(1)
+    expect(
+      interactionClaim?.claim.assertions?.filter((assertion) => assertion.predicate === 'property-change'),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'backgroundColor' }),
+        expect.objectContaining({ property: 'transform' }),
+      ]),
+    )
+  })
+
+  it('treats capture-only section absence as uncertainty instead of a responsive hiding rule', () => {
+    const presenceEvidence = structuredClone(evidence)
+    presenceEvidence.responsiveObservations = [
+      {
+        id: 'responsive-presence-only',
+        sectionId: 'section-a',
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'visibility',
+        changedProperties: ['visibility'],
+        changes: { visibility: { from: 'visible', to: 'absent' } },
+        summary: 'The section is present in only one capture.',
+        evidenceRefs: ['section-a', 'section-b'],
+      },
+    ]
+    const catalog = buildDeterministicClaimCatalog(presenceEvidence, 'en', 'structural-only')
+
+    expect(
+      catalog.claims.some((entry) =>
+        entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'adapt'),
+      ),
+    ).toBe(false)
+    expect(catalog.uncertainties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          topic: 'Viewport-specific section presence',
+          reason: expect.stringContaining('does not prove CSS hiding'),
+        }),
+      ]),
+    )
+  })
+
+  it('uses the same responsive reliability filter for catalog claims as the evidence report', () => {
+    const responsiveEvidence = structuredClone(evidence)
+    responsiveEvidence.sections[0].role = 'content'
+    responsiveEvidence.responsiveObservations = [
+      {
+        id: 'responsive-content-order',
+        sectionId: 'section-a',
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'reflow',
+        changedProperties: ['sequenceIndex', 'height', 'rect.height'],
+        changes: {
+          sequenceIndex: { from: 2, to: 0 },
+          height: { from: '420px', to: '1385px' },
+          'rect.height': { from: 0.3, to: 0.9 },
+        },
+        summary: 'Three raw properties changed.',
+        evidenceRefs: ['section-a', 'section-b'],
+      },
+    ]
+
+    const catalog = buildDeterministicClaimCatalog(responsiveEvidence, 'en', 'structural-only')
+    const responsiveClaim = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'adapt'),
+    )
+
+    expect(responsiveClaim?.claim.statement).toContain('classified as reorder')
+    expect(responsiveClaim?.claim.statement).toContain('sequenceIndex')
+    expect(responsiveClaim?.claim.statement).not.toContain('height')
+    expect(responsiveClaim?.claim.assertions?.some((assertion) => assertion.property === 'height')).toBe(false)
+  })
+
+  it('rejects legacy responsive observations whose cited sections have different semantic roles', () => {
+    const legacyEvidence = structuredClone(evidence)
+    legacyEvidence.responsiveObservations = [
+      {
+        id: 'responsive-legacy-mismatch',
+        sectionId: 'section-a',
+        fromViewport: 'desktop',
+        toViewport: 'mobile',
+        changeType: 'reflow',
+        changedProperties: ['sequenceIndex'],
+        changes: { sequenceIndex: { from: 2, to: 0 } },
+        summary: 'A legacy observation paired sections by locator only.',
+        evidenceRefs: ['section-a', 'section-b'],
+      },
+    ]
+
+    const catalog = buildDeterministicClaimCatalog(legacyEvidence, 'en', 'structural-only')
+
+    expect(
+      catalog.claims.some((entry) =>
+        entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'adapt'),
+      ),
+    ).toBe(false)
+    expect(catalog.uncertainties).toEqual(
+      expect.arrayContaining([expect.objectContaining({ topic: 'Cross-viewport section identity' })]),
+    )
+  })
+
+  it('counts visible section borders and keeps scope metadata out of avoid rules', () => {
+    const surfaceEvidence = structuredClone(evidence)
+    surfaceEvidence.sections[0].observedStyles = {
+      borders: {
+        borderTop: '1px solid rgb(226, 232, 240)',
+        borderRight: '1px solid rgb(226, 232, 240)',
+        borderBottom: '1px solid rgb(226, 232, 240)',
+        borderLeft: '1px solid rgb(226, 232, 240)',
+      },
+    }
+    const catalog = buildDeterministicClaimCatalog(surfaceEvidence, 'en', 'structural-only')
+    const surfaceClaim = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'singleton' && placement.slot === 'visual.surfaces'),
+    )
+
+    expect(surfaceClaim?.claim.statement).toContain('1 have visible borders')
+    expect(
+      catalog.claims.some((entry) =>
+        entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'avoid'),
+      ),
+    ).toBe(false)
+    expect(
+      catalog.claims.some((entry) =>
+        entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'preserve'),
+      ),
+    ).toBe(false)
+  })
+
+  it('uses severe-overflow captures only for avoid and scope claims', () => {
+    const overflowEvidence = structuredClone(evidence)
+    overflowEvidence.pages[0].viewportWidth = 375
+    overflowEvidence.pages[0].contentWidth = 1200
+    overflowEvidence.pages[0].horizontalOverflow = true
+    overflowEvidence.pages[0].horizontalOverflowSources = [
+      {
+        locator: 'main',
+        overflowPx: 825,
+        width: 1200,
+        position: 'static',
+        sectionId: 'section-a',
+        sectionRole: 'hero',
+      },
+    ]
+    const catalog = buildDeterministicClaimCatalog(overflowEvidence, 'en', 'structural-only')
+    const claimsUsingOverflowSection = catalog.claims.filter((entry) =>
+      entry.claim.evidence.some((reference) => reference.evidenceId === 'section-a'),
+    )
+
+    expect(claimsUsingOverflowSection).toHaveLength(1)
+    expect(claimsUsingOverflowSection[0].placements).toEqual([{ kind: 'transfer', bucket: 'avoid' }])
+    expect(claimsUsingOverflowSection[0].claim.evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ evidenceId: 'page-a' })]),
+    )
+    expect(catalog.claims.some((entry) => entry.placements.some((placement) => placement.kind === 'component'))).toBe(
+      false,
+    )
+  })
+
+  it('never builds reusable claims from a capture that failed the page health gate', () => {
+    const unhealthyEvidence = structuredClone(evidence)
+    const catalogBuiltBeforeHealthFailure = buildDeterministicClaimCatalog(evidence, 'en', 'structural-only')
+    unhealthyEvidence.pages.forEach((page) => {
+      page.health = {
+        status: 'unusable',
+        checkedAt: '2026-08-15T00:00:00.000Z',
+        recovered: false,
+        attempts: 1,
+        viewport: { width: 1_440, height: 900 },
+        content: { width: 1_440, height: 900 },
+        overlayAreaRatio: 0.8,
+        mutationCount: 0,
+        aiEligible: false,
+        issues: [{ code: 'captcha', severity: 'error', recoverable: false }],
+      }
+    })
+
+    const catalog = buildDeterministicClaimCatalog(unhealthyEvidence, 'en', 'structural-only')
+
+    expect(canonicalCatalogPageIds(unhealthyEvidence)).toEqual(new Set())
+    expect(
+      catalog.claims.every((entry) =>
+        entry.placements.every((placement) => placement.kind === 'transfer' && placement.bucket === 'avoid'),
+      ),
+    ).toBe(true)
+    expect(catalog.uncertainties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ topic: 'Page health gate', reason: expect.stringContaining('2 capture(s)') }),
+      ]),
+    )
+    expect(validateDesignClaimCatalog(catalog, unhealthyEvidence)).toEqual({ valid: true, errors: [] })
+    expect(validateDesignClaimCatalog(catalogBuiltBeforeHealthFailure, unhealthyEvidence)).toMatchObject({
+      valid: false,
+      errors: expect.arrayContaining([expect.stringContaining('unsafe-page-used-for-reusable-claim')]),
+    })
+  })
+
+  it('drops responsive comparisons when either cited capture failed the page health gate', () => {
+    const mixedEvidence = structuredClone(evidence)
+    mixedEvidence.pages[1].health = {
+      status: 'unusable',
+      checkedAt: '2026-08-15T00:00:00.000Z',
+      recovered: false,
+      attempts: 1,
+      viewport: { width: 375, height: 900 },
+      content: { width: 375, height: 900 },
+      overlayAreaRatio: 0,
+      mutationCount: 0,
+      aiEligible: false,
+      issues: [{ code: 'error-page', severity: 'error', recoverable: false }],
+    }
+
+    const catalog = buildDeterministicClaimCatalog(mixedEvidence, 'en', 'structural-only')
+
+    expect(
+      catalog.claims.some((entry) =>
+        entry.placements.some((placement) => placement.kind === 'transfer' && placement.bucket === 'adapt'),
+      ),
+    ).toBe(false)
+    expect(validateDesignClaimCatalog(catalog, mixedEvidence)).toEqual({ valid: true, errors: [] })
   })
 
   it('keeps selected region crops in the single synthesis call', () => {
@@ -465,7 +767,7 @@ describe('Section observation pass', () => {
     expect(split.synthesisImages.map((image) => image.name)).toEqual(['image-a.png', 'image-b.png', 'image-c.png'])
   })
 
-  it('labels attached synthesis images with the digest short IDs', async () => {
+  it('keeps stable image IDs for catalog curation', async () => {
     const evidencePackage = selectEvidencePackage(evidence, 'multimodal')
     let receivedPrompt = ''
     let receivedImages: AiImageInput[] = []
@@ -477,16 +779,13 @@ describe('Section observation pass', () => {
         receivedPrompt = prompt
         receivedImages = images
         return {
-          text: JSON.stringify({
-            ...compactProfile(),
-            imageObservations: [{ image: 'i1', description: 'The hero and its primary action are visible.' }],
-          }),
+          text: JSON.stringify(claimSelection(evidence, 'multimodal')),
         }
       },
     })
 
-    expect(receivedImages.map((image) => image.name)).toEqual(['i1.png'])
-    expect(receivedPrompt).toContain('Attached images, in order: i1')
+    expect(receivedImages.map((image) => image.name)).toEqual(['image-a.png'])
+    expect(receivedPrompt).toContain('Attached image IDs: image-a')
   })
 
   it('keeps the synthesis prompt free of observation blocks when no notes exist', () => {

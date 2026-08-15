@@ -45,4 +45,5 @@ export interface FixtureAnnotation {
   forbiddenFontFamilies?: string[]
   expectedDesignDocStrings?: string[]
   expectedReconstructionSummaryStrings?: string[]
+  forbiddenReconstructionSummaryStrings?: string[]
 }

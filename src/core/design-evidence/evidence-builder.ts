@@ -5,12 +5,14 @@ import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { PageScreenshot } from '../analyzer/types.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
+import { screenshotAssetIssueCount } from './asset-integrity.js'
 import type { InteractionObservationSnapshot } from './interaction-observer.js'
 import type { PageEvidenceSnapshot, PageSectionSnapshot } from './page-extractor.js'
 import { pageIdentityFromMetadata } from './page-identity.js'
 import { hasSevereHorizontalOverflow } from './reliability.js'
 import { createEvidenceId } from './stable-id.js'
 import { safeSectionObservedStyles } from './structural-styles.js'
+import { tokenRefCompatibleWithStyle } from './token-style-compatibility.js'
 import type {
   ComponentEvidence,
   DesignEvidence,
@@ -41,6 +43,8 @@ export interface BuildDesignEvidenceInput {
   expectedViewports?: string[]
   /** Actual page/viewport captures planned by the analyzer's adaptive strategy. */
   expectedCaptureCount?: number
+  /** Retained overview screenshots that failed encoded-dimension validation. */
+  screenshotAssetIssueCount?: number
   tokens: DesignToken
   featureTags: string[]
   interactionStyles: InteractionStyles
@@ -151,7 +155,7 @@ function buildTokenIndex(tokens: DesignToken): Map<string, string[]> {
 
 function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<string, string[]>): string[] {
   const refs = new Set<string>()
-  for (const value of Object.values(styles)) {
+  for (const [property, value] of Object.entries(styles)) {
     const candidates = new Set<string>([
       value.toLowerCase().trim(),
       normalizeColor(value),
@@ -162,7 +166,10 @@ function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<stri
         ?.flatMap((part) => [part.toLowerCase(), normalizeColor(part), normalizeTokenValue(part)]) || []),
     ])
     for (const candidate of candidates) {
-      tokenIndex.get(candidate)?.forEach((ref) => refs.add(ref))
+      tokenIndex
+        .get(candidate)
+        ?.filter((ref) => tokenRefCompatibleWithStyle(property, ref))
+        .forEach((ref) => refs.add(ref))
     }
   }
   const fontSize = cssLengthPx(styles.fontSize)
@@ -198,7 +205,7 @@ function buildResponsiveObservations(
   captures: CapturedPageEvidence[],
   sectionIds: Map<string, string>,
   imageIds: Map<string, string>,
-): ResponsiveSectionObservation[] {
+): { observations: ResponsiveSectionObservation[]; identityMismatchCount: number } {
   const viewportOrder = ['desktop', 'tablet', 'mobile']
   const byUrl = new Map<string, CapturedPageEvidence[]>()
   for (const capture of captures) {
@@ -208,6 +215,7 @@ function buildResponsiveObservations(
   }
 
   const observations: ResponsiveSectionObservation[] = []
+  let identityMismatchCount = 0
   for (const pageCaptures of byUrl.values()) {
     if (pageCaptures.length < 2) continue
     pageCaptures.sort(
@@ -250,6 +258,13 @@ function buildResponsiveObservations(
               imageIds.get(toCaptureKey) || '',
             ].filter(Boolean),
           })
+          continue
+        }
+
+        // A stable DOM locator is necessary but not sufficient for cross-viewport identity.
+        // Responsive markup can reuse the same structural path for a semantically different region.
+        if (from.role !== to.role) {
+          identityMismatchCount += 1
           continue
         }
 
@@ -348,7 +363,7 @@ function buildResponsiveObservations(
       }
     }
   }
-  return observations
+  return { observations, identityMismatchCount }
 }
 
 export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvidence {
@@ -698,6 +713,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   if (majorMediaLayers.length > 0 && majorMediaLayers.every((media) => media.role === 'unknown')) {
     limitations.push('no-classified-media-regions')
   }
+  const assetIssueCount = input.screenshotAssetIssueCount ?? screenshotAssetIssueCount(limitations)
 
   const pageSectionIds = new Map<string, string[]>()
   for (const section of sections) {
@@ -737,7 +753,11 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     crossPagePatternIds,
   }
 
-  const responsiveObservations = buildResponsiveObservations(input.captures, sectionIds, imageIds)
+  const responsiveResult = buildResponsiveObservations(input.captures, sectionIds, imageIds)
+  const responsiveObservations = responsiveResult.observations
+  if (responsiveResult.identityMismatchCount > 0) {
+    limitations.push('responsive-section-identity-mismatch')
+  }
   const coverage = {
     pageCoverage: uniqueUrls.size >= input.expectedPageCount ? ('complete' as const) : ('partial' as const),
     urlCoverage: {
@@ -749,6 +769,12 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       captured: Math.min(expectedCaptureCount, capturedExpectedCombinations),
       status: capturedExpectedCombinations >= expectedCaptureCount ? ('complete' as const) : ('partial' as const),
       requestedViewports: expectedViewports,
+    },
+    assetCoverage: {
+      expected: pages.length,
+      valid: Math.max(0, pages.length - Math.min(pages.length, assetIssueCount)),
+      status: assetIssueCount === 0 ? ('complete' as const) : ('partial' as const),
+      issueCount: assetIssueCount,
     },
     sectionCoverage:
       input.captures.length === 0

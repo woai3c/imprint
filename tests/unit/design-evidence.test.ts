@@ -9,6 +9,7 @@ import {
   generateDesignEvidenceJson,
 } from '../../src/core/design-evidence/index.js'
 import type { PageEvidenceSnapshot } from '../../src/core/design-evidence/page-extractor.js'
+import { buildEvidenceFallbackProfile } from '../../src/core/design-intelligence/index.js'
 import { generateDesignDoc } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
@@ -177,6 +178,47 @@ function buildFixtureEvidence() {
 }
 
 describe('Design Evidence', () => {
+  it('matches component tokens by CSS property as well as value', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    const source = snapshot.components[0]
+    snapshot.components = [
+      { ...source, key: 'hero:1:card:radius', styles: { borderRadius: '16px' } },
+      { ...source, key: 'hero:1:card:padding', styles: { padding: '16px' } },
+      { ...source, key: 'hero:1:card:type', styles: { fontSize: '16px' } },
+    ]
+    const collisionTokens: DesignToken = {
+      ...tokens,
+      typography: { ...tokens.typography, fontSizes: ['16px'] },
+      spacing: ['16px'],
+      radii: ['16px'],
+    }
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'token-property-matching',
+      requestedUrl: snapshot.url,
+      finalUrl: snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens: collisionTokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: snapshot.url, path: 'property-matching.png', viewport: 'desktop' },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.components.map((component) => component.tokenRefs)).toEqual([
+      ['radius.1'],
+      ['spacing.1'],
+      ['typography.font-size.1'],
+    ])
+  })
+
   it('preserves anchor provenance as elementKind without changing the visual button type', () => {
     const snapshot = createSnapshot('desktop', 1440)
     snapshot.components[0].elementKind = 'anchor'
@@ -419,11 +461,14 @@ describe('Design Evidence', () => {
     ]
 
     const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', [], evidence)
+    const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
     expect(brief).toContain('代表性状态值')
     expect(brief).toContain('color: rgb(17, 24, 39) → rgb(37, 99, 235)')
     expect(brief).toContain('计算样式观察（未点击）')
     expect(brief).not.toContain('synthetic-target-id')
+    expect(summary).not.toContain('color rgb(17, 24, 39) → rgb(37, 99, 235)')
   })
 
   it('prioritizes computed interaction observations over stylesheet declarations at the evidence cap', () => {
@@ -522,6 +567,71 @@ describe('Design Evidence', () => {
     expect(document).toContain('`高频间距：4px、8px、16px`')
     expect(document).toContain('`观察到以紧凑圆角为主的表面`')
     expect(document).toContain('`大量使用 CSS 变量`')
+  })
+
+  it('keeps AI prose out of the observed summary and filters partial-run claims by confidence', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.source.siteName = '示例站点'
+    const profile = buildEvidenceFallbackProfile(evidence, 'zh-CN', 'multimodal', 'test fixture')
+    profile.thesis = {
+      ...profile.thesis,
+      statement: '不应进入确定性摘要的 AI 命题',
+      implementation: '不应进入 DESIGN.md 的 AI 实现指令',
+      confidence: 'high',
+      evidence: [{ evidenceId: evidence.sections[0].id, note: '已观察区块' }],
+    }
+    const completeDocument = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'zh-CN',
+      [],
+      evidence,
+      profile,
+      'complete',
+      { status: 'complete', capabilityLevel: 'multimodal-ai', inputMode: 'multimodal' },
+    )
+    const completeSummary = completeDocument.slice(
+      completeDocument.indexOf('### 重建摘要'),
+      completeDocument.indexOf('## Colors'),
+    )
+    const meta = {
+      status: 'partial' as const,
+      capabilityLevel: 'multimodal-ai' as const,
+      inputMode: 'multimodal' as const,
+    }
+
+    const partialDocument = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'zh-CN',
+      [],
+      evidence,
+      profile,
+      undefined,
+      meta,
+    )
+    const summary = partialDocument.slice(partialDocument.indexOf('### 重建摘要'), partialDocument.indexOf('## Colors'))
+
+    expect(completeSummary).not.toContain('不应进入确定性摘要的 AI 命题')
+    expect(completeDocument).toContain('不应进入确定性摘要的 AI 命题')
+    expect(completeDocument).not.toContain('不应进入 DESIGN.md 的 AI 实现指令')
+    expect(completeDocument).toContain('### 引用证据索引')
+    expect(completeDocument).toContain(`\`${evidence.sections[0].id}\` — 区块`)
+    expect(completeDocument).toContain(`role=\`${evidence.sections[0].role}\``)
+    expect(summary).toContain('示例站点 是一个已观察到的')
+    expect(summary).not.toContain('不应进入确定性摘要的 AI 命题')
+    expect(partialDocument).toContain('不应进入确定性摘要的 AI 命题')
+    expect(partialDocument).not.toContain('不应进入 DESIGN.md 的 AI 实现指令')
+    expect(partialDocument).toContain('仅保留通过校验的高、中置信度主张')
+    expect(partialDocument).toContain('通过校验的高、中置信度推断假设')
   })
 
   it('labels cross-page reconstruction facts with their source route', () => {
@@ -959,6 +1069,41 @@ describe('Design Evidence', () => {
     expect(evidence.coverage.viewportCoverage).toEqual(['desktop', 'tablet', 'mobile'])
   })
 
+  it('rejects cross-viewport pairs when a stable DOM path changes semantic section identity', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 375)
+    const mobileHero = mobile.sections.find((section) => section.key === 'hero:1')!
+    mobileHero.role = 'feature-group'
+    mobileHero.order = 0
+    mobileHero.rect.height = 0.8
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-responsive-identity',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const desktopHero = evidence.sections.find(
+      (section) => section.pageId === desktopPage.id && section.role === 'hero',
+    )!
+
+    expect(evidence.responsiveObservations.some((observation) => observation.sectionId === desktopHero.id)).toBe(false)
+    expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
+    expect(generateDesignEvidenceBrief(evidence, 'en')).toContain('different semantic section roles across viewports')
+  })
+
   it('records horizontal overflow instead of treating off-screen mobile content as responsive hiding', () => {
     const snapshot = createSnapshot('mobile', 1032)
     const evidence = buildDesignEvidence({
@@ -1024,6 +1169,44 @@ describe('Design Evidence', () => {
 
     expect(evidence.pages[0].images[0]).toMatchObject({ width: 3_686, height: 2_294 })
     expect(evidence.pages[0].contentWidth).toBe(3_568)
+  })
+
+  it('reports screenshot asset integrity separately from completed capture records', () => {
+    const snapshot = createSnapshot('mobile', 375)
+    const stage = encodeURIComponent('page-2:mobile-adaptive:screenshot:overview')
+    const reason = encodeURIComponent('screenshot-dimensions-mismatch expected=375x2292 actual=375x812')
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-asset-integrity',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['mobile'],
+      expectedCaptureCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      limitations: [`extraction-issue:${stage}:${reason}`],
+      captures: [
+        {
+          screenshot: { url: snapshot.url, path: 'mobile.png', viewport: 'mobile', width: 375, height: 812 },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 1, captured: 1, status: 'complete' })
+    expect(evidence.coverage.assetCoverage).toEqual({ expected: 1, valid: 0, status: 'partial', issueCount: 1 })
+    expect(generateDesignEvidenceBrief(evidence)).toContain(
+      'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
+    )
+    const legacyEvidence = structuredClone(evidence)
+    delete legacyEvidence.coverage.assetCoverage
+    expect(generateDesignEvidenceBrief(legacyEvidence)).toContain(
+      'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
+    )
   })
 
   it('does not infer responsive visibility from a horizontally clipped capture', () => {
@@ -1131,6 +1314,25 @@ describe('Design Evidence', () => {
 
     expect(brief).toContain('提取阶段 page-1:desktop:styles：Timeout after 15000ms')
     expect(brief).not.toContain('page-health:horizontal-overflow')
+  })
+
+  it('explains adaptive mobile capture limits and overflow without exposing internal codes', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.limitations.push(
+      'extraction-issue:page-2%3Amobile-adaptive%3Ahealth%3Ahorizontal-overflow:375%2F3686',
+      'adaptive-mobile-budget-exceeded',
+      'adaptive-mobile-skipped-budget',
+    )
+
+    const chinese = generateDesignEvidenceBrief(evidence, 'zh-CN')
+    const english = generateDesignEvidenceBrief(evidence, 'en')
+
+    expect(chinese).toContain('第 2 个页面的移动端补充捕获出现横向溢出（视口 375px，内容宽度 3686px）')
+    expect(chinese).toContain('移动端补充捕获超出预留时间预算')
+    expect(chinese).toContain('后续移动端补充捕获被跳过')
+    expect(english).toContain('Page 2 supplemental mobile capture overflowed horizontally')
+    expect(chinese).not.toContain('adaptive-mobile-budget-exceeded')
+    expect(chinese).not.toContain('adaptive-mobile-skipped-budget')
   })
 
   it('keeps responsive media attributes and links region crops to sections', () => {
@@ -1395,8 +1597,10 @@ describe('Design Evidence', () => {
       'x-imprint': Array<{
         analysis: {
           promptVersion: string
-          rejectedCount: number
-          repairedCount: number
+          rejectedClaimCount: number
+          rejectedAssertionCount: number
+          affectedClaimCount: number
+          repairEventCount: number
         }
       }>
     }
@@ -1436,8 +1640,10 @@ describe('Design Evidence', () => {
     expect(failedDoc).toContain('No AI design interpretation is available')
     expect(diagnosticFrontMatter['x-imprint'][0].analysis).toMatchObject({
       promptVersion: '19',
-      rejectedCount: 2,
-      repairedCount: 1,
+      rejectedClaimCount: 2,
+      rejectedAssertionCount: 0,
+      affectedClaimCount: 2,
+      repairEventCount: 1,
     })
     expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('rejected')
     expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('repaired')

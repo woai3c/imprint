@@ -1,5 +1,6 @@
 import { isRecord } from '../../shared/type-guards.js'
 import { parseJsonObjects } from '../ai/json-payload.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreT } from '../i18n/index.js'
 import { isDesignAssertionKind, isDesignAssertionPredicate } from './assertion-schema.js'
@@ -371,12 +372,16 @@ function validateClaim(
     rejected.push(`${path}:missing-structured-assertion`)
     return null
   }
-  const tokenRefs = Array.isArray(value.tokenRefs)
+  let tokenRefs = Array.isArray(value.tokenRefs)
     ? value.tokenRefs.filter((tokenRef): tokenRef is string => typeof tokenRef === 'string').slice(0, 16)
     : []
-  if (schemaVersion === '2' && tokenRefs.some((tokenRef) => !tokenRefMatchesStructuredField(tokenRef, path))) {
-    rejected.push(`${path}:token-role-mismatch`)
-    return null
+  if (schemaVersion === '2') {
+    const compatibleTokenRefs = tokenRefs.filter((tokenRef) => tokenRefMatchesStructuredField(tokenRef, path))
+    if (compatibleTokenRefs.length !== tokenRefs.length) {
+      rejected.push(`${path}:token-role-mismatch-sanitized`)
+      tokenRefs = compatibleTokenRefs
+      if (confidence === 'high') confidence = 'medium'
+    }
   }
   return {
     statement: statement.trim(),
@@ -626,9 +631,13 @@ function buildEvidenceScope(evidence: DesignEvidence): EvidenceScope {
 }
 
 function referencedPageUrls(claim: DesignClaim, scope: EvidenceScope): Set<string> {
+  const evidenceIds = [
+    ...claim.evidence.map((reference) => reference.evidenceId),
+    ...(claim.assertions?.flatMap((assertion) => assertion.evidenceIds) || []),
+  ]
   return new Set(
-    claim.evidence
-      .map((reference) => scope.pageUrlByEvidenceId.get(reference.evidenceId))
+    evidenceIds
+      .map((evidenceId) => scope.pageUrlByEvidenceId.get(evidenceId))
       .filter((url): url is string => Boolean(url)),
   )
 }
@@ -754,6 +763,81 @@ function groundOverflowClaims(
   }
   visit(profile, '')
   return mismatch
+}
+
+/**
+ * A severely overflowing capture is retained so the profile can explain the limitation, but its
+ * layout and screenshot evidence cannot establish reusable design rules. Keep explicit avoid
+ * rules, demote descriptive claims, and remove preserve/adapt rules so coverage repair can replace
+ * them with conservative deterministic guidance.
+ */
+function constrainSevereOverflowInference(
+  profile: DesignProfile,
+  evidence: DesignEvidence,
+  scope: EvidenceScope,
+  rejected: string[],
+): boolean {
+  const excludedPageIds = new Set(
+    evidence.pages.filter((page) => hasSevereHorizontalOverflow(page)).map((page) => page.id),
+  )
+  if (excludedPageIds.size === 0) return false
+
+  const usesExcludedEvidence = (claim: DesignClaim): boolean => {
+    const evidenceIds = [
+      ...claim.evidence.map((reference) => reference.evidenceId),
+      ...(claim.assertions?.flatMap((assertion) => assertion.evidenceIds) || []),
+    ]
+    return evidenceIds.some((evidenceId) => {
+      const pageId = scope.pageIdByEvidenceId.get(evidenceId)
+      return pageId ? excludedPageIds.has(pageId) : false
+    })
+  }
+  let changed = false
+  const demote = <T extends DesignClaim>(claim: T, path: string): T => {
+    if (!usesExcludedEvidence(claim) || claim.confidence === 'low') return claim
+    changed = true
+    rejected.push(`${path}:severe-horizontal-overflow-evidence`)
+    return { ...claim, confidence: 'low' }
+  }
+  const demoteList = <T extends DesignClaim>(claims: T[], path: string): T[] =>
+    claims.map((claim, index) => demote(claim, `${path}.${index}`))
+  const removeTransferClaims = (claims: DesignClaim[], path: string): DesignClaim[] =>
+    claims.filter((claim, index) => {
+      if (!usesExcludedEvidence(claim)) return true
+      changed = true
+      rejected.push(`${path}.${index}:severe-horizontal-overflow-evidence`)
+      return false
+    })
+
+  profile.thesis = demote(profile.thesis, 'thesis')
+  profile.signatureMoves = demoteList(profile.signatureMoves, 'signatureMoves')
+  for (const key of Object.keys(profile.composition) as Array<keyof DesignProfile['composition']>) {
+    profile.composition[key] = demote(profile.composition[key], `composition.${key}`)
+  }
+  profile.attention.entryPoint = demote(profile.attention.entryPoint, 'attention.entryPoint')
+  profile.attention.visualSequence = demoteList(profile.attention.visualSequence, 'attention.visualSequence')
+  profile.attention.actionHierarchy = demote(profile.attention.actionHierarchy, 'attention.actionHierarchy')
+  profile.attention.contrastStrategy = demote(profile.attention.contrastStrategy, 'attention.contrastStrategy')
+  for (const key of ['color', 'typography', 'shape', 'surfaces', 'imagery', 'motion'] as const) {
+    const claim = profile.visualLanguage[key]
+    if (claim) profile.visualLanguage[key] = demote(claim, `visualLanguage.${key}`)
+  }
+  for (const [index, grammar] of profile.sectionGrammar.entries()) {
+    grammar.composition = demoteList(grammar.composition, `sectionGrammar.${index}.composition`)
+    grammar.contentRhythm = demoteList(grammar.contentRhythm, `sectionGrammar.${index}.contentRhythm`)
+    grammar.transitionToNext = demoteList(grammar.transitionToNext, `sectionGrammar.${index}.transitionToNext`)
+  }
+  for (const [index, grammar] of profile.componentGrammar.entries()) {
+    grammar.rules = demoteList(grammar.rules, `componentGrammar.${index}.rules`)
+  }
+  for (const [index, pattern] of (profile.patterns || []).entries()) {
+    pattern.structureRules = demoteList(pattern.structureRules, `patterns.${index}.structureRules`)
+    pattern.visualRules = demoteList(pattern.visualRules, `patterns.${index}.visualRules`)
+    pattern.responsiveRules = demoteList(pattern.responsiveRules, `patterns.${index}.responsiveRules`)
+  }
+  profile.transferRules.preserve = removeTransferClaims(profile.transferRules.preserve, 'transferRules.preserve')
+  profile.transferRules.adapt = removeTransferClaims(profile.transferRules.adapt, 'transferRules.adapt')
+  return changed
 }
 
 function isTransparentPaint(value: string | undefined): boolean {
@@ -1042,7 +1126,11 @@ function capSinglePageGlobalClaim<T extends DesignClaim>(
       : /\b(?:all|every|only|unique|across all|across pages?|cross-page|each of the|both|two pages|three pages|four pages)\b|全站|所有|全部|唯一|每页|各页|跨页面|多页|两个页面|三页|四页|均采用|均使用/i.test(
           `${claim.statement} ${claim.implementation}`,
         )
-  if (assertsUniversalCoverage && availablePageCount > 1 && referencedPages < availablePageCount) {
+  const lacksDeclaredScopeSupport =
+    schemaVersion === '2'
+      ? assertsUniversalCoverage && referencedPages < 2
+      : assertsUniversalCoverage && availablePageCount > 1 && referencedPages < availablePageCount
+  if (lacksDeclaredScopeSupport) {
     return { ...claim, confidence: 'low' } as T
   }
   if (claim.confidence !== 'high') return claim
@@ -1476,11 +1564,10 @@ export function validateDesignProfile(
     ? value.componentGrammar.slice(0, 16).flatMap((item, index) => {
         if (!isRecord(item) || !isSafeText(item.component, 80) || !isSafeText(item.role, 120)) return []
         const componentType = normalizeComponentType(item.component, schemaVersion)
-        const matchingEvidenceIds = new Set(
-          evidence.components
-            .filter((component) => normalizeComponentType(component.type, schemaVersion) === componentType)
-            .map((component) => component.id),
+        const matchingComponents = evidence.components.filter(
+          (component) => normalizeComponentType(component.type, schemaVersion) === componentType,
         )
+        const matchingEvidenceIds = new Set(matchingComponents.map((component) => component.id))
         if (matchingEvidenceIds.size === 0) {
           rejected.push(`componentGrammar.${index}:unobserved-component-type`)
           return []
@@ -1511,10 +1598,26 @@ export function validateDesignProfile(
           return false
         })
         if (rules.length === 0) return []
+        const citedEvidenceIds = new Set(
+          rules.flatMap((claim) => [
+            ...claim.evidence.map((reference) => reference.evidenceId),
+            ...(claim.assertions?.flatMap((assertion) => assertion.evidenceIds) || []),
+          ]),
+        )
+        const observedRoles = [
+          ...new Set(
+            matchingComponents
+              .filter((component) => citedEvidenceIds.has(component.id))
+              .map((component) => component.role || component.elementKind || component.type),
+          ),
+        ]
         return [
           {
             component: componentType.slice(0, 80),
-            role: item.role.slice(0, 120),
+            role:
+              schemaVersion === '2'
+                ? (observedRoles.join(' / ') || componentType).slice(0, 120)
+                : item.role.slice(0, 120),
             rules,
           },
         ]
@@ -1801,6 +1904,7 @@ export function validateDesignProfile(
       validateVisibleFocusClaims(profile, evidence, rejected),
       validateInteractionClaimDetails(profile, evidence, evidenceScope, validIds, rejected),
     ].some(Boolean)
+  const severeOverflowInferenceGap = constrainSevereOverflowInference(profile, evidence, evidenceScope, rejected)
 
   let globalScopeGap = false
   const constrainGlobal = <T extends DesignClaim>(claim: T, path: string): T => {
@@ -1917,6 +2021,7 @@ export function validateDesignProfile(
       imageObservationsValid === false ||
       criticalCoverageGap ||
       semanticGroundingGap ||
+      severeOverflowInferenceGap ||
       globalScopeGap
         ? 'partial'
         : 'complete',

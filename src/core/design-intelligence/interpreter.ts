@@ -1,19 +1,18 @@
 import type { AiImageInput } from '../ai/provider.js'
-import { aiPipelineTimeoutMs, callAiProvider } from '../ai/provider.js'
-import { validateColorRenames } from '../analyzer/token-renamer.js'
+import { callAiProvider } from '../ai/provider.js'
+import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import { buildAnalysisDigest } from './analysis-digest.js'
-import { dedupeProfileClaims } from './claim-dedupe.js'
-import { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
-import { checkProfileContradictions } from './contradiction-checker.js'
-import { buildEvidenceFallbackProfile, repairProfileCoverage } from './evidence-fallback.js'
-import { listEvidencePackageIds, restrictEvidencePackageImages, selectEvidencePackage } from './evidence-selector.js'
-import { createEvidenceFingerprint } from './input-fingerprint.js'
 import {
-  DESIGN_PROFILE_PROMPT_VERSION,
-  buildCompactDesignInterpretationPrompt,
-  prepareAnalysisDigestPackageForPrompt,
-} from './prompt.js'
+  buildDeterministicClaimCatalog,
+  materializeDesignProfile,
+  validateDesignClaimCatalog,
+} from './claim-catalog.js'
+import { parseClaimSelection } from './claim-selection.js'
+import { summarizeInterpretationDiagnostics } from './diagnostic-summary.js'
+import { restrictEvidencePackageImages, selectEvidencePackage } from './evidence-selector.js'
+import { createEvidenceFingerprint } from './input-fingerprint.js'
+import { DESIGN_PROFILE_PROMPT_VERSION, buildClaimSelectionPrompt } from './prompt.js'
 import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type {
   AnalysisCapabilityLevel,
@@ -24,7 +23,17 @@ import type {
   IntelligenceInputMode,
   SectionObservation,
 } from './types.js'
-import { extractProfileCandidate, validateDesignProfile } from './validator.js'
+
+export const CLAIM_CURATION_TIMEOUT_MS = 120_000
+
+function hasCompleteReusableEvidence(evidence: DesignEvidence): boolean {
+  return (
+    evidence.coverage.pageCoverage === 'complete' &&
+    evidence.coverage.captureCoverage?.status !== 'partial' &&
+    resolveScreenshotAssetCoverage(evidence).status === 'complete' &&
+    evidence.pages.every((page) => page.health?.aiEligible !== false && !hasSevereHorizontalOverflow(page))
+  )
+}
 
 export interface InterpretationProviderConfig {
   provider: string
@@ -112,12 +121,9 @@ export interface InterpretationPipelineResult {
   promptChars: number
   digestChars: number
   evidenceFallback?: boolean
-}
-
-function isRepairDiagnostic(reason: string): boolean {
-  return /(?:scope-repaired|property-normalized|sanitized|contradicts-(?:responsive-layout|overflow-source|mobile-capture)-facts|contradicts-validated-token-refs)/.test(
-    reason,
-  )
+  interpretationCoverage: NonNullable<DesignIntelligenceMeta['interpretationCoverage']>
+  diagnosticCounts: NonNullable<DesignIntelligenceMeta['diagnosticCounts']>
+  curation: NonNullable<DesignIntelligenceMeta['curation']>
 }
 
 export function splitImagesByPass(
@@ -136,29 +142,28 @@ export function splitImagesByPass(
 
 export async function runInterpretationPipeline(
   evidence: DesignEvidence,
-  evidencePackage: EvidencePackage,
+  _evidencePackage: EvidencePackage,
   options: InterpretationPipelineOptions,
 ): Promise<InterpretationPipelineResult> {
   const startedAt = Date.now()
   const digestStartedAt = Date.now()
-  const digestPackage = prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(evidence, evidencePackage))
-  const prompt = buildCompactDesignInterpretationPrompt(digestPackage, options.language)
+  const catalog = buildDeterministicClaimCatalog(evidence, options.language, options.mode)
+  const catalogIntegrity = validateDesignClaimCatalog(catalog, evidence)
+  if (!catalogIntegrity.valid) {
+    throw new Error(`Deterministic claim catalog integrity failed: ${catalogIntegrity.errors.slice(0, 8).join('; ')}`)
+  }
+  const digestChars = JSON.stringify(catalog).length
+  const synthesisImages = options.synthesisImages || []
+  const imageIds = synthesisImages.map((image) => image.name.replace(/\.[^.]+$/, ''))
+  const prompt = buildClaimSelectionPrompt(catalog, options.language, imageIds)
   const digestMs = Date.now() - digestStartedAt
-  const digestChars = JSON.stringify(digestPackage.digest).length
-  const synthesisImages = (options.synthesisImages || []).map((image) => {
-    const stableId = image.name.replace(/\.[^.]+$/, '')
-    const shortId = digestPackage.evidenceShortIdMap.get(stableId)
-    if (!shortId) return image
-    const extension = image.name.match(/\.[^.]+$/)?.[0] || ''
-    return { ...image, name: `${shortId}${extension}` }
-  })
 
   const invokeStartedAt = Date.now()
   const response = await options.invoke(prompt, synthesisImages)
   const aiInvokeMs = response.durationMs ?? Date.now() - invokeStartedAt
   const callDetails: CallDetail[] = [
     {
-      pass: 'synthesis',
+      pass: 'curation',
       input: response.usage?.input,
       output: response.usage?.output,
       durationMs: aiInvokeMs,
@@ -166,88 +171,43 @@ export async function runInterpretationPipeline(
       transportMs: response.transportMs,
     },
   ]
-  if (!response.text) throw new Error('DesignProfile output is empty')
 
   const validationStartedAt = Date.now()
-  const compactCandidate = extractCompactProfileCandidate(response.text)
-  const expanded = compactCandidate
-    ? expandCompactProfileCandidate(compactCandidate, digestPackage, options.language, options.mode)
-    : { profile: extractProfileCandidate(response.text), aliases: [] }
-  const candidateSchemaVersion =
-    expanded.profile && typeof expanded.profile === 'object' && 'schemaVersion' in expanded.profile
-      ? String(expanded.profile.schemaVersion)
-      : null
-  const validation =
-    candidateSchemaVersion === DESIGN_PROFILE_SCHEMA_VERSION
-      ? validateDesignProfile(
-          expanded.profile,
-          evidence,
-          options.mode,
-          options.language,
-          listEvidencePackageIds(evidencePackage),
-          options.requireImageObservations ? { requireImageObservations: options.requireImageObservations } : undefined,
-        )
-      : {
-          profile: null,
-          status: 'failed' as const,
-          rejected: [
-            `root:stale-schemaVersion(${JSON.stringify(candidateSchemaVersion)},expected=${JSON.stringify(DESIGN_PROFILE_SCHEMA_VERSION)})`,
-          ],
-        }
-  const evidenceFallback = !validation.profile
-  const fallbackReason = `DesignProfile output failed validation: ${validation.rejected.slice(0, 8).join('; ')}; repair-attempted=false`
-  const validatedProfile =
-    validation.profile || buildEvidenceFallbackProfile(evidence, options.language, options.mode, fallbackReason)
-  const unsupportedAliases = expanded.aliases.filter((alias) => !/^palette-\d+$/.test(alias.tokenId))
-  const paletteAliases = expanded.aliases.filter((alias) => /^palette-\d+$/.test(alias.tokenId))
-  const aliasValidation = validateColorRenames(evidence.tokens, paletteAliases)
-  validatedProfile.tokenAliases = validation.profile ? aliasValidation.accepted : []
-  const contradictionCheck = checkProfileContradictions(validatedProfile, evidence)
-  const deduped = evidenceFallback
-    ? { profile: contradictionCheck.profile, removed: 0 }
-    : dedupeProfileClaims(
-        contradictionCheck.profile,
-        buildEvidenceFallbackProfile(
-          evidence,
-          options.language,
-          options.mode,
-          'A required AI claim duplicated an earlier design claim',
-        ),
-      )
-  const coverageRepair = repairProfileCoverage(deduped.profile, evidence)
+  const selectionResult = parseClaimSelection(response.text || '', catalog)
+  const profile = materializeDesignProfile(catalog)
   const validationMs = Date.now() - validationStartedAt
-  const validationDiagnostics = [
-    ...validation.rejected,
-    ...unsupportedAliases.map((_, index) => `tokenAliases.${index}:non-palette-token-sanitized`),
-    ...aliasValidation.rejected.map((item, index) => `tokenAliases.${index}:${item.reason}-sanitized`),
-    ...contradictionCheck.rejected,
-  ]
-  const rejected = validationDiagnostics.filter((reason) => !isRepairDiagnostic(reason))
-  const repaired = [
-    ...validationDiagnostics.filter(isRepairDiagnostic),
-    ...(deduped.removed > 0 ? [`claims:deduplicated(${deduped.removed})`] : []),
-    ...coverageRepair.repaired,
-  ]
-  const postValidationRepair =
-    validationDiagnostics.length > 0 || deduped.removed > 0 || coverageRepair.repaired.length > 0
+  const rejected = selectionResult.diagnostics
+  const evidenceFallback = !selectionResult.valid
+  const complete = selectionResult.valid && hasCompleteReusableEvidence(evidence)
   const budgetExceeded: string[] = []
   if ((response.usage?.input || 0) > 16_000) budgetExceeded.push('ai-input-tokens')
-  if ((response.usage?.output || 0) > 6_000) budgetExceeded.push('ai-output-tokens')
+  if ((response.usage?.output || 0) > 2_400) budgetExceeded.push('ai-output-tokens')
+  const interpretationCoverage: NonNullable<DesignIntelligenceMeta['interpretationCoverage']> = {
+    status: selectionResult.valid ? 'complete' : catalog.claims.length > 0 ? 'partial' : 'failed',
+    catalogClaims: catalog.claims.length,
+    selectedClaims: selectionResult.selection.selectedClaimIds.length,
+    invalidSelections: selectionResult.invalidSelections,
+  }
+  const diagnosticCounts = summarizeInterpretationDiagnostics(rejected)
+  const curation: NonNullable<DesignIntelligenceMeta['curation']> = {
+    selectedClaimIds: selectionResult.selection.selectedClaimIds,
+    ...(selectionResult.selection.summaries ? { summaries: selectionResult.selection.summaries } : {}),
+  }
 
   return {
-    profile: coverageRepair.profile,
-    status: !evidenceFallback && validation.status === 'complete' && !postValidationRepair ? 'complete' : 'partial',
+    profile,
+    status: complete ? 'complete' : 'partial',
     pipeline: 'single-pass',
-    imageObservationsValid: validation.imageObservationsValid,
     rejected: rejected.length > 0 ? rejected : undefined,
-    repaired: repaired.length > 0 ? repaired : undefined,
-    dedupedClaims: deduped.removed > 0 ? deduped.removed : undefined,
     model: response.model,
     usage: response.usage,
     callDetails,
     promptChars: prompt.length,
     digestChars,
     evidenceFallback: evidenceFallback || undefined,
+    interpretationCoverage,
+    diagnosticCounts,
+    curation,
     timing: {
       digestMs,
       imageSummaryMs: 0,
@@ -276,7 +236,7 @@ export async function interpretDesignEvidence(
   if (options.mode === 'multimodal' && evidence.source.accessMode !== 'anonymous') {
     throw new Error('Screenshot interpretation is unavailable for signed-in evidence')
   }
-  const timeoutSignal = AbortSignal.timeout(aiPipelineTimeoutMs(options.provider.thinkingEnabled === true))
+  const timeoutSignal = AbortSignal.timeout(CLAIM_CURATION_TIMEOUT_MS)
   let evidencePackage = selectEvidencePackage(evidence, options.mode)
   if (evidencePackage.evidence.pages.length === 0) {
     throw new Error('No page passed the AI evidence health gate')
@@ -308,9 +268,9 @@ export async function interpretDesignEvidence(
           baseUrl: options.provider.baseUrl,
           model: options.provider.model,
           signal: timeoutSignal,
-          reasoningEffort: options.provider.reasoningEffort,
-          thinkingEnabled: options.provider.thinkingEnabled,
-          maxOutputTokens: 4096,
+          reasoningEffort: 'low',
+          thinkingEnabled: false,
+          maxOutputTokens: 2400,
           allowThinkingFallback: false,
         },
         prompt,
@@ -354,6 +314,9 @@ export async function interpretDesignEvidence(
       timing: result.timing,
       rejected: result.rejected,
       repaired: result.repaired,
+      interpretationCoverage: result.interpretationCoverage,
+      diagnosticCounts: result.diagnosticCounts,
+      curation: result.curation,
     },
   }
 }

@@ -12,6 +12,21 @@ function claim(statement: string, confidence: DesignClaim['confidence'] = 'mediu
   }
 }
 
+function genericStructuredClaim(statement: string): DesignClaim {
+  return {
+    ...claim(statement),
+    assertions: [
+      {
+        kind: 'evidence',
+        target: 'composition',
+        predicate: 'supports',
+        scope: 'instance',
+        evidenceIds: ['section-a'],
+      },
+    ],
+  }
+}
+
 function makeProfile(): DesignProfile {
   return {
     schemaVersion: '1',
@@ -173,5 +188,45 @@ describe('dedupeProfileClaims', () => {
       '深色开发者文档界面',
       '保留跨页面的导航层级',
     ])
+  })
+
+  test('does not collapse distinct schema v2 claims that use the same generic support assertion', () => {
+    const profile = makeProfile()
+    profile.schemaVersion = '2'
+    profile.componentGrammar = [
+      {
+        component: 'card',
+        role: 'content surface',
+        rules: [
+          genericStructuredClaim('Cards separate editorial items with quiet surface contrast.'),
+          genericStructuredClaim('Card interiors keep metadata close to the associated title.'),
+        ],
+      },
+    ]
+
+    const { profile: deduped, removed } = dedupeProfileClaims(profile)
+
+    expect(removed).toBe(0)
+    expect(deduped.componentGrammar[0].rules).toHaveLength(2)
+  })
+
+  test('still removes repeated schema v2 prose when assertions are only generic support bindings', () => {
+    const profile = makeProfile()
+    profile.schemaVersion = '2'
+    profile.componentGrammar = [
+      {
+        component: 'card',
+        role: 'content surface',
+        rules: [
+          genericStructuredClaim('Cards separate editorial items with quiet surface contrast.'),
+          genericStructuredClaim('Cards separate editorial items with quiet surface contrast.'),
+        ],
+      },
+    ]
+
+    const { profile: deduped, removed } = dedupeProfileClaims(profile)
+
+    expect(removed).toBe(1)
+    expect(deduped.componentGrammar[0].rules).toHaveLength(1)
   })
 })

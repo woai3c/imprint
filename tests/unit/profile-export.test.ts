@@ -112,6 +112,133 @@ describe('generateDesignProfileMarkdown', () => {
     expect(english).not.toContain('profileExport.')
   })
 
+  test('states the deterministic catalog boundary instead of presenting claims as AI-authored facts', () => {
+    const profile = makeProfile()
+    profile.language = 'en'
+    profile.schemaVersion = '2'
+    profile.claimSource = 'deterministic-catalog'
+    profile.catalogVersion = '1'
+
+    const markdown = generateDesignProfileMarkdown(profile)
+    const fallbackMarkdown = generateDesignProfileMarkdown(
+      profile,
+      undefined,
+      'partial',
+      new Map(),
+      'evidence-fallback',
+    )
+
+    expect(markdown).toContain('Deterministic claim catalog')
+    expect(markdown).toContain('Program rules generate and rank every exported statement')
+    expect(markdown).toContain('AI preferences and summaries are diagnostic metadata only')
+    expect(fallbackMarkdown).toContain('program-ranked exported claims are unaffected')
+    expect(fallbackMarkdown).toContain('no valid AI annotation is available')
+    expect(markdown).not.toContain('Treat the following as inferred hypotheses')
+  })
+
+  test('labels deterministic facts descriptively and renders each catalog claim only once', () => {
+    const profile = makeProfile()
+    profile.language = 'en'
+    profile.claimSource = 'deterministic-catalog'
+    profile.catalogVersion = '1'
+    const repeated = {
+      ...claim('Observed header then content sequence', 'high'),
+      source: 'deterministic-catalog' as const,
+      catalogId: 'claim-sequence',
+    }
+    profile.thesis = repeated
+    profile.composition.rhythm = { ...repeated }
+    profile.attention.visualSequence = [{ ...repeated }]
+
+    const markdown = generateDesignProfileMarkdown(profile, undefined, 'partial')
+
+    expect(markdown).toContain('### Representative Observed Topology')
+    expect(markdown).toContain('overall analysis is partial')
+    expect(markdown).not.toContain('### Design Thesis')
+    expect(markdown.match(/Observed header then content sequence/g)).toHaveLength(2)
+  })
+
+  test('does not expose local screenshot paths in the cited evidence index', () => {
+    const profile = makeProfile()
+    profile.thesis = {
+      ...profile.thesis,
+      evidence: [{ evidenceId: 'image-a', note: 'Overview capture' }],
+    }
+    const indexedEvidence: DesignEvidence = {
+      schemaVersion: '1',
+      analysisId: 'analysis-index',
+      source: {
+        requestedUrl: 'https://example.com',
+        finalUrl: 'https://example.com/',
+        accessMode: 'anonymous',
+      },
+      pages: [
+        {
+          id: 'page-a',
+          url: 'https://example.com/',
+          viewport: 'desktop',
+          role: 'landing',
+          images: [
+            {
+              id: 'image-a',
+              kind: 'overview',
+              path: 'C:\\Users\\person\\AppData\\Roaming\\Imprint\\screenshots\\capture.png',
+              width: 1440,
+              height: 1600,
+            },
+          ],
+        },
+      ],
+      tokens,
+      featureTags: [],
+      topology: {
+        schemaVersion: '1',
+        pages: [{ pageId: 'page-a', role: 'landing', sectionIds: ['section-a'] }],
+        globalLayers: [],
+        crossPagePatternIds: [],
+      },
+      sections: [
+        {
+          id: 'section-a',
+          pageId: 'page-a',
+          order: 0,
+          role: 'hero',
+          rect: { x: 0, y: 0, width: 1, height: 0.5 },
+          layoutMode: 'flow',
+          tokenRefs: [],
+          componentRefs: [],
+          interactionRefs: [],
+          mediaLayerRefs: [],
+          evidenceRefs: ['image-a'],
+        },
+      ],
+      components: [],
+      layoutNodes: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      interactionObservations: [],
+      breakpoints: [],
+      responsiveObservations: [],
+      motion: [],
+      mediaLayers: [],
+      coverage: {
+        pageCoverage: 'complete',
+        sectionCoverage: 1,
+        viewportCoverage: ['desktop'],
+        interactionCoverage: { candidates: 0, safelyObserved: 0, skipped: 0 },
+        mediaCoverage: { majorRegions: 0, classifiedRegions: 0 },
+        accessRestrictions: [],
+        limitations: [],
+      },
+      limitations: [],
+    }
+
+    const markdown = generateDesignProfileMarkdown(profile, undefined, undefined, new Map(), undefined, indexedEvidence)
+
+    expect(markdown).toContain('`image-a`')
+    expect(markdown).not.toContain('C:\\Users\\person')
+    expect(markdown).not.toContain('path=')
+  })
+
   test('exports schema v2 assertions as authoritative machine-readable facts', () => {
     const profile = makeProfile()
     profile.schemaVersion = '2'
@@ -130,6 +257,8 @@ describe('generateDesignProfileMarkdown', () => {
 
     expect(markdown).toContain('已验证断言')
     expect(markdown).toContain('`section:hero:layout-mode="flow"@instance`')
+    expect(markdown).toContain('会主动省略 AI 编写的实现指令')
+    expect(markdown).not.toContain('— implementation')
   })
 
   test('omits low-confidence claims while keeping solid claims in the document', () => {
@@ -145,14 +274,14 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).not.toContain('避免把 footer 当全局模式')
   })
 
-  test('keeps the thesis in the body even when low confidence', () => {
+  test('omits the thesis when it is low confidence', () => {
     const profile = makeProfile()
     profile.thesis = claim('证据不足时的设计主张', 'low')
 
     const markdown = generateDesignProfileMarkdown(profile)
 
-    expect(markdown).toContain('### 设计主张')
-    expect(markdown).toContain('证据不足时的设计主张')
+    expect(markdown).not.toContain('### 设计主张')
+    expect(markdown).not.toContain('证据不足时的设计主张')
     expect(markdown).not.toContain('低置信度推断')
   })
 
@@ -222,11 +351,14 @@ describe('generateDesignProfileMarkdown', () => {
     expect(markdown).toContain('确定性证据兜底')
   })
 
-  test('surfaces partial AI validation status in the exported document', () => {
+  test('publishes only validated high- and medium-confidence claims from a partial run', () => {
     const markdown = generateDesignProfileMarkdown(makeProfile(), undefined, 'partial')
 
     expect(markdown).toContain('**状态:** `partial`')
     expect(markdown).toContain('部分 AI 字段未通过确定性校验')
+    expect(markdown).toContain('仅保留通过校验的高、中置信度主张')
+    expect(markdown).toContain('深色开发者文档界面')
+    expect(markdown).not.toContain('DOM 顺序上 header 为首个区域')
   })
 
   test('does not label a partial AI profile as a full fallback after local coverage repair', () => {
@@ -245,6 +377,8 @@ describe('generateDesignProfileMarkdown', () => {
 
     expect(markdown).toContain('**状态:** `partial`')
     expect(markdown).toContain('部分 AI 字段未通过确定性校验')
+    expect(markdown).toContain('深色开发者文档界面')
+    expect(markdown).not.toContain('Only the rejected signature move was repaired')
     expect(markdown).not.toContain('确定性证据兜底，不是有效的 AI 视觉综合')
   })
 

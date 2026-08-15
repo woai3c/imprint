@@ -534,14 +534,81 @@ describe('Design intelligence', () => {
     expect(checked.rejected).toContain('signatureMoves.0:missing-secondary-border-assertion')
   })
 
-  it('rejects structured token references that belong to a different design dimension', () => {
+  it('sanitizes structured token references from a different design dimension without replacing the claim', () => {
     const profile = structuredProfile()
-    profile.composition.rhythm.tokenRefs = ['color.primary']
+    const originalStatement = profile.composition.rhythm.statement
+    profile.composition.rhythm.tokenRefs = ['color.primary', 'spacing.2']
 
     const validation = validateDesignProfile(profile, evidence, 'structural-only', 'en')
 
-    expect(validation.rejected).toContain('composition.rhythm:token-role-mismatch')
-    expect(validation.profile?.composition.rhythm.tokenRefs || []).not.toContain('color.primary')
+    expect(validation.rejected).toContain('composition.rhythm:token-role-mismatch-sanitized')
+    expect(validation.profile?.composition.rhythm.statement).toBe(originalStatement)
+    expect(validation.profile?.composition.rhythm.tokenRefs).toEqual(['spacing.2'])
+    expect(validation.profile?.composition.rhythm.confidence).toBe('medium')
+  })
+
+  it('keeps only token refs owned by evidence cited in the same structured claim', () => {
+    const profile = structuredProfile()
+    profile.thesis.tokenRefs = ['color.primary', 'color.background']
+    profile.componentGrammar[0].rules[0].tokenRefs = ['color.primary']
+
+    const checked = checkProfileContradictions(profile, evidence)
+
+    expect(checked.profile.thesis.tokenRefs).toEqual(['color.background'])
+    expect(checked.profile.thesis.confidence).toBe('medium')
+    expect(checked.profile.componentGrammar[0].rules[0].tokenRefs).toEqual(['color.primary'])
+    expect(checked.rejected).toContain('thesis:token-citation-mismatch-sanitized')
+  })
+
+  it('caps structured interaction claims supported only by passive observations', () => {
+    const passiveEvidence = structuredClone(evidence)
+    passiveEvidence.interactionObservations = [
+      {
+        id: 'interaction-focus-passive',
+        pageId: 'page-a',
+        sectionId: 'section-a',
+        targetId: 'target-focus',
+        driver: 'focus',
+        safety: 'passive',
+        trigger: { kind: 'css-pseudo' },
+        before: { 'box-shadow': 'none' },
+        after: { 'box-shadow': '0 0 0 2px #2563eb' },
+        changedProperties: ['box-shadow'],
+        evidenceRefs: ['section-a'],
+      },
+    ]
+    const profile = structuredProfile()
+    profile.interactionLanguage.feedbackStyle = {
+      ...profile.interactionLanguage.feedbackStyle,
+      confidence: 'high',
+      evidence: [{ evidenceId: 'interaction-focus-passive', note: 'Computed focus declaration' }],
+      assertions: [
+        {
+          kind: 'interaction',
+          target: 'focus',
+          predicate: 'visible-indicator',
+          value: true,
+          scope: 'instance',
+          evidenceIds: ['interaction-focus-passive'],
+        },
+      ],
+    }
+
+    const checked = checkProfileContradictions(profile, passiveEvidence)
+
+    expect(checked.profile.interactionLanguage.feedbackStyle.confidence).toBe('medium')
+    expect(checked.rejected).toContain('interactionLanguage.feedbackStyle:passive-interaction-confidence-sanitized')
+  })
+
+  it('derives schema v2 component roles from cited component evidence instead of AI purpose prose', () => {
+    const roleEvidence = structuredClone(evidence)
+    roleEvidence.components[0].role = 'primary-action'
+    const profile = structuredProfile()
+    profile.componentGrammar[0].role = 'One control that supposedly represents every action family'
+
+    const validation = validateDesignProfile(profile, roleEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.componentGrammar[0].role).toBe('primary-action')
   })
 
   it('accepts direct schema v2 responsive facts and validates cross-page scope by URL', () => {
@@ -587,6 +654,31 @@ describe('Design intelligence', () => {
     expect(crossUrl.rejected).not.toEqual(
       expect.arrayContaining([expect.stringContaining('unsupported-cross-page-scope')]),
     )
+  })
+
+  it('treats two distinct URLs as sufficient support for schema v2 cross-page scope', () => {
+    const threeUrlEvidence = multiUrlEvidence()
+    threeUrlEvidence.pages.push({
+      ...threeUrlEvidence.pages[0],
+      id: 'page-c',
+      url: 'https://example.com/about',
+      images: [{ id: 'image-c', kind: 'overview', path: 'C:\\private\\about.png', width: 1440, height: 1600 }],
+    })
+    const profile = structuredProfile()
+    profile.thesis.assertions = [
+      {
+        kind: 'evidence',
+        target: 'design-thesis',
+        predicate: 'supports',
+        scope: 'cross-page',
+        evidenceIds: ['section-a', 'section-b'],
+      },
+    ]
+
+    const validation = validateDesignProfile(profile, threeUrlEvidence, 'structural-only', 'en')
+
+    expect(validation.profile?.thesis.confidence).toBe('high')
+    expect(validation.rejected).not.toContain('thesis:unsupported-cross-page-scope')
   })
 
   it('validates arbitrary-language schema v2 prose when its assertions are well formed', () => {
@@ -2001,6 +2093,17 @@ describe('Design intelligence', () => {
         'transferRules.avoid',
       ]),
     )
+    expect(repaired.statusAffecting).toEqual(
+      expect.arrayContaining([
+        'signatureMoves',
+        'attention.visualSequence',
+        'interactionLanguage.primaryDrivers',
+        'componentGrammar.button',
+        'transferRules.preserve',
+        'transferRules.adapt',
+        'transferRules.avoid',
+      ]),
+    )
     expect(repaired.profile.signatureMoves).toHaveLength(1)
     expect(repaired.profile.attention.visualSequence).toHaveLength(1)
     expect(repaired.profile.componentGrammar[0].rules).toEqual([
@@ -2023,7 +2126,7 @@ describe('Design intelligence', () => {
     ).toBe(3)
   })
 
-  it('promotes repeated canonical component evidence to a visible deterministic fallback', () => {
+  it('keeps repeated deterministic component coverage out of inferred DESIGN.md claims', () => {
     const repeatedEvidence = structuredClone(evidence)
     repeatedEvidence.components.push({
       ...repeatedEvidence.components[0],
@@ -2039,10 +2142,18 @@ describe('Design intelligence', () => {
 
     expect(button?.rules[0]).toEqual(
       expect.objectContaining({
-        confidence: 'medium',
+        confidence: 'low',
         statement: expect.stringContaining('Observed button variants'),
+        assertions: [
+          expect.objectContaining({
+            kind: 'component',
+            target: 'button',
+            predicate: 'present',
+          }),
+        ],
       }),
     )
+    expect(button?.rules[0]).not.toHaveProperty('tokenRefs')
   })
 
   it('preserves distinct observed card families in deterministic coverage repair', () => {
@@ -2086,6 +2197,27 @@ describe('Design intelligence', () => {
       expect.arrayContaining(['card-flat', 'card-elevated']),
     )
     expect(repaired.repaired.filter((path) => path === 'componentGrammar.card')).toHaveLength(1)
+  })
+
+  it('does not fabricate missing component grammar families when valid AI component grammar remains', () => {
+    const supplementalEvidence = structuredClone(evidence)
+    supplementalEvidence.components.push({
+      ...supplementalEvidence.components[0],
+      id: 'component-card',
+      type: 'card',
+      styles: {
+        backgroundColor: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderRadius: '12px',
+        boxShadow: 'none',
+      },
+    })
+    const profile = rawProfile() as unknown as DesignProfile
+
+    const repaired = repairProfileCoverage(profile, supplementalEvidence)
+
+    expect(repaired.repaired).not.toContain('componentGrammar.card')
+    expect(repaired.profile.componentGrammar.some((component) => component.component === 'card')).toBe(false)
   })
 
   it('removes false extrema and color-role claims instead of retaining them as low-confidence facts', () => {
@@ -2513,6 +2645,48 @@ describe('Design intelligence', () => {
     expect(validation.profile?.patterns?.[0].responsiveRules[0].confidence).toBe('low')
     expect(validation.profile?.uncertainties).toEqual(
       expect.arrayContaining([expect.objectContaining({ topic: 'Responsive behavior' })]),
+    )
+  })
+
+  it('keeps schema v2 severe-overflow evidence out of preserve and adapt rules', () => {
+    const overflowEvidence: DesignEvidence = {
+      ...evidence,
+      pages: evidence.pages.map((page) =>
+        page.id === 'page-b' ? { ...page, viewportWidth: 375, contentWidth: 3_686, horizontalOverflow: true } : page,
+      ),
+      limitations: ['horizontal-overflow-observed'],
+    }
+    const profile = structuredProfile()
+    const overflowClaim = {
+      ...claim('Keep the wide mobile canvas and clip overflow rather than reflowing it'),
+      evidence: [{ evidenceId: 'page-b', note: 'Severely overflowing mobile capture' }],
+      assertions: [
+        {
+          kind: 'responsive' as const,
+          target: 'viewport',
+          predicate: 'horizontal-overflow',
+          scope: 'page' as const,
+          evidenceIds: ['page-b'],
+        },
+      ],
+    }
+    profile.transferRules.preserve = [overflowClaim]
+    profile.transferRules.adapt = [overflowClaim]
+    profile.transferRules.avoid = [
+      { ...overflowClaim, statement: 'Do not copy the observed overflow as a layout rule' },
+    ]
+
+    const validation = validateDesignProfile(profile, overflowEvidence, 'structural-only', 'en')
+
+    expect(validation.status).toBe('partial')
+    expect(validation.profile?.transferRules.preserve).toEqual([])
+    expect(validation.profile?.transferRules.adapt).toEqual([])
+    expect(validation.profile?.transferRules.avoid).toHaveLength(1)
+    expect(validation.rejected).toEqual(
+      expect.arrayContaining([
+        'transferRules.preserve.0:severe-horizontal-overflow-evidence',
+        'transferRules.adapt.0:severe-horizontal-overflow-evidence',
+      ]),
     )
   })
 
@@ -2945,6 +3119,29 @@ describe('Design intelligence', () => {
       expect.arrayContaining(['token-spacing', 'text-contrast', 'horizontal-overflow', 'reduced-motion']),
     )
     expect(report.checks.find((check) => check.id === 'text-contrast')?.status).toBe('passed')
+  })
+
+  it('does not expose unavailable or low-confidence claims in agent context', () => {
+    const profile = validateDesignProfile(rawProfile(), evidence, 'structural-only', 'en').profile!
+    const unavailable = {
+      ...claim('Unavailable catalog placeholder'),
+      implementation: 'Do not expose this placeholder.',
+      confidence: 'low' as const,
+      source: 'unavailable' as const,
+    }
+    profile.thesis = unavailable
+    profile.composition.containerStrategy = unavailable
+    profile.interactionLanguage.primaryDrivers = [unavailable]
+    profile.interactionLanguage.continuityRules = [unavailable]
+    profile.transferRules.avoid = [unavailable]
+
+    const context = generateAgentContextBundle('Build a responsive button state', 'structural-ai', evidence, profile)
+
+    expect(context.designThesis).toBeUndefined()
+    expect(context.applicableRules).not.toContain(unavailable.implementation)
+    expect(context.responsiveRules).not.toContain(unavailable.implementation)
+    expect(context.interactionRules).not.toContain(unavailable.implementation)
+    expect(context.avoid).not.toContain(unavailable.implementation)
   })
 
   it('uses a dominant practical spacing value for validation recipes', () => {

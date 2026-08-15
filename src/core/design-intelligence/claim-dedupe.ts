@@ -3,6 +3,7 @@ import type { DesignClaim, DesignProfile } from './types.js'
 export interface ClaimDedupeResult {
   profile: DesignProfile
   removed: number
+  requiredReplaced: number
 }
 
 interface PreparedStatement {
@@ -29,7 +30,13 @@ function prepareStatement(text: string): PreparedStatement {
 }
 
 function prepareClaim(claim: DesignClaim, schemaVersion: DesignProfile['schemaVersion']): PreparedStatement {
-  if (schemaVersion === '2' && claim.assertions && claim.assertions.length > 0) {
+  const hasSpecificAssertion = claim.assertions?.some((assertion) => {
+    if (assertion.kind === 'evidence') return false
+    if (assertion.kind === 'component' || assertion.kind === 'section') return assertion.predicate !== 'present'
+    if (assertion.kind === 'interaction') return assertion.predicate !== 'observed'
+    return true
+  })
+  if (schemaVersion === '2' && claim.assertions && claim.assertions.length > 0 && hasSpecificAssertion) {
     const assertions = claim.assertions
       .map((assertion) =>
         JSON.stringify({
@@ -75,6 +82,7 @@ function isNearDuplicate(a: PreparedStatement, b: PreparedStatement): boolean {
 export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: DesignProfile): ClaimDedupeResult {
   const kept: PreparedStatement[] = []
   let removed = 0
+  let requiredReplaced = 0
 
   const register = (claim: DesignClaim | undefined) => {
     if (claim) kept.push(prepareClaim(claim, profile.schemaVersion))
@@ -83,6 +91,7 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
     const prepared = prepareClaim(claim, profile.schemaVersion)
     if (fallback && prepared.text && kept.some((existing) => isNearDuplicate(existing, prepared))) {
       removed += 1
+      requiredReplaced += 1
       const replacement = {
         ...fallback,
         confidence: 'low' as const,
@@ -200,7 +209,7 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
     avoid: filterLocalClaims(profile.transferRules.avoid),
   }
 
-  if (removed === 0) return { profile, removed }
+  if (removed === 0) return { profile, removed, requiredReplaced }
 
   return {
     profile: {
@@ -229,5 +238,6 @@ export function dedupeProfileClaims(profile: DesignProfile, fallbackProfile?: De
       transferRules,
     },
     removed,
+    requiredReplaced,
   }
 }

@@ -1,6 +1,10 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import type { AgentContextBundle, AnalysisCapabilityLevel, DesignProfile } from './types.js'
+import type { AgentContextBundle, AnalysisCapabilityLevel, DesignClaim, DesignProfile } from './types.js'
+
+function isUsableClaim(claim: DesignClaim): boolean {
+  return claim.confidence !== 'low' && claim.source !== 'unavailable'
+}
 
 function tokenSubset(tokens: DesignToken, task: string): Record<string, string> {
   const subset: Record<string, string> = {}
@@ -59,6 +63,7 @@ export function generateAgentContextBundle(
   )
   const relevantPatterns =
     profile?.patterns
+      ?.filter((pattern) => pattern.confidence !== 'low')
       ?.map((pattern) => ({
         pattern,
         score: relevance(`${pattern.name} ${pattern.role}`, taskWords),
@@ -67,28 +72,32 @@ export function generateAgentContextBundle(
       .sort((first, second) => second.score - first.score)
       .map(({ pattern }) => pattern) || []
   const selectedPatterns =
-    relevantPatterns.length > 0 ? relevantPatterns.slice(0, 8) : profile?.patterns?.slice(0, 3) || []
+    relevantPatterns.length > 0
+      ? relevantPatterns.slice(0, 8)
+      : profile?.patterns?.filter((pattern) => pattern.confidence !== 'low').slice(0, 3) || []
   const relevantComponentRules =
     profile?.componentGrammar
       .filter((component) => relevance(`${component.component} ${component.role}`, taskWords) > 0)
-      .flatMap((component) => component.rules) || []
+      .flatMap((component) => component.rules)
+      .filter(isUsableClaim) || []
   const applicableRules = profile
     ? [
-        ...profile.transferRules.preserve,
-        ...Object.values(profile.composition),
+        ...profile.transferRules.preserve.filter(isUsableClaim),
+        ...Object.values(profile.composition).filter(isUsableClaim),
         ...relevantComponentRules,
-        ...selectedPatterns.flatMap((pattern) => pattern.structureRules),
+        ...selectedPatterns.flatMap((pattern) => pattern.structureRules).filter(isUsableClaim),
       ].map((claim) => claim.implementation)
     : []
   return {
     task,
     capabilityLevel,
-    ...(profile ? { designThesis: profile.thesis.statement } : {}),
+    ...(profile && isUsableClaim(profile.thesis) ? { designThesis: profile.thesis.statement } : {}),
     applicableRules: applicableRules.slice(0, 16),
     tokenSubset: tokenSubset(evidence.tokens, task),
     relevantPatternIds: selectedPatterns.map((pattern) => pattern.id),
     responsiveRules: [
-      ...(profile?.interactionLanguage.continuityRules.map((claim) => claim.implementation) || []),
+      ...(profile?.interactionLanguage.continuityRules.filter(isUsableClaim).map((claim) => claim.implementation) ||
+        []),
       ...evidence.responsiveObservations
         .slice(0, 8)
         .map(
@@ -98,9 +107,16 @@ export function generateAgentContextBundle(
     ],
     interactionRules:
       profile && /button|field|form|menu|tab|dialog|state|action|表单|按钮|字段|菜单|状态|操作/i.test(task)
-        ? profile.interactionLanguage.primaryDrivers.map((claim) => claim.implementation).slice(0, 8)
+        ? profile.interactionLanguage.primaryDrivers
+            .filter(isUsableClaim)
+            .map((claim) => claim.implementation)
+            .slice(0, 8)
         : [],
-    avoid: profile?.transferRules.avoid.map((claim) => claim.implementation).slice(0, 8) || [],
+    avoid:
+      profile?.transferRules.avoid
+        .filter(isUsableClaim)
+        .map((claim) => claim.implementation)
+        .slice(0, 8) || [],
     evidenceSummary: [
       `${evidence.pages.length} page/viewport captures`,
       `${evidence.sections.length} sections`,

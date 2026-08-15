@@ -21,9 +21,16 @@ import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '.
 import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
 import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
 import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
+import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
 import { resolveDesignSystemName } from '../design-evidence/page-identity.js'
+import {
+  hasConsistentResponsiveSectionIdentity,
+  topLevelGridColumnCount,
+  usefulResponsiveChanges,
+} from '../design-evidence/responsive-reliability.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { summarizeInterpretationDiagnostics } from '../design-intelligence/diagnostic-summary.js'
 import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
 import type { DesignIntelligenceMeta, DesignIntelligenceStatus, DesignProfile } from '../design-intelligence/types.js'
 import { coreT } from '../i18n/index.js'
@@ -604,6 +611,8 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
     status,
     meta,
   } = input
+  const diagnosticCounts =
+    meta?.diagnosticCounts || summarizeInterpretationDiagnostics(meta?.rejected || [], meta?.repaired || [])
   const source = evidence?.source.finalUrl || url
   const colors = buildDesignMdColorTokens(tokens, profile?.tokenAliases)
   const typography = designMdTypographyTokens(tokens)
@@ -704,13 +713,18 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                 analysisId: evidence.analysisId,
                 pageCount,
                 captureCount: evidence.pages.length,
-                coverage: evidence.coverage,
+                coverage: {
+                  ...evidence.coverage,
+                  assetCoverage: resolveScreenshotAssetCoverage(evidence),
+                },
               }
             : {}),
           ...(confidence ? { tokenConfidence: confidence } : {}),
         },
         analysis: {
           aiStatus: status || meta?.status || (profile ? 'unknown' : 'not-requested'),
+          ...(profile?.claimSource ? { claimSource: profile.claimSource } : {}),
+          ...(profile?.catalogVersion ? { catalogVersion: profile.catalogVersion } : {}),
           ...(profile?.inputMode || meta?.inputMode ? { inputMode: profile?.inputMode || meta?.inputMode } : {}),
           ...(meta?.capabilityLevel ? { capabilityLevel: meta.capabilityLevel } : {}),
           ...(meta?.provider ? { provider: meta.provider } : {}),
@@ -719,8 +733,14 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ...(meta?.generatedAt ? { generatedAt: meta.generatedAt } : {}),
           ...(meta
             ? {
-                rejectedCount: meta.rejected?.length || 0,
-                repairedCount: meta.repaired?.length || 0,
+                rejectedClaimCount: diagnosticCounts.rejectedClaims,
+                rejectedAssertionCount: diagnosticCounts.rejectedAssertions,
+                affectedClaimCount: diagnosticCounts.affectedClaimPaths,
+                repairEventCount: diagnosticCounts.repairEvents,
+                ...(diagnosticCounts.selectionDiagnostics !== undefined
+                  ? { selectionDiagnosticCount: diagnosticCounts.selectionDiagnostics }
+                  : {}),
+                ...(meta.interpretationCoverage ? { interpretationCoverage: meta.interpretationCoverage } : {}),
                 ...(meta.tokenUsage ? { tokenUsage: meta.tokenUsage } : {}),
               }
             : {}),
@@ -1218,27 +1238,6 @@ function localizedPageRole(role: string, language: DocLanguage): string {
   return translated === key ? role : translated
 }
 
-function topLevelGridColumnCount(value: string | number | undefined): number | null {
-  if (typeof value !== 'string') return null
-  const repeat = value.match(/^repeat\(\s*(\d+)\s*,/i)
-  if (repeat) return Number.parseInt(repeat[1], 10)
-  let depth = 0
-  let count = 0
-  let insideTrack = false
-  for (const character of value.trim()) {
-    if (character === '(') depth += 1
-    if (character === ')') depth -= 1
-    if (/\s/.test(character) && depth === 0) {
-      if (insideTrack) count += 1
-      insideTrack = false
-    } else {
-      insideTrack = true
-    }
-  }
-  if (insideTrack) count += 1
-  return count > 0 ? count : null
-}
-
 function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
   if (typeof value !== 'string') return null
   const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
@@ -1506,7 +1505,7 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
 
   const interactionFacts = new Map<string, ReconstructionFact>()
   for (const observation of evidence.interactionObservations) {
-    if (!canonicalPageIds.has(observation.pageId)) continue
+    if (observation.safety !== 'safe-active' || !canonicalPageIds.has(observation.pageId)) continue
     const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
     const component = evidence.components.find((candidate) => candidate.id === observation.targetId)
     const beforeBackground = observation.before['background-color']
@@ -1572,32 +1571,21 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
 function reconstructionResponsiveFacts(evidence: DesignEvidence): ReconstructionFact[] {
   const facts: ReconstructionFact[] = []
   for (const observation of evidence.responsiveObservations) {
+    if (!hasConsistentResponsiveSectionIdentity(observation, evidence)) continue
     const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
     const pageContext = reconstructionPageContext(evidence, section?.pageId)
     const context = scopedReconstructionFact(
       pageContext,
       `${reconstructionRole(section?.role)} ${observation.fromViewport} → ${observation.toViewport}`,
     )
-    for (const [property, values] of Object.entries(observation.changes || {})) {
-      if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) continue
+    for (const [property, values] of usefulResponsiveChanges(observation, section?.role)) {
       const gridProperty = property === 'gridTemplateColumns' || property === 'childGridTemplateColumns'
       const headingProperty = property === 'node.heading.fontSize'
       const layoutProperty = ['layoutMode', 'position', 'order', 'sequenceIndex'].includes(property)
       const heightProperty = property === 'height' || property.endsWith('.height')
-      const usefulHeight =
-        heightProperty &&
-        ['header', 'navigation', 'action'].includes(section?.role || '') &&
-        Boolean(boundedPixelValue(values.from) && boundedPixelValue(values.to))
-      const borderProperty = /^border(?:Top|Right|Bottom|Left)$/.test(property)
-      const usefulBorder =
-        borderProperty && [values.from, values.to].some((value) => typeof value === 'string' && hasVisibleBorder(value))
-      const shadowProperty = property === 'boxShadow' && values.from !== values.to
-      if (!gridProperty && !headingProperty && !layoutProperty && !usefulHeight && !usefulBorder && !shadowProperty) {
-        continue
-      }
+      const usefulHeight = heightProperty
       const fromColumns = gridProperty ? topLevelGridColumnCount(values.from) : null
       const toColumns = gridProperty ? topLevelGridColumnCount(values.to) : null
-      if (gridProperty && fromColumns !== null && fromColumns === toColumns) continue
       const label = gridProperty
         ? fromColumns && toColumns
           ? `columns ${fromColumns} → ${toColumns}`
@@ -1624,7 +1612,6 @@ function reconstructionSummary(
   evidence: DesignEvidence,
   tokens: DesignToken,
   components: ReadonlyArray<{ name: string; count: number; elementKinds?: string[] }>,
-  profile: DesignProfile | null | undefined,
   language: DocLanguage,
 ): string[] {
   const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop') || evidence.pages[0]
@@ -1647,49 +1634,24 @@ function reconstructionSummary(
     const kinds = component.elementKinds?.length ? ` (${component.elementKinds.join('/')})` : ''
     return `${component.name} ×${component.count}${kinds}`
   })
-  const profileAliases = designMdColorRefMap(tokens, profile?.tokenAliases)
-  const formatProfileText = (text: string): string =>
-    [...profileAliases.entries()].reduce((value, [source, target]) => {
-      const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
-    }, text)
-  const inferredSignatureMoves = (profile?.signatureMoves || [])
-    .filter((move) => move.confidence !== 'low' && move.id !== 'evidence-fallback')
-    .slice(0, 2)
-    .map((move) => formatProfileText(move.statement))
-  const thesis = profile
-    ? formatProfileText(profile.thesis.statement)
-    : coreT(language, 'export.reconstruction.thesis', {
-        title: pageTitle,
-        role: localizedPageRole(pageRole, language),
-      })
-  const profilePreserve =
-    profile?.transferRules.preserve
-      .filter((claim) => claim.confidence !== 'low')
-      .slice(0, 3)
-      .map((claim) => formatProfileText(claim.statement)) || []
-  const preserve =
-    profilePreserve.length > 0
-      ? profilePreserve
-      : [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
-          coreT(language, 'export.reconstruction.preserveFact', {
-            fact: localizeReconstructionFact(fact.fact, language),
-          }),
-        )
-  const profileAvoid =
-    profile?.transferRules.avoid
-      .filter((claim) => claim.confidence !== 'low')
-      .slice(0, 2)
-      .map((claim) => formatProfileText(claim.statement)) || []
-  const avoid =
-    profileAvoid.length > 0
-      ? profileAvoid
-      : [
-          tokens.colors.primary
-            ? coreT(language, 'export.reconstruction.avoidActionSubstitution')
-            : coreT(language, 'export.reconstruction.avoidInventedPrimary'),
-          coreT(language, 'export.reconstruction.avoidGeometryGeneralization'),
-        ]
+  // The reconstruction summary is the document's canonical, observed layer. AI prose belongs
+  // only in the explicitly inferred section and must never rewrite this summary, even after a
+  // successful interpretation run.
+  const thesis = coreT(language, 'export.reconstruction.thesis', {
+    title: pageTitle,
+    role: localizedPageRole(pageRole, language),
+  })
+  const preserve = [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
+    coreT(language, 'export.reconstruction.preserveFact', {
+      fact: localizeReconstructionFact(fact.fact, language),
+    }),
+  )
+  const avoid = [
+    tokens.colors.primary
+      ? coreT(language, 'export.reconstruction.avoidActionSubstitution')
+      : coreT(language, 'export.reconstruction.avoidInventedPrimary'),
+    coreT(language, 'export.reconstruction.avoidGeometryGeneralization'),
+  ]
   const label = (key: string): string => coreT(language, `export.reconstruction.labels.${key}`)
   return [
     coreT(language, 'export.reconstruction.heading'),
@@ -1698,7 +1660,6 @@ function reconstructionSummary(
     sectionRoles?.length
       ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionRoles.map((role) => localizeReconstructionFact(role, language)).join(' → ')}`
       : '',
-    inferredSignatureMoves.length ? `- **${label('signatureMoves')}:** ${inferredSignatureMoves.join(' ')}` : '',
     signatureFacts.length
       ? `- **${label('keyStructure')}:** ${signatureFacts.map(({ fact }) => `\`${localizeReconstructionFact(fact, language)}\``).join(' · ')}`
       : '',
@@ -1769,7 +1730,6 @@ export function generateDesignDoc(
         designEvidence,
         tokens,
         [...freeformEvidenceComponents, ...documentComponents],
-        designProfile,
         language,
       ),
     )
@@ -2177,9 +2137,10 @@ export function generateDesignDoc(
       generateDesignProfileMarkdown(
         designProfile,
         tokens,
-        designIntelligenceStatus,
+        designIntelligenceStatus || designIntelligenceMeta?.status,
         publicColorNames,
         designIntelligenceMeta?.capabilityLevel,
+        designEvidence,
       ),
     )
   } else if (
@@ -2236,40 +2197,38 @@ export function generateDesignDoc(
   }
 
   if (designEvidence) {
+    const deterministicCatalog = designProfile?.claimSource === 'deterministic-catalog'
     const evidenceFallback = designIntelligenceMeta
       ? designIntelligenceMeta.capabilityLevel === 'evidence-fallback'
       : (designProfile?.signatureMoves.some((move) => move.id === 'evidence-fallback') ?? false)
+    const interpretationStatus = designIntelligenceStatus || designIntelligenceMeta?.status
     lines.push('')
-    lines.push(zh ? '## 如何使用' : '## How to Use')
+    lines.push(coreT(language, 'export.howToUse.heading'))
     lines.push('')
     lines.push(
       !designProfile
-        ? zh
-          ? '- 本文件包含已观察的设计令牌与结构证据；本次未生成 AI 设计解读，交给编码助手前应结合原页面复核。'
-          : '- This file contains observed design tokens and structural evidence; no AI interpretation was generated. Check it against the source before using it with a coding assistant.'
-        : evidenceFallback
-          ? zh
-            ? '- 本文件包含已观察的设计令牌与结构证据，但 AI 设计解读已回退；交给编码助手前应人工复核，不应视为完整设计系统。'
-            : '- This file contains observed tokens and structural evidence, but the AI interpretation fell back. Review it before use with a coding assistant; it is not a complete design system.'
-          : zh
-            ? '- 本文件包含基于当前页面覆盖范围提取的设计令牌、结构证据和经校验的设计解读，可提供给 AI 编码助手，并应结合原页面复核。'
-            : '- This file contains design tokens, structural evidence, and validated interpretation from the captured page scope. It can be used with AI coding assistants and should be checked against the source.',
+        ? coreT(language, 'export.howToUse.observedOnly')
+        : deterministicCatalog
+          ? coreT(
+              language,
+              interpretationStatus === 'complete'
+                ? 'export.howToUse.catalogComplete'
+                : 'export.howToUse.catalogPartial',
+            )
+          : evidenceFallback
+            ? coreT(language, 'export.howToUse.evidenceFallback')
+            : interpretationStatus === 'partial'
+              ? coreT(language, 'export.howToUse.partial')
+              : coreT(language, 'export.howToUse.complete'),
     )
     lines.push(
-      zh
-        ? '- 实现时先采用“已观察”的令牌与结构事实，再采用高/中置信度 AI 解读；低置信度或证据兜底内容需要人工复核。'
-        : '- Implement observed tokens and structural facts first, then high/medium-confidence AI insights; manually review low-confidence or evidence-fallback content.',
+      coreT(
+        language,
+        deterministicCatalog ? 'export.howToUse.catalogImplementation' : 'export.howToUse.implementation',
+      ),
     )
-    lines.push(
-      zh
-        ? '- 完成页面后，对照当前来源页面或本次截图检查视觉层级、密度和响应式表现。'
-        : '- After implementation, compare against the current source or capture for visual hierarchy, density, and responsive behavior.',
-    )
-    lines.push(
-      zh
-        ? '- 如需精确的 CSS 变量或 Tailwind 主题配置，请使用 Imprint 的对应导出格式。'
-        : '- For exact CSS variables or Tailwind theme config, use the corresponding Imprint export format.',
-    )
+    lines.push(coreT(language, 'export.howToUse.verify'))
+    lines.push(coreT(language, 'export.howToUse.formats'))
   } else {
     lines.push(generateAgentGuide(tokens, documentUrl, language))
   }

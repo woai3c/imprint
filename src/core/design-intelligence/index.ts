@@ -5,12 +5,28 @@ export { createInterpretationCacheKey } from './cache-key.js'
 export type { InterpretationCacheKeyInput } from './cache-key.js'
 export { dedupeProfileClaims } from './claim-dedupe.js'
 export type { ClaimDedupeResult } from './claim-dedupe.js'
+export {
+  DESIGN_CLAIM_CATALOG_VERSION,
+  buildDeterministicClaimCatalog,
+  canonicalCatalogPageIds,
+  countAvailableSingletons,
+  materializeDesignProfile,
+  validateDesignClaimCatalog,
+} from './claim-catalog.js'
+export type { DesignClaimCatalogIntegrity } from './claim-catalog.js'
+export { parseClaimSelection } from './claim-selection.js'
+export type { ClaimSelectionResult } from './claim-selection.js'
 export { checkProfileContradictions } from './contradiction-checker.js'
 export type { ContradictionCheckResult } from './contradiction-checker.js'
 export { buildEvidenceFallbackProfile, repairProfileCoverage } from './evidence-fallback.js'
 export type { ProfileCoverageRepairResult } from './evidence-fallback.js'
 export { expandCompactProfileCandidate, extractCompactProfileCandidate } from './compact-profile.js'
-export { interpretDesignEvidence, runInterpretationPipeline, splitImagesByPass } from './interpreter.js'
+export {
+  CLAIM_CURATION_TIMEOUT_MS,
+  interpretDesignEvidence,
+  runInterpretationPipeline,
+  splitImagesByPass,
+} from './interpreter.js'
 export type {
   CallDetail,
   InterpretEvidenceOptions,
@@ -34,9 +50,11 @@ export {
   selectEvidencePackage,
 } from './evidence-selector.js'
 export { createEvidenceFingerprint } from './input-fingerprint.js'
+export { summarizeInterpretationDiagnostics } from './diagnostic-summary.js'
 export {
   DESIGN_PROFILE_PROMPT_VERSION,
   DESIGN_PROFILE_PROMPT_CHAR_LIMIT,
+  buildClaimSelectionPrompt,
   buildCompactDesignInterpretationPrompt,
   buildDesignInterpretationPrompt,
   buildDesignProfileRepairPrompt,

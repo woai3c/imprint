@@ -338,6 +338,9 @@ describe('Design Evidence browser regression corpus', () => {
         for (const text of annotation.expectedReconstructionSummaryStrings || []) {
           expect(reconstructionSummary, `missing Reconstruction Summary fact: ${text}`).toContain(text)
         }
+        for (const text of annotation.forbiddenReconstructionSummaryStrings || []) {
+          expect(reconstructionSummary, `unexpected Reconstruction Summary fact: ${text}`).not.toContain(text)
+        }
 
         const rerun = await analyzeFixture(annotation.fixture, dataDir)
         expect(rerun.designEvidence.sections.map((section) => section.id)).toEqual(

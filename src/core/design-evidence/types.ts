@@ -234,6 +234,12 @@ export interface EvidenceCoverage {
     status: 'complete' | 'partial'
     requestedViewports: string[]
   }
+  assetCoverage?: {
+    expected: number
+    valid: number
+    status: 'complete' | 'partial'
+    issueCount: number
+  }
   sectionCoverage: number
   viewportCoverage: string[]
   interactionCoverage: {

@@ -8,6 +8,7 @@ import {
 import type { ComponentType, ComponentVariant } from '../analyzer/component-detect.js'
 import { focusIndicatorVisibility } from '../design-evidence/interaction-visibility.js'
 import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
+import { isStandaloneColorProperty, tokenRefCompatibleWithStyle } from '../design-evidence/token-style-compatibility.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { distillInteractionChanges } from './evidence-selector.js'
 import type { EvidencePackage, IntelligenceInputMode, InteractionChange } from './types.js'
@@ -231,26 +232,6 @@ function comparableStyleValue(value: string, normalizeColor: boolean): string {
   const numeric = Number.parseFloat(length[1])
   const rem = length[2] === 'px' ? numeric / 16 : numeric
   return `${Number(rem.toFixed(4))}rem`
-}
-
-function isStandaloneColorProperty(property: string): boolean {
-  return /^(?:color|backgroundColor|borderColor|outlineColor|textDecorationColor|fill|stroke)$/.test(property)
-}
-
-function tokenRefCompatibleWithStyle(property: string, tokenRef: string): boolean {
-  if (isStandaloneColorProperty(property)) return tokenRef.startsWith('color.')
-  if (property === 'border') return tokenRef.startsWith('border.')
-  if (property === 'borderRadius') return tokenRef.startsWith('radius.')
-  if (property === 'boxShadow') return tokenRef.startsWith('shadow.')
-  if (property === 'fontFamily') return /^typography\.font-(?:family|stack)\./.test(tokenRef)
-  if (property === 'fontSize') return tokenRef.startsWith('typography.font-size.')
-  if (property === 'fontWeight') return tokenRef.startsWith('typography.font-weight.')
-  if (property === 'lineHeight') return tokenRef.startsWith('typography.line-height.')
-  if (property === 'letterSpacing') return tokenRef.startsWith('typography.letter-spacing.')
-  if (/^(?:gap|rowGap|columnGap|padding(?:Top|Right|Bottom|Left)?)$/.test(property)) {
-    return tokenRef.startsWith('spacing.')
-  }
-  return false
 }
 
 function tokenValueByRef(evidence: DesignEvidence): Map<string, string> {

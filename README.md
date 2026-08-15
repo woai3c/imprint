@@ -3,7 +3,7 @@
 
   <h1>Imprint</h1>
 
-  <p><strong>Turn websites and screenshots into AI-ready design systems.</strong></p>
+  <p><strong>Turn websites and screenshots into deterministic, AI-ready design context.</strong></p>
 
   <p>
     Extract colors, typography, spacing, radii, shadows, and component styles,
@@ -26,6 +26,10 @@
 Imprint is an open-source desktop application that transforms websites and UI screenshots into reusable design systems.
 
 It analyzes visual rules such as colors, typography, spacing, border radii, shadows, layout patterns, and component styles, then generates structured outputs that can be used directly by AI coding agents and frontend projects.
+
+AI is a downstream consumer, not an extraction dependency. Core analysis, claims, and exports remain deterministic and
+work without a model provider. Optional AI should help apply that evidence to a target project; it must never author or
+change observed source facts.
 
 Instead of asking AI to invent another generic interface, give it a real design system to follow.
 
@@ -88,21 +92,21 @@ If you give AI only one exported file, choose **DESIGN.md**.
 
 Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The summarized `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; complete token provenance remains in Tokens JSON and `design-evidence.json`.
 
-## Design Evidence and Design DNA
+## Deterministic design context and optional AI
 
-Every analysis first produces deterministic `DesignEvidence`: multi-viewport screenshots, page topology, normalized
-section and component geometry, responsive differences, safe interaction observations, media layers, coverage, and
-limitations. This result works without AI and is stored separately from Tokens JSON.
+Every analysis produces deterministic `DesignEvidence`: multi-viewport screenshots, page topology, normalized section
+and component geometry, responsive differences, safe interaction observations, media layers, coverage, and limitations.
+Program-owned claims turn that evidence into a stable, traceable design context. These results work without AI and are
+stored separately from Tokens JSON.
 
-When an API provider or Agent CLI is configured, Imprint interprets that bounded evidence package as a validated,
-versioned `DesignProfile`. The desktop Overview shows its thesis, signature moves, transfer rules, confidence, and
-clickable evidence references. AI-suggested token names remain aliases; they never replace extracted token keys.
+Optional AI is reserved for proposals that benefit from target context, such as semantic aliases, human-readable design
+intent, or adapting the extracted system to an existing project. AI proposals remain separate from source truth, cite
+the deterministic claims and evidence they use, and never replace extracted token keys or change exported facts.
 
-Screenshot input is opt-in. It requires a vision-capable API model and explicit consent in Settings, only uses a limited
-selection from anonymous public pages, and is never sent for signed-in analyses. Signed-in evidence is not sent to any
-configured AI until the user explicitly requests structural interpretation. Agent CLI interpretation is
-structural-only. If interpretation fails, tokens, evidence, screenshots, and implementation exports remain available,
-and the AI step can be retried independently.
+Screenshot input for an optional AI task is opt-in. It requires a vision-capable API model and explicit consent in
+Settings, only uses a limited selection from anonymous public pages, and is never sent for signed-in analyses without
+separate explicit consent. If an AI task fails, tokens, evidence, deterministic claims, screenshots, and implementation
+exports remain unchanged.
 
 ## CLI and MCP intelligence
 

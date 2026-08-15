@@ -34,6 +34,11 @@ import {
   AuthenticationCancelledError,
   AuthenticationRequiredError,
 } from './errors.js'
+import {
+  appendExtractionIssueLimitation,
+  appendFailedCaptureHealthLimitations,
+  isPageHealthExtractionIssue,
+} from './extraction-limitations.js'
 import { buildEvidenceBackedClaims, generateFeatureTags } from './feature-tags.js'
 import { type DiscoveredPage, discoverPages } from './page-discovery.js'
 import { ensurePageHealth } from './page-health.js'
@@ -353,37 +358,6 @@ function mergeInteractionStyles(target: InteractionStyles, source: InteractionSt
 
 function extractionReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-function isPageHealthExtractionIssue(issue: ExtractionIssue): boolean {
-  return /:health:/.test(issue.stage)
-}
-
-function publicExtractionIssueReason(reason: string): string {
-  return (
-    reason
-      .replace(/https?:\/\/[^\s]+/gi, (value) => {
-        try {
-          const url = new URL(value)
-          return `${url.origin}${url.pathname}`
-        } catch {
-          return '[url]'
-        }
-      })
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 180) || 'unknown reason'
-  )
-}
-
-function extractionIssueLimitation(issue: ExtractionIssue): string {
-  return `extraction-issue:${encodeURIComponent(issue.stage.slice(0, 120))}:${encodeURIComponent(publicExtractionIssueReason(issue.reason))}`
-}
-
-function appendExtractionIssueLimitation(limitations: string[], issue: ExtractionIssue): void {
-  if (isPageHealthExtractionIssue(issue)) return
-  const limitation = extractionIssueLimitation(issue)
-  if (!limitations.includes(limitation)) limitations.push(limitation)
 }
 
 function inspectPngDimensions(filePath: string): { width: number; height: number } | null {
@@ -1073,6 +1047,7 @@ export async function analyze(
         const subPage = await runtime.context.newPage()
         await configurePageViewport(subPage, mainViewportName, mainViewport)
         let adaptiveAbortTimer: ReturnType<typeof setTimeout> | undefined
+        let adaptiveHealthIssueStartIndex: number | undefined
 
         try {
           const subPageStatus = await navigatePage(subPage, subUrl, 15000)
@@ -1276,6 +1251,7 @@ export async function analyze(
             Date.now() - startTime < 120_000
 
           if (shouldCaptureMobile) {
+            adaptiveHealthIssueStartIndex = extractionIssues.length
             const adaptiveStartedAt = Date.now()
             const adaptiveDeadline = Math.min(startTime + 120_000, adaptiveStartedAt + 20_000)
             const adaptiveController = new AbortController()
@@ -1314,22 +1290,16 @@ export async function analyze(
                 reason: issue.detail || issue.severity,
               })),
             )
-            if (mobileHealth.status !== 'unusable') {
+            if (mobileHealth.status === 'unusable') {
+              throw new Error('adaptive-mobile-page-unusable')
+            } else {
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               const mobileExtractionStartedAt = Date.now()
-              let mobileStyles = await guardExtractionStage(
-                extractionIssues,
-                `${mobileStagePrefix}:styles`,
-                mergeStyles([]),
-                () => runWithinDeadline(adaptiveDeadline, () => extractStyles(subPage)),
-              )
-              allStyles.push(mobileStyles)
-              styleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
-              let mobileInteractionStyles = await guardExtractionStage(
-                extractionIssues,
-                `${mobileStagePrefix}:interaction-styles`,
-                { hover: [], focus: [], active: [], disabled: [] },
-                () => runWithinDeadline(adaptiveDeadline, () => extractInteractionStyles(subPage)),
+              // Adaptive mobile is a structural supplement for cross-viewport comparison. The same URL's canonical
+              // desktop capture already supplies token and interaction extraction, so preserve the short budget for
+              // page evidence and screenshots instead of repeating the two most expensive extraction passes.
+              let mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () =>
+                extractPageEvidence(subPage, 'mobile'),
               )
               mobileHealth = await measure('healthGateMs', () =>
                 runWithinDeadline(adaptiveDeadline, () =>
@@ -1343,38 +1313,11 @@ export async function analyze(
                 })),
               )
               if (mobileHealth.status === 'unusable') {
-                allStyles.pop()
-                styleCaptures.pop()
                 throw new Error('adaptive-mobile-page-unusable')
               }
               if (mobileHealth.recovered) {
-                mobileStyles = await guardExtractionStage(
-                  extractionIssues,
-                  `${mobileStagePrefix}:capture-health:refresh-styles`,
-                  mobileStyles,
-                  () => runWithinDeadline(adaptiveDeadline, () => extractStyles(subPage)),
-                )
-                allStyles[allStyles.length - 1] = mobileStyles
-                styleCaptures[styleCaptures.length - 1] = {
-                  url: subPage.url(),
-                  viewport: 'mobile',
-                  styles: mobileStyles,
-                }
-                mobileInteractionStyles = await guardExtractionStage(
-                  extractionIssues,
-                  `${mobileStagePrefix}:capture-health:refresh-interaction-styles`,
-                  mobileInteractionStyles,
-                  () => runWithinDeadline(adaptiveDeadline, () => extractInteractionStyles(subPage)),
-                )
+                mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () => extractPageEvidence(subPage, 'mobile'))
               }
-              mergeInteractionStyles(allInteractions, mobileInteractionStyles)
-              if (mobileHealth.aiEligible) {
-                aiEligibleStyles.push(mobileStyles)
-                aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
-              }
-              const mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () =>
-                extractPageEvidence(subPage, 'mobile'),
-              )
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - mobileExtractionStartedAt)
               const mobileOverviewPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-mobile-adaptive.png`)
@@ -1392,14 +1335,20 @@ export async function analyze(
                 ),
               )
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
+              const mobileOverviewWidth = mobileSnapshot.horizontalOverflow
+                ? Math.min(VIEWPORTS.mobile.width, mobileSnapshot.width)
+                : mobileSnapshot.width
               await measure('screenshotCaptureMs', () =>
-                runWithinDeadline(adaptiveDeadline, () =>
-                  subPage.screenshot({
-                    path: mobileOverviewPath,
-                    fullPage: true,
-                    timeout: Math.max(1, adaptiveDeadline - Date.now()),
-                  }),
-                ),
+                runWithinDeadline(adaptiveDeadline, () => {
+                  const timeout = Math.max(1, adaptiveDeadline - Date.now())
+                  return mobileSnapshot.horizontalOverflow
+                    ? subPage.screenshot({
+                        path: mobileOverviewPath,
+                        clip: { x: 0, y: 0, width: mobileOverviewWidth, height: mobileSnapshot.height },
+                        timeout,
+                      })
+                    : subPage.screenshot({ path: mobileOverviewPath, fullPage: true, timeout })
+                }),
               )
               recordScreenshotDimensionIssue(
                 extractionIssues,
@@ -1412,7 +1361,7 @@ export async function analyze(
                 extractionIssues,
                 `${mobileStagePrefix}:screenshot:overview`,
                 mobileOverviewPath,
-                mobileSnapshot.width,
+                mobileOverviewWidth,
                 mobileSnapshot.height,
               )
               const screenshotDimensions = inspectPngDimensions(mobileOverviewPath)
@@ -1427,7 +1376,7 @@ export async function analyze(
               capturedPageEvidence.push({
                 screenshot: mobilePageScreenshot,
                 snapshot: mobileSnapshot,
-                interactionStyles: mobileInteractionStyles,
+                interactionStyles: { hover: [], focus: [], active: [], disabled: [] },
                 health: mobileHealth,
                 supplementalImages: [
                   {
@@ -1445,6 +1394,34 @@ export async function analyze(
                 ],
               })
               adaptiveMobileCaptured = true
+              adaptiveHealthIssueStartIndex = undefined
+
+              // The structural evidence is already committed, so a slow style pass must not discard the mobile
+              // capture. Use only the remaining adaptive budget to preserve viewport-specific variables when the
+              // page is inexpensive to inspect (for example, CSS values selected by a mobile user agent).
+              if (adaptiveAbortTimer) {
+                clearTimeout(adaptiveAbortTimer)
+                adaptiveAbortTimer = undefined
+              }
+              const optionalStyleDeadline = Math.min(adaptiveDeadline, Date.now() + 4_000)
+              if (optionalStyleDeadline - Date.now() >= 500) {
+                const optionalStyleStartedAt = Date.now()
+                try {
+                  const mobileStyles = await runWithinDeadline(optionalStyleDeadline, () => extractStyles(subPage))
+                  allStyles.push(mobileStyles)
+                  styleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+                  if (mobileHealth.aiEligible) {
+                    aiEligibleStyles.push(mobileStyles)
+                    aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+                  }
+                } catch {
+                  throwIfAnalysisAborted(options.signal)
+                  // Desktop styles already cover this URL. Keep the committed mobile evidence when this optional
+                  // viewport-specific pass is too slow or fails independently.
+                } finally {
+                  timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - optionalStyleStartedAt)
+                }
+              }
             }
           } else if (!adaptiveMobileCaptured && mainViewportName !== 'mobile' && adaptiveSignals.some(Boolean)) {
             analysisLimitations.push('adaptive-mobile-skipped-budget')
@@ -1453,9 +1430,17 @@ export async function analyze(
           throwIfAnalysisAborted(options.signal)
           // Sub-page failed to load, skip it
           const reason = extractionReason(error)
+          if (adaptiveHealthIssueStartIndex !== undefined) {
+            appendFailedCaptureHealthLimitations(
+              analysisLimitations,
+              extractionIssues.slice(adaptiveHealthIssueStartIndex),
+            )
+          }
           if (reason.includes('adaptive-mobile-budget-exceeded')) {
             analysisLimitations.push('adaptive-mobile-budget-exceeded')
             timing.budgetExceeded?.push('adaptive-mobile')
+          } else if (reason.includes('adaptive-mobile-page-unusable')) {
+            analysisLimitations.push(`capture-excluded-page-health:page-${i + 2}:mobile-adaptive`)
           } else {
             extractionIssues.push({ stage: `page-${i + 2}:${mainViewportName}`, reason })
           }
@@ -1521,6 +1506,11 @@ export async function analyze(
       expectedPageCount: pageLimit,
       expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
       expectedCaptureCount: viewportNames.length + Math.max(0, pageLimit - 1) + (adaptiveMobilePlanned ? 1 : 0),
+      screenshotAssetIssueCount: extractionIssues.filter(
+        (issue) =>
+          /:screenshot:overview$/.test(issue.stage) &&
+          /^screenshot-dimensions-(?:mismatch|unreadable)/.test(issue.reason),
+      ).length,
       tokens: evidenceTokens,
       featureTags,
       interactionStyles: allInteractions,

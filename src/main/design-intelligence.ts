@@ -18,6 +18,7 @@ import type { ExampleGenerationResult } from '../core/analyzer/example-generator
 import type { DesignToken } from '../core/analyzer/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
+  CLAIM_CURATION_TIMEOUT_MS,
   type CallDetail,
   DESIGN_PROFILE_PROMPT_VERSION,
   DESIGN_PROFILE_SCHEMA_VERSION,
@@ -501,7 +502,7 @@ export async function runDesignIntelligence(
     inputFingerprint: fingerprint,
     inputImageCount: evidencePackage.imageIds.length,
   }
-  const timeoutBudgetMs = designIntelligenceTimeoutMs(settings)
+  const timeoutBudgetMs = settings.aiMode === 'agentCli' ? aiPipelineTimeoutMs(true) : CLAIM_CURATION_TIMEOUT_MS
   const timeoutSignal = AbortSignal.timeout(timeoutBudgetMs)
   const runSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
   const accumulatedUsage = { input: 0, output: 0, calls: 0 }
@@ -515,14 +516,11 @@ export async function runDesignIntelligence(
       model: resolveEffectiveModel(settings.provider, settings.model),
       signal: runSignal,
       fetchFn: net.fetch as unknown as typeof fetch,
-      reasoningEffort:
-        settings.reasoningEffort ||
-        getDefaultReasoningEffort(settings.provider, resolveEffectiveModel(settings.provider, settings.model)),
-      thinkingEnabled: settings.thinkingEnabled === true,
+      reasoningEffort: 'low',
+      thinkingEnabled: false,
       allowThinkingFallback: false,
     }
-    // A single compact synthesis replaces the former semantic naming, observation,
-    // synthesis, and automatic repair calls.
+    // A bounded catalog-ID curation call replaces open-ended synthesis and repair calls.
     onProgress?.('progress.synthesisPass', 20)
     const cliImageByName = new Map(cliImages.map((image) => [image.name, image]))
     const cliImageByStableId = new Map(cliImages.map((image) => [image.name.replace(/\.[^.]+$/, ''), image]))
@@ -535,7 +533,7 @@ export async function runDesignIntelligence(
     let invokeCount = 0
     const invoke: InterpretationInvoke = async (taskPrompt, passImages) => {
       invokeCount++
-      const pass = 'synthesis'
+      const pass = 'curation'
       onProgress?.('progress.synthesisPass', 40)
       log.info(
         'design-intelligence',
@@ -545,12 +543,11 @@ export async function runDesignIntelligence(
       const invokeStart = Date.now()
       try {
         if (settings.aiMode === 'apiKey') {
-          const thinking = settings.thinkingEnabled === true
           let lastStreamLogAt: number | undefined
           result = await callAiProvider(
             {
               ...providerConfig,
-              maxOutputTokens: thinking ? 8192 : 4096,
+              maxOutputTokens: 2400,
               onStreamProgress: (progress) => {
                 const elapsedMs = Date.now() - invokeStart
                 if (lastStreamLogAt !== undefined && elapsedMs - lastStreamLogAt < 30_000) return
@@ -628,16 +625,16 @@ export async function runDesignIntelligence(
 
     log.info(
       'design-intelligence',
-      `compact synthesis: digestChars=${result.digestChars} promptChars=${result.promptChars} calls=${result.callDetails.length}`,
+      `claim curation: catalogChars=${result.digestChars} promptChars=${result.promptChars} calls=${result.callDetails.length}`,
     )
     if (result.rejected?.length) {
       log.info(
         'design-intelligence',
-        `validation rejections: status=${result.status} ${result.rejected.slice(0, 12).join('; ')}`,
+        `selection diagnostics: status=${result.status} ${result.rejected.slice(0, 12).join('; ')}`,
       )
     }
     if (result.repaired?.length) {
-      log.info('design-intelligence', `coverage repairs: ${result.repaired.slice(0, 12).join('; ')}`)
+      log.info('design-intelligence', `legacy repair diagnostics: ${result.repaired.slice(0, 12).join('; ')}`)
     }
     log.info(
       'design-intelligence',
@@ -673,6 +670,9 @@ export async function runDesignIntelligence(
       },
       rejected: result.rejected,
       repaired: result.repaired,
+      interpretationCoverage: result.interpretationCoverage,
+      diagnosticCounts: result.diagnosticCounts,
+      curation: result.curation,
       exampleGeneration: { status: 'not-requested' },
     }
     const reconstructionBrief = generateReconstructionBrief(result.profile, evidence, tokens, finalMeta)

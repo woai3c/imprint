@@ -1,6 +1,13 @@
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { hasVisibleBorder, hasVisibleShadow, isTransparentColor } from '../analyzer/component-detect.js'
+import { coreTranslator } from '../i18n/index.js'
+import { resolveScreenshotAssetCoverage } from './asset-integrity.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
+import {
+  displayedResponsiveChangeType,
+  hasConsistentResponsiveSectionIdentity,
+  usefulResponsiveChanges,
+} from './responsive-reliability.js'
 import type { DesignEvidence } from './types.js'
 
 const TYPOGRAPHY_REF_GROUPS = {
@@ -123,15 +130,6 @@ function visiblePseudoStyles(
   return result
 }
 
-function displayedResponsiveChangeType(
-  original: DesignEvidence['responsiveObservations'][number]['changeType'],
-  properties: readonly string[],
-): DesignEvidence['responsiveObservations'][number]['changeType'] {
-  return properties.length > 0 && properties.every((property) => ['order', 'sequenceIndex'].includes(property))
-    ? 'reorder'
-    : original
-}
-
 function compactVisibleBorders(borders: Readonly<Record<string, string>>): string[] {
   const groups = new Map<string, string[]>()
   for (const [side, value] of Object.entries(borders)) {
@@ -143,37 +141,6 @@ function compactVisibleBorders(borders: Readonly<Record<string, string>>): strin
   return [...groups.entries()].map(([value, sides]) =>
     sides.length === 4 ? `border: ${value}` : `border-${sides.join('/')}: ${value}`,
   )
-}
-
-function isUsefulResponsiveChange(
-  property: string,
-  values: { from?: string | number; to?: string | number },
-  sectionRole: string | undefined,
-): boolean {
-  if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) return false
-  if (
-    [
-      'gridTemplateColumns',
-      'childGridTemplateColumns',
-      'node.heading.fontSize',
-      'layoutMode',
-      'position',
-      'order',
-      'sequenceIndex',
-    ].includes(property)
-  ) {
-    return true
-  }
-  if (property === 'height' || property.endsWith('.height')) {
-    return (
-      ['header', 'navigation', 'action'].includes(sectionRole || '') &&
-      Boolean(boundedPixelValue(values.from) && boundedPixelValue(values.to))
-    )
-  }
-  if (/^border(?:Top|Right|Bottom|Left)$/.test(property)) {
-    return [values.from, values.to].some((value) => typeof value === 'string' && hasVisibleBorder(value))
-  }
-  return property === 'boxShadow'
 }
 
 function observedLineHeight(node: DesignEvidence['layoutNodes'][number]): string | null {
@@ -262,6 +229,8 @@ export function generateDesignEvidenceBrief(
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
   const urlCoverage = evidence.coverage.urlCoverage
   const captureCoverage = evidence.coverage.captureCoverage
+  const assetCoverage = resolveScreenshotAssetCoverage(evidence)
+  const coverageT = coreTranslator(language, 'designEvidence.coverage')
   const stateMetrics = computeInteractionStateMetrics(evidence)
   const iconRegions = evidence.coverage.mediaCoverage.iconRegions ?? 0
 
@@ -288,6 +257,16 @@ export function generateDesignEvidenceBrief(
       ? `- 覆盖：URL ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}；页面×视口 ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected}（${captureCoverage.status === 'complete' ? '完整' : '部分'}）` : evidence.pages.length}；${evidence.sections.length} 个区块观察、${evidence.components.length} 个跨捕获组件观察（不是页面实例数）`
       : `- Coverage: URLs ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}; page×viewport captures ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected} (${captureCoverage.status})` : evidence.pages.length}; ${evidence.sections.length} section observations and ${evidence.components.length} component observations across captures (not page instance counts)`,
   )
+  if (assetCoverage) {
+    lines.push(
+      `- ${coverageT('assetLine', {
+        valid: assetCoverage.valid,
+        expected: assetCoverage.expected,
+        status: assetCoverage.status,
+        issues: assetCoverage.issueCount,
+      })}`,
+    )
+  }
   lines.push(
     zh
       ? `- 状态证据：${stateMetrics.dedupedStatePatterns} 个去重状态模式、${stateMetrics.passiveObservations} 条被动状态观察（未执行用户操作）、${stateMetrics.safeActiveObservations} 条安全主动观察、${stateMetrics.skippedCandidates} 个跳过候选`
@@ -539,10 +518,9 @@ export function generateDesignEvidenceBrief(
   }
 
   const usefulResponsiveObservations = evidence.responsiveObservations.flatMap((observation) => {
+    if (!hasConsistentResponsiveSectionIdentity(observation, evidence)) return []
     const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
-    const changes = Object.entries(observation.changes || {}).filter(([property, values]) =>
-      isUsefulResponsiveChange(property, values, section?.role),
-    )
+    const changes = usefulResponsiveChanges(observation, section?.role)
     return changes.length > 0 ? [{ observation, section, changes }] : []
   })
   if (usefulResponsiveObservations.length > 0) {
@@ -567,7 +545,17 @@ export function generateDesignEvidenceBrief(
     }
   }
 
-  const humanLimitations = evidence.limitations.map((l) => humanizeLimitation(l, zh)).filter(Boolean) as string[]
+  const limitationKeys = [
+    ...evidence.limitations,
+    ...(evidence.responsiveObservations.some(
+      (observation) => !hasConsistentResponsiveSectionIdentity(observation, evidence),
+    )
+      ? ['responsive-section-identity-mismatch']
+      : []),
+  ]
+  const humanLimitations = [...new Set(limitationKeys)]
+    .map((l) => humanizeLimitation(l, zh))
+    .filter(Boolean) as string[]
   if (humanLimitations.length > 0) {
     lines.push('')
     lines.push(zh ? '### 分析局限' : '### Analysis Limitations')
@@ -622,6 +610,7 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
 }
 
 function humanizeLimitation(key: string, zh: boolean): string | null {
+  const t = coreTranslator(zh ? 'zh-CN' : 'en', 'designEvidence.limitations')
   const extractionIssue = /^extraction-issue:([^:]+):(.+)$/.exec(key)
   if (extractionIssue) {
     const safeDecode = (value: string) => {
@@ -633,8 +622,21 @@ function humanizeLimitation(key: string, zh: boolean): string | null {
     }
     const stage = safeDecode(extractionIssue[1])
     const reason = safeDecode(extractionIssue[2])
+    const adaptiveOverflow =
+      /^page-(\d+):mobile-adaptive:(?:capture-)?health:(?:horizontal-overflow|content-width)$/.exec(stage)
+    const dimensions = /^(\d+)\/(\d+)$/.exec(reason) || /^viewport (\d+), content (\d+)$/.exec(reason)
+    if (adaptiveOverflow && dimensions) {
+      return t('adaptiveMobileHorizontalOverflow', {
+        page: adaptiveOverflow[1],
+        viewport: dimensions[1],
+        content: dimensions[2],
+      })
+    }
     return zh ? `提取阶段 ${stage}：${reason}` : `Extraction stage ${stage}: ${reason}`
   }
+  if (key === 'adaptive-mobile-budget-exceeded') return t('adaptiveMobileBudgetExceeded')
+  if (key === 'adaptive-mobile-skipped-budget') return t('adaptiveMobileSkippedBudget')
+  if (key === 'responsive-section-identity-mismatch') return t('responsiveSectionIdentityMismatch')
   const label = LIMITATION_LABELS[key]
   if (label) return zh ? label.zh : label.en
   if (key.startsWith('page-health:') || key.startsWith('skipped:') || key.startsWith('skipped-interaction:'))

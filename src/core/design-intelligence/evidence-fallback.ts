@@ -7,6 +7,7 @@ import type { DesignClaim, DesignProfile, IntelligenceInputMode } from './types.
 export interface ProfileCoverageRepairResult {
   profile: DesignProfile
   repaired: string[]
+  statusAffecting: string[]
 }
 
 export function markSignatureMovesAsCoverageRepair(
@@ -103,12 +104,10 @@ function buildFallbackComponentGrammar(
         0,
         3,
       )
-      const tokenRefs = [...new Set(components.flatMap((component) => component.tokenRefs))].slice(0, 8)
-      const confidence =
-        components.length >= 2 && components.every((component) => component.confidence >= 0.6) ? 'medium' : 'low'
       const variants = type === 'button' ? observedButtonVariants(evidence, components) : []
       const variantSummary = variants.map(([variant, count]) => `${variant} ×${count}`).join(', ')
       const observedElementKinds = [...new Set(components.flatMap((component) => component.elementKind || []))]
+      const evidenceIds = components.slice(0, 2).map((component) => component.id)
       const rule: DesignClaim = {
         statement:
           type === 'button' && variantSummary
@@ -122,12 +121,22 @@ function buildFallbackComponentGrammar(
                 elementKinds: observedElementKinds.length > 0 ? ` (${observedElementKinds.join('/')})` : '',
               })
             : t('genericImplementation'),
-        confidence,
-        evidence: components.slice(0, 2).map((component) => ({
-          evidenceId: component.id,
+        // Coverage repair is deterministic bookkeeping, not a recovered AI insight. Keep it low
+        // confidence so it remains available in the profile JSON without entering DESIGN.md.
+        confidence: 'low',
+        evidence: evidenceIds.map((evidenceId) => ({
+          evidenceId,
           note: t('evidenceNote'),
         })),
-        ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
+        assertions: [
+          {
+            kind: 'component',
+            target: type,
+            predicate: 'present',
+            scope: 'instance',
+            evidenceIds,
+          },
+        ],
       }
       return {
         component: type,
@@ -155,6 +164,7 @@ function buildFallbackSectionGrammar(
   }
   return [...groups.entries()].slice(0, 8).map(([role, sections]) => {
     const tokenRefs = [...new Set(sections.flatMap((section) => section.tokenRefs))].slice(0, 8)
+    const evidenceIds = sections.slice(0, 2).map((section) => section.id)
     const rule: DesignClaim = {
       statement:
         language === 'zh-CN'
@@ -165,11 +175,20 @@ function buildFallbackSectionGrammar(
           ? '沿用该角色的区块位置和已提取令牌；具体视觉关系需对照截图复核。'
           : 'Keep the observed placement and extracted tokens for this role, then verify visual relationships against screenshots.',
       confidence: 'low',
-      evidence: sections.slice(0, 2).map((section) => ({
-        evidenceId: section.id,
+      evidence: evidenceIds.map((evidenceId) => ({
+        evidenceId,
         note: language === 'zh-CN' ? '程序提取的同角色区块' : 'Programmatically extracted section with this role',
       })),
       ...(tokenRefs.length > 0 ? { tokenRefs } : {}),
+      assertions: [
+        {
+          kind: 'section',
+          target: role,
+          predicate: 'present',
+          scope: 'instance',
+          evidenceIds,
+        },
+      ],
     }
     return { role, composition: [rule], contentRhythm: [], transitionToNext: [] }
   })
@@ -435,9 +454,17 @@ export function buildEvidenceFallbackProfile(
     ],
   }
   const visited = new WeakSet<object>()
-  const addAssertions = (value: unknown): void => {
+  const assertionDimensionForPath = (path: string): string => {
+    if (path.startsWith('composition.')) return 'composition'
+    if (path.startsWith('attention.')) return 'attention'
+    if (path.startsWith('visualLanguage.')) return path.split('.')[1] || 'design-thesis'
+    if (path.startsWith('interactionLanguage.')) return 'interaction'
+    if (path.startsWith('transferRules.')) return 'transfer'
+    return 'design-thesis'
+  }
+  const addAssertions = (value: unknown, path = ''): void => {
     if (Array.isArray(value)) {
-      value.forEach(addAssertions)
+      value.forEach((item, index) => addAssertions(item, `${path}.${index}`))
       return
     }
     if (!value || typeof value !== 'object' || visited.has(value)) return
@@ -459,7 +486,7 @@ export function buildEvidenceFallbackProfile(
       record.assertions = [
         {
           kind: 'evidence',
-          target: 'design-thesis',
+          target: assertionDimensionForPath(path),
           predicate: 'supports',
           scope: 'instance',
           evidenceIds,
@@ -467,7 +494,7 @@ export function buildEvidenceFallbackProfile(
       ]
     }
     Object.entries(record).forEach(([key, item]) => {
-      if (key !== 'assertions') addAssertions(item)
+      if (key !== 'assertions') addAssertions(item, path ? `${path}.${key}` : key)
     })
   }
   addAssertions(profile)
@@ -492,19 +519,26 @@ export function repairProfileCoverage(
     'Post-validation checks removed required profile coverage',
   )
   const repaired: string[] = []
+  const statusAffecting: string[] = []
   if (profile.signatureMoves.length === 0) {
     profile.signatureMoves = markSignatureMovesAsCoverageRepair(fallback.signatureMoves, profile.language)
     repaired.push('signatureMoves')
+    statusAffecting.push('signatureMoves')
   }
   if (profile.attention.visualSequence.length === 0) {
     profile.attention.visualSequence = fallback.attention.visualSequence
     repaired.push('attention.visualSequence')
+    statusAffecting.push('attention.visualSequence')
   }
   if (profile.interactionLanguage.primaryDrivers.length === 0) {
     profile.interactionLanguage.primaryDrivers = fallback.interactionLanguage.primaryDrivers
     repaired.push('interactionLanguage.primaryDrivers')
+    statusAffecting.push('interactionLanguage.primaryDrivers')
   }
 
+  const sectionCoverageWasEmpty = !profile.sectionGrammar.some(
+    (section) => section.composition.length + section.contentRhythm.length + section.transitionToNext.length > 0,
+  )
   const fallbackSections = new Map(fallback.sectionGrammar.map((section) => [section.role, section]))
   profile.sectionGrammar = profile.sectionGrammar.flatMap((section) => {
     const populated = section.composition.length + section.contentRhythm.length + section.transitionToNext.length > 0
@@ -512,11 +546,13 @@ export function repairProfileCoverage(
     const replacement = fallbackSections.get(section.role)
     if (!replacement) return []
     repaired.push(`sectionGrammar.${section.role}`)
+    if (sectionCoverageWasEmpty) statusAffecting.push(`sectionGrammar.${section.role}`)
     return [replacement]
   })
   if (profile.sectionGrammar.length === 0 && fallback.sectionGrammar.length > 0) {
     profile.sectionGrammar = fallback.sectionGrammar
     repaired.push('sectionGrammar')
+    statusAffecting.push('sectionGrammar')
   }
 
   const fallbackComponents = new Map<string, DesignProfile['componentGrammar']>()
@@ -528,6 +564,7 @@ export function repairProfileCoverage(
   const populatedComponents = new Set(
     profile.componentGrammar.filter((component) => component.rules.length > 0).map((component) => component.component),
   )
+  const componentCoverageWasEmpty = populatedComponents.size === 0
   const replacedComponents = new Set<string>()
   profile.componentGrammar = profile.componentGrammar.flatMap((component) => {
     if (component.rules.length > 0) return [component]
@@ -536,14 +573,18 @@ export function repairProfileCoverage(
     if (replacements.length === 0) return []
     replacedComponents.add(component.component)
     repaired.push(`componentGrammar.${component.component}`)
+    if (componentCoverageWasEmpty) statusAffecting.push(`componentGrammar.${component.component}`)
     return replacements
   })
   const representedComponents = new Set(profile.componentGrammar.map((component) => component.component))
-  for (const [type, components] of fallbackComponents) {
-    if (representedComponents.has(type)) continue
-    profile.componentGrammar.push(...components)
-    representedComponents.add(type)
-    repaired.push(`componentGrammar.${type}`)
+  if (componentCoverageWasEmpty) {
+    for (const [type, components] of fallbackComponents) {
+      if (representedComponents.has(type)) continue
+      profile.componentGrammar.push(...components)
+      representedComponents.add(type)
+      repaired.push(`componentGrammar.${type}`)
+      statusAffecting.push(`componentGrammar.${type}`)
+    }
   }
 
   const seenComponentGrammar = new Set<string>()
@@ -558,6 +599,11 @@ export function repairProfileCoverage(
     if (profile.transferRules[kind].length > 0) continue
     profile.transferRules[kind] = fallback.transferRules[kind]
     repaired.push(`transferRules.${kind}`)
+    statusAffecting.push(`transferRules.${kind}`)
   }
-  return { profile: repaired.length > 0 ? profile : inputProfile, repaired }
+  return {
+    profile: repaired.length > 0 ? profile : inputProfile,
+    repaired,
+    statusAffecting: [...new Set(statusAffecting)],
+  }
 }

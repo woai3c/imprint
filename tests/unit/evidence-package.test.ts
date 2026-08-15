@@ -226,7 +226,7 @@ describe('selectEvidencePackage packaging', () => {
     expect(prompt).toContain('interaction: {"drivers":[SCOPED_CLAIM]')
     expect(prompt).toContain('transfer: {"preserve":[SCOPED_CLAIM]')
     expect(prompt).toContain('border-bottom-color must not be generalized to border-color')
-    expect(prompt).toContain('never as confirmation after a real press')
+    expect(prompt).toContain('Never describe passive evidence as actually exercised or verified in the page')
     expect(prompt).toContain('recount the supplied pageFacts and topologyFacts')
     const prepared = prepareAnalysisDigestPackageForPrompt(digestPackage)
     expect([...prepared.evidenceIdMap].every(([shortId]) => JSON.stringify(prepared.digest).includes(shortId))).toBe(

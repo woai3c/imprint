@@ -1,11 +1,5 @@
 import type { DesignToken } from '../analyzer/types.js'
-import type {
-  AnalysisCapabilityLevel,
-  DesignProfile,
-  ValidationCheck,
-  ValidationRecipe,
-  ValidationReport,
-} from './types.js'
+import type { DesignProfile, ValidationCheck, ValidationRecipe, ValidationReport } from './types.js'
 
 function representativeSpacing(tokens: DesignToken): string {
   const candidates = tokens.spacing
@@ -141,7 +135,6 @@ export function validateRecipe(
   recipe: ValidationRecipe,
   profile: DesignProfile,
   tokens: DesignToken,
-  capabilityLevel: AnalysisCapabilityLevel,
 ): ValidationReport {
   const values = collectRecipeValues(recipe)
   const [background, foreground] = likelyContrastPair(tokens.colors)
@@ -259,7 +252,6 @@ export function validateRecipe(
   ]
   return {
     schemaVersion: '1',
-    capabilityLevel,
     recipe,
     checks,
   }

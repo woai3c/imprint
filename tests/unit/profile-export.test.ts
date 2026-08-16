@@ -6,7 +6,7 @@ import {
   generateReconstructionBrief,
   getReconstructionBriefEligibility,
 } from '../../src/core/design-context/reconstruction-brief.js'
-import type { DesignClaim, DesignContextMeta, DesignProfile } from '../../src/core/design-context/types.js'
+import type { DesignClaim, DesignProfile } from '../../src/core/design-context/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 
 const tokens: DesignToken = {
@@ -41,7 +41,6 @@ function createProfile(): DesignProfile {
   return {
     schemaVersion: '2',
     language: 'en',
-    inputMode: 'structural-only',
     claimSource: 'deterministic-catalog',
     catalogVersion: '1',
     thesis: claim('A compact left-aligned interface', 'high'),
@@ -114,12 +113,6 @@ const evidence = {
   topology: { globalLayers: [] },
 } as unknown as DesignEvidence
 
-const meta: DesignContextMeta = {
-  status: 'complete',
-  capabilityLevel: 'evidence-only',
-  inputMode: 'structural-only',
-}
-
 describe('deterministic profile export', () => {
   it('identifies the deterministic boundary and never exposes local screenshot paths', () => {
     const markdown = generateDesignProfileMarkdown(createProfile(), tokens, new Map(), evidence)
@@ -143,28 +136,28 @@ describe('reconstruction brief eligibility', () => {
   it('generates a brief only when thesis, preserve, and avoid directives are reliable', () => {
     const profile = createProfile()
 
-    expect(getReconstructionBriefEligibility(profile, meta)).toEqual({ eligible: true, status: 'complete' })
-    expect(generateReconstructionBrief(profile, evidence, tokens, meta)).toContain('# Reconstruction Brief')
+    expect(getReconstructionBriefEligibility(profile)).toEqual({ eligible: true })
+    expect(generateReconstructionBrief(profile, evidence, tokens)).toContain('# Reconstruction Brief')
 
     profile.thesis = claim('Uncertain thesis', 'low')
-    expect(getReconstructionBriefEligibility(profile, meta)).toEqual({
+    expect(getReconstructionBriefEligibility(profile)).toEqual({
       eligible: false,
       reason: 'low-confidence-thesis',
     })
-    expect(generateReconstructionBrief(profile, evidence, tokens, meta)).toBeNull()
+    expect(generateReconstructionBrief(profile, evidence, tokens)).toBeNull()
   })
 
   it('rejects profiles without reliable transfer directives', () => {
     const profile = createProfile()
     profile.transferRules.preserve = []
-    expect(getReconstructionBriefEligibility(profile, meta)).toEqual({
+    expect(getReconstructionBriefEligibility(profile)).toEqual({
       eligible: false,
       reason: 'preserve-directive-missing',
     })
 
     profile.transferRules.preserve = [claim('Preserve rhythm', 'high')]
     profile.transferRules.avoid = []
-    expect(getReconstructionBriefEligibility(profile, meta)).toEqual({
+    expect(getReconstructionBriefEligibility(profile)).toEqual({
       eligible: false,
       reason: 'avoid-directive-missing',
     })

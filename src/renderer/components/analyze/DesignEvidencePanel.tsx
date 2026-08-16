@@ -62,11 +62,11 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
     <div data-testid="design-evidence-overview" className="space-y-5 p-6">
       <section className="rounded-xl border border-border/60 bg-background p-5">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {t('analyze.overview.capability')}
+          {t('analyze.overview.label')}
         </p>
         <h2 className="mt-1 text-lg font-semibold">{t('analyze.overview.title')}</h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-          {t('analyze.overview.evidenceOnlyDescription')}
+          {t('analyze.overview.observedDescription')}
         </p>
       </section>
 

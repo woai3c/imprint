@@ -1,23 +1,8 @@
-import type { AnalysisTiming } from '../analyzer/types.js'
-
 export type Confidence = 'high' | 'medium' | 'low'
-export type EvidenceInputMode = 'structural-only'
 export const DESIGN_PROFILE_SCHEMA_VERSION = '2' as const
-export type DesignProfileSchemaVersion = '1' | typeof DESIGN_PROFILE_SCHEMA_VERSION
+export type DesignProfileSchemaVersion = typeof DESIGN_PROFILE_SCHEMA_VERSION
 export type DesignAssertionKind = 'evidence' | 'component' | 'section' | 'interaction' | 'responsive' | 'token'
 export type DesignAssertionScope = 'instance' | 'page' | 'cross-page'
-export type AnalysisCapabilityLevel = 'evidence-only'
-export type DesignContextStatus = 'complete'
-
-export type { AnalysisTiming } from '../analyzer/types.js'
-
-export interface DesignContextMeta {
-  status: DesignContextStatus
-  capabilityLevel: AnalysisCapabilityLevel
-  inputMode?: EvidenceInputMode
-  schemaVersion?: string
-  timing?: AnalysisTiming
-}
 
 export interface EvidenceRef {
   evidenceId: string
@@ -72,8 +57,7 @@ export interface PatternSpec {
 export interface DesignProfile {
   schemaVersion: DesignProfileSchemaVersion
   language: 'en' | 'zh-CN'
-  inputMode: EvidenceInputMode
-  claimSource?: 'deterministic-catalog'
+  claimSource: 'deterministic-catalog'
   catalogVersion?: string
   thesis: DesignClaim
   signatureMoves: SignatureMove[]
@@ -166,14 +150,12 @@ export interface DesignClaimCatalog {
   schemaVersion: '1'
   catalogVersion: string
   language: 'en' | 'zh-CN'
-  inputMode: EvidenceInputMode
   claims: DesignClaimCatalogEntry[]
   uncertainties: DesignProfile['uncertainties']
 }
 
 export interface AgentContextBundle {
   task: string
-  capabilityLevel: AnalysisCapabilityLevel
   designThesis?: string
   applicableRules: string[]
   tokenSubset: Record<string, string>
@@ -215,7 +197,6 @@ export interface ValidationCheck {
 
 export interface ValidationReport {
   schemaVersion: '1'
-  capabilityLevel: AnalysisCapabilityLevel
   recipe: ValidationRecipe
   checks: ValidationCheck[]
 }

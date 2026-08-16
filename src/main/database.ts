@@ -65,9 +65,6 @@ function runMigrations() {
 
   `)
 
-  // This table only held results from the removed built-in model pipeline.
-  db.exec('DROP TABLE IF EXISTS design_intelligence_cache')
-
   // Analysis results are stored as text so history records can be reopened
   // later. Screenshots stay on disk; only their paths are persisted here.
   const analysisColumns = (db.prepare(`PRAGMA table_info(analyses)`).all() as Array<{ name: string }>).map(
@@ -90,8 +87,6 @@ function runMigrations() {
     ['design_evidence_json', `TEXT`],
     ['evidence_coverage_json', `TEXT`],
     ['design_profile_json', `TEXT`],
-    ['design_context_status', `TEXT NOT NULL DEFAULT 'complete'`],
-    ['design_context_meta_json', `TEXT`],
     ['validation_report_json', `TEXT`],
     ['analysis_timing_json', `TEXT`],
   ]
@@ -100,9 +95,6 @@ function runMigrations() {
       db.exec(`ALTER TABLE analyses ADD COLUMN ${name} ${definition}`)
     }
   }
-  db.exec(`UPDATE analyses
-           SET design_context_status = 'complete'
-           WHERE design_context_status IS NULL OR design_context_status != 'complete'`)
   normalizeStoredAnalysisDurations()
 
   const themeColumns = (db.prepare(`PRAGMA table_info(themes)`).all() as Array<{ name: string }>).map(
@@ -111,7 +103,6 @@ function runMigrations() {
   const themeSnapshotColumns: Array<[string, string]> = [
     ['design_evidence_json', `TEXT`],
     ['design_profile_json', `TEXT`],
-    ['design_context_meta_json', `TEXT`],
     ['dark_tokens_json', `TEXT`],
     ['dark_mode_method', `TEXT`],
     ['dark_mode_selector', `TEXT`],

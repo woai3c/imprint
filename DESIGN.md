@@ -173,9 +173,9 @@ to Imprint rather than an enterprise administration UI.
 ## Design Evidence and deterministic context
 
 Terminology: observed evidence and program-owned claims are "design context" (zh "设计上下文"). Internal code
-identifiers (DesignProfile, design-context) are never shown in the UI. User copy must be plain language a
-non-technical user understands — internal identifiers (`evidence-only`, `structural-only`, limitation codes, capability
-levels) never appear as labels; unknown page or section roles are omitted rather than labeled "unknown".
+identifiers (DesignProfile, design-context) are never shown in the UI. User copy must use plain language that a
+non-technical user understands; limitation codes never appear as labels, and unknown page or section roles are omitted
+rather than labeled "unknown".
 Secondary options (such as analysis depth) explain themselves through a small info affordance whose message appears on
 hover and keyboard focus; primary options keep visible adjacent help text. Result tab labels never wrap — when space
 runs out, the tab strip scrolls horizontally instead.
@@ -184,9 +184,8 @@ runs out, the tab strip scrolls horizontally instead.
   structure, detected sections, component instances, viewport evidence, observed states, and explicit limitations.
 - Label deterministic browser and code results as **Observed** and program-owned summaries as **Deterministic**. Never
   present an inference as an observed fact.
-- The evidence-only overview is a complete supported result, not an error or a setup advertisement. It states plainly
-  that everything shown was directly observed by the browser, without displaying capability tags or internal mode
-  names.
+- The browser-observed overview is a complete supported result, not an error or a setup advertisement. It states plainly
+  that everything shown was directly observed by the browser, without displaying internal implementation labels.
 - Keep Design Evidence JSON separate from Tokens JSON. The former carries source, topology, geometry, component,
   responsive, state, media, coverage, and limitation facts; the latter remains the portable token artifact.
 - Legacy history records without Design Evidence retain their saved artifacts and show a concise compatibility notice
@@ -303,7 +302,7 @@ runs out, the tab strip scrolls horizontally instead.
 - Keep transient work state out of localStorage: submitted URLs, analysis results and failures, search input, progress,
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
 - Main-process settings contain only analyzer defaults, Theme Library export format, display preferences, and network
-  proxy configuration. Legacy provider credentials and command selections are removed during the next settings read.
+  proxy configuration; they never store model-provider credentials or agent command selections.
 - The settings page exposes network and local-data controls only. Product operation never requires an external account,
   model configuration, secret, or command-line agent.
 

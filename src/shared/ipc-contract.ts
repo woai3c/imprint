@@ -1,25 +1,13 @@
 import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 import type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
-import type {
-  AgentContextBundle,
-  DesignContextMeta,
-  DesignProfile,
-  ValidationReport,
-} from '../core/design-context/types.js'
+import type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 export type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
 export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
-export type {
-  AgentContextBundle,
-  AnalysisCapabilityLevel,
-  DesignContextMeta,
-  DesignContextStatus,
-  DesignProfile,
-  ValidationReport,
-} from '../core/design-context/types.js'
+export type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
 export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
@@ -56,7 +44,6 @@ export interface ThemeRecord {
   dark_mode_selector: string | null
   design_evidence_json: string | null
   design_profile_json: string | null
-  design_context_meta_json: string | null
   tags: string
   is_builtin: number
   is_favorite: number
@@ -147,7 +134,6 @@ export interface AnalysisResultData {
   extractionIssues?: ExtractionIssue[]
   pageCoverage?: PageCoverage
   designEvidence?: DesignEvidence
-  designContext?: DesignContextMeta
   designProfile?: DesignProfile | null
   reconstructionBrief?: string | null
   agentContext?: AgentContextBundle | null
@@ -174,7 +160,6 @@ export interface AnalysisDetailData {
   accessMode: 'anonymous' | 'managed' | null
   authWallDetected: boolean
   designEvidence: DesignEvidence | null
-  designContext: DesignContextMeta
   designProfile: DesignProfile | null
   reconstructionBrief: string | null
   agentContext: AgentContextBundle | null

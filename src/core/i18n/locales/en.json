@@ -12,6 +12,12 @@
       "quit": "Quit Imprint"
     }
   },
+  "cli": {
+    "errors": {
+      "missingOptionValue": "Option {{option}} requires a value.",
+      "unknownOption": "Unknown option: {{option}}"
+    }
+  },
   "agentGuide": {
     "siteFallback": "target site",
     "heading": "## Agent Prompt Guide",

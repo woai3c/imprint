@@ -56,7 +56,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           accessMode: data.accessMode ?? undefined,
           authWallDetected: data.authWallDetected,
           designEvidence: data.designEvidence ?? undefined,
-          designContext: data.designContext,
           designProfile: data.designProfile,
           reconstructionBrief: data.reconstructionBrief,
           agentContext: data.agentContext,

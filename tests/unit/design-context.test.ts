@@ -137,14 +137,9 @@ describe('deterministic design context', () => {
     const second = createDeterministicDesignContext(createEvidence(), structuredClone(tokens), 'en')
 
     expect(second).toEqual(first)
-    expect(first.meta).toMatchObject({
-      status: 'complete',
-      capabilityLevel: 'evidence-only',
-      inputMode: 'structural-only',
-    })
     expect(first.profile.claimSource).toBe('deterministic-catalog')
     expect(first.profile.schemaVersion).toBe('2')
-    expect(JSON.stringify(first)).not.toMatch(/provider|apiKey|prompt|modelId/i)
+    expect(JSON.stringify(first)).not.toMatch(/provider|apiKey|prompt|modelId|capabilityLevel|inputMode/i)
   })
 
   it('uses only evidence IDs that exist in the captured evidence graph', () => {

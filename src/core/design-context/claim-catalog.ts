@@ -27,7 +27,6 @@ import type {
   DesignClaimCatalogPlacement,
   DesignClaimSingletonSlot,
   DesignProfile,
-  EvidenceInputMode,
 } from './types.js'
 
 export const DESIGN_CLAIM_CATALOG_VERSION = '1'
@@ -1064,11 +1063,7 @@ function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'):
   return result.slice(0, 8)
 }
 
-export function buildDeterministicClaimCatalog(
-  evidence: DesignEvidence,
-  language: 'en' | 'zh-CN',
-  inputMode: EvidenceInputMode,
-): DesignClaimCatalog {
+export function buildDeterministicClaimCatalog(evidence: DesignEvidence, language: 'en' | 'zh-CN'): DesignClaimCatalog {
   const t = coreTranslator(language, 'designContext.catalog')
   const builder = createCatalogBuilder(evidence, language)
   const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
@@ -1224,7 +1219,6 @@ export function buildDeterministicClaimCatalog(
     schemaVersion: '1',
     catalogVersion: DESIGN_CLAIM_CATALOG_VERSION,
     language,
-    inputMode,
     claims,
     uncertainties: buildUncertainties(evidence, language),
   }
@@ -1325,7 +1319,6 @@ export function materializeDesignProfile(catalog: DesignClaimCatalog): DesignPro
   return {
     schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
     language: catalog.language,
-    inputMode: catalog.inputMode,
     claimSource: 'deterministic-catalog',
     catalogVersion: catalog.catalogVersion,
     thesis: singleton('thesis'),

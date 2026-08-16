@@ -7,13 +7,11 @@ import {
   validateDesignClaimCatalog,
 } from './claim-catalog.js'
 import { generateReconstructionBrief } from './reconstruction-brief.js'
-import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
-import type { AgentContextBundle, AnalysisTiming, DesignContextMeta, DesignProfile, ValidationReport } from './types.js'
+import type { AgentContextBundle, DesignProfile, ValidationReport } from './types.js'
 import { createValidationRecipe, validateRecipe } from './validation-recipe.js'
 
 export interface DeterministicDesignContext {
   profile: DesignProfile
-  meta: DesignContextMeta
   reconstructionBrief: string | null
   agentContext: AgentContextBundle
   validationReport: ValidationReport
@@ -24,35 +22,21 @@ export function createDeterministicDesignContext(
   evidence: DesignEvidence,
   tokens: DesignToken,
   language: 'en' | 'zh-CN',
-  timing?: AnalysisTiming,
 ): DeterministicDesignContext {
-  const catalog = buildDeterministicClaimCatalog(evidence, language, 'structural-only')
+  const catalog = buildDeterministicClaimCatalog(evidence, language)
   const integrity = validateDesignClaimCatalog(catalog, evidence)
   if (!integrity.valid) {
     throw new Error(`Deterministic claim catalog integrity failed: ${integrity.errors.slice(0, 8).join('; ')}`)
   }
 
   const profile = materializeDesignProfile(catalog)
-  const meta: DesignContextMeta = {
-    status: 'complete',
-    capabilityLevel: 'evidence-only',
-    inputMode: 'structural-only',
-    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
-    ...(timing ? { timing } : {}),
-  }
-  const reconstructionBrief = generateReconstructionBrief(profile, evidence, tokens, meta)
-  const validationReport = validateRecipe(
-    createValidationRecipe('workflow', profile, tokens),
-    profile,
-    tokens,
-    meta.capabilityLevel,
-  )
+  const reconstructionBrief = generateReconstructionBrief(profile, evidence, tokens)
+  const validationReport = validateRecipe(createValidationRecipe('workflow', profile, tokens), profile, tokens)
 
   return {
     profile,
-    meta,
     reconstructionBrief,
-    agentContext: generateAgentContextBundle('Create a new page or component', meta.capabilityLevel, evidence, profile),
+    agentContext: generateAgentContextBundle('Create a new page or component', evidence, profile),
     validationReport,
   }
 }

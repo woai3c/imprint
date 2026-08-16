@@ -1,6 +1,6 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import type { AgentContextBundle, AnalysisCapabilityLevel, DesignClaim, DesignProfile } from './types.js'
+import type { AgentContextBundle, DesignClaim, DesignProfile } from './types.js'
 
 function isUsableClaim(claim: DesignClaim): boolean {
   return claim.confidence !== 'low' && claim.source !== 'unavailable'
@@ -51,7 +51,6 @@ function relevance(value: string, taskWords: Set<string>): number {
 
 export function generateAgentContextBundle(
   task: string,
-  capabilityLevel: AnalysisCapabilityLevel,
   evidence: DesignEvidence,
   profile?: DesignProfile | null,
 ): AgentContextBundle {
@@ -90,7 +89,6 @@ export function generateAgentContextBundle(
     : []
   return {
     task,
-    capabilityLevel,
     ...(profile && isUsableClaim(profile.thesis) ? { designThesis: profile.thesis.statement } : {}),
     applicableRules: applicableRules.slice(0, 16),
     tokenSubset: tokenSubset(evidence.tokens, task),

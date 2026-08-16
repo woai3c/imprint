@@ -227,9 +227,9 @@
       }
     },
     "overview": {
-      "capability": "概览",
+      "label": "概览",
       "title": "提取到的设计信息",
-      "evidenceOnlyDescription": "以下信息全部由浏览器直接观察得出（截图、颜色、字体、页面结构），不包含 AI 推测。",
+      "observedDescription": "以下信息全部由浏览器直接观察得出（截图、颜色、字体、页面结构），不包含 AI 推测。",
       "legacyTitle": "此记录不包含页面证据",
       "legacyDescription": "这条分析保存于页面证据功能上线之前，没有截图和结构数据；颜色、字体等设计变量与导出仍可正常查看。",
       "coverageTitle": "采集概览",

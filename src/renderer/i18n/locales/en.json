@@ -227,9 +227,9 @@
       }
     },
     "overview": {
-      "capability": "Overview",
+      "label": "Overview",
       "title": "Extracted design facts",
-      "evidenceOnlyDescription": "Everything below was directly observed by the browser — screenshots, colors, typography, and page structure — with no AI guesswork.",
+      "observedDescription": "Everything below was directly observed by the browser — screenshots, colors, typography, and page structure — with no AI guesswork.",
       "legacyTitle": "This record has no page evidence",
       "legacyDescription": "This analysis was saved before page evidence existed, so it has no screenshots or structure data. Its colors, typography, and exports still work.",
       "coverageTitle": "Capture overview",

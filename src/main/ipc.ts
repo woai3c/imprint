@@ -22,7 +22,7 @@ import type { AnalysisTiming, DesignToken } from '../core/analyzer/types.js'
 import { generateAgentContextBundle } from '../core/design-context/agent-context.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { generateReconstructionBrief } from '../core/design-context/reconstruction-brief.js'
-import type { DesignContextMeta, DesignProfile } from '../core/design-context/types.js'
+import type { DesignProfile } from '../core/design-context/types.js'
 import { createValidationRecipe, validateRecipe } from '../core/design-context/validation-recipe.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
@@ -279,12 +279,7 @@ async function addHistoryThumbnailPaths(
 }
 
 function toAnalysisSummary(
-  {
-    page_screenshots_json: screenshots,
-    design_evidence_json: _designEvidenceJson,
-    design_context_meta_json: _designContextMetaJson,
-    ...record
-  }: Record<string, unknown>,
+  { page_screenshots_json: screenshots, design_evidence_json: _designEvidenceJson, ...record }: Record<string, unknown>,
   screenshotPath?: string | null,
 ) {
   return {
@@ -319,59 +314,50 @@ function readDarkModeExportData(
   }
 }
 
-const DEFAULT_DESIGN_CONTEXT_META: DesignContextMeta = {
-  status: 'complete',
-  capabilityLevel: 'evidence-only',
-  inputMode: 'structural-only',
-  schemaVersion: '2',
-}
-
 function restoreDeterministicStoredContext(
   record: Record<string, unknown>,
   tokens: DesignToken,
   evidence: DesignEvidence | null,
 ): {
   profile: DesignProfile | null
-  meta: DesignContextMeta
   validationReport: ReturnType<typeof createDeterministicDesignContext>['validationReport'] | null
   designDoc: string
 } {
   const storedProfile = record.design_profile_json
     ? (JSON.parse(record.design_profile_json as string) as DesignProfile)
     : null
-  const storedMeta = record.design_context_meta_json
-    ? (JSON.parse(record.design_context_meta_json as string) as DesignContextMeta)
-    : DEFAULT_DESIGN_CONTEXT_META
   const storedValidationReport = record.validation_report_json
     ? (JSON.parse(record.validation_report_json as string) as ReturnType<
         typeof createDeterministicDesignContext
       >['validationReport'])
     : null
+  const currentProfile =
+    isRecord(storedProfile) &&
+    storedProfile.schemaVersion === '2' &&
+    storedProfile.claimSource === 'deterministic-catalog'
+      ? (storedProfile as unknown as DesignProfile)
+      : null
+  const currentValidationReport = isRecord(storedValidationReport)
+    ? (storedValidationReport as ReturnType<typeof createDeterministicDesignContext>['validationReport'])
+    : null
 
   if (!evidence) {
     return {
-      profile: storedProfile?.claimSource === 'deterministic-catalog' ? storedProfile : null,
-      meta: DEFAULT_DESIGN_CONTEXT_META,
-      validationReport: storedProfile?.claimSource === 'deterministic-catalog' ? storedValidationReport : null,
+      profile: currentProfile,
+      validationReport: currentProfile ? currentValidationReport : null,
       designDoc: (record.design_doc as string) || '',
     }
   }
-  if (
-    storedProfile?.claimSource === 'deterministic-catalog' &&
-    storedMeta.capabilityLevel === 'evidence-only' &&
-    storedValidationReport
-  ) {
+  if (currentProfile && currentValidationReport) {
     return {
-      profile: storedProfile,
-      meta: storedMeta,
-      validationReport: storedValidationReport,
+      profile: currentProfile,
+      validationReport: currentValidationReport,
       designDoc: (record.design_doc as string) || '',
     }
   }
 
   const language = evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
-  const timing = readAnalysisTiming(record.analysis_timing_json)
-  const context = createDeterministicDesignContext(evidence, tokens, language, timing)
+  const context = createDeterministicDesignContext(evidence, tokens, language)
   const darkMode = readDarkModeExportData(
     record.dark_tokens_json,
     tokens,
@@ -394,22 +380,13 @@ function restoreDeterministicStoredContext(
   getDb()
     .prepare(
       `UPDATE analyses
-       SET design_profile_json = ?, design_context_status = ?, design_context_meta_json = ?,
-           validation_report_json = ?, design_doc = ?
+       SET design_profile_json = ?, validation_report_json = ?, design_doc = ?
        WHERE id = ?`,
     )
-    .run(
-      JSON.stringify(context.profile),
-      context.meta.status,
-      JSON.stringify(context.meta),
-      JSON.stringify(context.validationReport),
-      designDoc,
-      record.id,
-    )
+    .run(JSON.stringify(context.profile), JSON.stringify(context.validationReport), designDoc, record.id)
 
   return {
     profile: context.profile,
-    meta: context.meta,
     validationReport: context.validationReport,
     designDoc,
   }
@@ -473,8 +450,8 @@ export function registerIpcHandlers() {
         db.prepare(
           `UPDATE themes
            SET source_url = ?, screenshot_path = ?, tokens_json = ?, css_variables = ?, tailwind_theme = ?,
-               design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, design_evidence_json = ?, design_profile_json = ?,
-               design_context_meta_json = ?, updated_at = ?
+                design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, design_evidence_json = ?, design_profile_json = ?,
+                updated_at = ?
            WHERE id = ?`,
         ).run(
           analysis.url,
@@ -488,7 +465,6 @@ export function registerIpcHandlers() {
           analysis.dark_mode_selector || null,
           analysis.design_evidence_json || null,
           analysis.design_profile_json || null,
-          analysis.design_context_meta_json || null,
           now,
           themeId,
         )
@@ -547,8 +523,8 @@ export function registerIpcHandlers() {
         `INSERT INTO themes (
            id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc,
            dark_tokens_json, dark_mode_method, dark_mode_selector, design_evidence_json, design_profile_json,
-           design_context_meta_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         themeId,
         name,
@@ -563,7 +539,6 @@ export function registerIpcHandlers() {
         analysis.dark_mode_selector || null,
         analysis.design_evidence_json || null,
         analysis.design_profile_json || null,
-        analysis.design_context_meta_json || null,
         now,
         now,
       )
@@ -672,8 +647,7 @@ export function registerIpcHandlers() {
     const records = db
       .prepare(
         `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                a.created_at, a.page_screenshots_json,
-                a.design_context_status, a.design_context_meta_json
+                 a.created_at, a.page_screenshots_json
          FROM analyses a
          LEFT JOIN themes t ON t.id = a.theme_id
          ORDER BY a.created_at DESC`,
@@ -710,8 +684,8 @@ export function registerIpcHandlers() {
       const records = db
         .prepare(
           `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                  a.created_at, a.page_screenshots_json,
-                  a.design_evidence_json, a.design_context_status, a.design_context_meta_json
+                   a.created_at, a.page_screenshots_json,
+                   a.design_evidence_json
            FROM analyses a
            LEFT JOIN themes t ON t.id = a.theme_id
            ${where}
@@ -763,24 +737,14 @@ export function registerIpcHandlers() {
     const designEvidence = readDesignEvidence(record.design_evidence_json)
     const storedContext = restoreDeterministicStoredContext(record, tokens, designEvidence)
     const designProfile = storedContext.profile
-    const designContext = storedContext.meta
     const reconstructionBrief = designEvidence
-      ? generateReconstructionBrief(designProfile, designEvidence, tokens, designContext)
+      ? generateReconstructionBrief(designProfile, designEvidence, tokens)
       : null
     const agentContext =
       designEvidence && designProfile
-        ? generateAgentContextBundle(
-            'Create a new page or component',
-            designContext.capabilityLevel,
-            designEvidence,
-            designProfile,
-          )
+        ? generateAgentContextBundle('Create a new page or component', designEvidence, designProfile)
         : designEvidence
-          ? generateAgentContextBundle(
-              'Use the observed design evidence',
-              designContext.capabilityLevel,
-              designEvidence,
-            )
+          ? generateAgentContextBundle('Use the observed design evidence', designEvidence)
           : null
     const pageScreenshots = await addHistoryThumbnailPaths(
       readPageScreenshots(record.page_screenshots_json),
@@ -809,7 +773,6 @@ export function registerIpcHandlers() {
       accessMode: record.access_mode,
       authWallDetected: record.auth_wall_detected === 1,
       designEvidence,
-      designContext,
       designProfile,
       reconstructionBrief,
       agentContext,
@@ -926,7 +889,6 @@ export function registerIpcHandlers() {
           result.designEvidence,
           result.tokens,
           outputLanguage,
-          result.timing,
         )
         const darkModeExport = buildDarkModeExportData(result.darkMode)
         const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
@@ -951,10 +913,10 @@ export function registerIpcHandlers() {
           `INSERT INTO analyses
            (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
-            feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
-            design_evidence_json, design_profile_json, evidence_coverage_json, design_context_status,
-            design_context_meta_json, validation_report_json, analysis_timing_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
+             design_evidence_json, design_profile_json, evidence_coverage_json,
+             validation_report_json, analysis_timing_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           url,
@@ -978,8 +940,6 @@ export function registerIpcHandlers() {
           generateDesignEvidenceJson(result.designEvidence),
           JSON.stringify(deterministicContext.profile),
           JSON.stringify(result.designEvidence.coverage),
-          deterministicContext.meta.status,
-          JSON.stringify(deterministicContext.meta),
           JSON.stringify(deterministicContext.validationReport),
           JSON.stringify(result.timing),
         )
@@ -1026,7 +986,6 @@ export function registerIpcHandlers() {
           pageCoverage: result.pageCoverage,
           designEvidence: result.designEvidence,
           designProfile: deterministicContext.profile,
-          designContext: deterministicContext.meta,
           reconstructionBrief: deterministicContext.reconstructionBrief,
           agentContext: deterministicContext.agentContext,
           validationReport: deterministicContext.validationReport,
@@ -1071,9 +1030,8 @@ export function registerIpcHandlers() {
       const storedContext = restoreDeterministicStoredContext(record, tokens, evidence)
       if (!storedContext.profile) return { error: true, message: 'A deterministic DesignProfile is required' }
       const profile = storedContext.profile
-      const meta = storedContext.meta
       const recipe = createValidationRecipe(scenario, profile, tokens)
-      const validationReport = validateRecipe(recipe, profile, tokens, meta.capabilityLevel)
+      const validationReport = validateRecipe(recipe, profile, tokens)
       db.prepare('UPDATE analyses SET validation_report_json = ? WHERE id = ?').run(
         JSON.stringify(validationReport),
         analysisId,
@@ -1082,14 +1040,8 @@ export function registerIpcHandlers() {
         ...buildStoredAnalysisResult(record, tokens),
         designEvidence: evidence,
         designProfile: profile,
-        designContext: meta,
-        reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens, meta),
-        agentContext: generateAgentContextBundle(
-          'Validate a new design scenario',
-          meta.capabilityLevel,
-          evidence,
-          profile,
-        ),
+        reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens),
+        agentContext: generateAgentContextBundle('Validate a new design scenario', evidence, profile),
         validationReport,
       }
     },

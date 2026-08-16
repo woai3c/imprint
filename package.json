@@ -20,6 +20,7 @@
     "predev": "pnpm browser:install",
     "build": "electron-forge package",
     "prebuild": "pnpm browser:install",
+    "prebuild:cli": "node scripts/clean-cli-dist.mjs",
     "build:cli": "tsc -p tsconfig.cli.json",
     "make": "electron-forge make",
     "premake": "pnpm browser:install",

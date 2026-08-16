@@ -12,6 +12,12 @@
       "quit": "退出印记"
     }
   },
+  "cli": {
+    "errors": {
+      "missingOptionValue": "选项 {{option}} 需要提供值。",
+      "unknownOption": "未知选项：{{option}}"
+    }
+  },
   "agentGuide": {
     "siteFallback": "目标站点",
     "heading": "## 给 AI 的使用说明",

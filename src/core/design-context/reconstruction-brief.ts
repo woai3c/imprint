@@ -1,12 +1,12 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import type { DesignClaim, DesignContextMeta, DesignProfile } from './types.js'
+import type { DesignClaim, DesignProfile } from './types.js'
 
 export type ReconstructionBriefIneligibilityReason =
   'no-profile' | 'low-confidence-thesis' | 'preserve-directive-missing' | 'avoid-directive-missing'
 
 export type ReconstructionBriefEligibility =
-  { eligible: true; status: 'complete' } | { eligible: false; reason: ReconstructionBriefIneligibilityReason }
+  { eligible: true } | { eligible: false; reason: ReconstructionBriefIneligibilityReason }
 
 function claimLine(claim: DesignClaim): string {
   return `- ${claim.implementation} [${claim.confidence}; ${[
@@ -30,7 +30,6 @@ const solidLine = (claim: DesignClaim, render: (claim: DesignClaim) => string): 
 
 export function getReconstructionBriefEligibility(
   profile: DesignProfile | null | undefined,
-  meta: Pick<DesignContextMeta, 'status' | 'capabilityLevel'>,
 ): ReconstructionBriefEligibility {
   if (!profile) return { eligible: false, reason: 'no-profile' }
   if (profile.thesis.confidence === 'low') {
@@ -42,7 +41,7 @@ export function getReconstructionBriefEligibility(
   if (solid(profile.transferRules.avoid).length === 0) {
     return { eligible: false, reason: 'avoid-directive-missing' }
   }
-  return { eligible: true, status: meta.status }
+  return { eligible: true }
 }
 
 export function reconstructionBriefUnavailableMessage(reason: ReconstructionBriefIneligibilityReason): string {
@@ -62,9 +61,8 @@ export function generateReconstructionBrief(
   profile: DesignProfile | null | undefined,
   evidence: DesignEvidence,
   tokens: DesignToken,
-  meta: DesignContextMeta,
 ): string | null {
-  const eligibility = getReconstructionBriefEligibility(profile, meta)
+  const eligibility = getReconstructionBriefEligibility(profile)
   if (!eligibility.eligible || !profile) return null
 
   const zh = profile.language === 'zh-CN'
@@ -173,7 +171,6 @@ export function generateReconstructionBrief(
     '',
     zh ? '## 限制' : '## Limitations',
     '',
-    `- ${zh ? '输入模式' : 'Input mode'}: ${profile.inputMode}`,
     ...profile.uncertainties.map((item) => `- ${item.topic}: ${item.reason}`),
     ...evidence.limitations.map((item) => `- ${item}`),
     '',

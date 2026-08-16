@@ -46,7 +46,7 @@ function readFromDisk(): AppSettings {
       try {
         writeToDisk(settings)
       } catch {
-        // Read-only settings still normalize in memory even when legacy fields cannot be scrubbed from disk.
+        // Read-only settings still normalize in memory when the file cannot be updated.
       }
     }
     return settings

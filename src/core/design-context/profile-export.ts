@@ -316,7 +316,6 @@ function claimLines(
   lowBucket: LowConfidenceEntry[],
   options: {
     keepLow?: boolean
-    includeImplementation?: boolean
     formatRef?: (ref: string) => string
     formatText?: (text: string) => string
     renderedCatalogIds?: Set<string>
@@ -340,9 +339,6 @@ function claimLines(
     '',
     ...main.flatMap((claim) => [
       `- ${claim.label ? `**${claim.label}:** ` : ''}${options.formatText?.(claim.statement) ?? claim.statement}`,
-      ...(options.includeImplementation === false
-        ? []
-        : [`  - ${options.formatText?.(claim.implementation) ?? claim.implementation}`]),
       `  - ${labels.confidence}: ${claim.confidence}`,
       `  - ${labels.evidence}: ${claim.evidence.map((reference) => `\`${reference.evidenceId}\``).join(', ')}`,
       ...(claim.assertions && claim.assertions.length > 0
@@ -426,7 +422,6 @@ export function generateDesignProfileMarkdown(
   const claimOptions = {
     formatRef,
     formatText,
-    includeImplementation: profile.schemaVersion === '1',
     renderedCatalogIds: new Set<string>(),
   }
   const uncertainties = uniqueUncertainties(profile)
@@ -451,7 +446,8 @@ export function generateDesignProfileMarkdown(
     '',
     t('catalogLayerNotice'),
     '',
-    ...(profile.schemaVersion === '2' ? [t('catalogBoundaryNotice'), ''] : []),
+    t('catalogBoundaryNotice'),
+    '',
     ...claimLines(section('thesis'), [profile.thesis], labels, lowBucket, claimOptions),
     ...claimLines(
       section('signatureMoves'),

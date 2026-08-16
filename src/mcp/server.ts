@@ -122,7 +122,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     const tokens = result.tokens
     const featureTags = result.featureTags
     const darkMode = buildDarkModeExportData(result.darkMode)
-    const designContext = createDeterministicDesignContext(result.designEvidence, tokens, 'en', result.timing)
+    const designContext = createDeterministicDesignContext(result.designEvidence, tokens, 'en')
 
     switch (format) {
       case 'css':
@@ -223,12 +223,14 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
       const profileA = params.profileA as DesignProfile
       const profileB = params.profileB as DesignProfile
       if (
-        !['1', '2'].includes(profileA.schemaVersion) ||
-        !['1', '2'].includes(profileB.schemaVersion) ||
+        profileA.schemaVersion !== '2' ||
+        profileB.schemaVersion !== '2' ||
+        profileA.claimSource !== 'deterministic-catalog' ||
+        profileB.claimSource !== 'deterministic-catalog' ||
         !profileA.thesis ||
         !profileB.thesis
       ) {
-        throw new Error('Both profile inputs must be valid DesignProfile v1 or v2 objects')
+        throw new Error('Both profile inputs must be deterministic DesignProfile v2 objects')
       }
       return {
         content: [{ type: 'text', text: JSON.stringify(compareDesignProfiles(profileA, profileB), null, 2) }],
@@ -243,8 +245,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     ])
 
     if (params.depth === 'language') {
-      const contextA = createDeterministicDesignContext(resultA.designEvidence, resultA.tokens, 'en', resultA.timing)
-      const contextB = createDeterministicDesignContext(resultB.designEvidence, resultB.tokens, 'en', resultB.timing)
+      const contextA = createDeterministicDesignContext(resultA.designEvidence, resultA.tokens, 'en')
+      const contextB = createDeterministicDesignContext(resultB.designEvidence, resultB.tokens, 'en')
       return {
         content: [
           {

@@ -23,6 +23,7 @@ import {
   generateScssVariables,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import { coreTranslator } from '../core/i18n/index.js'
 import { resolveCliExportFormats } from './export-formats.js'
 
 interface CliOptions {
@@ -35,6 +36,25 @@ interface CliOptions {
   jsonStdout: boolean
   maxPages: number
   pageDiscovery: 'auto' | 'links' | 'sitemap'
+}
+
+const cliT = coreTranslator('en', 'cli.errors')
+const valueOptions = new Set(['--format', '--output', '--viewport', '--pages', '--discovery'])
+const switchOptions = new Set(['--no-session', '--dark-mode', '--quiet', '--json-stdout'])
+
+function validateOptions(args: string[]): void {
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]
+    if (valueOptions.has(argument)) {
+      if (!args[index + 1] || args[index + 1].startsWith('-')) {
+        throw new Error(cliT('missingOptionValue', { option: argument }))
+      }
+      index += 1
+      continue
+    }
+    if (switchOptions.has(argument) || argument.startsWith('http')) continue
+    if (argument.startsWith('-')) throw new Error(cliT('unknownOption', { option: argument }))
+  }
 }
 
 function parseArgs(args: string[]): { url: string; options: CliOptions } {
@@ -75,6 +95,7 @@ async function main() {
     args.shift()
   }
 
+  validateOptions(args)
   const { url, options } = parseArgs(args)
 
   if (!url || !url.startsWith('http')) {
@@ -109,9 +130,8 @@ async function main() {
   )
   const darkModeExport = buildDarkModeExportData(result.darkMode)
 
-  const designContext = createDeterministicDesignContext(result.designEvidence, result.tokens, 'en', result.timing)
+  const designContext = createDeterministicDesignContext(result.designEvidence, result.tokens, 'en')
   const profile = designContext.profile
-  const designContextMeta = designContext.meta
   const reconstructionBrief = designContext.reconstructionBrief
   const finalTiming = result.timing
 
@@ -200,7 +220,7 @@ async function main() {
         break
       case 'reconstruction': {
         if (!reconstructionBrief) {
-          const eligibility = getReconstructionBriefEligibility(profile, designContextMeta)
+          const eligibility = getReconstructionBriefEligibility(profile)
           throw new Error(
             reconstructionBriefUnavailableMessage(eligibility.eligible ? 'no-profile' : eligibility.reason),
           )

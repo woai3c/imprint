@@ -165,7 +165,7 @@ function hasLayeredElevation(tokens: DesignToken): boolean {
 
 /**
  * Generate design feature tags based on extracted style analysis.
- * Pure code-based — no LLM needed.
+ * Deterministic program implementation.
  */
 export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles): string[] {
   const tags: string[] = []

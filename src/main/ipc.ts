@@ -2,12 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { BrowserWindow, app, dialog, ipcMain, nativeImage, net, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from 'electron'
 
-import { getDefaultBaseUrl } from '../core/ai/capabilities.js'
-import { availableEvidenceImageIds } from '../core/ai/image-summary.js'
-import { getDefaultReasoningEffort } from '../core/ai/model-catalog.js'
-import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import {
   listManagedSessions,
   migrateLegacyManagedSessions,
@@ -21,24 +17,14 @@ import {
   type LoginDecision,
   type PageDiscoveryMode,
 } from '../core/analyzer/index.js'
-import { applyColorRenames } from '../core/analyzer/token-renamer.js'
-import type { DesignToken } from '../core/analyzer/types.js'
+import { isPageHealthEvidenceEligible } from '../core/analyzer/page-health.js'
+import type { AnalysisTiming, DesignToken } from '../core/analyzer/types.js'
+import { generateAgentContextBundle } from '../core/design-context/agent-context.js'
+import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
+import { generateReconstructionBrief } from '../core/design-context/reconstruction-brief.js'
+import type { DesignContextMeta, DesignProfile } from '../core/design-context/types.js'
+import { createValidationRecipe, validateRecipe } from '../core/design-context/validation-recipe.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
-import {
-  DESIGN_PROFILE_PROMPT_VERSION,
-  DESIGN_PROFILE_SCHEMA_VERSION,
-  buildAnalysisDigest,
-  createEvidenceFingerprint,
-  createInterpretationCacheKey,
-  createValidationRecipe,
-  generateAgentContextBundle,
-  generateReconstructionBrief,
-  prepareAnalysisDigestPackageForPrompt,
-  restrictEvidencePackageImages,
-  selectEvidencePackage,
-  validateRecipe,
-} from '../core/design-intelligence/index.js'
-import type { DesignIntelligenceMeta, DesignProfile } from '../core/design-intelligence/types.js'
 import {
   type DarkModeExportData,
   buildDarkModeExportData,
@@ -50,6 +36,9 @@ import {
   restoreDarkModeExportData,
 } from '../core/export/index.js'
 import {
+  type AnalysisRecoveryResponse,
+  type AnalyzeResponse,
+  type AppSettings,
   type PageScreenshotData,
   type RendererPerformanceSample,
   type ThemeExportFormat,
@@ -58,16 +47,9 @@ import {
   type ThemeSummaryRecord,
 } from '../shared/ipc-contract.js'
 import { isRecord } from '../shared/type-guards.js'
-import { detectAgentClis } from './agent-detect.js'
+import { AnalysisRecoveryRegistry } from './analysis-recovery.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { getDb } from './database.js'
-import {
-  chooseDesignIntelligenceRoute,
-  createTaskContext,
-  getInitialDesignIntelligenceMeta,
-  runDesignIntelligence,
-  runExampleGeneration,
-} from './design-intelligence.js'
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
 import { getSettings, saveSettings } from './settings.js'
@@ -78,10 +60,8 @@ interface SaveTextFileOptions {
   filterName: string
 }
 
-const designIntelligenceControllers = new Map<string, AbortController>()
-const exampleGenerationControllers = new Map<string, AbortController>()
 const analysisControllers = new Map<number, AbortController>()
-const analysisProgramCompletedTimes = new Map<string, number>()
+const analysisRecoveryRegistry = new AnalysisRecoveryRegistry()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
 
@@ -95,26 +75,6 @@ function compactTokenSnapshot(serialized: string | null): string | null {
   } catch {
     return serialized
   }
-}
-
-function createIntelligenceCacheKey(
-  fingerprint: string,
-  route: { provider: string; model: string },
-  settings: ReturnType<typeof getSettings>,
-  language: 'en' | 'zh-CN',
-  accessMode: DesignEvidence['source']['accessMode'],
-): string {
-  return createInterpretationCacheKey({
-    fingerprint,
-    provider: route.provider,
-    model: route.model,
-    reasoningEffort: settings.reasoningEffort || getDefaultReasoningEffort(route.provider, route.model) || 'default',
-    thinkingEnabled: settings.thinkingEnabled === true,
-    language,
-    promptVersion: DESIGN_PROFILE_PROMPT_VERSION,
-    schemaVersion: DESIGN_PROFILE_SCHEMA_VERSION,
-    accessMode,
-  })
 }
 
 function readPerformanceNumber(value: unknown, minimum: number, maximum: number, digits = 1): number | null {
@@ -223,9 +183,45 @@ function findHistoryThumbnailSource(evidence: DesignEvidence | null, screenshot:
 function readDesignEvidence(serialized: unknown): DesignEvidence | null {
   if (typeof serialized !== 'string') return null
   try {
-    return JSON.parse(serialized) as DesignEvidence
+    const evidence = JSON.parse(serialized) as DesignEvidence
+    for (const page of evidence.pages || []) {
+      if (!page.health) continue
+      page.health.evidenceEligible = isPageHealthEvidenceEligible(page.health)
+    }
+    return evidence
   } catch {
     return null
+  }
+}
+
+function readAnalysisTiming(serialized: unknown): AnalysisTiming | undefined {
+  if (typeof serialized !== 'string') return undefined
+  try {
+    const stored = JSON.parse(serialized) as unknown
+    if (!isRecord(stored)) return undefined
+    const readNumber = (key: string): number | undefined => {
+      const value = stored[key]
+      return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+    }
+    const optional = {
+      userWaitMs: readNumber('userWaitMs'),
+      browserMs: readNumber('browserMs'),
+      preparationMs: readNumber('preparationMs'),
+      extractionMs: readNumber('extractionMs'),
+      healthGateMs: readNumber('healthGateMs'),
+      screenshotCaptureMs: readNumber('screenshotCaptureMs'),
+    }
+    return {
+      ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined)),
+      validationMs: readNumber('validationMs') ?? 0,
+      totalMs: readNumber('totalMs') ?? 0,
+      imageCount: readNumber('imageCount') ?? 0,
+      ...(Array.isArray(stored.budgetExceeded)
+        ? { budgetExceeded: stored.budgetExceeded.filter((value): value is string => typeof value === 'string') }
+        : {}),
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -286,27 +282,14 @@ function toAnalysisSummary(
   {
     page_screenshots_json: screenshots,
     design_evidence_json: _designEvidenceJson,
-    design_intelligence_meta_json: metaJson,
+    design_context_meta_json: _designContextMetaJson,
     ...record
   }: Record<string, unknown>,
   screenshotPath?: string | null,
 ) {
-  let aiTokenUsage: { input?: number; output?: number } | undefined
-  if (typeof metaJson === 'string') {
-    try {
-      const meta = JSON.parse(metaJson) as Record<string, unknown>
-      if (meta.tokenUsage && typeof meta.tokenUsage === 'object') {
-        aiTokenUsage = meta.tokenUsage as { input?: number; output?: number }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
   return {
     ...record,
     screenshot_path: screenshotPath === undefined ? readFirstScreenshotPath(screenshots) : screenshotPath,
-    ai_token_usage: aiTokenUsage,
   }
 }
 
@@ -336,6 +319,102 @@ function readDarkModeExportData(
   }
 }
 
+const DEFAULT_DESIGN_CONTEXT_META: DesignContextMeta = {
+  status: 'complete',
+  capabilityLevel: 'evidence-only',
+  inputMode: 'structural-only',
+  schemaVersion: '2',
+}
+
+function restoreDeterministicStoredContext(
+  record: Record<string, unknown>,
+  tokens: DesignToken,
+  evidence: DesignEvidence | null,
+): {
+  profile: DesignProfile | null
+  meta: DesignContextMeta
+  validationReport: ReturnType<typeof createDeterministicDesignContext>['validationReport'] | null
+  designDoc: string
+} {
+  const storedProfile = record.design_profile_json
+    ? (JSON.parse(record.design_profile_json as string) as DesignProfile)
+    : null
+  const storedMeta = record.design_context_meta_json
+    ? (JSON.parse(record.design_context_meta_json as string) as DesignContextMeta)
+    : DEFAULT_DESIGN_CONTEXT_META
+  const storedValidationReport = record.validation_report_json
+    ? (JSON.parse(record.validation_report_json as string) as ReturnType<
+        typeof createDeterministicDesignContext
+      >['validationReport'])
+    : null
+
+  if (!evidence) {
+    return {
+      profile: storedProfile?.claimSource === 'deterministic-catalog' ? storedProfile : null,
+      meta: DEFAULT_DESIGN_CONTEXT_META,
+      validationReport: storedProfile?.claimSource === 'deterministic-catalog' ? storedValidationReport : null,
+      designDoc: (record.design_doc as string) || '',
+    }
+  }
+  if (
+    storedProfile?.claimSource === 'deterministic-catalog' &&
+    storedMeta.capabilityLevel === 'evidence-only' &&
+    storedValidationReport
+  ) {
+    return {
+      profile: storedProfile,
+      meta: storedMeta,
+      validationReport: storedValidationReport,
+      designDoc: (record.design_doc as string) || '',
+    }
+  }
+
+  const language = evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+  const timing = readAnalysisTiming(record.analysis_timing_json)
+  const context = createDeterministicDesignContext(evidence, tokens, language, timing)
+  const darkMode = readDarkModeExportData(
+    record.dark_tokens_json,
+    tokens,
+    record.dark_mode_method,
+    record.dark_mode_selector,
+  )
+  const featureTags = JSON.parse((record.feature_tags_json as string) || '[]') as string[]
+  const designDoc = generateDesignDoc(
+    tokens,
+    String(record.url || evidence.source.requestedUrl),
+    featureTags,
+    darkMode,
+    undefined,
+    [],
+    language,
+    evidence,
+    context.profile,
+  )
+
+  getDb()
+    .prepare(
+      `UPDATE analyses
+       SET design_profile_json = ?, design_context_status = ?, design_context_meta_json = ?,
+           validation_report_json = ?, design_doc = ?
+       WHERE id = ?`,
+    )
+    .run(
+      JSON.stringify(context.profile),
+      context.meta.status,
+      JSON.stringify(context.meta),
+      JSON.stringify(context.validationReport),
+      designDoc,
+      record.id,
+    )
+
+  return {
+    profile: context.profile,
+    meta: context.meta,
+    validationReport: context.validationReport,
+    designDoc,
+  }
+}
+
 function buildStoredAnalysisResult(
   record: Record<string, unknown>,
   tokens: DesignToken,
@@ -352,15 +431,9 @@ function buildStoredAnalysisResult(
     screenshots: pageScreenshots.map((screenshot) => screenshot.path),
     pageScreenshots,
     duration: Number(record.duration_ms) || 0,
-    analysisTiming: record.analysis_timing_json ? JSON.parse(record.analysis_timing_json as string) : undefined,
+    analysisTiming: readAnalysisTiming(record.analysis_timing_json),
     url: record.url,
   }
-}
-
-function readStoredAnalysisTiming(record: Record<string, unknown>) {
-  return record.analysis_timing_json
-    ? (JSON.parse(record.analysis_timing_json as string) as import('../core/analyzer/types.js').AnalysisTiming)
-    : undefined
 }
 
 async function saveTextFile(content: string, options: SaveTextFileOptions) {
@@ -401,7 +474,7 @@ export function registerIpcHandlers() {
           `UPDATE themes
            SET source_url = ?, screenshot_path = ?, tokens_json = ?, css_variables = ?, tailwind_theme = ?,
                design_doc = ?, dark_tokens_json = ?, dark_mode_method = ?, dark_mode_selector = ?, design_evidence_json = ?, design_profile_json = ?,
-               design_intelligence_meta_json = ?, updated_at = ?
+               design_context_meta_json = ?, updated_at = ?
            WHERE id = ?`,
         ).run(
           analysis.url,
@@ -415,7 +488,7 @@ export function registerIpcHandlers() {
           analysis.dark_mode_selector || null,
           analysis.design_evidence_json || null,
           analysis.design_profile_json || null,
-          analysis.design_intelligence_meta_json || null,
+          analysis.design_context_meta_json || null,
           now,
           themeId,
         )
@@ -474,7 +547,7 @@ export function registerIpcHandlers() {
         `INSERT INTO themes (
            id, name, source_url, screenshot_path, tokens_json, css_variables, tailwind_theme, design_doc,
            dark_tokens_json, dark_mode_method, dark_mode_selector, design_evidence_json, design_profile_json,
-           design_intelligence_meta_json, created_at, updated_at
+           design_context_meta_json, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         themeId,
@@ -490,7 +563,7 @@ export function registerIpcHandlers() {
         analysis.dark_mode_selector || null,
         analysis.design_evidence_json || null,
         analysis.design_profile_json || null,
-        analysis.design_intelligence_meta_json || null,
+        analysis.design_context_meta_json || null,
         now,
         now,
       )
@@ -599,8 +672,8 @@ export function registerIpcHandlers() {
     const records = db
       .prepare(
         `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                a.token_usage, a.created_at, a.page_screenshots_json,
-                a.design_intelligence_status, a.design_intelligence_meta_json
+                a.created_at, a.page_screenshots_json,
+                a.design_context_status, a.design_context_meta_json
          FROM analyses a
          LEFT JOIN themes t ON t.id = a.theme_id
          ORDER BY a.created_at DESC`,
@@ -637,8 +710,8 @@ export function registerIpcHandlers() {
       const records = db
         .prepare(
           `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                  a.token_usage, a.created_at, a.page_screenshots_json,
-                  a.design_evidence_json, a.design_intelligence_status, a.design_intelligence_meta_json
+                  a.created_at, a.page_screenshots_json,
+                  a.design_evidence_json, a.design_context_status, a.design_context_meta_json
            FROM analyses a
            LEFT JOIN themes t ON t.id = a.theme_id
            ${where}
@@ -687,26 +760,27 @@ export function registerIpcHandlers() {
     if (!record) return null
 
     const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-    const designEvidence = record.design_evidence_json
-      ? (JSON.parse(record.design_evidence_json as string) as DesignEvidence)
-      : null
-    const designProfile = record.design_profile_json
-      ? (JSON.parse(record.design_profile_json as string) as DesignProfile)
-      : null
-    const designIntelligence = record.design_intelligence_meta_json
-      ? (JSON.parse(record.design_intelligence_meta_json as string) as DesignIntelligenceMeta)
-      : ({
-          status: record.design_intelligence_status || 'not-requested',
-          capabilityLevel: 'evidence-only',
-        } as DesignIntelligenceMeta)
+    const designEvidence = readDesignEvidence(record.design_evidence_json)
+    const storedContext = restoreDeterministicStoredContext(record, tokens, designEvidence)
+    const designProfile = storedContext.profile
+    const designContext = storedContext.meta
     const reconstructionBrief = designEvidence
-      ? generateReconstructionBrief(designProfile, designEvidence, tokens, designIntelligence)
+      ? generateReconstructionBrief(designProfile, designEvidence, tokens, designContext)
       : null
     const agentContext =
       designEvidence && designProfile
-        ? createTaskContext('Create a new page or component', designEvidence, designProfile, designIntelligence)
+        ? generateAgentContextBundle(
+            'Create a new page or component',
+            designContext.capabilityLevel,
+            designEvidence,
+            designProfile,
+          )
         : designEvidence
-          ? createTaskContext('Use the observed design evidence', designEvidence, null, designIntelligence)
+          ? generateAgentContextBundle(
+              'Use the observed design evidence',
+              designContext.capabilityLevel,
+              designEvidence,
+            )
           : null
     const pageScreenshots = await addHistoryThumbnailPaths(
       readPageScreenshots(record.page_screenshots_json),
@@ -720,12 +794,12 @@ export function registerIpcHandlers() {
       finalUrl: record.final_url,
       pagesAnalyzed: record.pages_analyzed,
       durationMs: record.duration_ms,
-      analysisTiming: record.analysis_timing_json ? JSON.parse(record.analysis_timing_json as string) : undefined,
+      analysisTiming: readAnalysisTiming(record.analysis_timing_json),
       createdAt: record.created_at,
       tokens,
       cssVariables: record.css_variables || '',
       tailwindTheme: record.tailwind_theme || '',
-      designDoc: record.design_doc || '',
+      designDoc: storedContext.designDoc,
       pageScreenshots,
       featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
       darkTokens:
@@ -735,11 +809,11 @@ export function registerIpcHandlers() {
       accessMode: record.access_mode,
       authWallDetected: record.auth_wall_detected === 1,
       designEvidence,
-      designIntelligence,
+      designContext,
       designProfile,
       reconstructionBrief,
       agentContext,
-      validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
+      validationReport: storedContext.validationReport,
     }
   })
 
@@ -783,28 +857,12 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
-  ipcMain.handle('design-intelligence:cancel', (_event, analysisId: string) => {
-    const controller = designIntelligenceControllers.get(analysisId)
-    if (!controller) return { success: false }
-    controller.abort()
-    designIntelligenceControllers.delete(analysisId)
-    return { success: true }
+  ipcMain.handle('analysis:recover', (event): AnalysisRecoveryResponse => {
+    return analysisRecoveryRegistry.recover(event.sender.id)
   })
 
-  ipcMain.handle('design-intelligence:skip', (_event, analysisId: string) => {
-    const db = getDb()
-    const record = db.prepare('SELECT id FROM analyses WHERE id = ?').get(analysisId)
-    if (!record) return { error: true }
-    designIntelligenceControllers.get(analysisId)?.abort()
-    designIntelligenceControllers.delete(analysisId)
-    analysisProgramCompletedTimes.delete(analysisId)
-    const meta: DesignIntelligenceMeta = { status: 'skipped', capabilityLevel: 'evidence-only' }
-    db.prepare(
-      `UPDATE analyses
-       SET design_intelligence_status = ?, design_intelligence_meta_json = ?
-       WHERE id = ?`,
-    ).run(meta.status, JSON.stringify(meta), analysisId)
-    return { designIntelligence: meta }
+  ipcMain.handle('analysis:acknowledge', (event) => {
+    return { success: analysisRecoveryRegistry.acknowledge(event.sender.id) }
   })
 
   ipcMain.handle(
@@ -825,7 +883,14 @@ export function registerIpcHandlers() {
       const win = BrowserWindow.fromWebContents(event.sender)
       const senderId = event.sender.id
       const analysisController = new AbortController()
-      const abortWhenRendererCloses = () => analysisController.abort()
+      const recoverableRun = analysisRecoveryRegistry.start(senderId, url)
+      const completeRun = (response: AnalyzeResponse): AnalyzeResponse => {
+        return analysisRecoveryRegistry.complete(senderId, recoverableRun, response)
+      }
+      const abortWhenRendererCloses = () => {
+        analysisController.abort()
+        analysisRecoveryRegistry.remove(senderId, recoverableRun)
+      }
       analysisControllers.get(senderId)?.abort()
       analysisControllers.set(senderId, analysisController)
       event.sender.once('destroyed', abortWhenRendererCloses)
@@ -850,17 +915,20 @@ export function registerIpcHandlers() {
           effectiveOptions,
           (step, percent) => {
             analysisStage = step
+            analysisRecoveryRegistry.updateProgress(senderId, recoverableRun, step, percent)
             win?.webContents.send('analysis:progress', { step, percent })
           },
           (request, signal) => waitForLoginDecision(win, request, signal),
         )
 
-        const settings = getSettings()
-        const designIntelligenceMeta = getInitialDesignIntelligenceMeta(settings, result.designEvidence)
-        const designIntelligenceStatus = designIntelligenceMeta.status
-
+        const outputLanguage = options?.language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
+        const deterministicContext = createDeterministicDesignContext(
+          result.designEvidence,
+          result.tokens,
+          outputLanguage,
+          result.timing,
+        )
         const darkModeExport = buildDarkModeExportData(result.darkMode)
-
         const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
         const tailwind = generateTailwindTheme(result.tokens, darkModeExport, result.breakpoints)
         const designDoc = generateDesignDoc(
@@ -870,12 +938,9 @@ export function registerIpcHandlers() {
           darkModeExport,
           result.breakpoints,
           result.components,
-          options?.language?.startsWith('zh') ? 'zh-CN' : 'en',
-          [],
+          outputLanguage,
           result.designEvidence,
-          undefined,
-          designIntelligenceStatus,
-          { ...designIntelligenceMeta, timing: result.timing },
+          deterministicContext.profile,
         )
 
         const db = getDb()
@@ -887,9 +952,9 @@ export function registerIpcHandlers() {
            (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
-            design_evidence_json, evidence_coverage_json, design_intelligence_status,
-            design_intelligence_meta_json, analysis_timing_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            design_evidence_json, design_profile_json, evidence_coverage_json, design_context_status,
+            design_context_meta_json, validation_report_json, analysis_timing_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           url,
@@ -911,13 +976,13 @@ export function registerIpcHandlers() {
           result.authWallDetected ? 1 : 0,
           result.finalUrl ?? null,
           generateDesignEvidenceJson(result.designEvidence),
+          JSON.stringify(deterministicContext.profile),
           JSON.stringify(result.designEvidence.coverage),
-          designIntelligenceStatus,
-          JSON.stringify(designIntelligenceMeta),
+          deterministicContext.meta.status,
+          JSON.stringify(deterministicContext.meta),
+          JSON.stringify(deterministicContext.validationReport),
           JSON.stringify(result.timing),
         )
-
-        analysisProgramCompletedTimes.set(analysisId, Date.now())
 
         log.info(
           'analysis',
@@ -926,21 +991,20 @@ export function registerIpcHandlers() {
         log.info(
           'analysis',
           `timing: total=${result.timing.totalMs}ms screenshots=${result.timing.screenshotCaptureMs || 0}ms ` +
-            `fingerprints=${result.timing.imageFingerprintMs || 0}ms summaries=${result.timing.imageSummaryMs}ms ` +
             `images=${result.timing.imageCount} userWaitExcluded=${result.timing.userWaitMs || 0}ms`,
         )
         result.extractionIssues.slice(0, 8).forEach((issue, index) => {
-          const reason = issue.reason.replace(/\s+/g, ' ').slice(0, 360)
+          const reason = issue.reason.replace(/\\s+/g, ' ').slice(0, 360)
           log.warn('analysis', `degraded #${index + 1}: stage=${issue.stage} reason=${reason}`)
         })
         if (result.extractionIssues.length > 8) {
           log.warn('analysis', `degraded: ${result.extractionIssues.length - 8} additional issues omitted`)
         }
 
-        return {
+        return completeRun({
           analysisId,
           savedThemeId: null,
-          tokens: result.tokens,
+          tokens: result.tokens as unknown as Record<string, unknown>,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
           designDoc,
@@ -961,28 +1025,32 @@ export function registerIpcHandlers() {
           extractionIssues: result.extractionIssues,
           pageCoverage: result.pageCoverage,
           designEvidence: result.designEvidence,
-          designIntelligence: designIntelligenceMeta,
-        }
+          designProfile: deterministicContext.profile,
+          designContext: deterministicContext.meta,
+          reconstructionBrief: deterministicContext.reconstructionBrief,
+          agentContext: deterministicContext.agentContext,
+          validationReport: deterministicContext.validationReport,
+        })
       } catch (err: unknown) {
         if (analysisController.signal.aborted) {
           log.info('analysis', `cancelled: url=${url}`)
-          return { cancelled: true }
+          return completeRun({ cancelled: true })
         }
         if (err instanceof AuthenticationRequiredError) {
           log.info('analysis', `auth required: url=${url}`)
-          return {
+          return completeRun({
             authRequired: true,
             detection: err.detection,
-          }
+          })
         }
         if (err instanceof AuthenticationCancelledError) {
           log.info('analysis', `cancelled at login decision: url=${url}`)
-          return { cancelled: true }
+          return completeRun({ cancelled: true })
         }
         const message = err instanceof Error ? err.message : String(err)
         log.error('analysis', `failed during ${analysisStage}: url=${url} error=${message}`)
         console.error(`[imprint] analysis failed during ${analysisStage}:`, err)
-        return { error: true, message, stage: analysisStage }
+        return completeRun({ error: true, message, stage: analysisStage })
       } finally {
         event.sender.removeListener('destroyed', abortWhenRendererCloses)
         if (analysisControllers.get(senderId) === analysisController) analysisControllers.delete(senderId)
@@ -990,525 +1058,20 @@ export function registerIpcHandlers() {
     },
   )
 
-  ipcMain.handle('design-intelligence:start', async (event, analysisId: string, language?: string) => {
-    const db = getDb()
-    const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(analysisId) as
-      Record<string, unknown> | undefined
-    if (!record) return { error: true, message: 'Analysis not found' }
-    if (!record.design_evidence_json) return { error: true, message: 'Design Evidence is unavailable for this record' }
-
-    const programCompletedAt = analysisProgramCompletedTimes.get(analysisId)
-    const interstageUserWaitMs = programCompletedAt ? Math.max(0, Date.now() - programCompletedAt) : 0
-    analysisProgramCompletedTimes.delete(analysisId)
-
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const designEvidence = JSON.parse(record.design_evidence_json as string) as DesignEvidence
-    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-    const settings = getSettings()
-    const outputLanguage = language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
-    const existingMeta = record.design_intelligence_meta_json
-      ? (JSON.parse(record.design_intelligence_meta_json as string) as DesignIntelligenceMeta)
-      : null
-    const route = chooseDesignIntelligenceRoute(settings, designEvidence)
-    const expectedPackage = selectEvidencePackage(designEvidence, route.mode)
-    const expectedImageIds =
-      route.mode === 'multimodal'
-        ? availableEvidenceImageIds(designEvidence, expectedPackage.imageIds)
-        : expectedPackage.imageIds
-    const expectedMode = route.mode === 'multimodal' && expectedImageIds.length === 0 ? 'structural-only' : route.mode
-    const expectedFingerprint = createEvidenceFingerprint(
-      designEvidence,
-      expectedMode,
-      route.provider,
-      route.model,
-      expectedImageIds,
-      DESIGN_PROFILE_PROMPT_VERSION,
-      DESIGN_PROFILE_SCHEMA_VERSION,
-      outputLanguage,
-    )
-    const cacheKey = createIntelligenceCacheKey(
-      expectedFingerprint,
-      route,
-      settings,
-      outputLanguage,
-      designEvidence.source.accessMode,
-    )
-    if (
-      record.design_profile_json &&
-      existingMeta &&
-      (existingMeta.status === 'complete' || existingMeta.status === 'partial') &&
-      existingMeta.cacheKey === cacheKey &&
-      existingMeta.inputFingerprint === expectedFingerprint &&
-      existingMeta.schemaVersion === DESIGN_PROFILE_SCHEMA_VERSION &&
-      existingMeta.promptVersion === DESIGN_PROFILE_PROMPT_VERSION
-    ) {
-      const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile
-      const cachedMeta = {
-        ...existingMeta,
-        timing: existingMeta.timing
-          ? {
-              ...existingMeta.timing,
-              cacheHit: true,
-              aiTotalMs: 0,
-              aiQueueMs: 0,
-              aiNetworkMs: 0,
-              aiTransportAttempts: 0,
-              totalMs: 0,
-              aiInvokeMs: 0,
-            }
-          : existingMeta.timing,
-      }
-      const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens, cachedMeta)
-      const programTiming = readStoredAnalysisTiming(record)
-      const combinedTiming = programTiming
-        ? mergeAnalysisTimings(programTiming, cachedMeta.timing, interstageUserWaitMs)
-        : cachedMeta.timing
-      return {
-        ...buildStoredAnalysisResult(record, tokens),
-        duration: (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
-        analysisTiming: combinedTiming,
-        designEvidence,
-        designProfile,
-        designIntelligence: cachedMeta,
-        reconstructionBrief,
-        agentContext: createTaskContext('Create a new page or component', designEvidence, designProfile, cachedMeta),
-        validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
-      }
-    }
-    {
-      const persistentCache = db
-        .prepare('SELECT * FROM design_intelligence_cache WHERE cache_key = ?')
-        .get(cacheKey) as Record<string, unknown> | undefined
-      if (persistentCache) {
-        const cachedProfile = JSON.parse(persistentCache.profile_json as string) as DesignProfile
-        const storedMeta = JSON.parse(persistentCache.meta_json as string) as DesignIntelligenceMeta
-        const cachedMeta: DesignIntelligenceMeta = {
-          ...storedMeta,
-          cacheKey,
-          inputFingerprint: expectedFingerprint,
-          timing: storedMeta.timing
-            ? {
-                ...storedMeta.timing,
-                cacheHit: true,
-                aiTotalMs: 0,
-                aiQueueMs: 0,
-                aiNetworkMs: 0,
-                aiTransportAttempts: 0,
-                totalMs: 0,
-                aiInvokeMs: 0,
-              }
-            : storedMeta.timing,
-        }
-        const cachedValidation = persistentCache.validation_report_json
-          ? JSON.parse(persistentCache.validation_report_json as string)
-          : null
-        const programTiming = readStoredAnalysisTiming(record)
-        const combinedTiming = programTiming
-          ? mergeAnalysisTimings(programTiming, cachedMeta.timing, interstageUserWaitMs)
-          : cachedMeta.timing
-        db.prepare(
-          `UPDATE analyses
-           SET design_profile_json = ?, design_intelligence_status = ?, design_intelligence_meta_json = ?,
-               validation_report_json = ?, analysis_timing_json = ?, duration_ms = ?
-           WHERE id = ?`,
-        ).run(
-          JSON.stringify(cachedProfile),
-          cachedMeta.status,
-          JSON.stringify(cachedMeta),
-          persistentCache.validation_report_json || null,
-          combinedTiming ? JSON.stringify(combinedTiming) : record.analysis_timing_json,
-          (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
-          analysisId,
-        )
-        db.prepare('UPDATE design_intelligence_cache SET last_accessed_at = ? WHERE cache_key = ?').run(
-          new Date().toISOString(),
-          cacheKey,
-        )
-        const reconstructionBrief = generateReconstructionBrief(cachedProfile, designEvidence, tokens, cachedMeta)
-        log.info('design-intelligence', `persistent cache hit: key=${cacheKey.slice(0, 12)}`)
-        return {
-          ...buildStoredAnalysisResult(record, tokens),
-          duration: (combinedTiming?.totalMs ?? Number(record.duration_ms)) || 0,
-          analysisTiming: combinedTiming,
-          designEvidence,
-          designProfile: cachedProfile,
-          designIntelligence: cachedMeta,
-          reconstructionBrief,
-          agentContext: createTaskContext('Create a new page or component', designEvidence, cachedProfile, cachedMeta),
-          validationReport: cachedValidation,
-        }
-      }
-    }
-    const pendingMeta = getInitialDesignIntelligenceMeta(settings, designEvidence)
-    designIntelligenceControllers.get(analysisId)?.abort()
-    const intelligenceController = new AbortController()
-    designIntelligenceControllers.set(analysisId, intelligenceController)
-
-    db.prepare(
-      `UPDATE analyses
-       SET design_intelligence_status = ?, design_intelligence_meta_json = ?
-       WHERE id = ?`,
-    ).run(pendingMeta.status, JSON.stringify(pendingMeta), analysisId)
-    win?.webContents.send('design-intelligence:progress', {
-      step: 'progress.programAnalysisComplete',
-      percent: 5,
-    })
-
-    const intelligence = await runDesignIntelligence(
-      designEvidence,
-      tokens,
-      settings,
-      outputLanguage,
-      intelligenceController.signal,
-      (step, percent) => {
-        win?.webContents.send('design-intelligence:progress', { step, percent })
-      },
-    )
-    const completedCacheKey = createIntelligenceCacheKey(
-      intelligence.meta.inputFingerprint || expectedFingerprint,
-      route,
-      settings,
-      outputLanguage,
-      designEvidence.source.accessMode,
-    )
-    intelligence.meta.cacheKey = completedCacheKey
-    const programTiming = readStoredAnalysisTiming(record)
-    const combinedTiming = programTiming
-      ? mergeAnalysisTimings(programTiming, intelligence.meta.timing, interstageUserWaitMs)
-      : intelligence.meta.timing
-    if (combinedTiming) {
-      log.info(
-        'design-intelligence',
-        `combined timing: program=${combinedTiming.programTotalMs || 0}ms ai=${combinedTiming.aiTotalMs || 0}ms ` +
-          `total=${combinedTiming.totalMs}ms userWaitExcluded=${combinedTiming.userWaitMs || 0}ms`,
-      )
-    }
-    if (designIntelligenceControllers.get(analysisId) === intelligenceController) {
-      designIntelligenceControllers.delete(analysisId)
-    }
-    let designDoc = (record.design_doc as string) || ''
-    const previousProfile = record.design_profile_json
-      ? (JSON.parse(record.design_profile_json as string) as DesignProfile)
-      : null
-    const designProfile = intelligence.profile || previousProfile
-    let reconstructionBrief: string | null = generateReconstructionBrief(
-      designProfile,
-      designEvidence,
-      tokens,
-      intelligence.meta,
-    )
-    const validationReport =
-      intelligence.validationReport ||
-      (record.validation_report_json
-        ? (JSON.parse(record.validation_report_json as string) as ReturnType<typeof validateRecipe>)
-        : null)
-    let agentContext = createTaskContext(
-      'Use the observed design evidence',
-      designEvidence,
-      designProfile,
-      intelligence.meta,
-    )
-
-    let aliasedCss: string | null = null
-    let aliasedTailwind: string | null = null
-    if (intelligence.profile) {
-      win?.webContents.send('design-intelligence:progress', {
-        step: 'progress.validatingDesignLanguage',
-        percent: 75,
-      })
-      reconstructionBrief = intelligence.reconstructionBrief
-      agentContext = createTaskContext(
-        'Create a new page or component',
-        designEvidence,
-        intelligence.profile,
-        intelligence.meta,
-      )
-      const darkModeExport = readDarkModeExportData(
-        record.dark_tokens_json,
-        tokens,
-        record.dark_mode_method,
-        record.dark_mode_selector,
-      )
-      const aliasResult =
-        intelligence.profile.tokenAliases && intelligence.profile.tokenAliases.length > 0
-          ? applyColorRenames(tokens, intelligence.profile.tokenAliases)
-          : null
-      const exportTokens = aliasResult?.tokens ?? tokens
-      const exportDarkMode =
-        aliasResult && darkModeExport?.darkTokens
-          ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
-          : darkModeExport
-      designDoc = generateDesignDoc(
-        exportTokens,
-        record.url as string,
-        designEvidence.featureTags,
-        exportDarkMode,
-        designEvidence.breakpoints,
-        undefined,
-        outputLanguage,
-        [],
-        designEvidence,
-        intelligence.profile,
-        intelligence.meta.status,
-        { ...intelligence.meta, timing: combinedTiming },
-      )
-      if (aliasResult) {
-        const aliasComment = `/* AI token aliases: ${aliasResult.applied.map((item) => `${item.tokenId} -> ${item.name}`).join(', ')} */\n`
-        aliasedCss = aliasComment + generateCssVariables(exportTokens, exportDarkMode, designEvidence.breakpoints)
-        aliasedTailwind = aliasComment + generateTailwindTheme(exportTokens, exportDarkMode, designEvidence.breakpoints)
-      }
-    } else {
-      const darkModeExport = readDarkModeExportData(
-        record.dark_tokens_json,
-        tokens,
-        record.dark_mode_method,
-        record.dark_mode_selector,
-      )
-      designDoc = generateDesignDoc(
-        tokens,
-        record.url as string,
-        designEvidence.featureTags,
-        darkModeExport,
-        designEvidence.breakpoints,
-        undefined,
-        outputLanguage,
-        [],
-        designEvidence,
-        undefined,
-        intelligence.meta.status,
-        { ...intelligence.meta, timing: combinedTiming },
-      )
-    }
-
-    const totalDuration = combinedTiming?.totalMs ?? null
-
-    db.prepare(
-      `UPDATE analyses
-       SET design_doc = ?, design_profile_json = ?, design_intelligence_status = ?,
-           design_intelligence_meta_json = ?, validation_report_json = ?,
-           css_variables = ?, tailwind_theme = ?, analysis_timing_json = ?${totalDuration != null ? ', duration_ms = ?' : ''}
-       WHERE id = ?`,
-    ).run(
-      ...[
-        designDoc,
-        designProfile ? JSON.stringify(designProfile) : null,
-        intelligence.meta.status,
-        JSON.stringify(intelligence.meta),
-        validationReport ? JSON.stringify(validationReport) : null,
-        aliasedCss ?? record.css_variables,
-        aliasedTailwind ?? record.tailwind_theme,
-        combinedTiming ? JSON.stringify(combinedTiming) : record.analysis_timing_json,
-        ...(totalDuration != null ? [totalDuration] : []),
-        analysisId,
-      ],
-    )
-    if (intelligence.profile && ['complete', 'partial'].includes(intelligence.meta.status)) {
-      const storedFingerprint = intelligence.meta.inputFingerprint || expectedFingerprint
-      const storedMode = intelligence.meta.inputMode || route.mode
-      let storedPackage = selectEvidencePackage(designEvidence, storedMode)
-      if (storedMode === 'multimodal') {
-        storedPackage = restrictEvidencePackageImages(
-          storedPackage,
-          availableEvidenceImageIds(designEvidence, storedPackage.imageIds),
-        )
-      }
-      const digestJson = JSON.stringify(
-        prepareAnalysisDigestPackageForPrompt(buildAnalysisDigest(designEvidence, storedPackage)).digest,
-      )
-      const now = new Date().toISOString()
-      db.prepare(
-        `INSERT INTO design_intelligence_cache
-         (cache_key, input_fingerprint, digest_json, profile_json, meta_json, validation_report_json, created_at, last_accessed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(cache_key) DO UPDATE SET
-           digest_json = excluded.digest_json,
-           profile_json = excluded.profile_json,
-           meta_json = excluded.meta_json,
-           validation_report_json = excluded.validation_report_json,
-           last_accessed_at = excluded.last_accessed_at`,
-      ).run(
-        completedCacheKey,
-        storedFingerprint,
-        digestJson,
-        JSON.stringify(intelligence.profile),
-        JSON.stringify(intelligence.meta),
-        validationReport ? JSON.stringify(validationReport) : null,
-        now,
-        now,
-      )
-      db.prepare(
-        `DELETE FROM design_intelligence_cache
-         WHERE cache_key NOT IN (
-           SELECT cache_key FROM design_intelligence_cache ORDER BY last_accessed_at DESC LIMIT 100
-         )`,
-      ).run()
-    }
-    const currentThemeLink = db.prepare('SELECT theme_id FROM analyses WHERE id = ?').get(analysisId) as
-      { theme_id: string | null } | undefined
-    if (typeof currentThemeLink?.theme_id === 'string') {
-      db.prepare(
-        `UPDATE themes
-         SET design_doc = ?, design_evidence_json = ?, design_profile_json = ?,
-             design_intelligence_meta_json = ?, updated_at = ?${aliasedCss ? ', css_variables = ?, tailwind_theme = ?' : ''}
-         WHERE id = ?`,
-      ).run(
-        ...[
-          designDoc,
-          record.design_evidence_json,
-          designProfile ? JSON.stringify(designProfile) : null,
-          JSON.stringify(intelligence.meta),
-          new Date().toISOString(),
-          ...(aliasedCss ? [aliasedCss, aliasedTailwind] : []),
-          currentThemeLink.theme_id,
-        ],
-      )
-    }
-    win?.webContents.send('design-intelligence:progress', {
-      step:
-        intelligence.meta.status === 'failed' ? 'progress.designLanguageFallback' : 'progress.designLanguageComplete',
-      percent: 100,
-    })
-
-    return {
-      ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
-      duration: (totalDuration ?? Number(record.duration_ms)) || 0,
-      analysisTiming: combinedTiming,
-      featureTags: designEvidence.featureTags,
-      darkTokens:
-        readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)
-          ?.darkTokens?.colors ?? null,
-      hasDarkMode: record.has_dark_mode === 1,
-      accessMode: record.access_mode,
-      authWallDetected: record.auth_wall_detected === 1,
-      finalUrl: record.final_url,
-      designEvidence,
-      designProfile,
-      designIntelligence: intelligence.meta,
-      reconstructionBrief,
-      agentContext,
-      validationReport,
-    }
-  })
-
-  ipcMain.handle('design-examples:start', async (_event, analysisId: string, language?: string) => {
-    const db = getDb()
-    const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(analysisId) as
-      Record<string, unknown> | undefined
-    if (!record) return { error: true, message: 'Analysis not found' }
-    if (!record.design_evidence_json || !record.design_profile_json) {
-      return { error: true, message: 'A validated design interpretation is required' }
-    }
-
-    const designEvidence = JSON.parse(record.design_evidence_json as string) as DesignEvidence
-    const designProfile = JSON.parse(record.design_profile_json as string) as DesignProfile
-    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-    const outputLanguage = language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
-    const existingMeta = record.design_intelligence_meta_json
-      ? (JSON.parse(record.design_intelligence_meta_json as string) as DesignIntelligenceMeta)
-      : ({ status: 'complete', capabilityLevel: 'structural-ai' } as DesignIntelligenceMeta)
-    const pendingMeta: DesignIntelligenceMeta = {
-      ...existingMeta,
-      exampleGeneration: { status: 'pending' },
-    }
-    db.prepare('UPDATE analyses SET design_intelligence_meta_json = ? WHERE id = ?').run(
-      JSON.stringify(pendingMeta),
-      analysisId,
-    )
-
-    exampleGenerationControllers.get(analysisId)?.abort()
-    const controller = new AbortController()
-    exampleGenerationControllers.set(analysisId, controller)
-    const generation = await runExampleGeneration(
-      designEvidence,
-      tokens,
-      designProfile,
-      getSettings(),
-      outputLanguage,
-      controller.signal,
-    )
-    if (exampleGenerationControllers.get(analysisId) === controller) {
-      exampleGenerationControllers.delete(analysisId)
-    }
-
-    const updatedMeta: DesignIntelligenceMeta = {
-      ...existingMeta,
-      exampleGeneration: {
-        status: generation.status,
-        failureCode: generation.failureCode,
-      },
-    }
-    const reconstructionBrief = generateReconstructionBrief(designProfile, designEvidence, tokens, existingMeta)
-    const darkModeExport = readDarkModeExportData(
-      record.dark_tokens_json,
-      tokens,
-      record.dark_mode_method,
-      record.dark_mode_selector,
-    )
-    const aliasResult =
-      designProfile.tokenAliases && designProfile.tokenAliases.length > 0
-        ? applyColorRenames(tokens, designProfile.tokenAliases)
-        : null
-    const exportTokens = aliasResult?.tokens ?? tokens
-    const exportDarkMode =
-      aliasResult && darkModeExport?.darkTokens
-        ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
-        : darkModeExport
-    // Always rebuild the document. A failed retry must remove examples from a prior
-    // successful run so stale generated HTML is never left in Markdown exports.
-    const designDoc = generateDesignDoc(
-      exportTokens,
-      record.url as string,
-      designEvidence.featureTags,
-      exportDarkMode,
-      designEvidence.breakpoints,
-      undefined,
-      outputLanguage,
-      generation.status === 'complete' ? generation.examples : [],
-      designEvidence,
-      designProfile,
-      updatedMeta.status,
-      { ...updatedMeta, timing: readStoredAnalysisTiming(record) || updatedMeta.timing },
-    )
-
-    db.prepare(
-      `UPDATE analyses
-       SET design_doc = ?, design_intelligence_meta_json = ?
-       WHERE id = ?`,
-    ).run(designDoc, JSON.stringify(updatedMeta), analysisId)
-    const currentThemeLink = db.prepare('SELECT theme_id FROM analyses WHERE id = ?').get(analysisId) as
-      { theme_id: string | null } | undefined
-    if (typeof currentThemeLink?.theme_id === 'string') {
-      db.prepare(
-        `UPDATE themes
-         SET design_doc = ?, design_intelligence_meta_json = ?, updated_at = ?
-         WHERE id = ?`,
-      ).run(designDoc, JSON.stringify(updatedMeta), new Date().toISOString(), currentThemeLink.theme_id)
-    }
-
-    return {
-      ...buildStoredAnalysisResult({ ...record, theme_id: currentThemeLink?.theme_id || null }, tokens, designDoc),
-      designEvidence,
-      designProfile,
-      designIntelligence: updatedMeta,
-      reconstructionBrief,
-      agentContext: createTaskContext('Create a new page or component', designEvidence, designProfile, updatedMeta),
-      validationReport: record.validation_report_json ? JSON.parse(record.validation_report_json as string) : null,
-    }
-  })
-
   ipcMain.handle(
     'validation:start',
     async (_event, analysisId: string, scenario: 'workflow' | 'content' | 'states') => {
       const db = getDb()
       const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(analysisId) as
         Record<string, unknown> | undefined
-      if (!record?.design_evidence_json || !record.design_profile_json) {
-        return { error: true, message: 'A validated DesignProfile is required' }
-      }
-      const evidence = JSON.parse(record.design_evidence_json as string) as DesignEvidence
-      const profile = JSON.parse(record.design_profile_json as string) as DesignProfile
+      if (!record?.design_evidence_json) return { error: true, message: 'Design evidence is required' }
+      const evidence = readDesignEvidence(record.design_evidence_json)
+      if (!evidence) return { error: true, message: 'Design evidence is required' }
       const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-      const meta = JSON.parse((record.design_intelligence_meta_json as string) || '{}') as DesignIntelligenceMeta
+      const storedContext = restoreDeterministicStoredContext(record, tokens, evidence)
+      if (!storedContext.profile) return { error: true, message: 'A deterministic DesignProfile is required' }
+      const profile = storedContext.profile
+      const meta = storedContext.meta
       const recipe = createValidationRecipe(scenario, profile, tokens)
       const validationReport = validateRecipe(recipe, profile, tokens, meta.capabilityLevel)
       db.prepare('UPDATE analyses SET validation_report_json = ? WHERE id = ?').run(
@@ -1519,7 +1082,7 @@ export function registerIpcHandlers() {
         ...buildStoredAnalysisResult(record, tokens),
         designEvidence: evidence,
         designProfile: profile,
-        designIntelligence: meta,
+        designContext: meta,
         reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens, meta),
         agentContext: generateAgentContextBundle(
           'Validate a new design scenario',
@@ -1587,10 +1150,10 @@ export function registerIpcHandlers() {
     return getSettings()
   })
 
-  ipcMain.handle('settings:save', (_event, settings: Record<string, unknown>) => {
-    // Never log the payload — it can contain API keys.
+  ipcMain.handle('settings:save', (_event, settings: Partial<AppSettings>) => {
+    // Never log values from user-specific configuration.
     log.info('settings', `saved: ${Object.keys(settings).join(', ')}`)
-    return saveSettings(settings as Parameters<typeof saveSettings>[0])
+    return saveSettings(settings)
   })
 
   ipcMain.on('log:event', (_event, level: string, message: string) => {
@@ -1608,71 +1171,5 @@ export function registerIpcHandlers() {
     const logDir = getLogDir()
     await shell.openPath(logDir)
     return { success: true, path: logDir }
-  })
-
-  ipcMain.handle('settings:detectAgentClis', async (_event, force: unknown) => {
-    return detectAgentClis(force === true)
-  })
-
-  ipcMain.handle('settings:testApiKey', async (_event, provider: string, apiKey: string, customBaseUrl?: string) => {
-    const baseUrl = (customBaseUrl || getDefaultBaseUrl(provider)).replace(/\/$/, '')
-    if (!baseUrl) {
-      return { success: false, message: 'Custom provider requires a base URL' }
-    }
-
-    try {
-      const authHeaders: Record<string, string> =
-        provider === 'anthropic'
-          ? { 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }
-          : provider === 'google'
-            ? {}
-            : { Authorization: `Bearer ${apiKey}` }
-      const timeout = AbortSignal.timeout(10_000)
-
-      const modelsEndpoint =
-        provider === 'google' ? `${baseUrl}/models?key=${encodeURIComponent(apiKey)}` : `${baseUrl}/models`
-      const modelsRes = await net.fetch(modelsEndpoint, { headers: authHeaders, signal: timeout })
-      if (modelsRes.ok) {
-        return { success: true, message: 'Connection successful' }
-      }
-
-      if (modelsRes.status === 404) {
-        const chatRes = await net.fetch(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { ...authHeaders, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: 'auto',
-            messages: [{ role: 'user', content: 'hi' }],
-            max_tokens: 1,
-          }),
-          signal: timeout,
-        })
-        if (chatRes.ok) {
-          return { success: true, message: 'Connection successful' }
-        }
-        const chatText = await chatRes.text().catch(() => '')
-        let detail = ''
-        try {
-          const body = JSON.parse(chatText) as { error?: { message?: string }; message?: string }
-          detail = body?.error?.message || body?.message || chatText.slice(0, 200)
-        } catch {
-          detail = chatText.slice(0, 200)
-        }
-        return { success: false, message: `HTTP ${chatRes.status}${detail ? ': ' + detail : ''}` }
-      }
-
-      const text = await modelsRes.text().catch(() => '')
-      let detail = ''
-      try {
-        const body = JSON.parse(text) as { error?: { message?: string }; message?: string }
-        detail = body?.error?.message || body?.message || text.slice(0, 200)
-      } catch {
-        detail = text.slice(0, 200)
-      }
-      return { success: false, message: `HTTP ${modelsRes.status}${detail ? ': ' + detail : ''}` }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { success: false, message: msg }
-    }
   })
 }

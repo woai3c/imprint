@@ -76,6 +76,29 @@ async function readTargetState(
   ])
 }
 
+async function waitForTargetMotion(
+  page: Page,
+  candidate: PageInteractionCandidateSnapshot,
+  deadline: number,
+): Promise<void> {
+  const motionDeadline = Math.min(deadline, Date.now() + 600)
+  await settleBeforeDeadline(
+    page.evaluate(async (input) => {
+      const target = document.querySelector(input.locator)
+      if (!(target instanceof HTMLElement)) return
+      const controlledId = target.getAttribute('aria-controls')
+      const controlled = controlledId ? document.getElementById(controlledId) : null
+      const animations = [
+        ...new Set([target, controlled].flatMap((element) => element?.getAnimations({ subtree: true }) || [])),
+      ].filter((animation) => animation.pending || animation.playState === 'running')
+      await Promise.allSettled(animations.map((animation) => animation.finished))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    }, candidate),
+    motionDeadline,
+    undefined,
+  )
+}
+
 async function clickCandidate(
   page: Page,
   candidate: PageInteractionCandidateSnapshot,
@@ -170,7 +193,7 @@ async function restoreCandidate(
   } else {
     await clickCandidate(page, candidate, deadline)
   }
-  await page.waitForTimeout(Math.min(120, Math.max(0, deadline - Date.now())))
+  await waitForTargetMotion(page, candidate, deadline)
   return statesMatch(before, await readTargetState(page, candidate, deadline))
 }
 
@@ -189,6 +212,7 @@ export async function observeSafeInteractions(
     const before = await readTargetState(page, candidate, candidateDeadline)
     if (!before) continue
     if (!(await clickCandidate(page, candidate, candidateDeadline))) continue
+    await waitForTargetMotion(page, candidate, candidateDeadline)
     const after = await readTargetState(page, candidate, candidateDeadline)
     if (!after) continue
     const changedProperties = diffProperties(before, after)

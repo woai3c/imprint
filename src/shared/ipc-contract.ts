@@ -1,13 +1,13 @@
 import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 import type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
-import type { DesignEvidence } from '../core/design-evidence/types.js'
 import type {
   AgentContextBundle,
-  DesignIntelligenceMeta,
+  DesignContextMeta,
   DesignProfile,
   ValidationReport,
-} from '../core/design-intelligence/types.js'
+} from '../core/design-context/types.js'
+import type { DesignEvidence } from '../core/design-evidence/types.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 export type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
@@ -15,42 +15,23 @@ export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 export type {
   AgentContextBundle,
   AnalysisCapabilityLevel,
-  DesignIntelligenceMeta,
-  DesignIntelligenceStatus,
+  DesignContextMeta,
+  DesignContextStatus,
   DesignProfile,
   ValidationReport,
-} from '../core/design-intelligence/types.js'
+} from '../core/design-context/types.js'
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
 export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
 export interface AppSettings {
-  aiEnabled: boolean
-  aiMode: 'apiKey' | 'agentCli'
-  provider: string
-  apiKeys: Record<string, string>
-  baseUrl: string
-  model: string
-  modelSupportsVision: boolean
-  visionAnalysisConsent: boolean
-  managedVisionConsent: boolean
   analysisDepth: 'standard' | 'deep'
-  agentCli: string
   exportFormat: ThemeExportFormat
   proxyServer: string
-  reasoningEffort: string
-  thinkingEnabled: boolean
   language: string
   colorMode: string
   themePreference: string
+  validationScenario: string
   analysisPageCount: number
-  noAiTipDismissed: boolean
-}
-
-export interface AgentCliInfo {
-  name: string
-  command: string
-  version: string | null
-  available: boolean
 }
 
 export interface BrowserSession {
@@ -75,7 +56,7 @@ export interface ThemeRecord {
   dark_mode_selector: string | null
   design_evidence_json: string | null
   design_profile_json: string | null
-  design_intelligence_meta_json: string | null
+  design_context_meta_json: string | null
   tags: string
   is_builtin: number
   is_favorite: number
@@ -117,11 +98,8 @@ export interface AnalysisRecord {
   pages_analyzed: number
   viewports: string
   duration_ms: number | null
-  token_usage: number
   created_at: string
   screenshot_path: string | null
-  design_intelligence_status: string | null
-  ai_token_usage?: { input?: number; output?: number }
 }
 
 export interface AnalysisSummaryPage {
@@ -169,7 +147,7 @@ export interface AnalysisResultData {
   extractionIssues?: ExtractionIssue[]
   pageCoverage?: PageCoverage
   designEvidence?: DesignEvidence
-  designIntelligence?: DesignIntelligenceMeta
+  designContext?: DesignContextMeta
   designProfile?: DesignProfile | null
   reconstructionBrief?: string | null
   agentContext?: AgentContextBundle | null
@@ -196,7 +174,7 @@ export interface AnalysisDetailData {
   accessMode: 'anonymous' | 'managed' | null
   authWallDetected: boolean
   designEvidence: DesignEvidence | null
-  designIntelligence: DesignIntelligenceMeta
+  designContext: DesignContextMeta
   designProfile: DesignProfile | null
   reconstructionBrief: string | null
   agentContext: AgentContextBundle | null
@@ -222,7 +200,12 @@ export interface AnalyzeResponse extends Partial<AnalysisResultData> {
   cancelled?: boolean
 }
 
-export interface DesignIntelligenceResponse extends Partial<AnalysisResultData> {
+export type AnalysisRecoveryResponse =
+  | { status: 'idle' }
+  | { status: 'running'; url: string; progress?: { step: string; percent: number } }
+  | { status: 'complete'; url: string; response: AnalyzeResponse }
+
+export interface DesignContextResponse extends Partial<AnalysisResultData> {
   error?: boolean
   message?: string
 }
@@ -267,17 +250,13 @@ export interface ElectronAPI {
   deleteTheme: (id: string) => Promise<{ success: boolean }>
   exportTheme: (id: string, format: ThemeExportFormat) => Promise<FileOperationResult>
   analyzeUrl: (url: string, options?: AnalyzeOptions) => Promise<AnalyzeResponse>
+  recoverAnalysis: () => Promise<AnalysisRecoveryResponse>
+  acknowledgeAnalysis: () => Promise<{ success: boolean }>
   cancelAnalysis: () => Promise<{ success: boolean }>
-  startDesignIntelligence: (analysisId: string, language?: string) => Promise<DesignIntelligenceResponse>
-  generateDesignExamples: (analysisId: string, language?: string) => Promise<DesignIntelligenceResponse>
-  cancelDesignIntelligence: (analysisId: string) => Promise<{ success: boolean }>
-  skipDesignIntelligence: (
-    analysisId: string,
-  ) => Promise<{ designIntelligence?: DesignIntelligenceMeta; error?: boolean }>
   generateValidation: (
     analysisId: string,
     scenario: 'workflow' | 'content' | 'states',
-  ) => Promise<DesignIntelligenceResponse>
+  ) => Promise<DesignContextResponse>
   submitLoginDecision: (requestId: string, decision: LoginDecision) => Promise<{ success: boolean }>
   listBrowserSessions: () => Promise<BrowserSession[]>
   deleteBrowserSession: (id: string) => Promise<{ success: boolean; message?: string }>
@@ -293,8 +272,6 @@ export interface ElectronAPI {
   reportPerformance: (sample: RendererPerformanceSample) => void
   getSettings: () => Promise<AppSettings>
   saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
-  detectAgentClis: (force?: boolean) => Promise<AgentCliInfo[]>
-  testApiKey: (provider: string, apiKey: string, baseUrl?: string) => Promise<{ success: boolean; message: string }>
   getAnalyses: () => Promise<AnalysisRecord[]>
   getAnalysisSummaries: () => Promise<AnalysisRecord[]>
   getAnalysisSummariesPage: (query?: AnalysisSummaryPageQuery) => Promise<AnalysisSummaryPage>
@@ -303,6 +280,5 @@ export interface ElectronAPI {
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>
   openExternal: (url: string) => Promise<void>
   onAnalysisProgress: (callback: (progress: { step: string; percent: number }) => void) => () => void
-  onDesignIntelligenceProgress: (callback: (progress: { step: string; percent: number }) => void) => () => void
   onLoginRequired: (callback: (request: LoginRequiredEvent) => void) => () => void
 }

@@ -6,17 +6,11 @@ import path from 'node:path'
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
 import {
-  AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT,
-  prepareEvidenceImageFingerprints,
-  prepareEvidenceImageSummaries,
-} from '../ai/image-summary.js'
-import {
   type CapturedPageEvidence,
   buildDesignEvidence,
   extractPageEvidence,
   observeSafeInteractions,
 } from '../design-evidence/index.js'
-import { selectEvidencePackage } from '../design-intelligence/evidence-selector.js'
 import { detectAuthWall } from './auth-wall.js'
 import { findBrowser, findHeadlessBrowser } from './browser-finder.js'
 import {
@@ -447,21 +441,13 @@ export async function analyze(
     extractionMs: 0,
     healthGateMs: 0,
     screenshotCaptureMs: 0,
-    imageFingerprintMs: 0,
-    digestMs: 0,
-    imageSummaryMs: 0,
-    aiQueueMs: 0,
-    aiNetworkMs: 0,
-    aiTransportAttempts: 0,
-    aiInvokeMs: 0,
     validationMs: 0,
     totalMs: 0,
     imageCount: 0,
-    cacheHit: false,
     budgetExceeded: [],
   }
   const measure = async <T>(
-    key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs' | 'imageSummaryMs',
+    key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs',
     run: () => Promise<T>,
   ) => {
     throwIfAnalysisAborted(options.signal)
@@ -688,9 +674,9 @@ export async function analyze(
     timing.browserMs = activeElapsedMs()
 
     const allStyles: ExtractedStyles[] = []
-    const aiEligibleStyles: ExtractedStyles[] = []
+    const evidenceEligibleStyles: ExtractedStyles[] = []
     const styleCaptures: TokenEvidenceCapture[] = []
-    const aiEligibleStyleCaptures: TokenEvidenceCapture[] = []
+    const evidenceEligibleStyleCaptures: TokenEvidenceCapture[] = []
     const screenshots: string[] = []
     const pageScreenshots: PageScreenshot[] = []
     const capturedPageEvidence: CapturedPageEvidence[] = []
@@ -866,9 +852,9 @@ export async function analyze(
       }
       mergeInteractionStyles(allInteractions, pageInteractionStyles)
       analyzedPages.set(pageIdentityUrl(page.url()), { source: 'requested', kind: 'entry' })
-      if (health.aiEligible) {
-        aiEligibleStyles.push(styles)
-        aiEligibleStyleCaptures.push({ url: page.url(), viewport: vpName, styles })
+      if (health.evidenceEligible) {
+        evidenceEligibleStyles.push(styles)
+        evidenceEligibleStyleCaptures.push({ url: page.url(), viewport: vpName, styles })
         if (i === 0) {
           evidenceMotion = motion
           evidenceBreakpoints = breakpoints
@@ -1164,10 +1150,10 @@ export async function analyze(
             source: discoveredPage.source,
             kind: discoveredPage.kind,
           })
-          if (health.aiEligible) {
+          if (health.evidenceEligible) {
             evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
-            aiEligibleStyles.push(subStyles)
-            aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
+            evidenceEligibleStyles.push(subStyles)
+            evidenceEligibleStyleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
             evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
           }
 
@@ -1410,9 +1396,9 @@ export async function analyze(
                   const mobileStyles = await runWithinDeadline(optionalStyleDeadline, () => extractStyles(subPage))
                   allStyles.push(mobileStyles)
                   styleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
-                  if (mobileHealth.aiEligible) {
-                    aiEligibleStyles.push(mobileStyles)
-                    aiEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+                  if (mobileHealth.evidenceEligible) {
+                    evidenceEligibleStyles.push(mobileStyles)
+                    evidenceEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
                   }
                 } catch {
                   throwIfAnalysisAborted(options.signal)
@@ -1475,13 +1461,13 @@ export async function analyze(
     tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
     let evidenceTokens = emptyDesignTokens()
     let evidenceMergedStyles = mergeStyles([])
-    if (aiEligibleStyles.length > 0) {
-      evidenceMergedStyles = mergeStyles(aiEligibleStyles)
+    if (evidenceEligibleStyles.length > 0) {
+      evidenceMergedStyles = mergeStyles(evidenceEligibleStyles)
       const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
-        aiEligibleStyles,
-        aiEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+        evidenceEligibleStyles,
+        evidenceEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
       )
-      const evidencePrimaryStyles = aiEligibleStyles[0] || evidenceMergedStyles
+      const evidencePrimaryStyles = evidenceEligibleStyles[0] || evidenceMergedStyles
       const evidenceColors = clusterColors(
         evidenceSelectionStyles.colors,
         evidenceSelectionStyles.usageCount,
@@ -1490,7 +1476,7 @@ export async function analyze(
       )
       evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
       evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
-      evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, aiEligibleStyleCaptures)
+      evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, evidenceEligibleStyleCaptures)
     }
     let featureTags = generateFeatureTags(tokens, mergedStyles)
     extractionIssues
@@ -1528,44 +1514,12 @@ export async function analyze(
       ...(deterministicClaims.length > 0 ? { deterministicClaims } : {}),
     }
     timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - tokenStartedAt)
-    onProgress?.('progress.selectingImageEvidence', 97)
-    const fingerprintStartedAt = Date.now()
-    const fingerprintPackage = selectEvidencePackage(designEvidence, 'multimodal', {
-      maxImages: AI_IMAGE_FINGERPRINT_CANDIDATE_COUNT,
-      maxVisualTokens: Number.MAX_SAFE_INTEGER,
-    })
-    await prepareEvidenceImageFingerprints(runtime.context, designEvidence, fingerprintPackage.imageIds).catch(
-      (error) => {
-        throwIfAnalysisAborted(options.signal)
-        const issue = { stage: 'ai-image-fingerprint', reason: extractionReason(error) }
-        extractionIssues.push(issue)
-        appendExtractionIssueLimitation(designEvidence.limitations, issue)
-      },
-    )
-    timing.imageFingerprintMs = Date.now() - fingerprintStartedAt
-    const summaryStartedAt = Date.now()
-    const summaryPackage = selectEvidencePackage(designEvidence, 'multimodal')
-    const preparedImageIds = await prepareEvidenceImageSummaries(
-      runtime.context,
-      designEvidence,
-      summaryPackage.imageIds,
-    ).catch((error) => {
-      throwIfAnalysisAborted(options.signal)
-      const issue = { stage: 'ai-image-summary', reason: extractionReason(error) }
-      extractionIssues.push(issue)
-      appendExtractionIssueLimitation(designEvidence.limitations, issue)
-      return []
-    })
-    timing.imageSummaryMs = Date.now() - summaryStartedAt
-    timing.imageCount = preparedImageIds.length
+    timing.imageCount = designEvidence.pages.reduce((count, page) => count + page.images.length, 0)
     timing.totalMs = activeElapsedMs()
-    timing.programTotalMs = timing.totalMs
     timing.userWaitMs = userWaitMs
     if ((timing.preparationMs || 0) > 100_000) timing.budgetExceeded?.push('preparation')
     if ((timing.healthGateMs || 0) > 20_000) timing.budgetExceeded?.push('health-gate')
     if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
-    if ((timing.imageFingerprintMs || 0) > 5_000) timing.budgetExceeded?.push('image-fingerprint')
-    if ((timing.imageSummaryMs || 0) > 15_000) timing.budgetExceeded?.push('image-summary')
     if (timing.totalMs > 120_000) timing.budgetExceeded?.push('program-analysis')
 
     throwIfAnalysisAborted(options.signal)

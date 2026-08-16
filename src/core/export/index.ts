@@ -1,11 +1,6 @@
 import { stringify } from 'yaml'
 
-import {
-  generateAgentGuide,
-  generateDesignPrinciples,
-  generateDosAndDonts,
-  generateExampleComponents,
-} from '../analyzer/agent-guide.js'
+import { generateAgentGuide, generateDesignPrinciples, generateDosAndDonts } from '../analyzer/agent-guide.js'
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
 import {
@@ -19,8 +14,9 @@ import {
 } from '../analyzer/component-detect.js'
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
 import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
-import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
-import type { DarkModeResult, DesignToken, GeneratedExampleComponent } from '../analyzer/types.js'
+import type { DarkModeResult, DesignToken } from '../analyzer/types.js'
+import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-context/profile-export.js'
+import type { DesignProfile } from '../design-context/types.js'
 import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
 import { resolveDesignSystemName } from '../design-evidence/page-identity.js'
@@ -30,11 +26,8 @@ import {
   usefulResponsiveChanges,
 } from '../design-evidence/responsive-reliability.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import { summarizeInterpretationDiagnostics } from '../design-intelligence/diagnostic-summary.js'
-import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-intelligence/profile-export.js'
-import type { DesignIntelligenceMeta, DesignIntelligenceStatus, DesignProfile } from '../design-intelligence/types.js'
 import { coreT } from '../i18n/index.js'
-import { designMdColorEntries, designMdColorRefMap } from './design-md-color-names.js'
+import { designMdColorEntries } from './design-md-color-names.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
 export { buildComponentSpecs, generateComponentSpecsJson } from './component-specs.js'
@@ -220,13 +213,9 @@ function designMdScaleValue(value: string): string | number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined
 }
 
-export function buildDesignMdColorTokens(
-  tokens: DesignToken,
-  aliases: readonly ColorRenameProposal[] = [],
-  fallbackPrefix = 'observed',
-): Record<string, string> {
+export function buildDesignMdColorTokens(tokens: DesignToken, fallbackPrefix = 'observed'): Record<string, string> {
   return Object.fromEntries(
-    designMdColorEntries(tokens, aliases, fallbackPrefix).map(({ publicName, value }) => [publicName, value]),
+    designMdColorEntries(tokens, fallbackPrefix).map(({ publicName, value }) => [publicName, value]),
   )
 }
 
@@ -350,8 +339,6 @@ interface DesignDocFrontMatterInput {
   components?: ComponentVariantPattern[]
   evidence?: DesignEvidence
   profile?: DesignProfile | null
-  status?: DesignIntelligenceStatus
-  meta?: DesignIntelligenceMeta
 }
 
 interface GoogleDesignMdFrontMatter {
@@ -598,23 +585,9 @@ function designDocColorRoleSummary(tokens: DesignToken): Record<string, unknown>
 }
 
 function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesignMdFrontMatter {
-  const {
-    tokens,
-    language,
-    url,
-    featureTags,
-    darkMode,
-    breakpoints,
-    components = [],
-    evidence,
-    profile,
-    status,
-    meta,
-  } = input
-  const diagnosticCounts =
-    meta?.diagnosticCounts || summarizeInterpretationDiagnostics(meta?.rejected || [], meta?.repaired || [])
+  const { tokens, language, url, featureTags, darkMode, breakpoints, components = [], evidence, profile } = input
   const source = evidence?.source.finalUrl || url
-  const colors = buildDesignMdColorTokens(tokens, profile?.tokenAliases)
+  const colors = buildDesignMdColorTokens(tokens)
   const typography = designMdTypographyTokens(tokens)
   const rounded: Record<string, string> = Object.fromEntries(
     tokens.radii.flatMap((value, index) =>
@@ -663,19 +636,6 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
     ...(tokens.zIndices.length > 0 ? { zIndices: tokens.zIndices } : {}),
     ...(tokens.transitions.length > 0 ? { transitions: tokens.transitions } : {}),
   }
-  const suggestedColorAliases = (profile?.tokenAliases || []).flatMap((alias) => {
-    const value = tokens.colors[alias.name] || tokens.colors[alias.tokenId]
-    const normalized = value ? normalizeColorValue(value) : null
-    if (!normalized) return []
-    const publicRef = designMdColorRefMap(tokens, profile?.tokenAliases).get(`color.${alias.tokenId}`)
-    if (!publicRef) return []
-    return [
-      {
-        token: publicRef.slice('color.'.length),
-        name: alias.name,
-      },
-    ]
-  })
   const frontMatter: GoogleDesignMdFrontMatter = {
     version: 'alpha',
     name: resolveDesignSystemName({
@@ -722,30 +682,10 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ...(confidence ? { tokenConfidence: confidence } : {}),
         },
         analysis: {
-          aiStatus: status || meta?.status || (profile ? 'unknown' : 'not-requested'),
+          mode: 'deterministic',
           ...(profile?.claimSource ? { claimSource: profile.claimSource } : {}),
           ...(profile?.catalogVersion ? { catalogVersion: profile.catalogVersion } : {}),
-          ...(profile?.inputMode || meta?.inputMode ? { inputMode: profile?.inputMode || meta?.inputMode } : {}),
-          ...(meta?.capabilityLevel ? { capabilityLevel: meta.capabilityLevel } : {}),
-          ...(meta?.provider ? { provider: meta.provider } : {}),
-          ...(meta?.model ? { model: meta.model } : {}),
-          ...(meta?.promptVersion ? { promptVersion: meta.promptVersion } : {}),
-          ...(meta?.generatedAt ? { generatedAt: meta.generatedAt } : {}),
-          ...(meta
-            ? {
-                rejectedClaimCount: diagnosticCounts.rejectedClaims,
-                rejectedAssertionCount: diagnosticCounts.rejectedAssertions,
-                affectedClaimCount: diagnosticCounts.affectedClaimPaths,
-                repairEventCount: diagnosticCounts.repairEvents,
-                ...(diagnosticCounts.selectionDiagnostics !== undefined
-                  ? { selectionDiagnosticCount: diagnosticCounts.selectionDiagnostics }
-                  : {}),
-                ...(meta.interpretationCoverage ? { interpretationCoverage: meta.interpretationCoverage } : {}),
-                ...(meta.tokenUsage ? { tokenUsage: meta.tokenUsage } : {}),
-              }
-            : {}),
         },
-        ...(suggestedColorAliases.length > 0 ? { suggestedColorAliases } : {}),
         ...(Object.keys(nonstandardTokens).length > 0 ? { nonstandardTokens } : {}),
         ...(components.length > 0
           ? {
@@ -801,7 +741,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                 method: darkMode.method || 'none',
                 ...(darkMode.selector ? { selector: normalizeDarkSelector(darkMode.selector) } : {}),
                 ...(darkMode.darkTokens
-                  ? { colors: buildDesignMdColorTokens(darkMode.darkTokens, [], 'dark-observed') }
+                  ? { colors: buildDesignMdColorTokens(darkMode.darkTokens, 'dark-observed') }
                   : {}),
               },
             }
@@ -1634,9 +1574,7 @@ function reconstructionSummary(
     const kinds = component.elementKinds?.length ? ` (${component.elementKinds.join('/')})` : ''
     return `${component.name} ×${component.count}${kinds}`
   })
-  // The reconstruction summary is the document's canonical, observed layer. AI prose belongs
-  // only in the explicitly inferred section and must never rewrite this summary, even after a
-  // successful interpretation run.
+  // The reconstruction summary is the document's canonical observed layer; profile claims stay separate.
   const thesis = coreT(language, 'export.reconstruction.thesis', {
     title: pageTitle,
     role: localizedPageRole(pageRole, language),
@@ -1680,11 +1618,8 @@ export function generateDesignDoc(
   breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>,
   components: ComponentPattern[] = [],
   language: DocLanguage = 'en',
-  exampleComponents: readonly GeneratedExampleComponent[] = [],
   designEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
-  designIntelligenceStatus?: DesignIntelligenceStatus,
-  designIntelligenceMeta?: DesignIntelligenceMeta,
 ): string {
   const zh = language === 'zh-CN'
   const documentUrl = url || designEvidence?.source.requestedUrl
@@ -1721,8 +1656,6 @@ export function generateDesignDoc(
     components: documentComponents,
     evidence: designEvidence,
     profile: designProfile,
-    status: designIntelligenceStatus,
-    meta: designIntelligenceMeta,
   })
   if (designEvidence)
     lines.push(
@@ -1760,7 +1693,7 @@ export function generateDesignDoc(
 
   // Colors
   lines = sections.colors
-  const publicColorEntries = designMdColorEntries(tokens, designProfile?.tokenAliases)
+  const publicColorEntries = designMdColorEntries(tokens)
   const publicColorNames = new Map(publicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
   const colorGroups = observedColorGroups(tokens, publicColorNames)
   if (colorGroups.length > 0) {
@@ -1878,7 +1811,7 @@ export function generateDesignDoc(
     lines.push(zh ? '\n### 深色模式颜色\n' : '\n### Dark Mode Colors\n')
     lines.push(zh ? '| 令牌 | 值 |' : '| Token | Value |')
     lines.push('|-------|-------|')
-    for (const { publicName, value } of designMdColorEntries(darkMode.darkTokens, [], 'dark-observed')) {
+    for (const { publicName, value } of designMdColorEntries(darkMode.darkTokens, 'dark-observed')) {
       lines.push(`| \`--color-${publicName}\` | \`${value}\` |`)
     }
   }
@@ -2128,35 +2061,12 @@ export function generateDesignDoc(
 
   if (designEvidence) {
     lines.push('')
-    lines.push(generateDesignEvidenceBrief(designEvidence, language, designProfile?.inputMode))
+    lines.push(generateDesignEvidenceBrief(designEvidence, language))
   }
 
   if (designProfile) {
     lines.push('')
-    lines.push(
-      generateDesignProfileMarkdown(
-        designProfile,
-        tokens,
-        designIntelligenceStatus || designIntelligenceMeta?.status,
-        publicColorNames,
-        designIntelligenceMeta?.capabilityLevel,
-        designEvidence,
-      ),
-    )
-  } else if (
-    designIntelligenceStatus &&
-    ['failed', 'skipped', 'unsupported', 'not-configured', 'not-requested'].includes(designIntelligenceStatus)
-  ) {
-    lines.push('')
-    lines.push(zh ? '## AI 设计解读' : '## AI Design Insights')
-    lines.push('')
-    lines.push(`**${zh ? '状态' : 'Status'}:** \`${designIntelligenceStatus}\``)
-    lines.push('')
-    lines.push(
-      zh
-        ? '> 本次没有可用的 AI 设计解读；下方令牌与证据仍来自确定性程序提取。'
-        : '> No AI design interpretation is available for this run; the tokens and evidence below still come from deterministic extraction.',
-    )
+    lines.push(generateDesignProfileMarkdown(designProfile, tokens, publicColorNames, designEvidence))
   }
 
   if (tokens.evidence && Object.keys(tokens.evidence).length > 0) {
@@ -2191,42 +2101,16 @@ export function generateDesignDoc(
     lines.push(generateDesignPrinciples(tokens, language))
   }
 
-  if (exampleComponents.length > 0) {
-    lines.push('\n---\n')
-    lines.push(generateExampleComponents(exampleComponents, language))
-  }
-
   if (designEvidence) {
-    const deterministicCatalog = designProfile?.claimSource === 'deterministic-catalog'
-    const evidenceFallback = designIntelligenceMeta
-      ? designIntelligenceMeta.capabilityLevel === 'evidence-fallback'
-      : (designProfile?.signatureMoves.some((move) => move.id === 'evidence-fallback') ?? false)
-    const interpretationStatus = designIntelligenceStatus || designIntelligenceMeta?.status
     lines.push('')
     lines.push(coreT(language, 'export.howToUse.heading'))
     lines.push('')
     lines.push(
       !designProfile
         ? coreT(language, 'export.howToUse.observedOnly')
-        : deterministicCatalog
-          ? coreT(
-              language,
-              interpretationStatus === 'complete'
-                ? 'export.howToUse.catalogComplete'
-                : 'export.howToUse.catalogPartial',
-            )
-          : evidenceFallback
-            ? coreT(language, 'export.howToUse.evidenceFallback')
-            : interpretationStatus === 'partial'
-              ? coreT(language, 'export.howToUse.partial')
-              : coreT(language, 'export.howToUse.complete'),
+        : coreT(language, 'export.howToUse.catalogComplete'),
     )
-    lines.push(
-      coreT(
-        language,
-        deterministicCatalog ? 'export.howToUse.catalogImplementation' : 'export.howToUse.implementation',
-      ),
-    )
+    lines.push(coreT(language, 'export.howToUse.catalogImplementation'))
     lines.push(coreT(language, 'export.howToUse.verify'))
     lines.push(coreT(language, 'export.howToUse.formats'))
   } else {

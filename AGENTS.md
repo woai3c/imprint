@@ -41,7 +41,7 @@ Three entry points share the extraction engine:
 2. CLI: `src/cli/index.ts` (`imprint` bin).
 3. MCP stdio server: `src/mcp/server.ts` (`imprint-mcp` bin), exposes `imprint_extract` / `imprint_compare` tools to AI agents.
 
-Data flow: Playwright (playwright-core) loads the target site -> `style-extractor.ts` pulls computed styles from the DOM -> `color-cluster.ts` clusters colors -> `token-builder.ts` builds design tokens -> `export` generates CSS/Tailwind/JSON/MD. In the app, results are stored in SQLite (better-sqlite3, `<userData>/copy-design.db`, schema created in `src/main/database.ts`); LLM is only used for optional semantic token naming (`semantic-enhancer.ts`), validated example generation (`example-generator.ts`), and Design DNA interpretation (`design-intelligence/`), never for extraction.
+Data flow: Playwright (playwright-core) loads the target site -> `style-extractor.ts` pulls computed styles from the DOM -> `color-cluster.ts` clusters colors -> `token-builder.ts` builds design tokens -> deterministic design context -> `export` generates CSS/Tailwind/JSON/MD. In the app, results are stored in SQLite (better-sqlite3, `<userData>/copy-design.db`, schema created in `src/main/database.ts`). Imprint has no built-in model-provider or Agent CLI runtime; external coding agents consume its exported artifacts through files, CLI, or MCP.
 
 Desktop window, tray, single-instance, and platform lifecycle logic lives in `src/main/index.ts`.
 

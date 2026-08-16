@@ -16,7 +16,7 @@ import {
 } from '../design-evidence/responsive-reliability.js'
 import type { ComponentEvidence, DesignEvidence, EvidencePage, SectionEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
-import { listEvidenceIds, listEvidenceTokenRefs } from './evidence-selector.js'
+import { listEvidenceIds, listEvidenceTokenRefs } from './evidence-index.js'
 import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type {
   Confidence,
@@ -27,7 +27,7 @@ import type {
   DesignClaimCatalogPlacement,
   DesignClaimSingletonSlot,
   DesignProfile,
-  IntelligenceInputMode,
+  EvidenceInputMode,
 } from './types.js'
 
 export const DESIGN_CLAIM_CATALOG_VERSION = '1'
@@ -75,7 +75,7 @@ function pageRank(page: EvidencePage): number {
   return 3
 }
 
-/** One non-overflowing, AI-eligible capture per URL; desktop is preferred. */
+/** One healthy, non-overflowing capture per URL; desktop is preferred. */
 export function canonicalCatalogPageIds(evidence: DesignEvidence): Set<string> {
   const byUrl = new Map<string, EvidencePage[]>()
   for (const page of evidence.pages) {
@@ -85,7 +85,9 @@ export function canonicalCatalogPageIds(evidence: DesignEvidence): Set<string> {
   }
   const result = new Set<string>()
   for (const pages of byUrl.values()) {
-    const eligible = pages.filter((page) => !hasSevereHorizontalOverflow(page) && page.health?.aiEligible !== false)
+    const eligible = pages.filter(
+      (page) => !hasSevereHorizontalOverflow(page) && page.health?.evidenceEligible !== false,
+    )
     const selected = [...eligible].sort(
       (first, second) =>
         pageRank(first) - pageRank(second) ||
@@ -169,7 +171,7 @@ interface CatalogBuilder {
 }
 
 function createCatalogBuilder(evidence: DesignEvidence, language: 'en' | 'zh-CN'): CatalogBuilder {
-  const t = coreTranslator(language, 'intelligence.catalog')
+  const t = coreTranslator(language, 'designContext.catalog')
   const entries: DesignClaimCatalogEntry[] = []
   const entriesByKey = new Map<string, DesignClaimCatalogEntry>()
   const add: CatalogBuilder['add'] = (key, placements, input) => {
@@ -938,7 +940,7 @@ function buildResponsiveAndScopeClaims(
   }
 
   for (const page of evidence.pages
-    .filter((candidate) => candidate.health?.aiEligible !== false)
+    .filter((candidate) => candidate.health?.evidenceEligible !== false)
     .filter(hasSevereHorizontalOverflow)
     .slice(0, 4)) {
     const sourceIds = stableList(page.horizontalOverflowSources?.flatMap((source) => source.sectionId || []) || [], 4)
@@ -999,7 +1001,7 @@ function buildMediaClaim(
 }
 
 function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'): DesignProfile['uncertainties'] {
-  const t = coreTranslator(language, 'intelligence.catalog')
+  const t = coreTranslator(language, 'designContext.catalog')
   const result: DesignProfile['uncertainties'] = []
   const add = (key: string, reason: string, neededEvidence?: string) => {
     if (result.some((item) => item.topic === key)) return
@@ -1011,7 +1013,7 @@ function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'):
   if (evidence.coverage.captureCoverage?.status === 'partial') {
     add(t('uncertainties.captureTopic'), t('uncertainties.captureReason'), t('uncertainties.captureNeeded'))
   }
-  const unhealthyCaptures = evidence.pages.filter((page) => page.health?.aiEligible === false).length
+  const unhealthyCaptures = evidence.pages.filter((page) => page.health?.evidenceEligible === false).length
   if (unhealthyCaptures > 0) {
     add(
       t('uncertainties.healthTopic'),
@@ -1065,15 +1067,15 @@ function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'):
 export function buildDeterministicClaimCatalog(
   evidence: DesignEvidence,
   language: 'en' | 'zh-CN',
-  inputMode: IntelligenceInputMode,
+  inputMode: EvidenceInputMode,
 ): DesignClaimCatalog {
-  const t = coreTranslator(language, 'intelligence.catalog')
+  const t = coreTranslator(language, 'designContext.catalog')
   const builder = createCatalogBuilder(evidence, language)
   const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
   const validPageIds = canonicalCatalogPageIds(evidence)
   const safeCapturePageIds = new Set(
     evidence.pages
-      .filter((page) => !hasSevereHorizontalOverflow(page) && page.health?.aiEligible !== false)
+      .filter((page) => !hasSevereHorizontalOverflow(page) && page.health?.evidenceEligible !== false)
       .map((page) => page.id),
   )
   const sections = evidence.sections
@@ -1229,7 +1231,7 @@ export function buildDeterministicClaimCatalog(
 }
 
 function unavailableClaim(language: 'en' | 'zh-CN', slot: DesignClaimSingletonSlot): DesignClaim {
-  const t = coreTranslator(language, 'intelligence.catalog')
+  const t = coreTranslator(language, 'designContext.catalog')
   return {
     statement: t('unavailableStatement', { slot }),
     implementation: t('unavailableImplementation'),
@@ -1261,8 +1263,7 @@ function bestAssertionScopeRank(entry: DesignClaimCatalogEntry): number {
 }
 
 /**
- * Stable program-owned order for bounded highlight slots. AI curation is diagnostic
- * metadata only and must never change the materialized profile.
+ * Stable program-owned order for bounded highlight slots.
  */
 function compareCatalogHighlights(first: DesignClaimCatalogEntry, second: DesignClaimCatalogEntry): number {
   return (
@@ -1378,7 +1379,6 @@ export function materializeDesignProfile(catalog: DesignClaimCatalog): DesignPro
       avoid: claimsFor((placement) => placement.kind === 'transfer' && placement.bucket === 'avoid'),
     },
     uncertainties: structuredClone(catalog.uncertainties),
-    tokenAliases: [],
   }
 }
 
@@ -1401,7 +1401,7 @@ export function validateDesignClaimCatalog(
   ])
   const severePageIds = new Set(evidence.pages.filter(hasSevereHorizontalOverflow).map((page) => page.id))
   const unsafePageIds = new Set(
-    evidence.pages.filter((page) => page.health?.aiEligible === false).map((page) => page.id),
+    evidence.pages.filter((page) => page.health?.evidenceEligible === false).map((page) => page.id),
   )
   const severeEvidenceIds = new Set<string>()
   const unsafeEvidenceIds = new Set<string>()

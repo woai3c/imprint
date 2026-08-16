@@ -1,4 +1,3 @@
-import i18n from 'i18next'
 import { Loader2, X } from 'lucide-react'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -19,8 +18,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   const [result, setResult] = useState<AnalysisResultData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [intelligenceRunning, setIntelligenceRunning] = useState(false)
-  const [intelligenceProgress, setIntelligenceProgress] = useState<{ step: string; percent: number } | null>(null)
   const summaryChanged = useRef(false)
   const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
   const closeDialog = useCallback(() => onClose(summaryChanged.current), [onClose])
@@ -34,8 +31,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
   }, [closeDialog, evidenceViewer.lightboxIndex])
 
   useEffect(() => {
-    const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(setIntelligenceProgress)
-
     window.electronAPI
       .getAnalysis(analysisId)
       .then((data) => {
@@ -61,7 +56,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
           accessMode: data.accessMode ?? undefined,
           authWallDetected: data.authWallDetected,
           designEvidence: data.designEvidence ?? undefined,
-          designIntelligence: data.designIntelligence,
+          designContext: data.designContext,
           designProfile: data.designProfile,
           reconstructionBrief: data.reconstructionBrief,
           agentContext: data.agentContext,
@@ -70,36 +65,7 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false))
-
-    return () => {
-      unsubscribeIntelligenceProgress()
-    }
   }, [analysisId])
-
-  const retryIntelligence = async () => {
-    if (!result?.analysisId) return
-    setIntelligenceRunning(true)
-    try {
-      const response = await window.electronAPI.startDesignIntelligence(result.analysisId, i18n.language)
-      summaryChanged.current = true
-      setResult((current) => (current ? { ...current, ...response } : current))
-    } finally {
-      setIntelligenceRunning(false)
-      setIntelligenceProgress(null)
-    }
-  }
-
-  const skipIntelligence = async () => {
-    if (!result?.analysisId) return
-    try {
-      const response = await window.electronAPI.skipDesignIntelligence(result.analysisId)
-      if (response.error || !response.designIntelligence) throw new Error('Skip failed')
-      summaryChanged.current = true
-      setResult((current) => (current ? { ...current, designIntelligence: response.designIntelligence } : current))
-    } catch {
-      /* keep the current record state when skipping fails */
-    }
-  }
 
   return (
     <div
@@ -152,16 +118,6 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
             <div className="analysis-detail-main flex min-w-0 flex-1 flex-col">
               <ArtifactPanel
                 result={result}
-                intelligenceRunning={intelligenceRunning}
-                intelligenceProgress={intelligenceProgress}
-                onRetryIntelligence={retryIntelligence}
-                onCancelIntelligence={async () => {
-                  if (!result.analysisId) return
-                  await window.electronAPI.cancelDesignIntelligence(result.analysisId)
-                  setIntelligenceRunning(false)
-                  setIntelligenceProgress(null)
-                }}
-                onSkipIntelligence={skipIntelligence}
                 onResultUpdate={(update) => {
                   summaryChanged.current = true
                   setResult((current) => (current ? { ...current, ...update } : current))

@@ -219,11 +219,7 @@ export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
   return JSON.stringify(evidence, null, 2)
 }
 
-export function generateDesignEvidenceBrief(
-  evidence: DesignEvidence,
-  language: DocLanguage = 'en',
-  intelligenceMode?: 'structural-only' | 'multimodal',
-): string {
+export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: DocLanguage = 'en'): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
@@ -237,13 +233,9 @@ export function generateDesignEvidenceBrief(
   lines.push(zh ? '## 设计证据概览' : '## Design Evidence Overview')
   lines.push('')
   lines.push(
-    intelligenceMode
-      ? zh
-        ? `> 层级：Observed / 已观察。以下内容来自浏览器观察和确定性代码分析。后续 AI 解读使用 \`${intelligenceMode}\` 输入模式推断，不能修改这些事实。`
-        : `> Layer: Observed. The following content comes from browser observations and deterministic code analysis. The later AI interpretation uses \`${intelligenceMode}\` input and cannot modify these facts.`
-      : zh
-        ? '> 层级：Observed / 已观察。能力级别：`evidence-only`。以下内容来自浏览器观察和确定性代码分析；未生成 AI 视觉主张、标志性手法或迁移规则。'
-        : '> Layer: Observed. Capability level: `evidence-only`. The following content comes from browser observations and deterministic code analysis; no AI visual thesis, signature moves, or transfer rules were generated.',
+    zh
+      ? '> 层级：Observed / 已观察。以下内容全部来自浏览器观察和确定性代码分析。'
+      : '> Layer: Observed. Everything below comes from browser observations and deterministic code analysis.',
   )
   lines.push('')
   lines.push(zh ? `- 来源：${evidence.source.finalUrl}` : `- Final source: ${evidence.source.finalUrl}`)

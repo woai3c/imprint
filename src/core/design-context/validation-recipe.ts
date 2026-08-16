@@ -162,8 +162,8 @@ export function validateRecipe(
       ...(profile.transferRules.preserve.every((claim) => claim.evidence.length > 0)
         ? {}
         : {
-            failureLayer: 'interpretation' as const,
-            suggestion: 'Remove the unsupported rule or reinterpret it from additional evidence.',
+            failureLayer: 'rule' as const,
+            suggestion: 'Remove the unsupported rule or rebuild it from additional evidence.',
           }),
     },
     {
@@ -176,7 +176,7 @@ export function validateRecipe(
         : 'The recipe contains an off-scale gap.',
       ...(values.gaps.every((gap) => tokens.spacing.includes(gap))
         ? {}
-        : { failureLayer: 'generation' as const, suggestion: 'Replace off-scale gaps with extracted spacing values.' }),
+        : { failureLayer: 'rendering' as const, suggestion: 'Replace off-scale gaps with extracted spacing values.' }),
     },
     {
       id: 'rule-references',
@@ -189,7 +189,7 @@ export function validateRecipe(
       ...(values.ruleRefs.every((ruleRef) => validRuleRefs.has(ruleRef))
         ? {}
         : {
-            failureLayer: 'generation' as const,
+            failureLayer: 'rendering' as const,
             suggestion: 'Remove references that are not present in the validated profile.',
           }),
     },
@@ -212,7 +212,7 @@ export function validateRecipe(
       ...(recipe.scenario === 'states' &&
       (!values.fieldStates.includes('focus') || !values.fieldStates.includes('error'))
         ? {
-            failureLayer: 'generation' as const,
+            failureLayer: 'rendering' as const,
             suggestion: 'Add allowlisted focus and error field states to the state recipe.',
           }
         : {}),
@@ -245,7 +245,7 @@ export function validateRecipe(
       ...(values.maxColumns <= 4
         ? {}
         : {
-            failureLayer: 'generation' as const,
+            failureLayer: 'rendering' as const,
             suggestion: 'Reduce the validation grid to four or fewer responsive columns.',
           }),
     },
@@ -259,7 +259,6 @@ export function validateRecipe(
   ]
   return {
     schemaVersion: '1',
-    generatedAt: new Date().toISOString(),
     capabilityLevel,
     recipe,
     checks,

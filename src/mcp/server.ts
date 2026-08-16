@@ -12,17 +12,12 @@
  */
 import * as readline from 'node:readline'
 
-import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
-import { loadEvidenceImageInputs } from '../core/ai/image-summary.js'
-import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
-import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
-import type { DesignEvidence } from '../core/design-evidence/types.js'
-import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
-import { compareDesignProfiles } from '../core/design-intelligence/profile-compare.js'
-import type { DesignProfile, IntelligenceInputMode } from '../core/design-intelligence/types.js'
+import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
+import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
+import type { DesignProfile } from '../core/design-context/types.js'
 import {
   buildDarkModeExportData,
   generateComponentSpecsJson,
@@ -33,7 +28,6 @@ import {
   generateLocalVisualQa,
   generateTailwindTheme,
 } from '../core/export/index.js'
-import { buildInterpretResponse } from './interpret-response.js'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -87,41 +81,8 @@ const TOOLS = [
     },
   },
   {
-    name: 'imprint_interpret',
-    description:
-      'Explicitly send a bounded Design Evidence package to a configured AI provider and return a validated DesignProfile. Structural mode sends no screenshots; vision mode requires allowScreenshots=true and rejects signed-in evidence.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'Public URL to analyze' },
-        evidence: {
-          type: 'object',
-          description: 'Existing DesignEvidence v1 object (structural mode only; image paths are never read)',
-        },
-        mode: { type: 'string', enum: ['structural', 'vision'], description: 'Explicit AI input mode' },
-        provider: { type: 'string', description: 'AI provider ID; key is read from the environment' },
-        model: { type: 'string', description: 'Optional exact model ID' },
-        baseUrl: { type: 'string', description: 'Optional OpenAI-compatible base URL' },
-        allowScreenshots: { type: 'boolean', description: 'Required explicit consent for vision mode' },
-        modelSupportsVision: {
-          type: 'boolean',
-          description: 'Explicit custom-provider capability declaration for the selected model',
-        },
-        language: { type: 'string', enum: ['en', 'zh-CN'] },
-        includeBrief: {
-          type: 'boolean',
-          description:
-            'Include the complete Reconstruction Brief when the validated profile is eligible (default: false)',
-        },
-      },
-      required: ['mode', 'provider'],
-      anyOf: [{ required: ['url'] }, { required: ['evidence'] }],
-    },
-  },
-  {
     name: 'imprint_compare',
-    description:
-      'Compare two websites at token depth by default, or explicitly interpret and compare validated design-language profiles.',
+    description: 'Compare two websites at token depth or deterministic design-language depth.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,42 +91,11 @@ const TOOLS = [
         profileA: { type: 'object', description: 'First previously validated DesignProfile' },
         profileB: { type: 'object', description: 'Second previously validated DesignProfile' },
         depth: { type: 'string', enum: ['tokens', 'language'], description: 'Comparison depth (default: tokens)' },
-        provider: { type: 'string', description: 'Required for language depth; key is read from the environment' },
-        model: { type: 'string', description: 'Optional exact model ID for language depth' },
-        baseUrl: { type: 'string', description: 'Optional OpenAI-compatible base URL' },
       },
       anyOf: [{ required: ['urlA', 'urlB'] }, { required: ['profileA', 'profileB'] }],
     },
   },
 ]
-
-function loadEvidenceImages(evidence: DesignEvidence, mode: IntelligenceInputMode) {
-  if (mode !== 'multimodal') return []
-  return loadEvidenceImageInputs(evidence, selectEvidencePackage(evidence, mode).imageIds)
-}
-
-async function interpretResult(evidence: DesignEvidence, params: Record<string, unknown>, mode: IntelligenceInputMode) {
-  const provider = String(params.provider || '')
-  const apiKey = providerApiKeyFromEnv(provider)
-  if (!provider || !apiKey) {
-    throw new Error(
-      `Explicit interpretation requires a provider and its API key. Set ${PROVIDER_KEY_ENV[provider] || 'IMPRINT_AI_API_KEY'} (or the generic IMPRINT_AI_API_KEY) in the MCP server's environment.`,
-    )
-  }
-  const { interpretDesignEvidence } = await import('../core/design-intelligence/interpreter.js')
-  const result = await interpretDesignEvidence(evidence, {
-    mode,
-    language: params.language === 'zh-CN' ? 'zh-CN' : 'en',
-    provider: {
-      provider,
-      apiKey,
-      model: params.model ? String(params.model) : undefined,
-      baseUrl: params.baseUrl ? String(params.baseUrl) : undefined,
-    },
-    images: loadEvidenceImages(evidence, mode),
-  })
-  return result
-}
 
 async function handleToolCall(name: string, params: Record<string, unknown>): Promise<unknown> {
   const dataDir = getDefaultDataDir()
@@ -192,6 +122,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     const tokens = result.tokens
     const featureTags = result.featureTags
     const darkMode = buildDarkModeExportData(result.darkMode)
+    const designContext = createDeterministicDesignContext(result.designEvidence, tokens, 'en', result.timing)
 
     switch (format) {
       case 'css':
@@ -211,8 +142,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                 result.breakpoints,
                 result.components,
                 'en',
-                [],
                 result.designEvidence,
+                designContext.profile,
               ),
             },
           ],
@@ -238,6 +169,10 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                   pageCoverage: result.pageCoverage,
                   extractionIssues: result.extractionIssues,
                   analysisTiming: result.timing,
+                  designProfile: designContext.profile,
+                  reconstructionBrief: designContext.reconstructionBrief,
+                  agentContext: designContext.agentContext,
+                  validationReport: designContext.validationReport,
                   css: generateCssVariables(tokens, darkMode, result.breakpoints),
                   tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
                   evidence: result.designEvidence,
@@ -249,8 +184,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
                     result.breakpoints,
                     result.components,
                     'en',
-                    [],
                     result.designEvidence,
+                    designContext.profile,
                   ),
                   dtcg: generateDtcgJson(tokens, darkMode),
                 },
@@ -283,70 +218,17 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     }
   }
 
-  if (name === 'imprint_interpret') {
-    const url = String(params.url || '')
-    const requestedMode = params.mode === 'vision' ? 'multimodal' : 'structural-only'
-    if (requestedMode === 'multimodal' && params.allowScreenshots !== true) {
-      throw new Error('Vision mode requires allowScreenshots=true')
-    }
-    if (
-      requestedMode === 'multimodal' &&
-      !resolveAiModelCapabilities(
-        String(params.provider || ''),
-        String(params.model || getDefaultModel(String(params.provider || ''))),
-        params.provider === 'custom' && params.modelSupportsVision === true,
-      ).vision
-    ) {
-      throw new Error('The selected model is not declared vision-capable')
-    }
-    let designEvidence: DesignEvidence
-    let programTiming: Awaited<ReturnType<typeof analyze>>['timing'] | undefined
-    if (params.evidence) {
-      if (requestedMode === 'multimodal') {
-        throw new Error('Existing evidence objects are structural-only because MCP-supplied file paths are not trusted')
-      }
-      designEvidence = params.evidence as DesignEvidence
-      if (designEvidence.schemaVersion !== '1' || !designEvidence.analysisId || !designEvidence.source) {
-        throw new Error('The evidence input must be a DesignEvidence v1 object')
-      }
-    } else {
-      const result = await analyze(url, {
-        viewports: ['desktop', 'mobile'],
-        useSession: false,
-        extractDarkMode: true,
-        dataDir,
-      })
-      designEvidence = result.designEvidence
-      programTiming = result.timing
-    }
-    const interpreted = await interpretResult(designEvidence, params, requestedMode)
-    const analysisTiming = programTiming ? mergeAnalysisTimings(programTiming, interpreted.meta.timing) : undefined
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            buildInterpretResponse(
-              interpreted.profile,
-              interpreted.meta,
-              designEvidence,
-              params.includeBrief === true,
-              analysisTiming,
-            ),
-            null,
-            2,
-          ),
-        },
-      ],
-    }
-  }
-
   if (name === 'imprint_compare') {
     if (params.profileA && params.profileB) {
       const profileA = params.profileA as DesignProfile
       const profileB = params.profileB as DesignProfile
-      if (profileA.schemaVersion !== '1' || profileB.schemaVersion !== '1' || !profileA.thesis || !profileB.thesis) {
-        throw new Error('Both profile inputs must be validated DesignProfile v1 objects')
+      if (
+        !['1', '2'].includes(profileA.schemaVersion) ||
+        !['1', '2'].includes(profileB.schemaVersion) ||
+        !profileA.thesis ||
+        !profileB.thesis
+      ) {
+        throw new Error('Both profile inputs must be valid DesignProfile v1 or v2 objects')
       }
       return {
         content: [{ type: 'text', text: JSON.stringify(compareDesignProfiles(profileA, profileB), null, 2) }],
@@ -361,21 +243,18 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     ])
 
     if (params.depth === 'language') {
-      if (!params.provider) throw new Error('Language comparison requires an explicit provider')
-      const [interpretedA, interpretedB] = await Promise.all([
-        interpretResult(resultA.designEvidence, params, 'structural-only'),
-        interpretResult(resultB.designEvidence, params, 'structural-only'),
-      ])
+      const contextA = createDeterministicDesignContext(resultA.designEvidence, resultA.tokens, 'en', resultA.timing)
+      const contextB = createDeterministicDesignContext(resultB.designEvidence, resultB.tokens, 'en', resultB.timing)
       return {
         content: [
           {
             type: 'text',
             text: JSON.stringify(
               {
-                comparison: compareDesignProfiles(interpretedA.profile, interpretedB.profile),
+                comparison: compareDesignProfiles(contextA.profile, contextB.profile),
                 timing: {
-                  first: mergeAnalysisTimings(resultA.timing, interpretedA.meta.timing),
-                  second: mergeAnalysisTimings(resultB.timing, interpretedB.meta.timing),
+                  first: resultA.timing,
+                  second: resultB.timing,
                 },
               },
               null,

@@ -14,31 +14,16 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { IconButton } from '../ui/IconButton'
 import { Tabs } from '../ui/Tabs'
 import { DesignDnaPanel } from './DesignDnaPanel'
-import { ExampleComponents } from './ExampleComponents'
 import { type ExportTab, artifactTabIds } from './artifact-tabs'
 import { splitDesignMarkdown } from './design-markdown'
 
 interface ArtifactPanelProps {
   result: AnalysisResultData
-  intelligenceRunning?: boolean
-  intelligenceProgress?: { step: string; percent: number } | null
-  onRetryIntelligence?: () => void
-  onCancelIntelligence?: () => void
-  onSkipIntelligence?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
   onOpenEvidence?: (evidenceId: string) => void
 }
 
-export function ArtifactPanel({
-  result,
-  intelligenceRunning,
-  intelligenceProgress,
-  onRetryIntelligence,
-  onCancelIntelligence,
-  onSkipIntelligence,
-  onResultUpdate,
-  onOpenEvidence,
-}: ArtifactPanelProps) {
+export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: ArtifactPanelProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const notify = useFeedbackStore((state) => state.show)
@@ -176,20 +161,20 @@ export function ArtifactPanel({
               <div className="group relative z-50">
                 <button
                   type="button"
-                  data-testid="ai-export-info"
-                  aria-label={t('analyze.aiExport.title')}
-                  aria-describedby="ai-export-tooltip"
+                  data-testid="agent-export-info"
+                  aria-label={t('analyze.agentExport.title')}
+                  aria-describedby="agent-export-tooltip"
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Info size={14} />
                 </button>
                 <div
-                  id="ai-export-tooltip"
+                  id="agent-export-tooltip"
                   role="tooltip"
                   className="pointer-events-none invisible absolute top-full right-0 z-60 mt-2 w-72 rounded-lg border border-border bg-card p-3 text-left opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
                 >
-                  <p className="text-xs font-medium text-popover-foreground">{t('analyze.aiExport.title')}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.aiExport.summary')}</p>
+                  <p className="text-xs font-medium text-popover-foreground">{t('analyze.agentExport.title')}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.agentExport.summary')}</p>
                 </div>
               </div>
             </>
@@ -202,30 +187,10 @@ export function ArtifactPanel({
           className="analysis-artifact-content ui-enter flex-1 overflow-auto bg-card"
         >
           {activeTab === 'overview' && (
-            <DesignDnaPanel
-              result={result}
-              intelligenceRunning={intelligenceRunning}
-              intelligenceProgress={intelligenceProgress}
-              onRetry={onRetryIntelligence}
-              onCancel={onCancelIntelligence}
-              onSkip={onSkipIntelligence}
-              onResultUpdate={onResultUpdate}
-              onOpenEvidence={onOpenEvidence}
-            />
+            <DesignDnaPanel result={result} onResultUpdate={onResultUpdate} onOpenEvidence={onOpenEvidence} />
           )}
           {activeTab === 'preview' && tokens && (
-            <>
-              <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
-              {result.designIntelligence?.exampleGeneration?.status === 'complete' && (
-                <div className="px-6 pb-6">
-                  <ExampleComponents
-                    designDoc={result.designDoc}
-                    cssVariables={result.cssVariables}
-                    generation={result.designIntelligence.exampleGeneration}
-                  />
-                </div>
-              )}
-            </>
+            <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
           )}
           {activeTab === 'markdown' && (
             <div data-testid="artifact-content-markdown" className="p-6">

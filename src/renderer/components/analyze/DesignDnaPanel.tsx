@@ -1,11 +1,10 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { ExternalLink, Loader2 } from 'lucide-react'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 
 import type { DesignToken } from '../../../core/analyzer/types'
-import type { DesignClaim, DesignIntelligenceMeta, ValidationReport } from '../../../core/design-intelligence/types'
+import type { DesignClaim, ValidationReport } from '../../../core/design-context/types'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 import { useFeedbackStore } from '../../stores/feedback-store'
 import { DesignEvidencePanel } from './DesignEvidencePanel'
@@ -13,11 +12,6 @@ import { ValidationReportPanel } from './ValidationReportPanel'
 
 interface DesignDnaPanelProps {
   result: AnalysisResultData
-  intelligenceRunning?: boolean
-  intelligenceProgress?: { step: string; percent: number } | null
-  onRetry?: () => void
-  onCancel?: () => void
-  onSkip?: () => void
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
   onOpenEvidence?: (evidenceId: string) => void
 }
@@ -76,247 +70,13 @@ function ClaimCard({
   )
 }
 
-function VisionChoiceCard({ onStructural, onSkip }: { onStructural?: () => void; onSkip?: () => void }) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  return (
-    <section
-      data-testid="design-intelligence-vision-choice"
-      className="rounded-xl border border-primary/30 bg-primary/5 p-4"
-    >
-      <p className="text-sm font-semibold">{t('analyze.designDna.visionChoice.title')}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('analyze.designDna.visionChoice.description')}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {onStructural && (
-          <button
-            type="button"
-            data-testid="design-intelligence-choice-structural"
-            onClick={onStructural}
-            className="min-h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('analyze.designDna.visionChoice.structural')}
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="design-intelligence-choice-switch-model"
-          onClick={() => navigate('/settings')}
-          className="min-h-8 rounded-md bg-secondary px-3 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t('analyze.designDna.visionChoice.switchModel')}
-        </button>
-        {onSkip && (
-          <button
-            type="button"
-            data-testid="design-intelligence-choice-skip"
-            onClick={onSkip}
-            className="min-h-8 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('analyze.designDna.visionChoice.skip')}
-          </button>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function formatTokenCount(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
-  return String(count)
-}
-
-const PASS_LABELS: Record<string, string> = {
-  observation: 'Observation',
-  'observation-repair': 'Observation (repair)',
-  synthesis: 'Synthesis',
-  'synthesis-repair': 'Synthesis (repair)',
-}
-
-function TokenUsageSummary({ meta }: { meta: DesignIntelligenceMeta }) {
-  const [expanded, setExpanded] = useState(false)
-  const { t } = useTranslation()
-  const usage = meta.tokenUsage
-  const details = meta.callDetails
-  if (!usage || (!usage.input && !usage.output)) return null
-  const callCount = details?.length || 1
-  return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => details && details.length > 0 && setExpanded(!expanded)}
-        className={`inline-flex items-center gap-1 text-[10px] text-muted-foreground ${
-          details && details.length > 0 ? 'cursor-pointer hover:text-foreground' : 'cursor-default'
-        }`}
-      >
-        <span>
-          {t('analyze.designDna.tokenUsage.summary', {
-            calls: callCount,
-            input: formatTokenCount(usage.input || 0),
-            output: formatTokenCount(usage.output || 0),
-          })}
-        </span>
-        {details && details.length > 0 && (
-          <ChevronDown size={10} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        )}
-      </button>
-      {expanded && details && (
-        <div className="mt-1 space-y-0.5 border-l-2 border-border/50 pl-2">
-          {details.map((detail, index) => (
-            <p key={index} className="text-[10px] text-muted-foreground">
-              <span className="font-medium">{PASS_LABELS[detail.pass] || detail.pass}</span>
-              {' — '}
-              {t('analyze.designDna.tokenUsage.detail', {
-                input: formatTokenCount(detail.input || 0),
-                output: formatTokenCount(detail.output || 0),
-              })}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function StatusCard({
-  meta,
-  running,
-  progress,
-  onRetry,
-  onCancel,
-  managedEvidence,
-}: {
-  meta?: DesignIntelligenceMeta
-  running?: boolean
-  progress?: { step: string; percent: number } | null
-  onRetry?: () => void
-  onCancel?: () => void
-  managedEvidence?: boolean
-}) {
-  const { t } = useTranslation()
-  const status = running
-    ? 'pending'
-    : meta?.failureCode === 'cancelled'
-      ? 'cancelled'
-      : meta?.failureCode === 'timeout'
-        ? 'timeout'
-        : meta?.status || 'not-configured'
-  const successful = status === 'complete' || status === 'partial'
-  const failed = status === 'failed' || status === 'cancelled' || status === 'timeout'
-  return (
-    <section
-      data-testid={`design-intelligence-status-${status}`}
-      className={`design-status-card rounded-xl border p-4 ${
-        successful
-          ? 'border-success/30 bg-success/5'
-          : failed
-            ? 'border-destructive/30 bg-destructive/5'
-            : 'border-border bg-secondary/30'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        {running ? (
-          <Loader2 size={18} className="mt-0.5 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
-        ) : successful ? (
-          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-success" />
-        ) : failed ? (
-          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-destructive" />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{t(`analyze.designDna.status.${status}`)}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {managedEvidence && status === 'not-requested'
-              ? t('analyze.designDna.managedNotice')
-              : t(`analyze.designDna.statusDescription.${status}`)}
-          </p>
-          {failed && status !== 'timeout' && meta?.failureReason && (
-            <p className="mt-1 break-all text-[10px] leading-4 text-destructive/80">{meta.failureReason}</p>
-          )}
-          {meta?.provider && (
-            <p className="mt-1 truncate text-[10px] text-muted-foreground">
-              {meta.provider}
-              {meta.model ? ` · ${meta.model}` : ''}
-              {meta.inputMode ? ` · ${t(`analyze.designDna.inputMode.${meta.inputMode}`)}` : ''}
-            </p>
-          )}
-          {(successful || failed) && meta?.tokenUsage && (meta.tokenUsage.input || meta.tokenUsage.output) && (
-            <TokenUsageSummary meta={meta} />
-          )}
-          {running && progress && (
-            <div className="mt-3">
-              <p className="mb-1 text-[10px] text-muted-foreground">{t(progress.step)}</p>
-              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full bg-primary transition-all motion-reduce:transition-none"
-                  style={{ width: `${progress.percent}%` }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-        {failed && onRetry && (
-          <button
-            type="button"
-            data-testid="design-intelligence-retry"
-            onClick={onRetry}
-            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <RefreshCw size={12} />
-            {t('analyze.designDna.retry')}
-          </button>
-        )}
-        {status === 'skipped' && onRetry && (
-          <button
-            type="button"
-            data-testid="design-intelligence-start-anyway"
-            onClick={onRetry}
-            className="min-h-8 shrink-0 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('analyze.designDna.startAnyway')}
-          </button>
-        )}
-        {status === 'not-requested' && managedEvidence && onRetry && (
-          <button
-            type="button"
-            data-testid="design-intelligence-managed-start"
-            onClick={onRetry}
-            className="min-h-8 shrink-0 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('analyze.designDna.interpretManaged')}
-          </button>
-        )}
-        {running && onCancel && (
-          <button
-            type="button"
-            data-testid="design-intelligence-cancel"
-            onClick={onCancel}
-            className="min-h-8 shrink-0 rounded-md bg-secondary px-2.5 text-xs font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {t('analyze.designDna.cancel')}
-          </button>
-        )}
-      </div>
-    </section>
-  )
-}
-
-export function DesignDnaPanel({
-  result,
-  intelligenceRunning,
-  intelligenceProgress,
-  onRetry,
-  onCancel,
-  onSkip,
-  onResultUpdate,
-  onOpenEvidence,
-}: DesignDnaPanelProps) {
+export function DesignDnaPanel({ result, onResultUpdate, onOpenEvidence }: DesignDnaPanelProps) {
   const { t } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(result.validationReport || null)
   const [validating, setValidating] = useState(false)
   const profile = result.designProfile
   const evidence = result.designEvidence
-  const meta = result.designIntelligence
   const claimGroups: Array<{ title: string; claims: Array<[string, DesignClaim]> }> = profile
     ? [
         {
@@ -379,19 +139,6 @@ export function DesignDnaPanel({
 
   return (
     <div data-testid="design-dna-overview" className="space-y-5 p-6">
-      <StatusCard
-        meta={meta}
-        running={intelligenceRunning}
-        progress={intelligenceProgress}
-        onRetry={onRetry}
-        onCancel={onCancel}
-        managedEvidence={evidence?.source.accessMode === 'managed'}
-      />
-
-      {!intelligenceRunning && meta?.pendingChoice === 'model-no-vision' && meta.status === 'not-requested' && (
-        <VisionChoiceCard onStructural={onRetry} onSkip={onSkip} />
-      )}
-
       {!profile ? (
         <DesignEvidencePanel evidence={evidence} />
       ) : (
@@ -547,7 +294,7 @@ export function DesignDnaPanel({
           {validating && (
             <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 size={13} className="animate-spin motion-reduce:animate-none" />
-              {t('progress.validatingDesignLanguage')}
+              {t('progress.validatingDesignRules')}
             </p>
           )}
           {validationReport && (

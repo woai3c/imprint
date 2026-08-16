@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { DesignToken } from '../../../core/analyzer/types'
-import type { ValidationNode, ValidationReport } from '../../../core/design-intelligence/types'
+import type { ValidationNode, ValidationReport } from '../../../core/design-context/types'
 
 interface ValidationReportPanelProps {
   report: ValidationReport

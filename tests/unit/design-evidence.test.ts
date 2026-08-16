@@ -9,7 +9,6 @@ import {
   generateDesignEvidenceJson,
 } from '../../src/core/design-evidence/index.js'
 import type { PageEvidenceSnapshot } from '../../src/core/design-evidence/page-extractor.js'
-import { buildEvidenceFallbackProfile } from '../../src/core/design-intelligence/index.js'
 import { generateDesignDoc } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
@@ -267,7 +266,6 @@ describe('Design Evidence', () => {
       [],
       detected,
       'en',
-      [],
       evidence,
     )
 
@@ -313,7 +311,6 @@ describe('Design Evidence', () => {
       [],
       [],
       'en',
-      [],
       evidence,
     )
 
@@ -420,7 +417,7 @@ describe('Design Evidence', () => {
       },
     ]
 
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
     const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
 
     expect(summary).toContain('sticky, top 72px')
@@ -461,7 +458,7 @@ describe('Design Evidence', () => {
     ]
 
     const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', [], evidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
     expect(brief).toContain('代表性状态值')
@@ -558,7 +555,7 @@ describe('Design Evidence', () => {
       'extensive CSS variable usage',
     ]
 
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', [], evidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
     expect(summary).toContain('示例站点 是一个已观察到的')
@@ -569,71 +566,6 @@ describe('Design Evidence', () => {
     expect(document).toContain('`大量使用 CSS 变量`')
   })
 
-  it('keeps AI prose out of the observed summary and filters partial-run claims by confidence', () => {
-    const evidence = buildFixtureEvidence()
-    evidence.source.siteName = '示例站点'
-    const profile = buildEvidenceFallbackProfile(evidence, 'zh-CN', 'multimodal', 'test fixture')
-    profile.thesis = {
-      ...profile.thesis,
-      statement: '不应进入确定性摘要的 AI 命题',
-      implementation: '不应进入 DESIGN.md 的 AI 实现指令',
-      confidence: 'high',
-      evidence: [{ evidenceId: evidence.sections[0].id, note: '已观察区块' }],
-    }
-    const completeDocument = generateDesignDoc(
-      tokens,
-      evidence.source.requestedUrl,
-      [],
-      undefined,
-      [],
-      [],
-      'zh-CN',
-      [],
-      evidence,
-      profile,
-      'complete',
-      { status: 'complete', capabilityLevel: 'multimodal-ai', inputMode: 'multimodal' },
-    )
-    const completeSummary = completeDocument.slice(
-      completeDocument.indexOf('### 重建摘要'),
-      completeDocument.indexOf('## Colors'),
-    )
-    const meta = {
-      status: 'partial' as const,
-      capabilityLevel: 'multimodal-ai' as const,
-      inputMode: 'multimodal' as const,
-    }
-
-    const partialDocument = generateDesignDoc(
-      tokens,
-      evidence.source.requestedUrl,
-      [],
-      undefined,
-      [],
-      [],
-      'zh-CN',
-      [],
-      evidence,
-      profile,
-      undefined,
-      meta,
-    )
-    const summary = partialDocument.slice(partialDocument.indexOf('### 重建摘要'), partialDocument.indexOf('## Colors'))
-
-    expect(completeSummary).not.toContain('不应进入确定性摘要的 AI 命题')
-    expect(completeDocument).toContain('不应进入确定性摘要的 AI 命题')
-    expect(completeDocument).not.toContain('不应进入 DESIGN.md 的 AI 实现指令')
-    expect(completeDocument).toContain('### 引用证据索引')
-    expect(completeDocument).toContain(`\`${evidence.sections[0].id}\` — 区块`)
-    expect(completeDocument).toContain(`role=\`${evidence.sections[0].role}\``)
-    expect(summary).toContain('示例站点 是一个已观察到的')
-    expect(summary).not.toContain('不应进入确定性摘要的 AI 命题')
-    expect(partialDocument).toContain('不应进入确定性摘要的 AI 命题')
-    expect(partialDocument).not.toContain('不应进入 DESIGN.md 的 AI 实现指令')
-    expect(partialDocument).toContain('仅保留通过校验的高、中置信度主张')
-    expect(partialDocument).toContain('通过校验的高、中置信度推断假设')
-  })
-
   it('labels cross-page reconstruction facts with their source route', () => {
     const evidence = buildFixtureEvidence()
     const secondPage = evidence.pages.find((page) => page.viewport === 'mobile')!
@@ -641,7 +573,7 @@ describe('Design Evidence', () => {
     const secondSection = evidence.sections.find((section) => section.pageId === secondPage.id)!
     secondSection.observedStyles = { layout: { maxWidth: '413px' } }
 
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
     const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
 
     expect(summary).toContain('**Site thesis:**')
@@ -689,7 +621,6 @@ describe('Design Evidence', () => {
       [],
       [],
       'en',
-      [],
       evidence,
     )
 
@@ -751,7 +682,7 @@ describe('Design Evidence', () => {
         role: 'status',
       },
     )
-    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', [], evidence)
+    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', evidence)
     const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
 
     expect(document).toContain('| tab | 1 |')
@@ -772,7 +703,7 @@ describe('Design Evidence', () => {
       },
     }
     evidence.sections[1].observedStyles = { borderRadius: '48px 48px 0px 0px' }
-    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', [], evidence)
+    const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', evidence)
     const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
 
     expect(document).toContain('linear-gradient(160deg, rgb(255, 237, 213), rgb(254, 215, 170))')
@@ -805,7 +736,7 @@ describe('Design Evidence', () => {
     })
 
     expect(evidence.source).toMatchObject({ siteName: 'Bubblebox', title: 'Bubblebox — Snacks that pop' })
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], evidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
     const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
     expect(frontMatter.name).toBe('Bubblebox')
   })
@@ -819,7 +750,7 @@ describe('Design Evidence', () => {
       delete page.siteName
     })
 
-    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', [], legacyEvidence)
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', legacyEvidence)
     const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
     expect(legacyEvidence.schemaVersion).toBe('1')
     expect(frontMatter.name).toBe('example.com Design System')
@@ -1514,71 +1445,12 @@ describe('Design Evidence', () => {
     expect(brief).toContain('2 icon instances')
   })
 
-  it('exports facts separately from inferred Design DNA', () => {
+  it('exports deterministic facts with compatible metadata', () => {
     const evidence = buildFixtureEvidence()
     const json = JSON.parse(generateDesignEvidenceJson(evidence))
     const brief = generateDesignEvidenceBrief(evidence)
-    const designDoc = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', [], evidence)
-    const chineseDoc = generateDesignDoc(
-      tokens,
-      evidence.source.requestedUrl,
-      [],
-      undefined,
-      [],
-      [],
-      'zh-CN',
-      [],
-      evidence,
-    )
-    const failedDoc = generateDesignDoc(
-      tokens,
-      evidence.source.requestedUrl,
-      [],
-      undefined,
-      [],
-      [],
-      'en',
-      [],
-      evidence,
-      undefined,
-      'failed',
-    )
-    const diagnosticDoc = generateDesignDoc(
-      tokens,
-      evidence.source.requestedUrl,
-      [],
-      undefined,
-      [],
-      [],
-      'en',
-      [],
-      evidence,
-      undefined,
-      'partial',
-      {
-        status: 'partial',
-        capabilityLevel: 'structural-ai',
-        inputMode: 'structural-only',
-        provider: 'openai',
-        model: 'test-model',
-        promptVersion: '19',
-        generatedAt: '2026-08-11T00:00:00.000Z',
-        rejected: ['one', 'two'],
-        repaired: ['one'],
-        timing: {
-          programTotalMs: 65_000,
-          aiTotalMs: 95_000,
-          userWaitMs: 135_000,
-          digestMs: 10,
-          imageSummaryMs: 0,
-          aiInvokeMs: 94_000,
-          validationMs: 990,
-          totalMs: 160_000,
-          imageCount: 0,
-          cacheHit: false,
-        },
-      },
-    )
+    const designDoc = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', evidence)
+    const chineseDoc = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'zh-CN', evidence)
     const evidenceWithoutLineHeightRefs = structuredClone(evidence)
     evidenceWithoutLineHeightRefs.layoutNodes.forEach((node) => {
       node.tokenRefs = node.tokenRefs.filter((ref) => !ref.startsWith('typography.line-height.'))
@@ -1593,22 +1465,10 @@ describe('Design Evidence', () => {
         componentSummary: { source: string; patterns: number; instances: number }
       }>
     }
-    const diagnosticFrontMatter = parse(diagnosticDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
-      'x-imprint': Array<{
-        analysis: {
-          promptVersion: string
-          rejectedClaimCount: number
-          rejectedAssertionCount: number
-          affectedClaimCount: number
-          repairEventCount: number
-        }
-      }>
-    }
-
     expect(json.schemaVersion).toBe('1')
     expect(json.analysisId).toBe('analysis-1')
-    expect(brief).toContain('Capability level: `evidence-only`')
-    expect(brief).toContain('no AI visual thesis')
+    expect(brief).toContain('deterministic code analysis')
+    expect(brief).not.toContain('AI')
     expect(brief).toContain('navigation → hero')
     expect(designDoc).toContain('## Design Evidence Overview')
     expect(designFrontMatter).toMatchObject({
@@ -1631,22 +1491,8 @@ describe('Design Evidence', () => {
     expect(observedLineHeightBrief).toContain('`1.5`')
     expect(designDoc).not.toContain('## Design Principles')
     expect(designDoc).not.toContain('matches the visual style')
-    expect(designDoc).toContain('no AI interpretation was generated')
-    expect(designDoc).not.toContain('validated interpretation')
-    expect(chineseDoc).toContain('未生成 AI 视觉主张、标志性手法或迁移规则')
-    expect(chineseDoc).toContain('本次未生成 AI 设计解读')
-    expect(chineseDoc).not.toContain('经校验的设计解读')
-    expect(failedDoc).toContain('**Status:** `failed`')
-    expect(failedDoc).toContain('No AI design interpretation is available')
-    expect(diagnosticFrontMatter['x-imprint'][0].analysis).toMatchObject({
-      promptVersion: '19',
-      rejectedClaimCount: 2,
-      rejectedAssertionCount: 0,
-      affectedClaimCount: 2,
-      repairEventCount: 1,
-    })
-    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('rejected')
-    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('repaired')
-    expect(diagnosticFrontMatter['x-imprint'][0].analysis).not.toHaveProperty('timing')
+    expect(designDoc).not.toContain('AI')
+    expect(chineseDoc).not.toContain('AI')
+    expect(designFrontMatter['x-imprint'][0]).toMatchObject({ analysis: { mode: 'deterministic' } })
   })
 })

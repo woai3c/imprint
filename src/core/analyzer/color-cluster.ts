@@ -3,7 +3,7 @@ import { colorFrequency } from './usage-stats.js'
 /**
  * Color clustering algorithm.
  * Groups similar colors together and picks representative values.
- * Pure code implementation - no LLM needed.
+ * Deterministic program implementation.
  */
 
 interface ColorRGB {

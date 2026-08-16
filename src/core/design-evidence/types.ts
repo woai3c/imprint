@@ -22,14 +22,6 @@ export interface EvidenceImage {
   height: number
   contentHash?: string
   visualHash?: string
-  aiSummary?: {
-    version: string
-    path: string
-    width: number
-    height: number
-    bytes: number
-    contentHash: string
-  }
   sourceRect?: NormalizedRect
   sectionId?: string
 }

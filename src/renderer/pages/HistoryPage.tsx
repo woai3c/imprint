@@ -239,13 +239,6 @@ export function HistoryPage() {
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
                       {record.theme_name && <span>· {record.theme_name}</span>}
-                      <AiStatusBadge status={record.design_intelligence_status} />
-                      {record.ai_token_usage && (record.ai_token_usage.input || record.ai_token_usage.output) && (
-                        <span className="text-[10px]">
-                          {formatTokenCount(record.ai_token_usage.input)} /{' '}
-                          {formatTokenCount(record.ai_token_usage.output)}
-                        </span>
-                      )}
                     </div>
                   </div>
 
@@ -333,33 +326,6 @@ export function HistoryPage() {
         />
       )}
     </div>
-  )
-}
-
-function formatTokenCount(n?: number): string {
-  if (!n) return '0'
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return String(n)
-}
-
-function AiStatusBadge({ status }: { status: string | null }) {
-  const { t } = useTranslation()
-  if (!status || status === 'not-configured' || status === 'not-requested') return null
-  const isSuccess = status === 'complete' || status === 'partial'
-  const isFailed = status === 'failed'
-  const label = isSuccess ? t('history.aiSuccess') : isFailed ? t('history.aiFailed') : t('history.aiPending')
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-px text-[10px] font-medium ${
-        isSuccess
-          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-          : isFailed
-            ? 'bg-destructive/10 text-destructive'
-            : 'bg-muted text-muted-foreground'
-      }`}
-    >
-      {label}
-    </span>
   )
 }
 

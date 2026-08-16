@@ -95,6 +95,7 @@ test('detects visible semantic components and a visually bounded card', async ()
   }
   const observations = await observeSafeInteractions(page, evidence, 10)
   assert.equal(observations.length, 1, 'Only the restorable local disclosure should produce active evidence')
+  assert.equal(observations[0].after.transform, 'matrix(1, 0, 0, 1, 0, -2)')
   assert.equal(unsafeWriteRequests, 0, 'Non-GET side effects must be blocked before reaching the fixture server')
   await page.close()
 })

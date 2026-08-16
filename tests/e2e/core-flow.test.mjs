@@ -16,7 +16,6 @@ const failureScreenshotPath = path.join(resultDir, 'core-flow-failure.png')
 let fixtureServer
 let fixtureUrl
 let electronApp
-let fakeAgentDir
 let page
 let userDataDir
 
@@ -29,7 +28,6 @@ function launchApp(locale = 'en-US') {
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       IMPRINT_E2E: '1',
       IMPRINT_E2E_USER_DATA_DIR: userDataDir,
-      PATH: `${fakeAgentDir}${path.delimiter}${process.env.PATH || ''}`,
     },
     locale,
     timeout: 60_000,
@@ -62,119 +60,6 @@ const authFixture = Buffer.from(`<!doctype html>
 
 before(async () => {
   await fs.rm(failureScreenshotPath, { force: true })
-  fakeAgentDir = await fs.mkdtemp(path.join(os.tmpdir(), 'imprint-e2e-agent-'))
-  const fakeAgentSource = `if (process.argv.includes('--version')) {
-  console.log('codex 0.0.0-e2e')
-  process.exit(0)
-}
-let prompt = ''
-for await (const chunk of process.stdin) prompt += chunk
-const writeJsonAndExit = async (value) => {
-  await new Promise((resolve) => process.stdout.write(JSON.stringify(value) + '\\n', resolve))
-  process.exit(0)
-}
-try {
-  const { appendFileSync } = await import('node:fs')
-  appendFileSync(
-    process.env.FAKE_AGENT_LOG || 'fake-agent-invocations.log',
-    JSON.stringify({ argv: process.argv.slice(2), promptHead: prompt.slice(0, 120), promptLength: prompt.length }) + '\\n',
-  )
-} catch {}
-if (prompt.includes('section observer')) {
-  const sectionIds = [...new Set([...prompt.matchAll(/"id":"(section-[^"]+)"/g)].map((match) => match[1]))]
-  await writeJsonAndExit({
-    observations: sectionIds.map((sectionId) => ({
-      sectionId,
-      structure: 'A stacked band pairs a dominant heading with a compact action cluster.',
-      visualRelations: 'Heading scale outweighs body text while the action sits inside the same column.',
-      states: '',
-      limitations: '',
-      evidenceIds: [sectionId]
-    }))
-  })
-}
-if (prompt.includes('design-language interpreter')) {
-  const unique = (values) => [...new Set(values)]
-  const shortIds = unique([...prompt.matchAll(/"((?:p|s|c|l|a|r|i|m)\\d+)"/g)].map((match) => match[1]))
-  const evidenceId = shortIds.find((id) => id.startsWith('s')) || shortIds.find((id) => id.startsWith('p'))
-  const attachedImageLine = prompt.match(/Attached images, in order: ([^\\n]+)/)?.[1] || ''
-  const attachedImageIds = unique([...attachedImageLine.matchAll(/\\bi\\d+\\b/g)].map((match) => match[0]))
-  const dimensions = [
-    'design-thesis', 'composition', 'attention', 'color', 'typography', 'shape',
-    'surfaces', 'imagery', 'motion', 'interaction', 'responsive', 'transfer'
-  ]
-  const claim = (index, scope = 'instance') => ({
-    id: 'q' + (index + 1),
-    s: 'Observed design rule ' + (index + 1) + ' uses a specific hierarchy and measured grouping.',
-    i: 'Use the observed grouping strategy while adapting content for the new page.',
-    c: 'medium',
-    e: [evidenceId],
-    t: [],
-    a: [{ k: 'evidence', x: dimensions[index], p: 'supports', sc: scope, e: [evidenceId] }]
-  })
-  const scopedClaim = (dimension, scope = 'page') => ({
-    s: 'The extracted evidence supports this local design decision.',
-    i: 'Keep the decision scoped to the cited evidence.',
-    c: 'medium',
-    e: [evidenceId],
-    t: [],
-    a: [{ k: 'evidence', x: dimension, p: 'supports', sc: scope, e: [evidenceId] }]
-  })
-  await writeJsonAndExit({
-    claims: dimensions.map((_, index) => claim(index)),
-    thesis: 'q1',
-    signatureMoves: [],
-    composition: { container: 'q2', alignment: 'q3', density: 'q4', rhythm: 'q5' },
-    attention: { entry: 'q6', sequence: [], action: 'q7', contrast: 'q8' },
-    visual: { color: 'q9', typography: 'q10', shape: 'q11', surfaces: 'q12' },
-    sections: [],
-    interaction: {
-      drivers: [],
-      feedback: scopedClaim('interaction'),
-      amplitude: scopedClaim('motion'),
-      continuity: []
-    },
-    components: [],
-    transfer: {
-      preserve: [scopedClaim('design-thesis')],
-      adapt: [scopedClaim('composition')],
-      avoid: [scopedClaim('transfer')]
-    },
-    uncertainties: [],
-    aliases: [],
-    imageObservations: attachedImageIds.map((image) => ({
-      image,
-      description: 'Screenshot of the fixture page showing its hero band and card sections.'
-    }))
-  })
-}
-const colorName = prompt.match(/^([^:\\r\\n]+):\\s*#2563eb\\s*$/im)?.[1] || ''
-console.log(JSON.stringify({
-  renames: colorName
-    ? [
-        { tokenId: colorName, name: 'e2e-agent-brand' },
-        { tokenId: 'missing-token', name: 'should-be-rejected' },
-        { tokenId: 'background', name: 'Invalid Name' }
-      ]
-    : [],
-  examples: colorName
-    ? [
-        {
-          title: 'Neutral card',
-          html: '<article style="background: var(--color-' + colorName + '); color: var(--color-background); padding: var(--spacing-3)"><h3>Card</h3></article>'
-        }
-      ]
-    : []
-}))
-`
-  await fs.writeFile(path.join(fakeAgentDir, 'fake-agent.mjs'), fakeAgentSource, 'utf-8')
-  if (process.platform === 'win32') {
-    await fs.writeFile(path.join(fakeAgentDir, 'codex.cmd'), '@echo off\r\nnode "%~dp0fake-agent.mjs" %*\r\n', 'utf-8')
-  } else {
-    const fakeAgentPath = path.join(fakeAgentDir, 'codex')
-    await fs.writeFile(fakeAgentPath, '#!/bin/sh\nexec node "$(dirname "$0")/fake-agent.mjs" "$@"\n', 'utf-8')
-    await fs.chmod(fakeAgentPath, 0o755)
-  }
 
   const fixture = await fs.readFile(fixturePath)
   fixtureServer = http.createServer((request, response) => {
@@ -221,7 +106,6 @@ after(async () => {
     console.log('kept userDataDir:', userDataDir)
     return
   }
-  if (fakeAgentDir) await fs.rm(fakeAgentDir, { force: true, recursive: true })
   if (userDataDir) await fs.rm(userDataDir, { force: true, recursive: true })
 })
 
@@ -240,65 +124,15 @@ test('switches themes in the current validation scenario', async () => {
   await page.locator('a[href="#/"]').click()
 })
 
-test('extracts a local design system without LLM credentials and persists it', { timeout: 300_000 }, async (t) => {
+test('extracts and persists a deterministic local design system', { timeout: 300_000 }, async (t) => {
   try {
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
 
     await page.locator('a[href="#/settings"]').click()
-    await page.getByTestId('ai-engine-status').waitFor({ state: 'visible' })
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
-
-    await page.getByTestId('ai-mode-agent-cli').click()
-    await page.locator('[data-testid^="agent-cli-option-"]').first().waitFor({ state: 'visible', timeout: 30_000 })
-    assert.equal(await page.locator('[data-testid^="agent-cli-option-"][aria-pressed="true"]').count(), 0)
-    assert.equal(
-      await page.evaluate(async () => (await window.electronAPI.getSettings()).agentCli),
-      '',
-      'CLI detection must not select a candidate',
-    )
-
-    await page.evaluate(async () => {
-      await window.electronAPI.saveSettings({ agentCli: 'codex' })
-    })
-    await page.locator('a[href="#/"]').click()
-    await page.locator('a[href="#/settings"]').click()
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'Local CLI · Codex')
-    await page.evaluate(async () => {
-      await window.electronAPI.saveSettings({ agentCli: '' })
-    })
-    await page.locator('a[href="#/"]').click()
-    await page.locator('a[href="#/settings"]').click()
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
-    assert.equal(
-      await page.evaluate(async () => (await window.electronAPI.getSettings()).agentCli),
-      '',
-      'The selected CLI must be clearable',
-    )
-
-    await page.getByTestId('ai-mode-api-key').click()
-    await page.getByLabel('LLM Provider').selectOption('deepseek')
-    await page.getByLabel('API Key').fill('e2e-placeholder-key')
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'API Key · DeepSeek')
-    await page.getByLabel('LLM Provider').selectOption('openai')
-    assert.equal(await page.getByLabel('API Key').inputValue(), '')
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
-    await page.getByLabel('API Key').fill('e2e-openai-key')
-    await page.getByLabel('LLM Provider').selectOption('deepseek')
-    assert.equal(await page.getByLabel('API Key').inputValue(), 'e2e-placeholder-key')
-    await page.getByTestId('ai-mode-agent-cli').click()
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'AI enhancement is not enabled')
-    await page.getByTestId('ai-mode-api-key').click()
-    assert.equal(await page.getByTestId('ai-engine-status-label').textContent(), 'API Key · DeepSeek')
-    await page.getByLabel('API Key').fill('')
-    await page.waitForFunction(async () => {
-      const settings = await window.electronAPI.getSettings()
-      return settings.aiMode === 'apiKey' && !settings.apiKeys.deepseek && settings.apiKeys.openai && !settings.agentCli
-    })
+    await page.getByTestId('proxy-server').waitFor({ state: 'visible' })
 
     await page.locator('a[href="#/"]').click()
-    await page.getByTestId('no-ai-tip').waitFor({ state: 'visible' })
-    await page.getByTestId('dismiss-no-ai-tip').click()
     await page.getByTestId('analyze-url').fill(fixtureUrl)
     await page.getByTestId('analyze-submit').click()
 
@@ -306,12 +140,11 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 5)
     assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 2)
-    await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
+    await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
     assert.match(
       (await page.getByTestId('analysis-evidence-coverage').textContent()) || '',
       /sections.*components.*screen sizes/i,
     )
-    assert.equal(await page.getByTestId('example-components').count(), 0)
     await page.getByTestId('analysis-page-screenshot').first().locator('img').click()
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-screenshot-zoom-in').click()
@@ -336,23 +169,20 @@ test('extracts a local design system without LLM credentials and persists it', {
     assert.match(draggedTransform, /translate3d\((?!0px, 0px)/)
     await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'detached' })
-    await page.getByTestId('ai-export-info').hover()
+    await page.getByTestId('agent-export-info').hover()
     await page.getByRole('tooltip').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-page-count').selectOption('1')
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
 
     await page.getByTestId('artifact-tab-overview').click()
-    await page.getByTestId('design-evidence-overview').waitFor({ state: 'visible' })
+    await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
 
     await page.getByTestId('artifact-tab-css').click()
     const css = await page.getByTestId('artifact-content-css').textContent()
     assert.match(css || '', /:root\s*\{/)
     assert.match(css || '', /--color-/)
 
-    await page.evaluate(async () => {
-      await window.electronAPI.saveSettings({ aiMode: 'agentCli', agentCli: 'codex' })
-    })
-    const previousAgentScreenshotSrc = await page
+    const previousManagedScreenshotSrc = await page
       .getByTestId('analysis-page-screenshot')
       .first()
       .locator('img')
@@ -369,25 +199,14 @@ test('extracts a local design system without LLM credentials and persists it', {
           screenshot.src !== previousSrc
         )
       },
-      previousAgentScreenshotSrc,
+      previousManagedScreenshotSrc,
       { timeout: 90_000 },
     )
     await page.getByTestId('artifact-tab-overview').click()
-    await page
-      .locator(
-        '[data-testid="design-intelligence-status-complete"], [data-testid="design-intelligence-status-partial"]',
-      )
-      .waitFor({ state: 'visible' })
-    await page.getByTestId('artifact-tab-preview').click()
-    assert.equal(await page.getByTestId('example-generation').count(), 0)
-    assert.equal(await page.getByTestId('example-components').count(), 0)
-    await page.getByTestId('artifact-tab-overview').click()
+    await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
     await page.getByTestId('design-evidence-link').first().click()
     await page.getByTestId('analysis-evidence-highlight').waitFor({ state: 'visible' })
     await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
-    await page.evaluate(async () => {
-      await window.electronAPI.saveSettings({ aiMode: 'apiKey', agentCli: '' })
-    })
 
     const appThemeBeforeWebsitePreview = await page.locator('html').getAttribute('data-app-theme')
     await page.getByTestId('save-theme').click()

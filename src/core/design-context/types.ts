@@ -1,90 +1,22 @@
-import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
-import type { AnalysisTiming, DesignToken } from '../analyzer/types.js'
-import type { DesignEvidence } from '../design-evidence/types.js'
+import type { AnalysisTiming } from '../analyzer/types.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
-export type IntelligenceInputMode = 'multimodal' | 'structural-only'
+export type EvidenceInputMode = 'structural-only'
 export const DESIGN_PROFILE_SCHEMA_VERSION = '2' as const
 export type DesignProfileSchemaVersion = '1' | typeof DESIGN_PROFILE_SCHEMA_VERSION
 export type DesignAssertionKind = 'evidence' | 'component' | 'section' | 'interaction' | 'responsive' | 'token'
 export type DesignAssertionScope = 'instance' | 'page' | 'cross-page'
-export type AnalysisCapabilityLevel = 'evidence-only' | 'structural-ai' | 'multimodal-ai' | 'evidence-fallback'
-export type DesignIntelligenceStatus =
-  'not-configured' | 'not-requested' | 'pending' | 'complete' | 'partial' | 'failed' | 'skipped' | 'unsupported'
+export type AnalysisCapabilityLevel = 'evidence-only'
+export type DesignContextStatus = 'complete'
 
 export type { AnalysisTiming } from '../analyzer/types.js'
 
-export interface AiModelCapabilities {
-  text: boolean
-  vision: boolean
-  structuredOutput: boolean
-  imageInputMethod?: 'inline-base64' | 'file-reference'
-  maxImages?: number
-}
-
-export interface DesignIntelligenceMeta {
-  status: DesignIntelligenceStatus
+export interface DesignContextMeta {
+  status: DesignContextStatus
   capabilityLevel: AnalysisCapabilityLevel
-  inputMode?: IntelligenceInputMode
-  provider?: string
-  model?: string
-  generatedAt?: string
+  inputMode?: EvidenceInputMode
   schemaVersion?: string
-  promptVersion?: string
-  inputFingerprint?: string
-  cacheKey?: string
-  inputImageCount?: number
-  tokenUsage?: {
-    input?: number
-    output?: number
-    reasoning?: number
-  }
-  callDetails?: Array<{
-    pass: string
-    input?: number
-    output?: number
-    cached?: boolean
-    durationMs?: number
-    transportAttempts?: number
-    transportMs?: number
-  }>
-  failureCode?: string
-  failureReason?: string
-  rejected?: string[]
-  repaired?: string[]
-  interpretationCoverage?: {
-    status: 'complete' | 'partial' | 'failed'
-    catalogClaims: number
-    selectedClaims: number
-    invalidSelections: number
-  }
-  diagnosticCounts?: {
-    rejectedClaims: number
-    rejectedAssertions: number
-    affectedClaimPaths: number
-    repairEvents: number
-    selectionDiagnostics?: number
-  }
-  curation?: {
-    selectedClaimIds: string[]
-    summaries?: Array<{ claimId: string; text: string }>
-  }
-  pendingChoice?: 'model-no-vision'
-  pipeline?: 'single-pass' | 'two-pass'
   timing?: AnalysisTiming
-  exampleGeneration?: {
-    status: 'not-requested' | 'pending' | 'complete' | 'failed'
-    failureCode?: 'not-configured' | 'provider-error' | 'validation-failed'
-  }
-}
-
-export interface SectionObservation {
-  sectionId: string
-  structure: string
-  visualRelations: string
-  states: string
-  limitations: string
-  evidenceIds: string[]
 }
 
 export interface EvidenceRef {
@@ -140,8 +72,8 @@ export interface PatternSpec {
 export interface DesignProfile {
   schemaVersion: DesignProfileSchemaVersion
   language: 'en' | 'zh-CN'
-  inputMode: IntelligenceInputMode
-  claimSource?: 'ai-authored' | 'deterministic-catalog'
+  inputMode: EvidenceInputMode
+  claimSource?: 'deterministic-catalog'
   catalogVersion?: string
   thesis: DesignClaim
   signatureMoves: SignatureMove[]
@@ -194,7 +126,6 @@ export interface DesignProfile {
     neededEvidence?: string
   }>
   patterns?: PatternSpec[]
-  tokenAliases?: ColorRenameProposal[]
 }
 
 export type DesignClaimSingletonSlot =
@@ -235,131 +166,9 @@ export interface DesignClaimCatalog {
   schemaVersion: '1'
   catalogVersion: string
   language: 'en' | 'zh-CN'
-  inputMode: IntelligenceInputMode
+  inputMode: EvidenceInputMode
   claims: DesignClaimCatalogEntry[]
   uncertainties: DesignProfile['uncertainties']
-}
-
-export interface DesignClaimSelection {
-  schemaVersion: '1'
-  selectedClaimIds: string[]
-  summaries?: Array<{ claimId: string; text: string }>
-}
-
-export interface ApproximateBounds {
-  widthShare?: string
-  heightShare?: string
-  anchor: 'left' | 'center' | 'right' | 'full'
-  vertical: 'top' | 'middle' | 'bottom'
-}
-
-export interface InteractionChange {
-  property: string
-  from: string
-  to: string
-}
-
-export type AiSafeDesignEvidence = Omit<
-  DesignEvidence,
-  | 'pages'
-  | 'components'
-  | 'layoutNodes'
-  | 'sections'
-  | 'interactionObservations'
-  | 'interactionStyles'
-  | 'responsiveObservations'
-  | 'mediaLayers'
-> & {
-  pages: Array<{
-    id: string
-    url: string
-    viewport: string
-    role?: string
-    viewportWidth?: number
-    viewportHeight?: number
-    contentWidth?: number
-    contentHeight?: number
-    horizontalOverflow?: boolean
-    horizontalOverflowSources?: Array<{
-      locator: string
-      overflowPx: number
-      width: number
-      position: string
-      sectionId?: string
-      sectionRole?: string
-    }>
-    health?: {
-      status: string
-      aiEligible?: boolean
-      issues: Array<{ code: string; severity: string }>
-    }
-    imageIds: string[]
-  }>
-  sections: Array<
-    Omit<DesignEvidence['sections'][number], 'evidenceRefs' | 'rect'> & {
-      evidenceRefs?: string[]
-      approxBounds: ApproximateBounds
-    }
-  >
-  components: Array<{
-    id: string
-    sectionId: string
-    type: string
-    role?: string
-    tokenRefs: string[]
-  }>
-  layoutNodes: Array<{
-    id: string
-    sectionId: string
-    role: string
-    textRole?: string
-    tokenRefs: string[]
-    traits: string[]
-  }>
-  interactionStyles: {
-    hover: unknown[]
-    focus: unknown[]
-    active: unknown[]
-    disabled?: unknown[]
-  }
-  interactionObservations: Array<{
-    id: string
-    sectionId: string
-    driver: string
-    safety: string
-    trigger: { kind: string; threshold?: string }
-    changedProperties: string[]
-    changes: InteractionChange[]
-    transition?: { duration?: string; easing?: string; properties?: string[] }
-  }>
-  responsiveObservations: Array<Omit<DesignEvidence['responsiveObservations'][number], 'evidenceRefs'>>
-  mediaLayers: Array<{
-    id: string
-    sectionId: string
-    kind: string
-    role: string
-    importance?: string
-    layoutMode?: string
-  }>
-}
-
-export interface EvidencePackage {
-  schemaVersion: '1'
-  analysisId: string
-  inputMode: IntelligenceInputMode
-  selectedPageIds: string[]
-  selectedSectionIds: string[]
-  imageIds: string[]
-  imageSelection: Array<{
-    id: string
-    score: number
-    reason: string
-  }>
-  evidence: AiSafeDesignEvidence
-  omittedEvidence: Array<{
-    kind: string
-    reason: 'budget' | 'privacy' | 'unsupported' | 'unsafe' | 'severe-horizontal-overflow'
-  }>
 }
 
 export interface AgentContextBundle {
@@ -391,7 +200,7 @@ export type ValidationNode =
   | { type: 'button'; variant: 'primary' | 'secondary'; labelKey: string }
   | { type: 'field'; state?: 'default' | 'focus' | 'error' }
 
-export type ValidationFailureLayer = 'evidence' | 'interpretation' | 'generation'
+export type ValidationFailureLayer = 'evidence' | 'rule' | 'rendering'
 export type ValidationCheckStatus = 'passed' | 'partial' | 'failed' | 'unknown'
 
 export interface ValidationCheck {
@@ -406,17 +215,7 @@ export interface ValidationCheck {
 
 export interface ValidationReport {
   schemaVersion: '1'
-  generatedAt: string
   capabilityLevel: AnalysisCapabilityLevel
   recipe: ValidationRecipe
   checks: ValidationCheck[]
-}
-
-export interface DesignIntelligenceResult {
-  profile: DesignProfile | null
-  meta: DesignIntelligenceMeta
-  reconstructionBrief?: string
-  agentContext?: AgentContextBundle
-  validationReport?: ValidationReport
-  tokens?: DesignToken
 }

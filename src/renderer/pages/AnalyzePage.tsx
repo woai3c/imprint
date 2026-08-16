@@ -7,7 +7,6 @@ import type {
   AnalyzeResponse,
   AuthMode,
   AuthWallDetection,
-  DesignIntelligenceResponse,
   LoginDecision,
   LoginRequiredEvent,
 } from '../../shared/ipc-contract'
@@ -17,9 +16,7 @@ import { PageHeader } from '../components/PageHeader'
 import { ArtifactPanel } from '../components/analyze/ArtifactPanel'
 import { EvidenceViewer, useEvidenceViewer } from '../components/analyze/EvidenceViewer'
 import { ResultOverview } from '../components/analyze/ResultOverview'
-import { Alert } from '../components/ui/Alert'
 import { EmptyState } from '../components/ui/EmptyState'
-import { getNoAiTipDismissedPreference, setNoAiTipDismissedPreference } from '../lib/preferences'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 
@@ -37,13 +34,12 @@ type AuthPrompt =
     }
 
 type AnalysisOutcome = 'complete' | 'auth-required' | 'cancelled' | 'error'
+const ANALYSIS_RECOVERY_POLL_MS = 750
 
 export function AnalyzePage() {
   const { t, i18n } = useTranslation()
   const store = useAnalysisStore()
   const notify = useFeedbackStore((state) => state.show)
-  const [hasAiConfig, setHasAiConfig] = useState<boolean | null>(null)
-  const [aiTipDismissed, setAiTipDismissed] = useState(getNoAiTipDismissedPreference)
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null)
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
@@ -52,11 +48,6 @@ export function AnalyzePage() {
   useEffect(() => {
     const refresh = () => {
       window.electronAPI.getSettings().then((s) => {
-        const configured =
-          s.aiEnabled !== false &&
-          (s.aiMode === 'apiKey' ? Boolean(s.provider && s.apiKeys[s.provider]) : Boolean(s.agentCli))
-        setHasAiConfig(configured)
-        if (!configured) setAiTipDismissed(false)
         setAnalysisDepth(s.analysisDepth === 'deep' ? 'deep' : 'standard')
       })
     }
@@ -75,28 +66,24 @@ export function AnalyzePage() {
 
   useEffect(() => {
     const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
-      store.setProgress(p)
+      const current = useAnalysisStore.getState()
+      if (current.analyzing) current.setProgress(p)
     })
-    const unsubscribeIntelligenceProgress = window.electronAPI.onDesignIntelligenceProgress(
-      (p: { step: string; percent: number }) => {
-        store.setIntelligenceProgress(p)
-      },
-    )
     const unsubscribeLogin = window.electronAPI.onLoginRequired((request: LoginRequiredEvent) => {
-      store.setAnalyzing(true)
+      const current = useAnalysisStore.getState()
+      current.setAnalyzing(true)
       setAuthPrompt({
         kind: 'login',
         requestId: request.requestId,
         retry: request.retry,
-        targetUrl: store.lastUrl,
+        targetUrl: current.lastUrl,
       })
     })
     return () => {
       unsubscribeProgress()
-      unsubscribeIntelligenceProgress()
       unsubscribeLogin()
     }
-  }, [store])
+  }, [])
 
   const translateStep = (step: string): string => {
     if (step.includes('::')) {
@@ -109,47 +96,77 @@ export function AnalyzePage() {
     return t(step, { defaultValue: step })
   }
 
-  const runDesignIntelligence = async (analysisId: string) => {
-    store.setIntelligenceRunning(true)
-    store.setIntelligenceProgress({ step: 'progress.programAnalysisComplete', percent: 5 })
-    try {
-      const response: DesignIntelligenceResponse = await window.electronAPI.startDesignIntelligence(
-        analysisId,
-        i18n.language,
-      )
-      if (response.error) {
-        notify(t('analyze.designDna.fallbackNotice'), 'error')
-        return
-      }
-      store.mergeResult(response)
-      const status = response.designIntelligence?.status
-      if (response.designIntelligence?.failureCode === 'cancelled') {
-        notify(t('analyze.designDna.cancelledNotice'))
-        return
-      }
-      notify(
-        status === 'complete' || status === 'partial'
-          ? t('analyze.designDna.completeNotice')
-          : t('analyze.designDna.fallbackNotice'),
-        status === 'complete' || status === 'partial' ? 'success' : 'error',
-      )
-    } catch {
-      notify(t('analyze.designDna.fallbackNotice'), 'error')
-    } finally {
-      store.setIntelligenceRunning(false)
-      store.setIntelligenceProgress(null)
-    }
-  }
+  useEffect(() => {
+    let disposed = false
+    let pollTimer: number | undefined
 
-  const skipDesignIntelligence = async (analysisId: string) => {
-    try {
-      const response = await window.electronAPI.skipDesignIntelligence(analysisId)
-      if (response.error || !response.designIntelligence) throw new Error('Skip failed')
-      store.mergeResult({ analysisId, designIntelligence: response.designIntelligence })
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
+    const applyRecoveredResponse = async (targetUrl: string, response: AnalyzeResponse) => {
+      const current = useAnalysisStore.getState()
+      if (response.authRequired && response.detection) {
+        current.setProgress(null)
+        current.setAnalyzing(true)
+        setAuthPrompt({ kind: 'choice', detection: response.detection, targetUrl })
+        return
+      }
+      if (response.cancelled) {
+        current.setProgress(null)
+        current.setAnalyzing(false)
+        setAuthPrompt(null)
+        notify(t('analyze.cancelledTip'))
+        return
+      }
+      if (response.error) {
+        current.setFailure({
+          message: response.message?.trim() || t('analyze.error'),
+          url: targetUrl,
+          authMode: 'auto',
+          stage: response.stage,
+        })
+        return
+      }
+      if (!response.tokens || typeof response.cssVariables !== 'string' || typeof response.designDoc !== 'string') {
+        current.setFailure({ message: t('analyze.error'), url: targetUrl, authMode: 'auto' })
+        return
+      }
+
+      const data = response as AnalysisResultData
+      current.setResult(data, targetUrl)
+      setAuthPrompt(null)
+      notify(t('analyze.completeTip'), 'success')
     }
-  }
+
+    const recover = async () => {
+      try {
+        const recovery = await window.electronAPI.recoverAnalysis()
+        if (disposed) return
+        const current = useAnalysisStore.getState()
+        if (recovery.status === 'running') {
+          if (!current.analyzing) current.clearResult()
+          current.setUrl(recovery.url)
+          current.setAnalyzing(true)
+          current.setProgress(recovery.progress || { step: 'progress.launchingBrowser', percent: 0 })
+          pollTimer = window.setTimeout(recover, ANALYSIS_RECOVERY_POLL_MS)
+          return
+        }
+        if (recovery.status === 'complete') {
+          await applyRecoveredResponse(recovery.url, recovery.response)
+          await window.electronAPI.acknowledgeAnalysis()
+          return
+        }
+        if (!current.analyzing && current.progress) current.setProgress(null)
+      } catch {
+        if (!disposed && useAnalysisStore.getState().analyzing) {
+          pollTimer = window.setTimeout(recover, ANALYSIS_RECOVERY_POLL_MS)
+        }
+      }
+    }
+
+    void recover()
+    return () => {
+      disposed = true
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer)
+    }
+  }, [i18n.language, notify, t])
 
   const runAnalysis = async (targetUrl: string, authMode: AuthMode): Promise<AnalysisOutcome> => {
     try {
@@ -188,9 +205,6 @@ export function AnalyzePage() {
       store.setResult(data, targetUrl)
       setAuthPrompt(null)
       notify(t('analyze.completeTip'), 'success')
-      if (data.analysisId && data.designIntelligence?.status === 'pending') {
-        void runDesignIntelligence(data.analysisId)
-      }
       return 'complete'
     } catch (err) {
       console.error('Analysis failed:', err)
@@ -200,6 +214,12 @@ export function AnalyzePage() {
         authMode,
       })
       return 'error'
+    } finally {
+      try {
+        await window.electronAPI.acknowledgeAnalysis()
+      } catch {
+        // A renderer reload can dispose this IPC context; the next renderer will recover the completed result.
+      }
     }
   }
 
@@ -279,13 +299,6 @@ export function AnalyzePage() {
   const handleRetryFailure = async () => {
     if (!failure) return
     await startAnalysis(failure.url, failure.authMode)
-  }
-
-  const handleCancelIntelligence = async () => {
-    if (!result?.analysisId) return
-    await window.electronAPI.cancelDesignIntelligence(result.analysisId)
-    store.setIntelligenceRunning(false)
-    store.setIntelligenceProgress(null)
   }
 
   return (
@@ -400,23 +413,7 @@ export function AnalyzePage() {
           </div>
         </div>
 
-        {hasAiConfig === false && !aiTipDismissed && !result && !failure && (
-          <Alert
-            tone="warning"
-            testId="no-ai-tip"
-            dismissTestId="dismiss-no-ai-tip"
-            className="mt-3"
-            dismissLabel={t('feedback.dismiss')}
-            onDismiss={() => {
-              setAiTipDismissed(true)
-              setNoAiTipDismissedPreference(true)
-            }}
-          >
-            {t('analyze.noAiTip')}
-          </Alert>
-        )}
-
-        {progress && (
+        {analyzing && progress && (
           <div className="mt-4" aria-live="polite">
             <div className="mb-1.5 flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{translateStep(progress.step)}</span>
@@ -518,11 +515,6 @@ export function AnalyzePage() {
           />
           <ArtifactPanel
             result={result}
-            intelligenceRunning={store.intelligenceRunning}
-            intelligenceProgress={store.intelligenceProgress}
-            onRetryIntelligence={() => result.analysisId && runDesignIntelligence(result.analysisId)}
-            onCancelIntelligence={handleCancelIntelligence}
-            onSkipIntelligence={() => result.analysisId && skipDesignIntelligence(result.analysisId)}
             onResultUpdate={store.mergeResult}
             onOpenEvidence={evidenceViewer.openEvidence}
           />
@@ -533,7 +525,7 @@ export function AnalyzePage() {
           <EmptyState
             title={t('analyze.emptyTitle')}
             description={t('analyze.emptyDescription')}
-            hint={t('analyze.noAiHint')}
+            hint={t('analyze.analysisHint')}
             className="flex-1 px-8"
           />
         )

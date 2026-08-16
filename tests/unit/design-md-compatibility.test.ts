@@ -216,13 +216,10 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(parsed.components.navigation).not.toHaveProperty('backgroundColor')
   })
 
-  test('uses stable value-based IDs for fallback colors while preserving AI aliases as suggestions', () => {
+  test('uses stable value-based IDs for fallback colors', () => {
     const raw = { ...tokens, colors: { ...tokens.colors, 'palette-5': '#8491a5' } }
-    const aliased = { ...tokens, colors: { ...tokens.colors, 'slate-action': '#8491a5' } }
-    const aliases = [{ tokenId: 'palette-5', name: 'slate-action' }]
 
     expect(buildDesignMdColorTokens(raw)).toHaveProperty('observed-8491a5', '#8491a5')
-    expect(buildDesignMdColorTokens(aliased, aliases)).toEqual(buildDesignMdColorTokens(raw))
   })
 
   test('uses the same public fallback color name in machine and prose layers', () => {

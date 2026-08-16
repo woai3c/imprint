@@ -27,9 +27,8 @@ Imprint is an open-source desktop application that transforms websites and UI sc
 
 It analyzes visual rules such as colors, typography, spacing, border radii, shadows, layout patterns, and component styles, then generates structured outputs that can be used directly by AI coding agents and frontend projects.
 
-AI is a downstream consumer, not an extraction dependency. Core analysis, claims, and exports remain deterministic and
-work without a model provider. Optional AI should help apply that evidence to a target project; it must never author or
-change observed source facts.
+AI is a downstream consumer, not an extraction dependency. Core analysis, claims, and exports are deterministic and
+require no model provider, API key, or local agent runtime.
 
 Instead of asking AI to invent another generic interface, give it a real design system to follow.
 
@@ -63,7 +62,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance                    |
 | AI-ready documentation   | Export Google DESIGN.md alpha with traceable Imprint extensions                                 |
 | Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                            |
-| Local AI agents          | Work with Claude Code, Codex, Kimi, Gemini CLI, OpenCode, and x-code-cli                        |
+| Agent integration        | Use exported artifacts or MCP with external coding agents                                       |
 | Local-first storage      | Store project data locally with SQLite                                                          |
 | Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios      |
 | Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                     |
@@ -92,67 +91,29 @@ If you give AI only one exported file, choose **DESIGN.md**.
 
 Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The summarized `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; complete token provenance remains in Tokens JSON and `design-evidence.json`.
 
-## Deterministic design context and optional AI
+## Deterministic design context
 
 Every analysis produces deterministic `DesignEvidence`: multi-viewport screenshots, page topology, normalized section
 and component geometry, responsive differences, safe interaction observations, media layers, coverage, and limitations.
-Program-owned claims turn that evidence into a stable, traceable design context. These results work without AI and are
-stored separately from Tokens JSON.
+Program-owned rules turn that evidence into a stable, traceable Design Profile, Reconstruction Brief, validation recipe,
+and exports. Identical captured evidence produces identical context.
 
-Optional AI is reserved for proposals that benefit from target context, such as semantic aliases, human-readable design
-intent, or adapting the extracted system to an existing project. AI proposals remain separate from source truth, cite
-the deterministic claims and evidence they use, and never replace extracted token keys or change exported facts.
+Imprint has no built-in model provider, API-key settings, or Agent CLI execution path. External coding agents can consume
+the completed artifacts through files or MCP, but they never participate in extraction or change source facts.
 
-Screenshot input for an optional AI task is opt-in. It requires a vision-capable API model and explicit consent in
-Settings, only uses a limited selection from anonymous public pages, and is never sent for signed-in analyses without
-separate explicit consent. If an AI task fails, tokens, evidence, deterministic claims, screenshots, and implementation
-exports remain unchanged.
-
-## CLI and MCP intelligence
-
-CLI extraction never calls an AI provider unless `--intelligence` is explicitly set. API keys are read from process
-environment variables only — `IMPRINT_AI_API_KEY` (generic override, checked first) or the provider's standard
-variable:
-
-| Provider     | Environment variable                                 |
-| ------------ | ---------------------------------------------------- |
-| `openai`     | `OPENAI_API_KEY`                                     |
-| `anthropic`  | `ANTHROPIC_API_KEY`                                  |
-| `google`     | `GOOGLE_GENERATIVE_AI_API_KEY`                       |
-| `deepseek`   | `DEEPSEEK_API_KEY`                                   |
-| `moonshotai` | `MOONSHOT_API_KEY`                                   |
-| `alibaba`    | `ALIBABA_API_KEY`                                    |
-| `zhipu`      | `ZHIPU_API_KEY`                                      |
-| `xai`        | `XAI_API_KEY`                                        |
-| `custom`     | `IMPRINT_AI_API_KEY` (with `--base-url` / `baseUrl`) |
+## CLI and MCP
 
 ```bash
 pnpm build:cli
-export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
-imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
-imprint extract https://example.com --intelligence structural --provider deepseek --format reconstruction
-imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
+imprint extract https://example.com --viewport all --format profile
+imprint extract https://example.com --format reconstruction
 ```
 
-The MCP server keeps `imprint_extract` deterministic. Use `imprint_interpret` for an explicit provider call, or set
-`depth: "language"` on `imprint_compare` to compare two validated structural profiles. Set `includeBrief: true` on
-`imprint_interpret` only when the complete eligible Reconstruction Brief is needed; it is omitted by default. Pass the
-API key through your MCP client's server configuration, for example:
-
-```json
-{
-  "mcpServers": {
-    "imprint": {
-      "command": "imprint-mcp",
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
-    }
-  }
-}
-```
-
-AI keys configured here are independent of the desktop app's Settings — each entry point reads only its own source.
+The MCP server exposes deterministic `imprint_extract` and `imprint_compare` tools. It requires no provider credentials.
+`imprint_compare` accepts either two URLs or two previously exported Design Profiles and supports token or deterministic
+language-depth comparison.
 
 ## Download
 
@@ -166,16 +127,15 @@ Download the latest version from [GitHub Releases](https://github.com/woai3c/imp
 
 ## Tech Stack
 
-| Layer                | Technology                                             |
-| -------------------- | ------------------------------------------------------ |
-| Desktop Framework    | Electron + Electron Forge                              |
-| Frontend             | React 19 + TypeScript + Vite                           |
-| UI                   | Tailwind CSS v4                                        |
-| State Management     | Zustand                                                |
-| Storage              | SQLite (better-sqlite3)                                |
-| Web Analysis         | Playwright                                             |
-| Internationalization | i18next + react-i18next                                |
-| AI                   | OpenAI / Claude / DeepSeek / Kimi API, Local Agent CLI |
+| Layer                | Technology                   |
+| -------------------- | ---------------------------- |
+| Desktop Framework    | Electron + Electron Forge    |
+| Frontend             | React 19 + TypeScript + Vite |
+| UI                   | Tailwind CSS v4              |
+| State Management     | Zustand                      |
+| Storage              | SQLite (better-sqlite3)      |
+| Web Analysis         | Playwright                   |
+| Internationalization | i18next + react-i18next      |
 
 ## Development
 
@@ -192,7 +152,7 @@ pnpm build
 # Build distributable (zip on Windows, DMG on macOS)
 pnpm make
 
-# Run E2E tests (no LLM required)
+# Run deterministic E2E tests
 pnpm test:e2e
 ```
 
@@ -210,12 +170,11 @@ src/
 │   ├── analyzer/        # Web analysis engine (Electron wrapper)
 │   ├── export.ts        # Design system export
 │   ├── database.ts      # SQLite database
-│   └── agent-detect.ts  # AI agent detection
 │
 ├── core/                # Shared extraction engine (CLI + MCP + Desktop)
 │   ├── analyzer/        # Style extraction, color clustering, token building
 │   ├── design-evidence/ # Stable observed evidence and coverage
-│   ├── design-intelligence/ # Validated profiles, briefs, context, validation
+│   ├── design-context/  # Validated profiles, briefs, context, validation
 │   └── export/          # CSS / Tailwind / JSON / Markdown / SCSS generators
 │
 ├── cli/                 # CLI entry point (imprint bin)

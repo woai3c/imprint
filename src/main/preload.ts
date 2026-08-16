@@ -27,13 +27,9 @@ const api = {
       depth?: 'standard' | 'deep'
     },
   ) => ipcRenderer.invoke('analyze:url', url, options),
+  recoverAnalysis: () => ipcRenderer.invoke('analysis:recover'),
+  acknowledgeAnalysis: () => ipcRenderer.invoke('analysis:acknowledge'),
   cancelAnalysis: () => ipcRenderer.invoke('analysis:cancel'),
-  startDesignIntelligence: (analysisId: string, language?: string) =>
-    ipcRenderer.invoke('design-intelligence:start', analysisId, language),
-  generateDesignExamples: (analysisId: string, language?: string) =>
-    ipcRenderer.invoke('design-examples:start', analysisId, language),
-  cancelDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:cancel', analysisId),
-  skipDesignIntelligence: (analysisId: string) => ipcRenderer.invoke('design-intelligence:skip', analysisId),
   generateValidation: (analysisId: string, scenario: 'workflow' | 'content' | 'states') =>
     ipcRenderer.invoke('validation:start', analysisId, scenario),
   submitLoginDecision: (requestId: string, decision: 'continue' | 'anonymous' | 'cancel') =>
@@ -53,10 +49,7 @@ const api = {
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('settings:save', settings),
-  detectAgentClis: (force = false) => ipcRenderer.invoke('settings:detectAgentClis', force),
-  testApiKey: (provider: string, apiKey: string, baseUrl?: string) =>
-    ipcRenderer.invoke('settings:testApiKey', provider, apiKey, baseUrl),
+  saveSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('settings:save', settings),
 
   // History
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),
@@ -74,11 +67,6 @@ const api = {
     const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
     ipcRenderer.on('analysis:progress', handler)
     return () => ipcRenderer.removeListener('analysis:progress', handler)
-  },
-  onDesignIntelligenceProgress: (callback: (progress: { step: string; percent: number }) => void) => {
-    const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
-    ipcRenderer.on('design-intelligence:progress', handler)
-    return () => ipcRenderer.removeListener('design-intelligence:progress', handler)
   },
   onLoginRequired: (callback: (request: LoginRequiredEvent) => void) => {
     const handler = (_event: unknown, request: LoginRequiredEvent) => callback(request)

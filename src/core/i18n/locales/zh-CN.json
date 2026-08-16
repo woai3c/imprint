@@ -93,10 +93,6 @@
       "spacingSystems": "- ❌ 不要混用不同的间距体系",
       "fontFamilies": "- ❌ 不要混用多种字体，保持单一字体族",
       "fontWeights": "- ❌ 不要使用以下之外的字重：{{weights}}"
-    },
-    "examples": {
-      "heading": "## 示例组件",
-      "intro": "以下 HTML 示例由已配置的 AI 根据提取的设计令牌、设计规则与组件模式生成。"
     }
   },
   "designEvidence": {
@@ -111,19 +107,9 @@
     }
   },
   "profileExport": {
-    "heading": "## AI 设计解读",
     "catalogHeading": "## 确定性设计声明",
-    "layerNotice": "> 层级：Inferred / 已推断。以下主张来自经校验的证据综合，不代表原设计师的真实意图。",
     "catalogLayerNotice": "> 层级：确定性声明目录。所有导出的陈述、证据归属、置信度、范围、断言和令牌引用均由程序规则生成并排序。",
-    "catalogBoundaryNotice": "> AI 偏好和摘要仅属于诊断元数据；AI 成功、失败、选择或排序都不能改变导出的声明。低置信度的不可用字段不会显示在报告正文中。",
-    "inputMode": "输入模式",
-    "status": "状态",
-    "evidenceFallbackNotice": "> 状态：`evidence-fallback`。AI 输出未通过校验；下列解读是确定性证据兜底，不是有效的 AI 视觉综合。",
-    "catalogEvidenceFallbackNotice": "> 状态：`evidence-fallback`。可选的 AI 诊断输出未通过校验；程序排序的导出声明不受影响，但当前没有有效的 AI 标注。",
-    "partialNotice": "> 部分 AI 字段未通过确定性校验，已被省略、降为低置信度或替换为证据兜底；使用前请复核。",
-    "partialClaimsFiltered": "> 下文仅保留通过校验的高、中置信度主张。无效、经修复和低置信度主张仍不写入正文；结构化 Design Profile 保留完整诊断。",
-    "catalogPartialNotice": "> AI 诊断标注已完成，但可复用证据覆盖、采集健康度或截图完整性并不完整，因此整体分析仍为 `partial`。程序排序的导出声明不受影响；复用前请查看“不确定性”。",
-    "implementationBoundaryNotice": "> Schema v2 的 DESIGN.md 会主动省略 AI 编写的实现指令。以下内容仅作为推断假设；已观察令牌与证据仍是权威来源。",
+    "catalogBoundaryNotice": "> 所有可见声明都由确定性程序规则生成和排序。低置信度的不可用字段不会显示在报告正文中。",
     "evidenceIndex": {
       "heading": "引用证据索引",
       "notice": "> 下列内容是正文可见主张所引用证据 ID 的确定性索引。完整记录仍保留在 `design-evidence.json` 中。",
@@ -139,20 +125,6 @@
         "media": "媒体层",
         "topologyLayer": "拓扑层",
         "unknown": "未解析证据"
-      }
-    },
-    "coverageRepair": {
-      "name": "结构证据补全",
-      "distinctiveness": "仅补全被校验移除的必要字段，不代表整个 AI 解读已回退。",
-      "component": {
-        "buttonVariants": "各页面标准视口中观察到按钮变体：{{variants}}。",
-        "canonicalCount": "各页面标准视口中观察到 {{count}} 个 {{type}} 组件。",
-        "cardCount": "各页面标准视口中观察到 {{count}} 个 {{style}} 类型的 {{type}} 组件。",
-        "buttonImplementation": "分别保留各变体的填充、前景、边框、圆角与元素类型{{elementKinds}}；不要把单一变体提升为全局按钮规则。",
-        "genericImplementation": "以引用实例的已观察样式为参考；未执行的交互状态需单独验证。",
-        "evidenceNote": "程序提取的组件证据",
-        "observedRole": "已观察的 {{type}} 组件",
-        "cardRole": "已观察的 {{type}} 类型（{{style}}）"
       }
     },
     "labels": {
@@ -425,14 +397,9 @@
     },
     "howToUse": {
       "heading": "## 如何使用",
-      "catalogComplete": "- 本文件包含已观察证据以及由程序生成、排序的声明。AI 偏好和摘要仅属于诊断元数据，不能修改导出的报告。",
-      "catalogPartial": "- 本文件包含已观察证据以及由程序生成、排序的声明。AI 诊断标注未完整完成，但不会影响导出的声明；复用前请检查明确标出的证据覆盖限制。",
+      "catalogComplete": "- 本文件包含已观察证据以及由确定性程序排序的声明。",
       "catalogImplementation": "- 仅实现引用证据支持的确定性声明，并把每条规则限制在记录的 URL、视口、状态和置信度范围内。",
-      "observedOnly": "- 本文件包含已观察的设计令牌与结构证据；本次未生成 AI 设计解读，交给编码助手前应结合原页面复核。",
-      "evidenceFallback": "- 本文件包含已观察的设计令牌与结构证据，但 AI 设计解读已回退；交给编码助手前应人工复核，不应视为完整设计系统。",
-      "partial": "- 本文件包含已观察的设计令牌、结构证据，以及通过校验的高、中置信度推断假设。被拒绝、经修复和低置信度的 AI 主张仅保留在结构化 Design Profile 中用于诊断。",
-      "complete": "- 本文件包含已观察的设计令牌、结构证据，以及基于当前捕获范围且通过校验的推断假设；所有推断仍需结合原页面复核。",
-      "implementation": "- 实现时只以已观察令牌和结构事实为规范；AI 解读属于假设，不是实现要求。",
+      "observedOnly": "- 本文件包含已观察的设计令牌与结构证据，交给编码助手前应结合原页面复核。",
       "verify": "- 完成页面后，对照当前来源页面或本次截图检查视觉层级、密度和响应式表现。",
       "formats": "- 如需精确的 CSS 变量或 Tailwind 主题配置，请使用 Imprint 的对应导出格式。"
     },
@@ -461,7 +428,7 @@
       "iconSchemaNote": "- `{{name}}`：前景 `{{foreground}}` / {{backgroundKind}} `{{background}}` 为 {{ratio}}:1，达到非文本图标的 3:1 目标；但 DESIGN.md alpha 组件字段只能将该颜色写为 `textColor`，通用校验器可能按 4.5:1 文字目标报警。"
     }
   },
-  "intelligence": {
+  "designContext": {
     "catalog": {
       "evidenceNote": "程序生成的声明证据",
       "boundedImplementation": "仅在引用的采集范围内应用此事实；扩大复用范围前需另行验证。",
@@ -544,12 +511,6 @@
         "sectionReason": "未检测到区块。",
         "sectionNeeded": "采集一个健康且能识别结构区域的页面。"
       }
-    },
-    "assertions": {
-      "unsupportedStatement": "该解读的结构化断言与程序提取事实不一致，已移除原结论。",
-      "unsupportedImplementation": "仅使用已引用的程序证据，并在实施前复核预期规则。",
-      "evidenceNote": "程序提取的页面证据",
-      "digestEvidenceNote": "摘要证据 {{id}}"
     },
     "componentShape": {
       "names": {

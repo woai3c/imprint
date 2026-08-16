@@ -320,7 +320,6 @@ describe('Design Evidence browser regression corpus', () => {
           result.breakpoints,
           result.components,
           'en',
-          [],
           evidence,
         )
         expect(designDoc).toContain('### Reconstruction Summary')

@@ -5,7 +5,7 @@ import type { ExtractedStyles, InteractionStyles } from './types.js'
 
 /**
  * Extract all computed styles from a page using page.evaluate().
- * This runs entirely in the browser context - no LLM tokens consumed.
+ * This runs entirely in the browser context.
  */
 export async function extractStyles(page: Page): Promise<ExtractedStyles> {
   return await page.evaluate((candidateRules) => {

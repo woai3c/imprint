@@ -1,5 +1,4 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
-import type { ColorRenameProposal } from '../analyzer/token-renamer.js'
 import type { DesignToken } from '../analyzer/types.js'
 
 function stableColorValueSlug(normalized: string): string {
@@ -21,16 +20,10 @@ function stableColorValueSlug(normalized: string): string {
     .replace(/^-|-$/g, '')
 }
 
-function stableDesignMdColorName(
-  currentName: string,
-  normalizedValue: string,
-  aliasesByName: ReadonlyMap<string, string>,
-  fallbackPrefix: string,
-): string {
-  const sourceName = aliasesByName.get(currentName) || currentName
-  return /^(?:dark-)?palette-\d+$/.test(sourceName)
+function stableDesignMdColorName(currentName: string, normalizedValue: string, fallbackPrefix: string): string {
+  return /^(?:dark-)?palette-\d+$/.test(currentName)
     ? `${fallbackPrefix}-${stableColorValueSlug(normalizedValue)}`
-    : sourceName
+    : currentName
 }
 
 export interface DesignMdColorEntry {
@@ -41,38 +34,17 @@ export interface DesignMdColorEntry {
 
 export function designMdColorEntries(
   tokens: Pick<DesignToken, 'colors'>,
-  aliases: readonly ColorRenameProposal[] = [],
   fallbackPrefix = 'observed',
 ): DesignMdColorEntry[] {
-  const aliasesByName = new Map(aliases.map((alias) => [alias.name, alias.tokenId]))
   return Object.entries(tokens.colors).flatMap(([sourceName, value]) => {
     const normalized = normalizeColorValue(value)
     if (!normalized) return []
     return [
       {
         sourceName,
-        publicName: stableDesignMdColorName(sourceName, normalized, aliasesByName, fallbackPrefix),
+        publicName: stableDesignMdColorName(sourceName, normalized, fallbackPrefix),
         value: normalized,
       },
     ]
   })
-}
-
-export function designMdColorRefMap(
-  tokens: Pick<DesignToken, 'colors'>,
-  aliases: readonly ColorRenameProposal[] = [],
-  fallbackPrefix = 'observed',
-): Map<string, string> {
-  const result = new Map<string, string>()
-  const publicNameBySource = new Map(
-    designMdColorEntries(tokens, aliases, fallbackPrefix).map((entry) => [entry.sourceName, entry.publicName]),
-  )
-  for (const [sourceName, publicName] of publicNameBySource) result.set(`color.${sourceName}`, `color.${publicName}`)
-  for (const alias of aliases) {
-    const publicName = publicNameBySource.get(alias.name) || publicNameBySource.get(alias.tokenId)
-    if (!publicName) continue
-    result.set(`color.${alias.name}`, `color.${publicName}`)
-    result.set(`color.${alias.tokenId}`, `color.${publicName}`)
-  }
-  return result
 }

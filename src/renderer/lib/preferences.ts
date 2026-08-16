@@ -1,3 +1,4 @@
+import type { AppSettings } from '../../shared/ipc-contract'
 import { VALIDATION_SCENARIO_IDS } from './validation-scenarios'
 
 export type AppLanguage = 'en' | 'zh-CN'
@@ -15,7 +16,7 @@ function readCached(key: string): unknown {
   return settingsCache[key] ?? null
 }
 
-function writeSetting(update: Record<string, unknown>): void {
+function writeSetting(update: Partial<AppSettings>): void {
   Object.assign(settingsCache, update)
   window.electronAPI?.saveSettings(update).catch(() => {})
 }
@@ -79,14 +80,6 @@ export function getValidationScenarioPreference(): string {
 
 export function setValidationScenarioPreference(scenario: string): void {
   if (validationScenarios.has(scenario)) writeSetting({ validationScenario: scenario })
-}
-
-export function getNoAiTipDismissedPreference(): boolean {
-  return readCached('noAiTipDismissed') === true
-}
-
-export function setNoAiTipDismissedPreference(dismissed: boolean): void {
-  writeSetting({ noAiTipDismissed: dismissed })
 }
 
 export function getColorModePreference(): string {

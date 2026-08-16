@@ -87,29 +87,15 @@ export interface ExtractionIssue {
 }
 
 export interface AnalysisTiming {
-  programTotalMs?: number
-  aiTotalMs?: number
   userWaitMs?: number
   browserMs?: number
   preparationMs?: number
   extractionMs?: number
   healthGateMs?: number
   screenshotCaptureMs?: number
-  imageFingerprintMs?: number
-  digestMs: number
-  imageSummaryMs: number
-  aiQueueMs?: number
-  aiNetworkMs?: number
-  aiTransportAttempts?: number
-  aiInvokeMs: number
   validationMs: number
   totalMs: number
-  aiInputTokens?: number
-  aiOutputTokens?: number
   imageCount: number
-  cacheHit: boolean
-  digestChars?: number
-  promptChars?: number
   budgetExceeded?: string[]
 }
 
@@ -201,11 +187,6 @@ export interface DesignToken {
       >
     >
   }
-}
-
-export interface GeneratedExampleComponent {
-  title: string
-  html: string
 }
 
 export interface AnalysisResult {

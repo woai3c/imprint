@@ -1,119 +1,25 @@
-import { CheckCircle2, CircleOff, KeyRound, Loader2, RefreshCw, Terminal, XCircle } from 'lucide-react'
+import { CheckCircle2, Loader2 } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getDefaultBaseUrl } from '../../core/ai/capabilities'
-import {
-  getCatalogModel,
-  getCatalogModels,
-  getReasoningTiers,
-  getRecommendedModel,
-  supportsThinkingToggle,
-} from '../../core/ai/model-catalog'
-import { getAgentCliDisplayName } from '../../shared/agent-clis'
-import type { AgentCliInfo, AppSettings } from '../../shared/ipc-contract'
+import type { AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { IconButton } from '../components/ui/IconButton'
 import { useFeedbackStore } from '../stores/feedback-store'
-
-let cachedAgentClis: AgentCliInfo[] | null = null
-let activeAgentCliDetection: Promise<AgentCliInfo[]> | null = null
-
-const BASE_URL_OPTIONS: Record<string, Array<{ url: string; label: string }>> = {
-  moonshotai: [
-    { url: 'https://api.moonshot.cn/v1', label: 'Moonshot API — api.moonshot.cn (China)' },
-    { url: 'https://api.moonshot.ai/v1', label: 'Moonshot API — api.moonshot.ai (International)' },
-    { url: 'https://api.kimi.com/coding/v1', label: 'Kimi Coding Plan — api.kimi.com' },
-  ],
-}
-
-const PROVIDERS = [
-  { id: 'deepseek', name: 'DeepSeek', envVar: 'DEEPSEEK_API_KEY' },
-  { id: 'anthropic', name: 'Anthropic (Claude)', envVar: 'ANTHROPIC_API_KEY' },
-  { id: 'openai', name: 'OpenAI (GPT)', envVar: 'OPENAI_API_KEY' },
-  { id: 'google', name: 'Google (Gemini)', envVar: 'GOOGLE_GENERATIVE_AI_API_KEY' },
-  { id: 'moonshotai', name: 'Moonshot (Kimi)', envVar: 'MOONSHOT_API_KEY' },
-  { id: 'alibaba', name: 'Qwen (Alibaba)', envVar: 'ALIBABA_API_KEY' },
-  { id: 'zhipu', name: 'GLM (Zhipu)', envVar: 'ZHIPU_API_KEY' },
-  { id: 'xai', name: 'xAI (Grok)', envVar: 'XAI_API_KEY' },
-  { id: 'custom', name: 'OpenAI Compatible', envVar: 'OPENAI_COMPATIBLE_API_KEY' },
-]
-
-async function requestAgentCliDetection(force: boolean): Promise<AgentCliInfo[]> {
-  if (activeAgentCliDetection) return activeAgentCliDetection
-  if (!force && cachedAgentClis) return cachedAgentClis
-
-  const detection = window.electronAPI.detectAgentClis(force)
-  activeAgentCliDetection = detection
-
-  try {
-    const result = await detection
-    cachedAgentClis = result
-    return result
-  } finally {
-    if (activeAgentCliDetection === detection) activeAgentCliDetection = null
-  }
-}
 
 export function SettingsPage() {
   const { t } = useTranslation()
   const notify = useFeedbackStore((state) => state.show)
-  const [aiEnabled, setAiEnabled] = useState(true)
-  const [aiMode, setAiMode] = useState<'apiKey' | 'agentCli'>('apiKey')
-  const [provider, setProvider] = useState('')
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
-  const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [model, setModel] = useState('')
-  const [modelSupportsVision, setModelSupportsVision] = useState(false)
-  const [managedVisionConsent, setManagedVisionConsent] = useState(true)
-  const [agentClis, setAgentClis] = useState<AgentCliInfo[]>(() => cachedAgentClis ?? [])
-  const [selectedCli, setSelectedCli] = useState('')
-  const [detecting, setDetecting] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
-  const [reasoningEffort, setReasoningEffort] = useState('')
-  const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [proxyServer, setProxyServer] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
-    window.electronAPI.getSettings().then((s) => {
-      setAiEnabled(s.aiEnabled !== false)
-      setAiMode(s.aiMode || 'apiKey')
-      setProvider(s.provider || '')
-      setApiKeys(s.apiKeys || {})
-      setCustomBaseUrl(s.baseUrl || '')
-      setModel(s.model || '')
-      setModelSupportsVision(s.modelSupportsVision === true)
-      setManagedVisionConsent(s.managedVisionConsent !== false)
-      setSelectedCli(s.agentCli || '')
-      setReasoningEffort(s.reasoningEffort || '')
-      setThinkingEnabled(s.thinkingEnabled === true)
-      setProxyServer(s.proxyServer || '')
+    window.electronAPI.getSettings().then((settings) => {
+      setProxyServer(settings.proxyServer || '')
       setLoaded(true)
-
-      if (s.aiMode === 'agentCli') {
-        const showProgress = cachedAgentClis === null
-        if (showProgress) setDetecting(true)
-        requestAgentCliDetection(false)
-          .then((result) => {
-            setAgentClis(result)
-          })
-          .catch((err: unknown) => {
-            console.error('Failed to detect agent CLIs:', err)
-            window.electronAPI.logEvent(
-              'error',
-              `Initial Agent CLI detection failed in renderer: ${err instanceof Error ? err.message : String(err)}`,
-            )
-          })
-          .finally(() => {
-            if (showProgress) setDetecting(false)
-          })
-      }
     })
   }, [])
 
@@ -121,109 +27,17 @@ export function SettingsPage() {
     window.electronAPI.saveSettings(patch)
   }
 
-  // Catalog providers never show an empty picker: fall back to the recommended model.
-  const effectiveModel = model || getRecommendedModel(provider)?.id || ''
-  const selectedCatalogModel = getCatalogModel(provider, effectiveModel)
-  const apiKey = apiKeys[provider] || ''
-
-  const handleAiModeChange = (mode: 'apiKey' | 'agentCli') => {
-    setAiMode(mode)
-    save({ aiMode: mode })
-    if (mode === 'agentCli' && agentClis.length === 0) {
-      handleDetectClis(false)
-    }
-  }
-
-  const handleProviderChange = (v: string) => {
-    setProvider(v)
-    setTestResult(null)
-    // Catalog providers always start from the recommended current-generation model so a
-    // stale ID from another provider (or a retired model) can never linger.
-    const nextModel = v === 'custom' ? '' : (getRecommendedModel(v)?.id ?? '')
-    setModel(nextModel)
-    save({ provider: v, model: nextModel })
-  }
-
-  const handleApiKeyChange = (v: string) => {
-    setApiKeys((current) => {
-      const next = { ...current }
-      if (v) next[provider] = v
-      else delete next[provider]
-      return next
-    })
-    setTestResult(null)
-    save({ apiKeys: { [provider]: v } })
-  }
-
-  const handleBaseUrlChange = (v: string) => {
-    setCustomBaseUrl(v)
-    save({ baseUrl: v })
-  }
-
-  const handleModelChange = (v: string) => {
-    setModel(v)
-    save({ model: v })
-  }
-
-  const handleModelSupportsVisionChange = (value: boolean) => {
-    setModelSupportsVision(value)
-    save({ modelSupportsVision: value })
-  }
-
-  const handleManagedVisionConsentChange = (value: boolean) => {
-    setManagedVisionConsent(value)
-    save({ managedVisionConsent: value })
-  }
-
-  const handleCliSelect = (command: string) => {
-    if (selectedCli === command) return
-    setSelectedCli(command)
-    save({ agentCli: command })
-  }
-
-  const handleTestConnection = async () => {
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const result = await window.electronAPI.testApiKey(provider, apiKey, customBaseUrl || undefined)
-      setTestResult(result)
-    } catch {
-      setTestResult({ success: false, message: t('settings.ai.testFailed') })
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  const handleDetectClis = async (force: boolean) => {
-    const showProgress = force || cachedAgentClis === null
-    if (showProgress) setDetecting(true)
-    try {
-      const result = await requestAgentCliDetection(force)
-      setAgentClis(result)
-    } catch (err: unknown) {
-      console.error('Failed to detect agent CLIs:', err)
-      window.electronAPI.logEvent(
-        'error',
-        `Agent CLI detection failed in renderer: ${err instanceof Error ? err.message : String(err)}`,
-      )
-      notify(t('feedback.actionFailed'), 'error')
-    } finally {
-      if (showProgress) setDetecting(false)
-    }
-  }
-
   const handleExportAll = async () => {
     try {
       const themes = await window.electronAPI.getThemeArchive()
       const analyses = await window.electronAPI.getAnalyses()
       const settings = await window.electronAPI.getSettings()
-      const { apiKeys: _apiKeys, ...exportableSettings } = settings
-      const blob = JSON.stringify({ themes, analyses, settings: exportableSettings }, null, 2)
+      const blob = JSON.stringify({ themes, analyses, settings }, null, 2)
       const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = `imprint-local-data-${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
+      const anchor = document.createElement('a')
+      anchor.href = blobUrl
+      anchor.download = `imprint-local-data-${new Date().toISOString().slice(0, 10)}.json`
+      anchor.click()
       URL.revokeObjectURL(blobUrl)
       notify(t('feedback.dataExported'))
     } catch {
@@ -256,33 +70,6 @@ export function SettingsPage() {
     )
   }
 
-  const selectedProvider = PROVIDERS.find((item) => item.id === provider)
-  const selectedAgentCli = agentClis.find((item) => item.command === selectedCli)
-  const hasApiKeyConfiguration = Boolean(provider && apiKey)
-  const hasAgentCliConfiguration = Boolean(selectedCli && (agentClis.length === 0 || selectedAgentCli?.available))
-  const hasActiveAiConfiguration =
-    aiEnabled && (aiMode === 'apiKey' ? hasApiKeyConfiguration : hasAgentCliConfiguration)
-  const activeEngineLabel = !aiEnabled
-    ? t('settings.ai.disabled')
-    : aiMode === 'apiKey' && hasApiKeyConfiguration
-      ? t('settings.ai.activeApiKey', { provider: selectedProvider?.name || provider })
-      : aiMode === 'agentCli' && hasAgentCliConfiguration
-        ? t('settings.ai.activeAgentCli', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
-        : t('settings.ai.notConfigured')
-  const activeEngineHint = !aiEnabled
-    ? t('settings.ai.disabledHint')
-    : hasActiveAiConfiguration
-      ? t('settings.ai.activeHint')
-      : t(aiMode === 'apiKey' ? 'settings.ai.apiKeyIncomplete' : 'settings.ai.agentCliIncomplete')
-  const apiKeySummary = hasApiKeyConfiguration
-    ? t('settings.ai.apiKeyConfigured', { provider: selectedProvider?.name || provider })
-    : t('settings.ai.apiKeyNotConfigured')
-  const agentCliSummary = !selectedCli
-    ? t('settings.ai.agentCliNotConfigured')
-    : hasAgentCliConfiguration
-      ? t('settings.ai.agentCliConfigured', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
-      : t('settings.ai.agentCliUnavailable', { name: selectedAgentCli?.name || getAgentCliDisplayName(selectedCli) })
-
   return (
     <div className="h-full flex flex-col overflow-auto">
       <PageHeader
@@ -298,460 +85,6 @@ export function SettingsPage() {
 
       <div className="px-8 pb-8 space-y-8 max-w-2xl">
         <section>
-          <h3 className="text-lg font-semibold mb-2">{t('settings.ai.title')}</h3>
-          <p className="text-sm text-muted-foreground mb-4">{t('settings.ai.description')}</p>
-
-          <label className="mb-5 flex items-start gap-3 rounded-lg border border-border bg-card p-4">
-            <input
-              data-testid="ai-enabled"
-              type="checkbox"
-              checked={aiEnabled}
-              onChange={(event) => {
-                setAiEnabled(event.target.checked)
-                save({ aiEnabled: event.target.checked })
-              }}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              <span className="block text-sm font-medium">{t('settings.ai.enabled')}</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('settings.ai.enabledHint')}</span>
-            </span>
-          </label>
-
-          <div
-            data-testid="ai-engine-status"
-            aria-live="polite"
-            className={`mb-5 flex items-start gap-3 rounded-lg border p-4 ${
-              hasActiveAiConfiguration ? 'border-success/40 bg-success/5' : 'border-border bg-secondary/35'
-            }`}
-          >
-            <span
-              className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${
-                hasActiveAiConfiguration ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              {hasActiveAiConfiguration ? (
-                <CheckCircle2 size={17} aria-hidden="true" />
-              ) : (
-                <CircleOff size={17} aria-hidden="true" />
-              )}
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-muted-foreground">{t('settings.ai.currentEngine')}</p>
-              <p data-testid="ai-engine-status-label" className="mt-0.5 text-sm font-semibold">
-                {activeEngineLabel}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{activeEngineHint}</p>
-            </div>
-          </div>
-
-          <div
-            aria-disabled={!aiEnabled}
-            className={aiEnabled ? undefined : 'pointer-events-none select-none opacity-55'}
-          >
-            <fieldset className="mb-6">
-              <legend className="mb-2 text-sm font-medium">{t('settings.ai.methodLabel')}</legend>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  data-testid="ai-mode-api-key"
-                  type="button"
-                  onClick={() => handleAiModeChange('apiKey')}
-                  aria-pressed={aiMode === 'apiKey'}
-                  className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    aiMode === 'apiKey'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
-                  }`}
-                >
-                  <span
-                    className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
-                      aiMode === 'apiKey' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                    }`}
-                  >
-                    <KeyRound size={17} aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{t('settings.ai.useApiKey')}</span>
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{apiKeySummary}</span>
-                  </span>
-                  {aiMode === 'apiKey' && (
-                    <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
-                  )}
-                </button>
-
-                <button
-                  data-testid="ai-mode-agent-cli"
-                  type="button"
-                  onClick={() => handleAiModeChange('agentCli')}
-                  aria-pressed={aiMode === 'agentCli'}
-                  className={`flex min-h-20 items-center gap-3 rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    aiMode === 'agentCli'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-accent/35'
-                  }`}
-                >
-                  <span
-                    className={`flex size-9 shrink-0 items-center justify-center rounded-md ${
-                      aiMode === 'agentCli'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground'
-                    }`}
-                  >
-                    <Terminal size={17} aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{t('settings.ai.useAgentCli')}</span>
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{agentCliSummary}</span>
-                  </span>
-                  {aiMode === 'agentCli' && (
-                    <CheckCircle2 size={16} className="shrink-0 text-primary" aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-            </fieldset>
-
-            {aiMode === 'apiKey' ? (
-              <div className="space-y-4 p-4 rounded-lg border border-border">
-                <div>
-                  <label htmlFor="ai-provider" className="text-sm font-medium block mb-1.5">
-                    {t('settings.ai.provider')}
-                  </label>
-                  <select
-                    id="ai-provider"
-                    value={provider}
-                    onChange={(e) => handleProviderChange(e.target.value)}
-                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                             focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">{t('settings.ai.selectProvider')}</option>
-                    {PROVIDERS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {provider && (
-                  <>
-                    <div>
-                      <label htmlFor="ai-api-key" className="text-sm font-medium block mb-1.5">
-                        {t('settings.ai.apiKey')}
-                        <span className="text-muted-foreground font-normal ml-2">
-                          ({PROVIDERS.find((p) => p.id === provider)?.envVar})
-                        </span>
-                      </label>
-                      <input
-                        id="ai-api-key"
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => handleApiKeyChange(e.target.value)}
-                        placeholder="sk-..."
-                        className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="ai-model" className="text-sm font-medium block mb-1.5">
-                        {t('settings.ai.model')}
-                      </label>
-                      {provider === 'custom' ? (
-                        <>
-                          <input
-                            id="ai-model"
-                            type="text"
-                            value={model}
-                            onChange={(e) => handleModelChange(e.target.value)}
-                            placeholder={t('settings.ai.modelPlaceholder')}
-                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          />
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.modelHint')}</p>
-                        </>
-                      ) : (
-                        <>
-                          <select
-                            id="ai-model"
-                            value={effectiveModel}
-                            onChange={(e) => handleModelChange(e.target.value)}
-                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            {getCatalogModels(provider).map((entry) => (
-                              <option key={entry.id} value={entry.id}>
-                                {entry.label}
-                              </option>
-                            ))}
-                            {effectiveModel && !selectedCatalogModel && (
-                              <option value={effectiveModel}>
-                                {t('settings.ai.modelLegacy', { model: effectiveModel })}
-                              </option>
-                            )}
-                          </select>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {selectedCatalogModel
-                              ? `${t('settings.ai.modelPrice', { price: selectedCatalogModel.price })} · ${
-                                  selectedCatalogModel.vision
-                                    ? t('settings.ai.modelVisionYes')
-                                    : t('settings.ai.modelVisionNo')
-                                }`
-                              : t('settings.ai.modelCatalogHint')}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                    {BASE_URL_OPTIONS[provider] && (
-                      <div>
-                        <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
-                          {t('settings.ai.baseUrl')}
-                        </label>
-                        <select
-                          id="ai-base-url"
-                          value={customBaseUrl || getDefaultBaseUrl(provider)}
-                          onChange={(e) =>
-                            handleBaseUrlChange(e.target.value === getDefaultBaseUrl(provider) ? '' : e.target.value)
-                          }
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                   focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          {BASE_URL_OPTIONS[provider].map((opt) => (
-                            <option key={opt.url} value={opt.url}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                    {provider === 'custom' && (
-                      <div>
-                        <label htmlFor="ai-base-url" className="text-sm font-medium block mb-1.5">
-                          {t('settings.ai.baseUrl')}
-                          <span className="text-muted-foreground font-normal ml-2">(OPENAI_COMPATIBLE_BASE_URL)</span>
-                        </label>
-                        <input
-                          id="ai-base-url"
-                          type="text"
-                          value={customBaseUrl}
-                          onChange={(e) => handleBaseUrlChange(e.target.value)}
-                          placeholder="https://api.example.com/v1"
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                   placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    )}
-                    {(() => {
-                      const tiers = getReasoningTiers(provider, effectiveModel)
-                      if (!tiers) return null
-                      return (
-                        <div>
-                          <label htmlFor="ai-reasoning-effort" className="text-sm font-medium block mb-1.5">
-                            {t('settings.ai.reasoningEffort')}
-                          </label>
-                          <select
-                            id="ai-reasoning-effort"
-                            value={reasoningEffort || tiers[0]?.value || ''}
-                            onChange={(e) => {
-                              setReasoningEffort(e.target.value)
-                              save({ reasoningEffort: e.target.value })
-                            }}
-                            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm
-                                     focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            {tiers.map((tier) => (
-                              <option key={tier.value} value={tier.value}>
-                                {tier.label} — {tier.description}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {t('settings.ai.reasoningEffortHint')}
-                          </p>
-                        </div>
-                      )
-                    })()}
-                    {supportsThinkingToggle(provider, effectiveModel) && (
-                      <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
-                        <input
-                          type="checkbox"
-                          checked={thinkingEnabled}
-                          onChange={(event) => {
-                            setThinkingEnabled(event.target.checked)
-                            save({ thinkingEnabled: event.target.checked })
-                          }}
-                          className="mt-0.5 size-4 accent-primary"
-                        />
-                        <span>
-                          <span className="block text-sm font-medium">{t('settings.ai.thinkingEnabled')}</span>
-                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                            {t('settings.ai.thinkingEnabledHint')}
-                          </span>
-                        </span>
-                      </label>
-                    )}
-                    {provider === 'custom' && (
-                      <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/25 p-3">
-                        <input
-                          type="checkbox"
-                          checked={modelSupportsVision}
-                          onChange={(event) => handleModelSupportsVisionChange(event.target.checked)}
-                          className="mt-0.5 size-4 accent-primary"
-                        />
-                        <span>
-                          <span className="block text-sm font-medium">{t('settings.ai.customVision')}</span>
-                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                            {t('settings.ai.customVisionHint')}
-                          </span>
-                        </span>
-                      </label>
-                    )}
-                    <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
-                      <input
-                        data-testid="managed-vision-consent"
-                        type="checkbox"
-                        checked={managedVisionConsent}
-                        onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
-                        className="mt-0.5 size-4 accent-primary"
-                      />
-                      <span>
-                        <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
-                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                          {t('settings.ai.managedVisionConsentHint', { provider: selectedProvider?.name || provider })}
-                        </span>
-                      </span>
-                    </label>
-                  </>
-                )}
-
-                {provider && apiKey && (
-                  <div className="space-y-2">
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={testing}
-                      className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
-                               hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      {testing ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 size={14} className="animate-spin" />
-                          {t('settings.ai.testing')}
-                        </span>
-                      ) : (
-                        t('settings.ai.testConnection')
-                      )}
-                    </button>
-                    {testResult && (
-                      <p
-                        className={`text-xs flex items-start gap-1.5 leading-5 ${testResult.success ? 'text-success' : 'text-destructive'}`}
-                      >
-                        {testResult.success ? (
-                          <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-                        ) : (
-                          <XCircle size={14} className="mt-0.5 shrink-0" />
-                        )}
-                        <span className="break-all">{testResult.message}</span>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-4 rounded-lg border border-border">
-                <p className="mb-4 rounded-lg bg-secondary/45 p-3 text-xs leading-5 text-muted-foreground">
-                  {t('settings.ai.agentCliStructuralHint')}
-                </p>
-                <div className="mb-4 space-y-2">
-                  <label className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/5 p-3">
-                    <input
-                      data-testid="managed-vision-consent"
-                      type="checkbox"
-                      checked={managedVisionConsent}
-                      onChange={(event) => handleManagedVisionConsentChange(event.target.checked)}
-                      className="mt-0.5 size-4 accent-primary"
-                    />
-                    <span>
-                      <span className="block text-sm font-medium">{t('settings.ai.managedVisionConsent')}</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        {t('settings.ai.managedVisionConsentHint', {
-                          provider: selectedCli ? getAgentCliDisplayName(selectedCli) : 'CLI',
-                        })}
-                      </span>
-                    </span>
-                  </label>
-                </div>
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{t('settings.ai.detectDescription')}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('settings.ai.detectHint')}</p>
-                  </div>
-                  <div className="shrink-0">
-                    <IconButton
-                      icon={RefreshCw}
-                      label={t('settings.ai.redetect')}
-                      onClick={() => handleDetectClis(true)}
-                      disabled={detecting}
-                    />
-                  </div>
-                </div>
-
-                {detecting && (
-                  <div
-                    data-testid="agent-cli-detecting"
-                    className="mb-3 flex items-center gap-2 text-sm text-muted-foreground"
-                    role="status"
-                  >
-                    <Loader2 size={16} className="animate-spin" />
-                    {t('settings.ai.detecting')}
-                  </div>
-                )}
-
-                <div data-testid="agent-cli-list" className="space-y-2">
-                  {agentClis.map((cli) => (
-                    <button
-                      key={cli.command}
-                      data-testid={`agent-cli-option-${cli.command}`}
-                      type="button"
-                      aria-pressed={selectedCli === cli.command}
-                      aria-label={t('settings.ai.selectCli', { name: cli.name })}
-                      onClick={() => handleCliSelect(cli.command)}
-                      disabled={!cli.available}
-                      className={`flex w-full items-center gap-3 rounded-md border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                        selectedCli === cli.command
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-muted-foreground/30'
-                      } ${!cli.available ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                    >
-                      <span
-                        className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${
-                          selectedCli === cli.command ? 'border-primary' : 'border-muted-foreground/50'
-                        }`}
-                        aria-hidden="true"
-                      >
-                        {selectedCli === cli.command && <span className="size-2 rounded-full bg-primary" />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{cli.name}</span>
-                          <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">{cli.command}</code>
-                        </div>
-                        {cli.version && <span className="text-xs text-muted-foreground">{cli.version}</span>}
-                      </div>
-                      {cli.available ? (
-                        <CheckCircle2 size={14} className="text-success" />
-                      ) : (
-                        <XCircle size={14} className="text-muted-foreground" />
-                      )}
-                    </button>
-                  ))}
-                  {agentClis.length === 0 && !detecting && (
-                    <p className="text-sm text-muted-foreground">{t('settings.ai.noCli')}</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section>
           <h3 className="text-lg font-semibold mb-4">{t('settings.network.title')}</h3>
           <div className="space-y-3 rounded-lg border border-border p-4">
             <div>
@@ -763,9 +96,9 @@ export function SettingsPage() {
                 data-testid="proxy-server"
                 type="text"
                 value={proxyServer}
-                onChange={(e) => {
-                  setProxyServer(e.target.value)
-                  save({ proxyServer: e.target.value })
+                onChange={(event) => {
+                  setProxyServer(event.target.value)
+                  save({ proxyServer: event.target.value })
                 }}
                 placeholder="http://127.0.0.1:7890"
                 className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none transition-colors focus:border-primary"
@@ -781,22 +114,19 @@ export function SettingsPage() {
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleExportAll}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
-                                 hover:bg-accent transition-colors"
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap hover:bg-accent transition-colors"
               >
                 {t('settings.data.exportAll')}
               </button>
               <button
                 onClick={() => setConfirmClearAll(true)}
-                className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm whitespace-nowrap
-                                 hover:opacity-90 transition-opacity"
+                className="h-9 px-4 rounded-md bg-destructive text-destructive-foreground text-sm whitespace-nowrap hover:opacity-90 transition-opacity"
               >
                 {t('settings.data.clearAll')}
               </button>
               <button
                 onClick={() => window.electronAPI.openLogsFolder()}
-                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap
-                                 hover:bg-accent transition-colors"
+                className="h-9 px-4 rounded-md bg-secondary text-secondary-foreground text-sm whitespace-nowrap hover:bg-accent transition-colors"
               >
                 {t('settings.data.openLogs')}
               </button>

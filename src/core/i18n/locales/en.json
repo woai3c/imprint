@@ -93,10 +93,6 @@
       "spacingSystems": "- ❌ Don't mix different spacing systems",
       "fontFamilies": "- ❌ Don't mix multiple font families — stick to the single typeface",
       "fontWeights": "- ❌ Don't use font weights outside: {{weights}}"
-    },
-    "examples": {
-      "heading": "## Example Components",
-      "intro": "The configured AI generated these HTML examples from the extracted tokens, design rules, and component patterns."
     }
   },
   "designEvidence": {
@@ -111,19 +107,9 @@
     }
   },
   "profileExport": {
-    "heading": "## AI Design Insights",
     "catalogHeading": "## Deterministic Design Claims",
-    "layerNotice": "> Layer: Inferred. These claims synthesize validated evidence and do not assert the original designer’s intent.",
     "catalogLayerNotice": "> Layer: Deterministic claim catalog. Program rules generate and rank every exported statement, grounding reference, confidence, scope, assertion, and token ref.",
-    "catalogBoundaryNotice": "> AI preferences and summaries are diagnostic metadata only; AI success, failure, selection, or ordering cannot change the exported claims. Low-confidence unavailable fields are omitted from the visible report.",
-    "inputMode": "Input mode",
-    "status": "Status",
-    "evidenceFallbackNotice": "> Status: `evidence-fallback`. The AI output failed validation; the interpretation below is a deterministic evidence fallback, not a valid AI visual synthesis.",
-    "catalogEvidenceFallbackNotice": "> Status: `evidence-fallback`. The optional AI diagnostic output failed validation; program-ranked exported claims are unaffected, but no valid AI annotation is available.",
-    "partialNotice": "> Some AI fields failed deterministic validation and were omitted, demoted, or replaced with evidence fallbacks; review before use.",
-    "partialClaimsFiltered": "> Only high- and medium-confidence claims that passed validation are included below. Invalid, repaired, and low-confidence claims remain omitted; the structured Design Profile retains diagnostics.",
-    "catalogPartialNotice": "> AI diagnostic annotation completed, but the overall analysis is partial because reusable evidence coverage, capture health, or screenshot integrity is incomplete. Program-ranked exported claims are unaffected; see Uncertainties before reuse.",
-    "implementationBoundaryNotice": "> Implementation instructions are intentionally omitted from schema v2 DESIGN.md output. Treat the following as inferred hypotheses; observed tokens and evidence remain authoritative.",
+    "catalogBoundaryNotice": "> Every visible claim is generated and ranked by deterministic program rules. Low-confidence unavailable fields are omitted from the visible report.",
     "evidenceIndex": {
       "heading": "Cited Evidence Index",
       "notice": "> Deterministic lookup for evidence IDs cited by visible claims. Full records remain available in `design-evidence.json`.",
@@ -139,20 +125,6 @@
         "media": "Media layer",
         "topologyLayer": "Topology layer",
         "unknown": "Unresolved evidence"
-      }
-    },
-    "coverageRepair": {
-      "name": "Structural evidence coverage repair",
-      "distinctiveness": "Restores only required fields removed by validation; the full AI interpretation did not fall back.",
-      "component": {
-        "buttonVariants": "Observed button variants in canonical page captures: {{variants}}.",
-        "canonicalCount": "Observed {{count}} {{type}} instances in canonical page captures.",
-        "cardCount": "Observed {{count}} {{type}} instances in the {{style}} family in canonical page captures.",
-        "buttonImplementation": "Preserve each variant's fill, foreground, border, radius, and element kind{{elementKinds}}; do not promote one variant to a global button rule.",
-        "genericImplementation": "Use the cited observed styles as reference; separately verify unexecuted states.",
-        "evidenceNote": "Programmatically extracted component evidence",
-        "observedRole": "Observed {{type}} component",
-        "cardRole": "Observed {{type}} family ({{style}})"
       }
     },
     "labels": {
@@ -425,14 +397,9 @@
     },
     "howToUse": {
       "heading": "## How to Use",
-      "catalogComplete": "- This file contains observed evidence and program-generated, program-ranked claims. AI preferences and summaries are diagnostic metadata only and cannot modify the exported report.",
-      "catalogPartial": "- This file contains observed evidence and program-generated, program-ranked claims. AI diagnostic annotation was incomplete, but the exported claims are unaffected; review the explicit evidence coverage limits before reuse.",
+      "catalogComplete": "- This file contains observed evidence and deterministic, program-ranked claims.",
       "catalogImplementation": "- Implement only deterministic claims supported by their cited evidence and keep every rule within its recorded URL, viewport, state, and confidence scope.",
-      "observedOnly": "- This file contains observed design tokens and structural evidence; no AI interpretation was generated. Check it against the source before using it with a coding assistant.",
-      "evidenceFallback": "- This file contains observed tokens and structural evidence, but the AI interpretation fell back. Review it before use with a coding assistant; it is not a complete design system.",
-      "partial": "- This file contains observed tokens and structural evidence plus the high- and medium-confidence inferred hypotheses that passed validation. Rejected, repaired, and low-confidence AI claims remain available only in the structured Design Profile for diagnostics.",
-      "complete": "- This file contains observed tokens and structural evidence plus validated inferred hypotheses from the captured scope; check all inferences against the source.",
-      "implementation": "- Implement observed tokens and structural facts first. AI insights are hypotheses, not implementation requirements.",
+      "observedOnly": "- This file contains observed design tokens and structural evidence. Check it against the source before using it with a coding assistant.",
       "verify": "- After implementation, compare against the current source or capture for visual hierarchy, density, and responsive behavior.",
       "formats": "- For precise CSS variables or Tailwind theme configuration, use Imprint's corresponding export formats."
     },
@@ -461,7 +428,7 @@
       "iconSchemaNote": "- `{{name}}`: foreground `{{foreground}}` over {{backgroundKind}} `{{background}}` is {{ratio}}:1 and meets the 3:1 non-text icon target. The DESIGN.md alpha component field represents it as `textColor`, so a general validator may still apply the 4.5:1 text target."
     }
   },
-  "intelligence": {
+  "designContext": {
     "catalog": {
       "evidenceNote": "Programmatically generated claim evidence",
       "boundedImplementation": "Apply this fact only within the cited capture scope; verify any broader reuse separately.",
@@ -544,12 +511,6 @@
         "sectionReason": "No sections were detected.",
         "sectionNeeded": "Capture a healthy page with detectable structural regions."
       }
-    },
-    "assertions": {
-      "unsupportedStatement": "This interpretation was removed because its structured assertion did not match the extracted facts.",
-      "unsupportedImplementation": "Use only the cited extracted evidence and verify the intended rule before implementation.",
-      "evidenceNote": "Programmatically extracted page evidence",
-      "digestEvidenceNote": "Digest evidence {{id}}"
     },
     "componentShape": {
       "names": {

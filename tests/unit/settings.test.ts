@@ -24,34 +24,48 @@ afterEach(() => {
   fs.rmSync(settingsDir, { recursive: true, force: true })
 })
 
-describe('settings API keys', () => {
-  it('migrates the legacy key to its selected provider', () => {
+describe('settings persistence', () => {
+  it('drops obsolete fields while preserving supported preferences', () => {
     fs.writeFileSync(
       path.join(settingsDir, 'settings.json'),
-      JSON.stringify({ provider: 'deepseek', apiKey: 'legacy-deepseek-key' }),
+      JSON.stringify({
+        provider: 'legacy-provider',
+        apiKey: 'legacy-secret',
+        proxyServer: 'http://127.0.0.1:7890',
+        analysisDepth: 'deep',
+        validationScenario: 'pricing',
+        analysisPageCount: 9,
+      }),
     )
 
-    const settings = getSettings()
-
-    expect(settings.apiKeys).toEqual({ deepseek: 'legacy-deepseek-key' })
-    expect(settings).not.toHaveProperty('apiKey')
-
-    saveSettings({ apiKeys: { openai: 'openai-key' } })
+    expect(getSettings()).toEqual({
+      analysisDepth: 'deep',
+      exportFormat: 'markdown',
+      proxyServer: 'http://127.0.0.1:7890',
+      language: '',
+      colorMode: '',
+      themePreference: '',
+      validationScenario: 'pricing',
+      analysisPageCount: 5,
+    })
     const persisted = JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf-8'))
-    expect(persisted.apiKeys).toEqual({ deepseek: 'legacy-deepseek-key', openai: 'openai-key' })
+    expect(persisted).not.toHaveProperty('provider')
     expect(persisted).not.toHaveProperty('apiKey')
   })
 
-  it('keeps and clears keys independently by provider', () => {
-    saveSettings({ provider: 'deepseek', apiKeys: { deepseek: 'deepseek-key' } })
-    const switched = saveSettings({ provider: 'openai' })
+  it('normalizes and persists supported settings only', () => {
+    const settings = saveSettings({
+      analysisDepth: 'deep',
+      analysisPageCount: 0,
+      exportFormat: 'json',
+      validationScenario: 'content-feed',
+    })
+    const persisted = JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf-8'))
 
-    expect(switched.apiKeys.openai).toBeUndefined()
-    expect(switched.apiKeys.deepseek).toBe('deepseek-key')
-
-    saveSettings({ apiKeys: { openai: 'openai-key' } })
-    const cleared = saveSettings({ provider: 'deepseek', apiKeys: { deepseek: '' } })
-    expect(cleared.apiKeys.deepseek).toBeUndefined()
-    expect(cleared.apiKeys.openai).toBe('openai-key')
+    expect(settings.analysisPageCount).toBe(3)
+    expect(settings.validationScenario).toBe('content-feed')
+    expect(persisted).toEqual(settings)
+    expect(persisted).not.toHaveProperty('provider')
+    expect(persisted).not.toHaveProperty('apiKeys')
   })
 })

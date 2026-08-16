@@ -165,16 +165,10 @@ test('adaptively captures one mobile view for a structurally distinct sub-page',
     true,
   )
   assert.equal(result.rawStyles.cssVariables['--imprint-test-request-profile'], 'mobile')
-  const summaries = result.designEvidence.pages.flatMap((item) =>
-    item.images.flatMap((image) => (image.aiSummary ? [image.aiSummary] : [])),
-  )
-  assert.ok(summaries.length > 0)
-  assert.ok(summaries.length <= 2)
-  assert.ok(summaries.every((summary) => summary.width <= 1_600 && summary.height <= 1_600))
-  assert.ok(
-    summaries.every((summary) => summary.bytes <= 250 * 1024 && fs.statSync(summary.path).size === summary.bytes),
-  )
-  assert.ok(summaries.every((summary) => /^[a-f0-9]{64}$/.test(summary.contentHash)))
+  const captures = result.designEvidence.pages.flatMap((item) => item.images)
+  assert.ok(captures.length > 0)
+  assert.ok(captures.every((capture) => capture.width > 0 && capture.height > 0))
+  assert.ok(captures.every((capture) => fs.statSync(capture.path).size > 0))
 })
 
 test(

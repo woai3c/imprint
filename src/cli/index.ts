@@ -3,26 +3,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { getDefaultModel, resolveAiModelCapabilities } from '../core/ai/capabilities.js'
-import { loadEvidenceImageInputs } from '../core/ai/image-summary.js'
-import { PROVIDER_KEY_ENV, providerApiKeyFromEnv } from '../core/ai/provider-env.js'
-import { mergeAnalysisTimings } from '../core/analyzer/analysis-timing.js'
 import { analyze } from '../core/analyzer/index.js'
-import { applyColorRenames } from '../core/analyzer/token-renamer.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
-import { selectEvidencePackage } from '../core/design-intelligence/evidence-selector.js'
-import { generateDesignProfileJson } from '../core/design-intelligence/profile-export.js'
+import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
+import { generateDesignProfileJson } from '../core/design-context/profile-export.js'
 import {
-  generateReconstructionBrief,
   getReconstructionBriefEligibility,
   reconstructionBriefUnavailableMessage,
-} from '../core/design-intelligence/reconstruction-brief.js'
-import type {
-  DesignIntelligenceMeta,
-  DesignIntelligenceStatus,
-  DesignProfile,
-  IntelligenceInputMode,
-} from '../core/design-intelligence/types.js'
+} from '../core/design-context/reconstruction-brief.js'
 import {
   buildDarkModeExportData,
   generateComponentSpecsJson,
@@ -45,12 +33,6 @@ interface CliOptions {
   darkMode: boolean
   quiet: boolean
   jsonStdout: boolean
-  intelligence: 'none' | 'structural' | 'vision'
-  provider: string
-  model: string
-  baseUrl: string
-  allowScreenshots: boolean
-  modelSupportsVision: boolean
   maxPages: number
   pageDiscovery: 'auto' | 'links' | 'sitemap'
 }
@@ -65,23 +47,10 @@ function parseArgs(args: string[]): { url: string; options: CliOptions } {
     darkMode: args.includes('--dark-mode'),
     quiet: args.includes('--quiet'),
     jsonStdout: args.includes('--json-stdout'),
-    intelligence: (getFlag(args, '--intelligence') || 'none') as CliOptions['intelligence'],
-    provider: getFlag(args, '--provider') || '',
-    model: getFlag(args, '--model') || '',
-    baseUrl: getFlag(args, '--base-url') || '',
-    allowScreenshots: args.includes('--allow-screenshots'),
-    modelSupportsVision: args.includes('--model-supports-vision'),
     maxPages: Number.parseInt(getFlag(args, '--pages') || '3', 10),
     pageDiscovery: (getFlag(args, '--discovery') || 'auto') as CliOptions['pageDiscovery'],
   }
   return { url, options }
-}
-
-const providerApiKey = providerApiKeyFromEnv
-
-function loadEvidenceImages(evidence: Parameters<typeof selectEvidencePackage>[0], mode: IntelligenceInputMode) {
-  if (mode !== 'multimodal') return []
-  return loadEvidenceImageInputs(evidence, selectEvidencePackage(evidence, mode).imageIds)
 }
 
 function getFlag(args: string[], flag: string): string | undefined {
@@ -112,35 +81,12 @@ async function main() {
     process.stderr.write('Error: Please provide a valid URL (starting with http/https)\n')
     process.exit(1)
   }
-  if (!['none', 'structural', 'vision'].includes(options.intelligence)) {
-    throw new Error('--intelligence must be none, structural, or vision')
-  }
-  if (['reconstruction', 'brief'].includes(options.format) && options.intelligence === 'none') {
-    throw new Error(reconstructionBriefUnavailableMessage('no-profile'))
-  }
   if (!Number.isFinite(options.maxPages) || options.maxPages < 1 || options.maxPages > 5) {
     throw new Error('--pages must be an integer from 1 to 5')
   }
   if (!['auto', 'links', 'sitemap'].includes(options.pageDiscovery)) {
     throw new Error('--discovery must be auto, links, or sitemap')
   }
-  if (options.intelligence !== 'none' && !options.provider) {
-    throw new Error('--provider is required when design intelligence is enabled')
-  }
-  if (options.intelligence === 'vision' && !options.allowScreenshots) {
-    throw new Error('Vision mode requires the explicit --allow-screenshots consent flag')
-  }
-  if (
-    options.intelligence === 'vision' &&
-    !resolveAiModelCapabilities(
-      options.provider,
-      options.model || getDefaultModel(options.provider),
-      options.provider === 'custom' && options.modelSupportsVision,
-    ).vision
-  ) {
-    throw new Error('The selected model is not declared vision-capable')
-  }
-
   const dataDir = getDefaultDataDir()
 
   const viewports = options.viewport === 'all' ? ['desktop', 'tablet', 'mobile'] : [options.viewport]
@@ -163,54 +109,16 @@ async function main() {
   )
   const darkModeExport = buildDarkModeExportData(result.darkMode)
 
-  let profile: DesignProfile | null = null
-  let intelligenceMeta: DesignIntelligenceMeta | undefined
-  let intelligenceStatus: DesignIntelligenceStatus | undefined
-  let reconstructionBrief: string | null = null
-  let finalTiming = result.timing
-  if (options.intelligence !== 'none') {
-    const apiKey = providerApiKey(options.provider)
-    if (!apiKey) {
-      throw new Error(
-        `Missing API key for provider "${options.provider}". Set ${PROVIDER_KEY_ENV[options.provider] || 'IMPRINT_AI_API_KEY'} (or the generic IMPRINT_AI_API_KEY). Run imprint --help for the full list.`,
-      )
-    }
-    const mode: IntelligenceInputMode = options.intelligence === 'vision' ? 'multimodal' : 'structural-only'
-    log(`  Interpreting design language (${mode})...`, options.quiet)
-    const { interpretDesignEvidence } = await import('../core/design-intelligence/interpreter.js')
-    const interpreted = await interpretDesignEvidence(result.designEvidence, {
-      mode,
-      language: 'en',
-      provider: {
-        provider: options.provider,
-        apiKey,
-        baseUrl: options.baseUrl || undefined,
-        model: options.model || undefined,
-      },
-      images: loadEvidenceImages(result.designEvidence, mode),
-    })
-    profile = interpreted.profile
-    intelligenceMeta = interpreted.meta
-    intelligenceStatus = interpreted.meta.status
-    finalTiming = mergeAnalysisTimings(result.timing, interpreted.meta.timing)
-    reconstructionBrief = generateReconstructionBrief(profile, result.designEvidence, result.tokens, interpreted.meta)
-  }
+  const designContext = createDeterministicDesignContext(result.designEvidence, result.tokens, 'en', result.timing)
+  const profile = designContext.profile
+  const designContextMeta = designContext.meta
+  const reconstructionBrief = designContext.reconstructionBrief
+  const finalTiming = result.timing
 
-  const aliasResult =
-    profile?.tokenAliases && profile.tokenAliases.length > 0
-      ? applyColorRenames(result.tokens, profile.tokenAliases)
-      : null
-  const exportTokens = aliasResult?.tokens ?? result.tokens
-  const exportDarkMode =
-    aliasResult && darkModeExport?.darkTokens
-      ? { ...darkModeExport, darkTokens: applyColorRenames(darkModeExport.darkTokens, aliasResult.applied).tokens }
-      : darkModeExport
-  const aliasComment = aliasResult
-    ? `/* AI token aliases: ${aliasResult.applied.map((item) => `${item.tokenId} -> ${item.name}`).join(', ')} */\n`
-    : ''
-
-  const cssVars = aliasComment + generateCssVariables(exportTokens, exportDarkMode, result.breakpoints)
-  const tailwind = aliasComment + generateTailwindTheme(exportTokens, exportDarkMode, result.breakpoints)
+  const exportTokens = result.tokens
+  const exportDarkMode = darkModeExport
+  const cssVars = generateCssVariables(exportTokens, exportDarkMode, result.breakpoints)
+  const tailwind = generateTailwindTheme(exportTokens, exportDarkMode, result.breakpoints)
   const designDoc = generateDesignDoc(
     exportTokens,
     url,
@@ -219,11 +127,8 @@ async function main() {
     result.breakpoints,
     result.components,
     'en',
-    [],
     result.designEvidence,
     profile || undefined,
-    intelligenceStatus,
-    intelligenceMeta ? { ...intelligenceMeta, timing: finalTiming } : undefined,
   )
   const dtcgJson = generateDtcgJson(exportTokens, exportDarkMode)
   const evidenceJson = generateDesignEvidenceJson(result.designEvidence)
@@ -255,7 +160,7 @@ async function main() {
   }
 
   const formats = resolveCliExportFormats(options.format, {
-    hasProfile: profile !== null,
+    hasProfile: true,
     hasReconstructionBrief: reconstructionBrief !== null,
   })
 
@@ -279,7 +184,7 @@ async function main() {
         break
       case 'scss':
         filename = 'variables.scss'
-        content = aliasComment + generateScssVariables(exportTokens, exportDarkMode)
+        content = generateScssVariables(exportTokens, exportDarkMode)
         break
       case 'json':
         filename = 'design-tokens.json'
@@ -290,21 +195,14 @@ async function main() {
         content = evidenceJson
         break
       case 'profile':
-        if (!profile) throw new Error('Profile export requires --intelligence structural or vision')
         filename = 'design-profile.json'
         content = generateDesignProfileJson(profile)
         break
       case 'reconstruction': {
         if (!reconstructionBrief) {
-          const eligibility = getReconstructionBriefEligibility(
-            profile,
-            intelligenceMeta || {
-              status: 'not-requested',
-              capabilityLevel: 'evidence-only',
-            },
-          )
+          const eligibility = getReconstructionBriefEligibility(profile, designContextMeta)
           throw new Error(
-            reconstructionBriefUnavailableMessage(eligibility.eligible ? 'status-not-eligible' : eligibility.reason),
+            reconstructionBriefUnavailableMessage(eligibility.eligible ? 'no-profile' : eligibility.reason),
           )
         }
         filename = 'RECONSTRUCTION.md'
@@ -335,7 +233,7 @@ async function main() {
 
   log(`\n  Done in ${(result.duration / 1000).toFixed(1)}s\n`, options.quiet)
   log(
-    `  Timing: total=${finalTiming.totalMs}ms program=${finalTiming.programTotalMs || 0}ms ai=${finalTiming.aiTotalMs || 0}ms browser=${finalTiming.browserMs || 0}ms preparation=${finalTiming.preparationMs || 0}ms health=${finalTiming.healthGateMs || 0}ms extraction=${finalTiming.extractionMs || 0}ms images=${finalTiming.imageSummaryMs || 0}ms transportAttempts=${finalTiming.aiTransportAttempts || 0}`,
+    `  Timing: total=${finalTiming.totalMs}ms browser=${finalTiming.browserMs || 0}ms preparation=${finalTiming.preparationMs || 0}ms health=${finalTiming.healthGateMs || 0}ms extraction=${finalTiming.extractionMs || 0}ms images=${finalTiming.imageCount}`,
     options.quiet,
   )
 }
@@ -357,30 +255,12 @@ function printUsage() {
     --no-session        Don't reuse Imprint's saved browser session
     --json-stdout       Output token JSON to stdout (pipe-friendly)
     --quiet             Suppress progress output
-    --intelligence <m>  Design interpretation: none | structural | vision (default: none)
-    --provider <id>     AI provider for explicit interpretation
-    --model <id>        Optional exact model ID
-    --base-url <url>    Optional custom OpenAI-compatible API base URL
-    --allow-screenshots Required consent for vision mode; signed-in evidence is still excluded
-    --model-supports-vision Declare image support for a custom OpenAI-compatible model
-
-  Environment (API keys for --intelligence):
-    IMPRINT_AI_API_KEY            Generic override, checked first for any provider
-    OPENAI_API_KEY                provider: openai
-    ANTHROPIC_API_KEY             provider: anthropic
-    GOOGLE_GENERATIVE_AI_API_KEY  provider: google
-    DEEPSEEK_API_KEY              provider: deepseek
-    MOONSHOT_API_KEY              provider: moonshotai
-    ALIBABA_API_KEY               provider: alibaba
-    ZHIPU_API_KEY                 provider: zhipu
-    XAI_API_KEY                   provider: xai
-
   Examples:
     imprint extract https://vercel.com
     imprint extract https://github.com --format design.md --output ./design/
     imprint extract https://stripe.com --format json --json-stdout | jq .colors
-    imprint extract https://example.com --viewport all --intelligence structural --provider openai --format profile
-    imprint extract https://example.com --intelligence structural --provider openai --format reconstruction
+    imprint extract https://example.com --viewport all --format profile
+    imprint extract https://example.com --format reconstruction
 
 `)
 }

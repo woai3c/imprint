@@ -354,7 +354,7 @@ function pairedLineHeightFrequency(styles: ExtractedStyles): Map<string, number>
 
 /**
  * Build structured design tokens from raw extracted styles.
- * Pure code - no LLM tokens consumed.
+ * Deterministic program implementation.
  */
 export function buildDesignTokens(
   styles: ExtractedStyles,

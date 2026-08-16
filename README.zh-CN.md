@@ -27,8 +27,8 @@ Imprint 是一个开源桌面应用，可以将网站和 UI 截图转换为可�
 
 它会分析颜色、字体、间距、圆角、阴影、布局规律和组件风格，并生成能够直接用于 AI Coding 和前端开发的结构化输出。
 
-AI 是这些输出的下游使用者，不是提取过程的依赖。核心分析、声明和导出由确定性程序完成，无需配置模型；可选 AI 应用于
-把这些证据适配到目标项目，不能编写或改变来源网站的已观察事实。
+AI 是这些输出的下游使用者，不是提取过程的依赖。核心分析、声明和导出由确定性程序完成，不需要模型厂商、
+API Key 或本地 Agent 运行时。
 
 不再让 AI 随机生成千篇一律的界面，而是让它基于真实产品的设计系统进行开发。
 
@@ -52,21 +52,21 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 
 ## 功能
 
-| 功能           | 说明                                                              |
-| -------------- | ----------------------------------------------------------------- |
-| 网站分析       | 输入 URL，自动分析网页视觉风格                                    |
-| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                    |
-| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制              |
-| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                     |
-| 截图分析       | 从 UI 截图中提取设计规律                                          |
-| 设计系统生成   | 提取颜色、字体、间距、圆角、阴影和组件风格                        |
-| AI 友好文档    | 导出 Google DESIGN.md alpha，并保留可追溯的 Imprint 扩展          |
-| 代码导出       | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens     |
-| 本地 AI Agent  | 支持 Claude Code、Codex、Kimi、Gemini CLI、OpenCode 和 x-code-cli |
-| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                           |
-| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌              |
-| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                |
-| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性        |
+| 功能           | 说明                                                          |
+| -------------- | ------------------------------------------------------------- |
+| 网站分析       | 输入 URL，自动分析网页视觉风格                                |
+| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                |
+| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制          |
+| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                 |
+| 截图分析       | 从 UI 截图中提取设计规律                                      |
+| 设计系统生成   | 提取颜色、字体、间距、圆角、阴影和组件风格                    |
+| AI 友好文档    | 导出 Google DESIGN.md alpha，并保留可追溯的 Imprint 扩展      |
+| 代码导出       | 支持 CSS Variables、Tailwind CSS v4 主题和 JSON Design Tokens |
+| Agent 集成     | 通过导出文件或 MCP 与外部 Coding Agent 配合使用               |
+| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                       |
+| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌          |
+| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格            |
+| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性    |
 
 ## 与 AI Coding Agent 配合使用
 
@@ -91,61 +91,27 @@ AI Coding 可以快速生成界面，但生成结果往往风格普通，并且�
 
 Imprint 生成的 `DESIGN.md` 遵循 [Google Labs DESIGN.md alpha 规范](https://github.com/google-labs-code/design.md)：先构建类型化文档模型，再按规范 YAML 分组和固定章节顺序渲染。紧凑的 `x-imprint` 扩展只保留来源、覆盖率、分析摘要、响应式元数据和 alpha 规范暂未覆盖的令牌；完整令牌溯源保留在 Tokens JSON 与 `design-evidence.json` 中。
 
-## 确定性设计上下文与可选 AI
+## 确定性设计上下文
 
 每次分析都会生成确定性的 `DesignEvidence`：多视口截图、页面拓扑、归一化区块与组件几何、响应式差异、安全交互观察、
-媒体层、覆盖范围和限制。由程序负责的声明再把这些证据转换成稳定、可追溯的设计上下文。整个结果不依赖 AI，并与
-Tokens JSON 分开保存。
+媒体层、覆盖范围和限制。程序规则再将证据转换为稳定、可追溯的 Design Profile、重构简报、验证方案和导出物。相同的
+捕获证据会生成完全相同的上下文。
 
-可选 AI 只用于确实需要目标上下文的建议，例如语义别名、便于人理解的设计意图，或把提取结果适配到现有项目。AI 建议
-必须与来源事实分开，引用所依据的确定性声明和证据，不能替换实际提取的 token key，也不能改变导出的事实。
+Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外部 Coding Agent 可以通过文件或 MCP 使用分析完成后的
+产物，但不会参与提取，也不能改变来源事实。
 
-可选 AI 任务的截图输入默认关闭。只有支持视觉输入的 API 模型，并且用户在设置中明确授权后，才会选择少量匿名公开
-页面截图；登录后页面没有单独明确授权时不会向 AI 发送内容。即使 AI 任务失败，token、证据、确定性声明、截图和实现
-导出也保持不变。
-
-## CLI 与 MCP 智能模式
-
-CLI 只有在明确传入 `--intelligence` 时才会调用 AI 厂商。API Key 从进程环境变量读取——优先使用
-`IMPRINT_AI_API_KEY`（通用覆盖），否则使用对应厂商的标准变量：
-
-| 厂商         | 环境变量                                                |
-| ------------ | ------------------------------------------------------- |
-| `openai`     | `OPENAI_API_KEY`                                        |
-| `anthropic`  | `ANTHROPIC_API_KEY`                                     |
-| `google`     | `GOOGLE_GENERATIVE_AI_API_KEY`                          |
-| `deepseek`   | `DEEPSEEK_API_KEY`                                      |
-| `moonshotai` | `MOONSHOT_API_KEY`                                      |
-| `alibaba`    | `ALIBABA_API_KEY`                                       |
-| `zhipu`      | `ZHIPU_API_KEY`                                         |
-| `xai`        | `XAI_API_KEY`                                           |
-| `custom`     | `IMPRINT_AI_API_KEY`（需配合 `--base-url` / `baseUrl`） |
+## CLI 与 MCP
 
 ```bash
 pnpm build:cli
-export DEEPSEEK_API_KEY=sk-...            # PowerShell: $env:DEEPSEEK_API_KEY='sk-...'
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
-imprint extract https://example.com --viewport all --intelligence structural --provider deepseek --format profile
-imprint extract https://example.com --intelligence vision --provider openai --allow-screenshots
+imprint extract https://example.com --viewport all --format profile
+imprint extract https://example.com --format reconstruction
 ```
 
-MCP 的 `imprint_extract` 始终是确定性提取。显式调用 `imprint_interpret` 才会访问 AI 厂商；也可以给
-`imprint_compare` 传入 `depth: "language"`，比较两个经过校验的结构化 DesignProfile。通过 MCP 客户端的
-服务器配置传入 API Key，例如：
-
-```json
-{
-  "mcpServers": {
-    "imprint": {
-      "command": "imprint-mcp",
-      "env": { "DEEPSEEK_API_KEY": "sk-..." }
-    }
-  }
-}
-```
-
-此处配置的 API Key 与桌面应用的设置互相独立——各入口只读取自己的来源。
+MCP 服务器提供确定性的 `imprint_extract` 与 `imprint_compare` 工具，不需要任何厂商凭据。`imprint_compare` 可以接收
+两个 URL 或两个已经导出的 Design Profile，并按 token 或确定性设计语言进行比较。
 
 ## 下载安装
 
@@ -159,16 +125,15 @@ MCP 的 `imprint_extract` 始终是确定性提取。显式调用 `imprint_inter
 
 ## 技术栈
 
-| 层级     | 技术                                                  |
-| -------- | ----------------------------------------------------- |
-| 桌面框架 | Electron + Electron Forge                             |
-| 前端     | React 19 + TypeScript + Vite                          |
-| UI       | Tailwind CSS v4                                       |
-| 状态管理 | Zustand                                               |
-| 数据存储 | SQLite (better-sqlite3)                               |
-| 网页分析 | Playwright                                            |
-| 国际化   | i18next + react-i18next                               |
-| AI       | OpenAI / Claude / DeepSeek / Kimi API，本地 Agent CLI |
+| 层级     | 技术                         |
+| -------- | ---------------------------- |
+| 桌面框架 | Electron + Electron Forge    |
+| 前端     | React 19 + TypeScript + Vite |
+| UI       | Tailwind CSS v4              |
+| 状态管理 | Zustand                      |
+| 数据存储 | SQLite (better-sqlite3)      |
+| 网页分析 | Playwright                   |
+| 国际化   | i18next + react-i18next      |
 
 ## 开发
 
@@ -185,7 +150,7 @@ pnpm build
 # 构建分发包（Windows 输出 zip，macOS 输出 DMG）
 pnpm make
 
-# 运行 E2E 测试（无需 LLM）
+# 运行确定性 E2E 测试
 pnpm test:e2e
 ```
 
@@ -203,12 +168,11 @@ src/
 │   ├── analyzer/        # 网页分析引擎（Electron 包装层）
 │   ├── export.ts        # 设计系统导出
 │   ├── database.ts      # SQLite 数据库
-│   └── agent-detect.ts  # AI Agent 检测
 │
 ├── core/                # 共享提取引擎（CLI + MCP + 桌面）
 │   ├── analyzer/        # 样式提取、颜色聚类、Token 构建
 │   ├── design-evidence/ # 稳定的观察证据与覆盖信息
-│   ├── design-intelligence/ # 已校验 Profile、简报、上下文与验证
+│   ├── design-context/  # 已校验 Profile、简报、上下文与验证
 │   └── export/          # CSS / Tailwind / JSON / Markdown / SCSS 生成器
 │
 ├── cli/                 # CLI 入口（imprint 命令）

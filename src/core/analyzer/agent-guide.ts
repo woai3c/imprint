@@ -1,7 +1,7 @@
 import { coreTranslator } from '../i18n/index.js'
 import { isPillRadius } from './component-detect.js'
 import type { ComponentVariantPattern } from './component-detect.js'
-import type { DesignToken, GeneratedExampleComponent } from './types.js'
+import type { DesignToken } from './types.js'
 
 export type DocLanguage = 'en' | 'zh-CN'
 
@@ -129,7 +129,7 @@ export function generateDesignPrinciples(tokens: DesignToken, language: DocLangu
 
 /**
  * Generate Do's and Don'ts based on analyzed design patterns.
- * Code-based heuristics — no LLM needed.
+ * Deterministic program heuristics.
  */
 export function generateDosAndDonts(
   tokens: DesignToken,
@@ -239,31 +239,6 @@ export function generateDosAndDonts(
   }
 
   lines.push('')
-
-  return lines.join('\n')
-}
-
-export function generateExampleComponents(
-  examples: readonly GeneratedExampleComponent[],
-  language: DocLanguage = 'en',
-): string {
-  if (examples.length === 0) return ''
-
-  const t = coreTranslator(language, 'agentGuide.examples')
-  const lines: string[] = []
-
-  lines.push(t('heading'))
-  lines.push('')
-  lines.push(t('intro'))
-
-  for (const example of examples) {
-    lines.push('')
-    lines.push(`### ${example.title}`)
-    lines.push('')
-    lines.push('```html')
-    lines.push(example.html)
-    lines.push('```')
-  }
 
   return lines.join('\n')
 }

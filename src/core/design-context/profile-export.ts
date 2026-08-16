@@ -1,7 +1,7 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
-import type { AnalysisCapabilityLevel, DesignClaim, DesignIntelligenceStatus, DesignProfile } from './types.js'
+import type { DesignClaim, DesignProfile } from './types.js'
 
 // Token refs in claims follow the evidence-package scheme: `color.<name>` plus 1-based array
 // paths like `spacing.2` or `typography.font-stack.1` (see buildTokenIndex in design-evidence).
@@ -382,17 +382,10 @@ function numberedVisibleClaims(claims: DesignClaim[], prefix: string): Array<Des
 export function generateDesignProfileMarkdown(
   profile: DesignProfile,
   tokens?: DesignToken,
-  status?: DesignIntelligenceStatus,
   publicColorNames: ReadonlyMap<string, string> = new Map(),
-  capabilityLevel?: AnalysisCapabilityLevel,
   evidence?: DesignEvidence,
 ): string {
   const t = coreTranslator(profile.language, 'profileExport')
-  const deterministicCatalog = profile.claimSource === 'deterministic-catalog'
-  const evidenceFallback = capabilityLevel
-    ? capabilityLevel === 'evidence-fallback'
-    : profile.signatureMoves.some((move) => move.id === 'evidence-fallback')
-  const displayedStatus = evidenceFallback ? 'evidence-fallback' : status
   const labels = {
     confidence: t('labels.confidence'),
     evidence: t('labels.evidence'),
@@ -407,19 +400,13 @@ export function generateDesignProfileMarkdown(
     preserve: 'catalogPreserve',
     avoid: 'catalogAvoid',
   }
-  const section = (key: string): string =>
-    t(`sections.${deterministicCatalog ? deterministicSectionKeys[key] || key : key}`)
+  const section = (key: string): string => t(`sections.${deterministicSectionKeys[key] || key}`)
   const lowBucket: LowConfidenceEntry[] = []
-  // Claims were written before color renaming, so their refs still use palette-N names. Map them
-  // to the applied aliases and append the resolved value so refs are checkable within the document.
+  // Map internal palette names to stable public names and append resolved values so references
+  // remain checkable within the document.
   const aliasRefs = new Map<string, string>()
   for (const [sourceName, publicName] of publicColorNames) {
     aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
-  }
-  for (const alias of profile.tokenAliases || []) {
-    const publicName = publicColorNames.get(alias.name) || publicColorNames.get(alias.tokenId) || alias.name
-    aliasRefs.set(`color.${alias.tokenId}`, `color.${publicName}`)
-    aliasRefs.set(`color.${alias.name}`, `color.${publicName}`)
   }
   const formatRef = (ref: string): string => {
     const mapped = aliasRefs.get(ref) ?? ref
@@ -440,7 +427,7 @@ export function generateDesignProfileMarkdown(
     formatRef,
     formatText,
     includeImplementation: profile.schemaVersion === '1',
-    renderedCatalogIds: deterministicCatalog ? new Set<string>() : undefined,
+    renderedCatalogIds: new Set<string>(),
   }
   const uncertainties = uniqueUncertainties(profile)
   const uncertaintyLines =
@@ -460,24 +447,11 @@ export function generateDesignProfileMarkdown(
     componentGroups.set(component.component, group)
   }
   return [
-    t(deterministicCatalog ? 'catalogHeading' : 'heading'),
+    t('catalogHeading'),
     '',
-    t(deterministicCatalog ? 'catalogLayerNotice' : 'layerNotice'),
+    t('catalogLayerNotice'),
     '',
-    `**${t('inputMode')}:** \`${profile.inputMode}\``,
-    '',
-    ...(displayedStatus ? [`**${t('status')}:** \`${displayedStatus}\``, ''] : []),
-    ...(evidenceFallback
-      ? [t(deterministicCatalog ? 'catalogEvidenceFallbackNotice' : 'evidenceFallbackNotice'), '']
-      : []),
-    ...(!evidenceFallback && status === 'partial'
-      ? deterministicCatalog
-        ? [t('catalogPartialNotice'), '']
-        : [t('partialNotice'), '', t('partialClaimsFiltered'), '']
-      : []),
-    ...(profile.schemaVersion === '2'
-      ? [t(deterministicCatalog ? 'catalogBoundaryNotice' : 'implementationBoundaryNotice'), '']
-      : []),
+    ...(profile.schemaVersion === '2' ? [t('catalogBoundaryNotice'), ''] : []),
     ...claimLines(section('thesis'), [profile.thesis], labels, lowBucket, claimOptions),
     ...claimLines(
       section('signatureMoves'),

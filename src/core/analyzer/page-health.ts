@@ -33,7 +33,7 @@ export interface PageHealthReport {
   content: { width: number; height: number }
   overlayAreaRatio: number
   mutationCount: number
-  aiEligible: boolean
+  evidenceEligible: boolean
   issues: PageHealthIssue[]
 }
 
@@ -50,7 +50,7 @@ function sameOrigin(first: string, second: string): boolean {
   }
 }
 
-const AI_UNSAFE_HEALTH_CODES = new Set<PageHealthIssue['code']>([
+const EVIDENCE_UNSAFE_HEALTH_CODES = new Set<PageHealthIssue['code']>([
   'large-overlay',
   'main-content-empty',
   'skeleton-heavy',
@@ -65,8 +65,8 @@ const AI_UNSAFE_HEALTH_CODES = new Set<PageHealthIssue['code']>([
   'health-recovery-timeout',
 ])
 
-export function isPageHealthAiEligible(report: Pick<PageHealthReport, 'status' | 'issues'>): boolean {
-  return report.status !== 'unusable' && !report.issues.some((issue) => AI_UNSAFE_HEALTH_CODES.has(issue.code))
+export function isPageHealthEvidenceEligible(report: Pick<PageHealthReport, 'status' | 'issues'>): boolean {
+  return report.status !== 'unusable' && !report.issues.some((issue) => EVIDENCE_UNSAFE_HEALTH_CODES.has(issue.code))
 }
 
 export async function inspectPageHealth(page: Page, options: PageHealthOptions): Promise<PageHealthReport> {
@@ -242,10 +242,10 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     content: { width: facts.contentWidth, height: facts.contentHeight },
     overlayAreaRatio: facts.overlayAreaRatio,
     mutationCount: facts.mutationCount,
-    aiEligible: false,
+    evidenceEligible: false,
     issues,
   }
-  report.aiEligible = isPageHealthAiEligible(report)
+  report.evidenceEligible = isPageHealthEvidenceEligible(report)
   return report
 }
 
@@ -279,7 +279,7 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
         detail: timedOut ? '8000ms' : error instanceof Error ? error.message : String(error),
       },
     ]
-    return { ...initial, aiEligible: false, attempts: 2, issues }
+    return { ...initial, evidenceEligible: false, attempts: 2, issues }
   } finally {
     clearTimeout(timeout)
   }

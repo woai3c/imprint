@@ -11,22 +11,16 @@ Imprint generates for analyzed websites.
 
 Imprint is a deterministic design-context and visual-validation tool for AI coding agents. Its core value is converting
 what a browser actually rendered into stable, traceable evidence, claims, tokens, and implementation artifacts that an
-agent can use without guessing. AI is a downstream consumer of this context, not a dependency of extraction or the
-authority for source facts.
-
-Removing, disabling, changing, or failing an AI provider must not change deterministic claims, their order, confidence,
-evidence, or exports for the same captured evidence. The default analysis path must not call a model merely to select,
-rank, rewrite, or summarize program-owned claims. Embedded AI earns a place only when it adds target-aware value that
-deterministic extraction cannot provide, such as proposing semantic aliases, explaining design intent as a clearly
-non-normative hypothesis, or adapting the extracted system to an existing project's code and constraints. Such proposals
-remain separate from source truth and cite both the source evidence and the target context they use.
+agent can use without guessing. AI is only a downstream consumer of exported context, not a built-in runtime dependency
+or an authority for source facts. The same captured evidence always produces the same claims, profile, reconstruction
+brief, validation recipe, and exports. Coding and adaptation remain the responsibility of the user's external agent.
 
 ## Design values
 
 ### Truthful extraction
 
 Show what the browser actually rendered. Extraction, claim construction, and core exports are deterministic and
-evidence-based. AI may propose semantic names or target adaptations, but it must not invent or modify source styles.
+evidence-based. External agents must not invent or modify source facts.
 
 ### Visible structure
 
@@ -161,7 +155,8 @@ to Imprint rather than an enterprise administration UI.
 
 ## Shared design patterns
 
-- **Evidence before proposals:** screenshots, extracted values, and program-owned claims precede optional AI output.
+- **Evidence before generated artifacts:** screenshots, extracted values, and program-owned claims precede separately
+  requested examples or work performed by an external coding agent.
 - **Progressive disclosure:** lead with summaries, then expose tokens, code, and documentation as users need them.
 - **Stable hierarchy:** light, dark, and artistic themes keep the same information order and interaction locations.
 - **Functional material:** transparency, texture, glow, and illustration establish layers; they never replace contrast.
@@ -175,22 +170,20 @@ to Imprint rather than an enterprise administration UI.
 - **Reversible theming:** changing or importing a theme must not leave typography, spacing, radius, or motion values
   behind.
 
-## Design Evidence, deterministic claims, and optional AI
+## Design Evidence and deterministic context
 
-Terminology: observed evidence and program-owned claims are "design context" (zh "设计上下文"). Reserve "AI design
-insights" (zh "AI 设计解读") for optional, non-normative model output that adds meaning beyond selection or summary.
-Internal code identifiers (DesignProfile, design-intelligence) are never shown in the UI. User copy must be plain
-language a non-technical user understands — internal identifiers (`evidence-only`, `structural-only`, limitation codes,
-capability levels) never appear as labels; unknown page or section roles are omitted rather than labeled "unknown".
+Terminology: observed evidence and program-owned claims are "design context" (zh "设计上下文"). Internal code
+identifiers (DesignProfile, design-context) are never shown in the UI. User copy must be plain language a
+non-technical user understands — internal identifiers (`evidence-only`, `structural-only`, limitation codes, capability
+levels) never appear as labels; unknown page or section roles are omitted rather than labeled "unknown".
 Secondary options (such as analysis depth) explain themselves through a small info affordance whose message appears on
 hover and keyboard focus; primary options keep visible adjacent help text. Result tab labels never wrap — when space
 runs out, the tab strip scrolls horizontally instead.
 
-- Every completed analysis opens on **Overview**. The overview is useful without AI: it shows source coverage, page
+- Every completed analysis opens on **Overview**. It shows source coverage, page
   structure, detected sections, component instances, viewport evidence, observed states, and explicit limitations.
-- Label deterministic browser and code results as **Observed**, and program-owned summaries as **Deterministic**.
-  Reserve **Inferred** for validated optional AI proposals and **Generated** for reconstruction briefs or validation
-  scenarios. Never present one layer as another.
+- Label deterministic browser and code results as **Observed** and program-owned summaries as **Deterministic**. Never
+  present an inference as an observed fact.
 - The evidence-only overview is a complete supported result, not an error or a setup advertisement. It states plainly
   that everything shown was directly observed by the browser, without displaying capability tags or internal mode
   names.
@@ -203,49 +196,25 @@ runs out, the tab strip scrolls horizontally instead.
 - Limitations belong beside coverage. Each user-relevant limitation maps to one plain-language explanation; limitations
   that resolve to the same explanation are shown once. Internal diagnostics such as page-health details, extraction
   issue payloads, and per-candidate skip records remain in evidence or logs and never become duplicate generic UI rows.
-- Deterministic claims are part of the core result and must be generated whether or not AI is configured. AI availability
-  must not gate the claim catalog, Design Profile, reconstruction facts, or DESIGN.md claim body. For identical captured
-  evidence, AI success, failure, selected IDs, summaries, or output order produce an identical deterministic profile.
-- Analysis status describes capture and evidence quality only. Optional AI tasks have their own status and cannot turn a
-  usable deterministic analysis into `partial` or `failed`. Filtered model-output diagnostics stay in logs instead of
-  appearing as source limitations or repeated notices in the result UI.
-- Do not call AI merely to select, rank, rewrite, or summarize deterministic claims. The preferred high-value AI task is
-  target-aware adaptation: combine immutable source claims with a target project's code, screenshots, technology, and
-  product constraints to propose component mappings, semantic aliases, an implementation plan, or a review. Every
-  proposal cites source claim/evidence IDs and target files or components, remains explicitly non-authoritative, and is
-  accepted or rejected separately from extraction.
-- Optional AI tasks run after deterministic extraction and never block the first usable result. Their status card may
-  distinguish pending, complete, partial, failed, skipped, and not-configured states; retry reruns only the optional task,
-  never the browser. Status icons are reserved for running, success, and failure — neutral states use text alone.
-- AI pipeline deadlines must never be shorter than the provider request they contain. Standard API requests receive a
-  five-minute request budget; Thinking requests and Agent CLI runs receive ten minutes, with a short outer grace period
-  for parsing and validation. Streaming telemetry records only elapsed time and aggregate event/reasoning/content
-  character counts—never response text, reasoning text, prompts, credentials, or page content.
-- AI proposals cite real evidence IDs and display their status as proposals, not observed facts. Selecting a section,
-  component, layout, or media reference opens the related screenshot and highlights its normalized evidence rectangle;
-  evidence without a genuine screenshot region opens a compact evidence detail instead — never a fabricated highlight.
-- Completed optional AI output is cached by its captured-evidence and target-context fingerprints. A fresh source capture
-  or changed target context creates a new proposal; it never mutates the immutable deterministic result.
-- Structural-only AI output must never be styled or worded as full visual analysis. Screenshot input requires a
-  vision-capable model plus explicit settings consent. Signed-in evidence stays local until the user explicitly starts
-  an optional AI task, and signed-in screenshots are sent only when the separate signed-in vision consent in Settings is
-  enabled (off by default); its copy names the provider and warns that account or internal information may be present.
-- Agent CLI tasks run in an isolated temporary directory containing only the task manifest and whitelisted
-  evidence images, removed after the run. With screenshot consent, images are attached as explicit file references;
-  whether the model actually sees them depends on the CLI's own configuration. Product copy must never claim that a
-  local Agent CLI keeps data on the machine — uploads follow the CLI's own configuration.
+- Deterministic claims are part of every core result. Identical captured evidence produces an identical Design Profile,
+  reconstruction brief, validation recipe, and DESIGN.md claim body.
+- Analysis status describes capture and evidence quality only. A usable deterministic analysis cannot become `partial`
+  or `failed` because an unrelated external tool is unavailable.
+- Imprint does not contain a model-provider, API-key, local-model, or Agent CLI execution path. The user's external coding
+  agent consumes exported context and screenshots only after analysis has completed.
+- Selecting a section, component, layout, or media reference opens the related screenshot and highlights its normalized
+  evidence rectangle; evidence without a genuine screenshot region opens a compact evidence detail instead of a
+  fabricated highlight.
 - Responsive evidence compares adjacent viewport pairs (desktop to tablet, tablet to mobile) rather than only the
   widest capture against the rest, so three-viewport analyses describe each transition separately.
 - The Overview groups the program-owned representative topology, observed highlights, composition, order and action
-  evidence, visual language, transfer rules, and uncertainties. Profile JSON remains a separate versioned artifact;
-  AI token names are proposals and never replace deterministic token keys.
+  evidence, visual language, transfer rules, and uncertainties. Profile JSON remains a separate versioned artifact.
 - The app never asks users to compose generic prompts for an external agent. Deterministic reconstruction facts may be
-  exported as a separate, one-click copyable and downloadable `RECONSTRUCTION.md`; target-aware AI adaptation belongs in
-  a distinct workflow that receives the target UI's source or screenshot. Both prohibit copying source text, logos,
-  page composition, or media.
-- Validation scenarios use an allowlisted renderer rather than model-authored HTML. Report token-scale, rule-reference,
-  state, contrast, overflow, and reduced-motion checks independently, including evidence, interpretation, or generation
-  failure layers; never collapse them into a single opaque quality score.
+  exported as a separate, one-click copyable and downloadable `RECONSTRUCTION.md`. Target-aware adaptation belongs to
+  the user's external coding agent and requires both Imprint's artifacts and the target UI's source or screenshot.
+- Validation scenarios use an allowlisted renderer. Report token-scale, rule-reference, state, contrast, overflow, and
+  reduced-motion checks independently, including capture, rule-construction, or rendering failure layers; never collapse
+  them into a single opaque quality score.
 
 ## Authenticated analysis
 
@@ -333,27 +302,10 @@ runs out, the tab strip scrolls horizontally instead.
   dismissed informational notices survive a full app restart.
 - Keep transient work state out of localStorage: submitted URLs, analysis results and failures, search input, progress,
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
-- AI credentials, Agent CLI selection, and Theme Library export format stay in the main-process settings file. Never
-  duplicate credentials into renderer storage.
-- Model ID, custom-model vision capability, screenshot consent, and optional AI task preferences stay with main-process
-  settings. The consent copy must name the active provider, state in plain words why site screenshots are sent to the
-  AI, and state that signed-in pages require a separate explicit consent.
-- A saved Agent CLI selection always displays the product name from the shared CLI registry (never a raw or legacy
-  command string), whether or not detection has run in the current session.
-- Detect local Agent CLIs asynchronously on first use, cache the result for the current app process, and provide an
-  explicit refresh action for newly installed CLIs. Detection progress must not block navigation or other UI actions.
-- Treat Agent CLI detection and selection as separate actions. Detection only reports candidates; it never selects one
-  or changes the active AI method. Selecting another CLI replaces the saved selection; the global AI switch disables
-  AI without clearing connection settings, so the CLI list does not expose a separate deselection action.
-- Present API Key and Agent CLI as two mutually exclusive connection methods while preserving each method's saved
-  configuration. A persistent status summary must state which fully configured method is active, or that AI enhancement
-  is not enabled when the selected method is incomplete.
-- Keep Agent CLI detection behavior as visible supporting text beside the detected list and refresh action. Do not hide
-  this explanation in a tooltip that can be clipped by the desktop shell.
-- When Agent CLI is active, run semantic enhancement non-interactively in an isolated temporary directory with the
-  strongest read-only or no-tool controls supported by that CLI. Bound execution time and output size, never log prompts
-  or responses, remove temporary data afterward, and fall back to deterministic extraction if the CLI is unavailable,
-  unauthenticated, times out, or returns invalid output.
+- Main-process settings contain only analyzer defaults, Theme Library export format, display preferences, and network
+  proxy configuration. Legacy provider credentials and command selections are removed during the next settings read.
+- The settings page exposes network and local-data controls only. Product operation never requires an external account,
+  model configuration, secret, or command-line agent.
 
 ## Export semantics
 
@@ -371,18 +323,16 @@ Export choices describe different jobs and must never be presented as interchang
 - **CSS variables** are recommended for framework-agnostic web and CSS projects.
 - **Tailwind v4 `@theme`** is recommended when the target project already uses Tailwind v4.
 - **Tokens JSON** is recommended for design-token tooling, automation, and agents that need machine-readable values.
-- **Reconstruction Brief** is a generated, evidence-gated execution artifact for carrying a validated design language
+- **Reconstruction Brief** is a deterministic, evidence-gated execution artifact for carrying the observed design context
   into a new UI. It remains separate from DESIGN.md and is exported as `RECONSTRUCTION.md`.
 
 Every export action must name the artifact it will create. Theme-library preferences apply only to theme-card exports;
 the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
 design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
 
-When a saved analysis already contains validated example HTML, the Preview tab renders each example live in a sandboxed
-iframe with the extracted CSS variables applied. Without validated examples, Imprint omits the example section from
-both the preview and generated DESIGN.md so deterministic extraction stays compact. AI examples are validation surfaces
-rather than reconstructions of source markup, and rendering never executes scripts. New validation work belongs in the
-dedicated Theme Library validation scenarios instead of an optional generation prompt at the bottom of Preview.
+The Preview tab renders deterministic token and component test surfaces only; it never executes generated markup or
+scripts. Validation work belongs in the dedicated Theme Library scenarios and uses allowlisted components with explicit
+states, responsive widths, and accessibility checks.
 
 ## Anti-slop guardrails
 

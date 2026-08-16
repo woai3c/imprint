@@ -6,6 +6,8 @@ This file is loaded into the agent's context at the start of every session. Keep
 
 Imprint — Electron desktop app + standalone CLI + MCP server that extracts a website's design system (colors, typography, spacing...) from a URL and exports it as CSS variables / Tailwind v4 `@theme` / JSON tokens / Markdown docs. Package manager is pnpm (pinned); Node >= 20.19 required.
 
+Analysis input is URL-only. Imprint does not analyze standalone screenshot files: screenshots are captured from the loaded website as traceable evidence, while the DOM, computed styles, responsive behavior, and interaction states provide the extractable source data. Do not describe screenshots as a supported analysis input in code comments, UI copy, or documentation.
+
 ## Rules
 
 - Use visualizations when they help explain complex concepts.

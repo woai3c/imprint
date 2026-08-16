@@ -3,7 +3,7 @@
 
   <h1>Imprint</h1>
 
-  <p><strong>Turn websites and screenshots into deterministic, AI-ready design context.</strong></p>
+  <p><strong>Turn websites into deterministic, AI-ready design context.</strong></p>
 
   <p>
     Extract colors, typography, spacing, radii, shadows, and component styles,
@@ -23,17 +23,22 @@
 
 ## What is Imprint?
 
-Imprint is an open-source desktop application that transforms websites and UI screenshots into reusable design systems.
+Imprint is an open-source desktop application that transforms websites into reusable design systems.
 
 It analyzes visual rules such as colors, typography, spacing, border radii, shadows, layout patterns, and component styles, then generates structured outputs that can be used directly by AI coding agents and frontend projects.
 
 AI is a downstream consumer, not an extraction dependency. Core analysis, claims, and exports are deterministic and
 require no model provider, API key, or local agent runtime.
 
+Imprint accepts website URLs as analysis input; it does not analyze standalone screenshot files. A screenshot contains
+only one rendered pixel state and cannot reliably reveal the DOM hierarchy, computed styles, responsive rules, or
+interaction states. The screenshots shown and exported by Imprint are captured from the loaded website as traceable
+evidence for the URL-based analysis.
+
 Instead of asking AI to invent another generic interface, give it a real design system to follow.
 
 ```text
-Website or Screenshot
+Website URL
         ↓
       Imprint
         ↓
@@ -48,7 +53,8 @@ Consistent, production-ready interfaces
 
 AI coding tools can generate interfaces quickly, but they often produce generic and inconsistent visual styles.
 
-Prompts alone are not enough to describe a complete design language. Imprint extracts that language from real websites and screenshots and converts it into structured specifications that AI agents can follow.
+Prompts alone are not enough to describe a complete design language. Imprint extracts that language from real websites
+and converts it into structured specifications that AI agents can follow.
 
 ## Features
 
@@ -58,7 +64,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 | Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes              |
 | Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations |
 | Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence               |
-| Screenshot analysis      | Extract design patterns from UI screenshots                                                     |
+| Screenshot evidence      | Capture analyzed pages and viewports as traceable visual evidence                               |
 | Design system generation | Generate colors, typography, spacing, radii, shadows, and component guidance                    |
 | AI-ready documentation   | Export Google DESIGN.md alpha with traceable Imprint extensions                                 |
 | Code export              | Export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens                            |
@@ -70,7 +76,7 @@ Prompts alone are not enough to describe a complete design language. Imprint ext
 
 ## Use with AI Coding Agents
 
-1. Analyze a website or screenshot with Imprint.
+1. Analyze a website URL with Imprint.
 2. Export the generated `DESIGN.md`.
 3. Copy `DESIGN.md` into your project.
 4. Give your AI coding agent the following instruction:

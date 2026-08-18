@@ -46,6 +46,14 @@ before(async () => {
       </style><header><nav><a href="/">Home</a></nav></header><main><h1>Pricing plans</h1><p>Choose a plan for a growing team.</p><section class="plans"><article>Starter</article><article>Team</article><article>Scale</article></section></main><footer>Pricing help</footer>`)
       return
     }
+    if (request.url === '/people/sample') {
+      response.end(`<!doctype html>
+        <header><nav><a href="/pricing">Pricing</a><a href="/features">Features</a></nav></header>
+        <main><h1>Public portfolio</h1><a href="/people/sample/portfolio-one">Portfolio one</a>
+        <a href="/people/sample/portfolio-two">Portfolio two</a></main>
+        <footer><a href="/contact">Contact</a></footer>`)
+      return
+    }
     if (request.url === '/similar-entry' || request.url === '/similar-child') {
       const childLink = request.url === '/similar-entry' ? '<a href="/similar-child">Read the second article</a>' : ''
       response.end(`<!doctype html><style>
@@ -56,6 +64,29 @@ before(async () => {
       <article><section><h2>Foundations</h2><p>Build reusable foundations for a consistent product.</p></section>
       <section><h2>Components</h2><p>Compose predictable components from shared decisions.</p></section></article>${childLink}</main>
       <footer>Article collection</footer>`)
+      return
+    }
+    if (request.url === '/fallback-entry') {
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;color:#172033}header,main,footer{max-width:960px;margin:auto;padding:32px}
+        section{padding:24px;background:#f3f6fa}
+      </style><header><nav><a href="/fallback-entry">Guide</a></nav></header><main><h1>Reference guide</h1>
+      <section><p>A stable entry page with several ranked descendant routes.</p>
+      <a href="/fallback-entry/fail">First chapter</a><a href="/fallback-entry/success-one">Second chapter</a>
+      <a href="/fallback-entry/success-two">Third chapter</a></section></main><footer>Guide collection</footer>`)
+      return
+    }
+    if (request.url === '/fallback-entry/fail') {
+      response.statusCode = 503
+      response.end('<!doctype html><main><h1>Temporarily unavailable</h1></main>')
+      return
+    }
+    if (request.url === '/fallback-entry/success-one' || request.url === '/fallback-entry/success-two') {
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;color:#172033}header,main,footer{max-width:960px;margin:auto;padding:32px}
+        section{padding:24px;background:#f3f6fa}
+      </style><header><nav><a href="/fallback-entry">Guide</a></nav></header><main><h1>Reference chapter</h1>
+      <section><p>A stable descendant page using the same design language.</p></section></main><footer>Guide collection</footer>`)
       return
     }
     if (request.url === '/campaign' || request.url === '/campaign-stuck') {
@@ -86,6 +117,17 @@ before(async () => {
           document.body.insertAdjacentHTML('beforeend', '<div id="campaign" class="campaign" role="dialog" aria-modal="true"><button aria-label="プロモーションを閉じる" onclick="this.parentElement.remove()">閉じる</button></div>')
         })
         observer.observe(document.head, { childList:true })
+      </script>`)
+      return
+    }
+    if (request.url === '/geometry-interaction') {
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui}main{padding:32px}.payload{height:1400px;background:#eef2ff}
+      </style><main><button aria-expanded="false" aria-controls="details">Details</button>
+      <section id="details" hidden>Expanded details</section><div class="payload">Long page evidence</div></main>
+      <script>
+        const button=document.querySelector('button'); const details=document.querySelector('#details')
+        button.addEventListener('click',()=>{const expanded=button.getAttribute('aria-expanded')==='true';button.setAttribute('aria-expanded',String(!expanded));details.hidden=expanded;document.querySelector('.payload')?.remove()})
       </script>`)
       return
     }
@@ -149,6 +191,83 @@ test('supports link-only discovery without reading sitemap routes', async () => 
   )
 })
 
+test('keeps non-root discovery in context when primary content exposes descendant routes', async () => {
+  const scopedPage = await browser.newPage()
+  await scopedPage.goto(`${origin}/people/sample`)
+
+  const result = await discoverPages(scopedPage, `${origin}/people/sample`, 2, 'links')
+
+  assert.deepEqual(
+    result.pages.map(({ url }) => new URL(url).pathname),
+    ['/people/sample/portfolio-one', '/people/sample/portfolio-two'],
+  )
+  await scopedPage.close()
+})
+
+test('tries a bounded ranked fallback when the selected sub-page is unavailable', { timeout: 120_000 }, async () => {
+  const result = await analyze(`${origin}/fallback-entry`, {
+    viewports: ['desktop'],
+    maxPages: 2,
+    useSession: false,
+    pageDiscovery: 'links',
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-page-fallback-e2e-')),
+  })
+  const pageCoverage = result.captureManifest.capture.pages
+  const analyzedPaths = [...new Set(result.designEvidence.pages.map(({ url }) => new URL(url).pathname))]
+
+  assert.equal(pageCoverage.requested, 2)
+  assert.equal(pageCoverage.selected, 1)
+  assert.equal(pageCoverage.analyzed, 2)
+  assert.ok(analyzedPaths.includes('/fallback-entry/success-one'))
+  assert.equal(analyzedPaths.includes('/fallback-entry/fail'), false)
+})
+
+test('records the runtime browser separately from a mobile-only emulation', { timeout: 120_000 }, async () => {
+  const result = await analyze(`${origin}/similar-entry`, {
+    viewports: ['mobile'],
+    maxPages: 1,
+    useSession: false,
+    pageDiscovery: 'links',
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-mobile-manifest-e2e-')),
+  })
+  const runtimeUserAgent = result.captureManifest.environment.browser.userAgent
+  const mobileEnvironment = result.captureManifest.environment.viewports[0]
+
+  assert.equal(runtimeUserAgent.includes('Pixel 7'), false)
+  assert.equal(mobileEnvironment.userAgent.includes('Pixel 7'), true)
+  assert.notEqual(mobileEnvironment.userAgent, runtimeUserAgent)
+  assert.equal(mobileEnvironment.source, 'requested')
+  assert.equal(mobileEnvironment.emulationProfile, 'pixel-7-android-13')
+  assert.equal(result.captureManifest.stabilization.animationFreeze.coverage, 'complete')
+})
+
+test(
+  'captures base screenshots before probing interactions that cannot be fully restored',
+  { timeout: 120_000 },
+  async () => {
+    const result = await analyze(`${origin}/geometry-interaction`, {
+      viewports: ['desktop'],
+      maxPages: 1,
+      useSession: false,
+      pageDiscovery: 'links',
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-interaction-geometry-e2e-')),
+    })
+    const pageEvidence = result.designEvidence.pages[0]
+    const overview = pageEvidence.images.find((image) => image.kind === 'overview')
+
+    assert.ok((overview?.height || 0) >= 1400)
+    assert.equal(
+      result.extractionIssues.some((issue) => issue.stage.endsWith(':screenshot:overview')),
+      false,
+    )
+    assert.equal(
+      result.designEvidence.interactionObservations.filter((observation) => observation.safety === 'safe-active')
+        .length,
+      0,
+    )
+  },
+)
+
 test('adaptively captures one mobile view for a structurally distinct sub-page', { timeout: 120_000 }, async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-adaptive-e2e-'))
   const result = await analyze(origin, {
@@ -169,6 +288,11 @@ test('adaptively captures one mobile view for a structurally distinct sub-page',
   assert.ok(captures.length > 0)
   assert.ok(captures.every((capture) => capture.width > 0 && capture.height > 0))
   assert.ok(captures.every((capture) => fs.statSync(capture.path).size > 0))
+  assert.equal(
+    result.captureManifest.environment.viewports.find((viewport) => viewport.name === 'mobile')?.source,
+    'adaptive',
+  )
+  assert.equal(result.captureManifest.stabilization.animationFreeze.coverage, 'partial')
 })
 
 test(

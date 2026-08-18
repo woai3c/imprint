@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta property="og:site_name" content="Imprint Fixture" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Imprint E2E Design Fixture</title>
     <style>
@@ -48,6 +49,9 @@
       }
 
       .hero {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
         padding: 40px;
         border: 1px solid #cbd5e1;
         border-radius: var(--fixture-radius);
@@ -79,6 +83,13 @@
       button:hover {
         background: #1d4ed8;
         transform: translateY(-2px);
+      }
+
+      @media (max-width: 600px) {
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
       }
 
       @media (prefers-color-scheme: dark) {

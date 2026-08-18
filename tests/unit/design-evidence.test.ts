@@ -435,6 +435,26 @@ describe('Design Evidence', () => {
     expect(document).not.toContain('matrix(0.5, 0, 0, 0.5, 0, 0)')
     expect(document).not.toContain('borderRight: 1px solid rgba(247, 122, 49, 0.3)')
     expect(document).not.toContain('MOBILE-ONLY')
+
+    evidence.pseudoElements = [
+      {
+        id: 'pseudo-tooltip',
+        pageId: desktop.id,
+        sectionId: section.id,
+        target: 'main > button::after',
+        kind: 'after',
+        styles: {
+          content: '"Tooltip"',
+          color: 'rgb(255, 255, 255)',
+          backgroundColor: 'rgb(37, 41, 46)',
+          borderTop: '0px none rgb(255, 255, 255)',
+        },
+        evidenceRefs: [desktop.images[0].id],
+      },
+    ]
+    const zhDocument = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
+    expect(zhDocument).not.toContain('border-顶部偏移')
+    expect(zhDocument).not.toContain('0px none rgb(255, 255, 255)')
   })
 
   it('shows representative passive state values instead of only aggregate property counts', () => {
@@ -1122,14 +1142,32 @@ describe('Design Evidence', () => {
       limitations: [`extraction-issue:${stage}:${reason}`],
       captures: [
         {
-          screenshot: { url: snapshot.url, path: 'mobile.png', viewport: 'mobile', width: 375, height: 812 },
+          screenshot: {
+            url: snapshot.url,
+            path: 'mobile.png',
+            viewport: 'mobile',
+            width: 375,
+            height: 812,
+            valid: false,
+          },
           snapshot,
+          supplementalImages: [
+            {
+              kind: 'viewport-crop',
+              path: 'mobile-viewport.png',
+              width: 375,
+              height: 812,
+              valid: true,
+            },
+          ],
         },
       ],
     })
 
     expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 1, captured: 1, status: 'complete' })
     expect(evidence.coverage.assetCoverage).toEqual({ expected: 1, valid: 0, status: 'partial', issueCount: 1 })
+    expect(evidence.pages[0].images).toHaveLength(1)
+    expect(evidence.pages[0].images[0].kind).toBe('viewport-crop')
     expect(generateDesignEvidenceBrief(evidence)).toContain(
       'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
     )
@@ -1203,6 +1241,38 @@ describe('Design Evidence', () => {
 
     expect(heroReflow).toMatchObject({ changeType: 'reflow' })
     expect(heroReflow?.changedProperties.some((property) => property.startsWith('rect.'))).toBe(false)
+  })
+
+  it('does not report a child-grid change when one viewport has no comparable child grid', () => {
+    const desktop = createSnapshot('desktop', 1_440)
+    const mobile = createSnapshot('mobile', 375)
+    const desktopHero = desktop.sections.find((section) => section.key === 'hero:1')!
+    const mobileHero = mobile.sections.find((section) => section.key === 'hero:1')!
+    desktopHero.styles.childGridTemplateColumns = 'repeat(3, 1fr)'
+    mobileHero.styles.childGridTemplateColumns = ''
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-missing-child-grid',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+
+    expect(
+      evidence.responsiveObservations.some((observation) =>
+        observation.changedProperties.includes('childGridTemplateColumns'),
+      ),
+    ).toBe(false)
+    expect(generateDesignEvidenceBrief(evidence)).not.toContain('childGridTemplateColumns')
   })
 
   it('classifies a section height-only viewport difference as scale', () => {
@@ -1447,10 +1517,25 @@ describe('Design Evidence', () => {
 
   it('exports deterministic facts with compatible metadata', () => {
     const evidence = buildFixtureEvidence()
+    evidence.components.push({
+      ...structuredClone(evidence.components[0]),
+      id: 'component-tab-1',
+      type: 'tab',
+      role: 'tab',
+    })
     const json = JSON.parse(generateDesignEvidenceJson(evidence))
     const brief = generateDesignEvidenceBrief(evidence)
     const designDoc = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', evidence)
-    const chineseDoc = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'zh-CN', evidence)
+    const chineseDoc = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      ['section-level compound-radius treatments observed'],
+      undefined,
+      [],
+      [],
+      'zh-CN',
+      evidence,
+    )
     const evidenceWithoutLineHeightRefs = structuredClone(evidence)
     evidenceWithoutLineHeightRefs.layoutNodes.forEach((node) => {
       node.tokenRefs = node.tokenRefs.filter((ref) => !ref.startsWith('typography.line-height.'))
@@ -1478,11 +1563,12 @@ describe('Design Evidence', () => {
         {
           schema: 'imprint.design-system/2',
           evidence: { analysisId: 'analysis-1' },
-          componentSummary: { source: 'design-evidence', patterns: 1, instances: 1 },
+          componentSummary: { source: 'design-evidence', patterns: 2, instances: 2 },
         },
       ],
     })
     expect(designDoc).toContain('| button-primary | 1 | 0.98 |')
+    expect(designDoc).toContain('| tab | 1 | 0.98 |')
     expect(designDoc).not.toContain('No component pattern was observed with enough confidence')
     expect(designDoc).toContain('### Typography Role Evidence')
     expect(designDoc).toContain('| `display` | 2 | `Inter`')
@@ -1493,6 +1579,8 @@ describe('Design Evidence', () => {
     expect(designDoc).not.toContain('matches the visual style')
     expect(designDoc).not.toContain('AI')
     expect(chineseDoc).not.toContain('AI')
+    expect(chineseDoc).toContain('观察到区块级复合圆角处理')
+    expect(chineseDoc).not.toContain('section-level compound-radius treatments observed')
     expect(designFrontMatter['x-imprint'][0]).toMatchObject({ analysis: { mode: 'deterministic' } })
   })
 })

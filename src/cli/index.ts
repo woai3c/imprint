@@ -3,7 +3,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { analyze } from '../core/analyzer/index.js'
+import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
+import { sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { generateDesignProfileJson } from '../core/design-context/profile-export.js'
@@ -24,110 +25,86 @@ import {
   generateTailwindTheme,
 } from '../core/export/index.js'
 import { coreTranslator } from '../core/i18n/index.js'
+import {
+  CLI_EXIT_CODES,
+  CliCancellationError,
+  CliUsageError,
+  type CliUsageErrorCode,
+  type DoctorResult,
+  isCancellationError,
+  parseCliCommand,
+  runDoctor,
+} from './command.js'
 import { resolveCliExportFormats } from './export-formats.js'
 
-interface CliOptions {
-  format: string
-  output: string
-  viewport: string
-  useSession: boolean
-  darkMode: boolean
-  quiet: boolean
-  jsonStdout: boolean
-  maxPages: number
-  pageDiscovery: 'auto' | 'links' | 'sitemap'
-}
-
-const cliT = coreTranslator('en', 'cli.errors')
-const valueOptions = new Set(['--format', '--output', '--viewport', '--pages', '--discovery'])
-const switchOptions = new Set(['--no-session', '--dark-mode', '--quiet', '--json-stdout'])
-
-function validateOptions(args: string[]): void {
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]
-    if (valueOptions.has(argument)) {
-      if (!args[index + 1] || args[index + 1].startsWith('-')) {
-        throw new Error(cliT('missingOptionValue', { option: argument }))
-      }
-      index += 1
-      continue
-    }
-    if (switchOptions.has(argument) || argument.startsWith('http')) continue
-    if (argument.startsWith('-')) throw new Error(cliT('unknownOption', { option: argument }))
-  }
-}
-
-function parseArgs(args: string[]): { url: string; options: CliOptions } {
-  const url = args.find((a) => a.startsWith('http')) || args[0] || ''
-  const options: CliOptions = {
-    format: getFlag(args, '--format') || 'all',
-    output: getFlag(args, '--output') || '.',
-    viewport: getFlag(args, '--viewport') || 'desktop',
-    useSession: !args.includes('--no-session'),
-    darkMode: args.includes('--dark-mode'),
-    quiet: args.includes('--quiet'),
-    jsonStdout: args.includes('--json-stdout'),
-    maxPages: Number.parseInt(getFlag(args, '--pages') || '3', 10),
-    pageDiscovery: (getFlag(args, '--discovery') || 'auto') as CliOptions['pageDiscovery'],
-  }
-  return { url, options }
-}
-
-function getFlag(args: string[], flag: string): string | undefined {
-  const idx = args.indexOf(flag)
-  if (idx === -1 || idx + 1 >= args.length) return undefined
-  return args[idx + 1]
-}
+const cliT = coreTranslator('en', 'cli')
 
 function log(msg: string, quiet: boolean) {
   if (!quiet) process.stderr.write(`${msg}\n`)
 }
 
-async function main() {
-  const args = process.argv.slice(2)
+function printDoctor(result: DoctorResult): void {
+  process.stdout.write(`${cliT('doctor.heading')}\n`)
+  for (const check of result.checks) {
+    const status = cliT(check.ok ? 'doctor.pass' : 'doctor.fail')
+    const label = cliT(`doctor.checks.${check.id}`)
+    const detail = check.actual || check.reason || cliT('doctor.unavailable')
+    process.stdout.write(`${status} ${label}: ${detail}\n`)
+  }
+  process.stdout.write(`${cliT(result.ok ? 'doctor.ready' : 'doctor.notReady')}\n`)
+}
 
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+async function main(): Promise<number> {
+  const command = parseCliCommand(process.argv.slice(2))
+
+  if (command.kind === 'help') {
     printUsage()
-    process.exit(0)
+    return CLI_EXIT_CODES.success
   }
 
-  if (args[0] === 'extract') {
-    args.shift()
+  if (command.kind === 'doctor') {
+    const result = await runDoctor(command.browserPath)
+    if (command.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    else printDoctor(result)
+    return result.ok ? CLI_EXIT_CODES.success : CLI_EXIT_CODES.environment
   }
 
-  validateOptions(args)
-  const { url, options } = parseArgs(args)
-
-  if (!url || !url.startsWith('http')) {
-    process.stderr.write('Error: Please provide a valid URL (starting with http/https)\n')
-    process.exit(1)
-  }
-  if (!Number.isFinite(options.maxPages) || options.maxPages < 1 || options.maxPages > 5) {
-    throw new Error('--pages must be an integer from 1 to 5')
-  }
-  if (!['auto', 'links', 'sitemap'].includes(options.pageDiscovery)) {
-    throw new Error('--discovery must be auto, links, or sitemap')
-  }
+  const { url, options } = command
   const dataDir = getDefaultDataDir()
+  const analysisController = new AbortController()
+  let cancellationDeadline: ReturnType<typeof setTimeout> | undefined
+  const cancelAnalysis = () => {
+    process.exitCode = CLI_EXIT_CODES.cancelled
+    process.stderr.write(`${cliT('errors.prefix')}: ${cliT('errors.cancelled')}\n`)
+    cancellationDeadline = setTimeout(() => {}, 10_000)
+    analysisController.abort(new CliCancellationError())
+  }
+  process.once('SIGINT', cancelAnalysis)
 
-  const viewports = options.viewport === 'all' ? ['desktop', 'tablet', 'mobile'] : [options.viewport]
+  log(`\n  Imprint — Analyzing ${sanitizeUrlForPersistence(url)}\n`, options.quiet)
 
-  log(`\n  Imprint — Analyzing ${url}\n`, options.quiet)
-
-  const result = await analyze(
-    url,
-    {
-      viewports,
-      useSession: options.useSession,
-      extractDarkMode: options.darkMode,
-      maxPages: options.maxPages,
-      pageDiscovery: options.pageDiscovery,
-      dataDir,
-    },
-    (step, percent) => {
-      log(`  [${percent}%] ${step}`, options.quiet)
-    },
-  )
+  let result: Awaited<ReturnType<typeof analyze>>
+  try {
+    result = await analyze(
+      url,
+      {
+        viewports: options.viewports,
+        useSession: options.useSession,
+        extractDarkMode: options.darkMode,
+        maxPages: options.maxPages,
+        pageDiscovery: options.pageDiscovery,
+        browserPath: options.browserPath,
+        dataDir,
+        signal: analysisController.signal,
+      },
+      (step, percent) => {
+        log(`  [${percent}%] ${step}`, options.quiet)
+      },
+    )
+  } finally {
+    process.removeListener('SIGINT', cancelAnalysis)
+    if (cancellationDeadline) clearTimeout(cancellationDeadline)
+  }
   const darkModeExport = buildDarkModeExportData(result.darkMode)
 
   const designContext = createDeterministicDesignContext(result.designEvidence, result.tokens, 'en')
@@ -170,7 +147,7 @@ async function main() {
         2,
       ),
     )
-    process.exit(0)
+    return CLI_EXIT_CODES.success
   }
 
   // Determine output directory
@@ -256,6 +233,7 @@ async function main() {
     `  Timing: total=${finalTiming.totalMs}ms browser=${finalTiming.browserMs || 0}ms preparation=${finalTiming.preparationMs || 0}ms health=${finalTiming.healthGateMs || 0}ms extraction=${finalTiming.extractionMs || 0}ms images=${finalTiming.imageCount}`,
     options.quiet,
   )
+  return CLI_EXIT_CODES.success
 }
 
 function printUsage() {
@@ -264,6 +242,7 @@ function printUsage() {
 
   Usage:
     imprint extract <url> [options]
+    ${cliT('usage.doctor')}
 
   Options:
     --format <type>     Output: design.md | reconstruction | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
@@ -272,6 +251,7 @@ function printUsage() {
     --dark-mode         Also extract dark mode theme
     --pages <count>     Analyze 1–5 pages (default: 3)
     --discovery <mode>  Page discovery: auto | links | sitemap (default: auto)
+    ${cliT('usage.browserPath')}
     --no-session        Don't reuse Imprint's saved browser session
     --json-stdout       Output token JSON to stdout (pipe-friendly)
     --quiet             Suppress progress output
@@ -285,7 +265,40 @@ function printUsage() {
 `)
 }
 
-main().catch((err) => {
-  process.stderr.write(`Error: ${err.message}\n`)
-  process.exit(1)
-})
+const usageErrorKeys: Record<CliUsageErrorCode, string> = {
+  'invalid-url': 'errors.invalidUrl',
+  'invalid-viewports': 'errors.invalidViewport',
+  'invalid-page-count': 'errors.invalidPageCount',
+  'invalid-auth-mode': 'errors.invalidAuthMode',
+  'invalid-dark-mode': 'errors.invalidDarkMode',
+  'invalid-depth': 'errors.invalidDepth',
+  'invalid-page-discovery': 'errors.invalidPageDiscovery',
+  'missing-option-value': 'errors.missingOptionValue',
+  'unknown-option': 'errors.unknownOption',
+  'unexpected-argument': 'errors.unexpectedArgument',
+}
+
+main()
+  .then((exitCode) => {
+    process.exitCode = exitCode
+  })
+  .catch((error: unknown) => {
+    let exitCode: number = CLI_EXIT_CODES.runtime
+    let message: string
+    if (error instanceof CliUsageError) {
+      exitCode = CLI_EXIT_CODES.usage
+      message = cliT(usageErrorKeys[error.code], { option: error.detail, value: error.detail })
+    } else if (error instanceof BrowserExecutableError) {
+      exitCode = CLI_EXIT_CODES.environment
+      message = cliT(error.code === 'browser-not-found' ? 'errors.browserNotFound' : 'errors.invalidBrowserPath', {
+        path: error.browserPath,
+      })
+    } else if (isCancellationError(error)) {
+      exitCode = CLI_EXIT_CODES.cancelled
+      message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
+    } else {
+      message = cliT('errors.runtime', { message: error instanceof Error ? error.message : String(error) })
+    }
+    if (message) process.stderr.write(`${cliT('errors.prefix')}: ${message}\n`)
+    process.exitCode = exitCode
+  })

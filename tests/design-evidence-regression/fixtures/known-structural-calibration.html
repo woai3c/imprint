@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Known structural calibration</title>
+    <script>
+      if (new URLSearchParams(location.search).get('variant') === 'changed') {
+        document.documentElement.dataset.variant = 'changed'
+      }
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f3f5f8;
+        color: #18202c;
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      main {
+        width: calc(100% - 64px);
+        max-width: 960px;
+        margin: 48px auto;
+      }
+      .hero,
+      .features {
+        padding: 24px;
+        border: 1px solid #cdd5df;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .hero {
+        margin-bottom: 24px;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      .action {
+        margin-top: 24px;
+        padding: 12px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: #2457d6;
+        color: #ffffff;
+        font: inherit;
+        transition: transform 150ms ease;
+      }
+      .action:hover {
+        transform: translateY(-2px);
+      }
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .feature {
+        min-height: 96px;
+        padding: 16px;
+        border: 1px solid #dce2ea;
+      }
+      :root[data-variant='changed'] main {
+        max-width: 840px;
+      }
+      :root[data-variant='changed'] .features {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      :root[data-variant='changed'] .action:hover {
+        transform: translateY(-6px);
+      }
+      @media (max-width: 600px) {
+        main {
+          width: calc(100% - 32px);
+          margin: 24px auto;
+        }
+        .features,
+        :root[data-variant='changed'] .features {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Structural calibration surface</h1>
+        <p>Layout, responsive behavior, and an observed interaction value change independently of design tokens.</p>
+        <button class="action" type="button">Inspect state</button>
+      </section>
+      <section class="features" aria-label="Evidence features">
+        <article class="feature"><h2>Capture</h2></article>
+        <article class="feature"><h2>Compare</h2></article>
+        <article class="feature"><h2>Review</h2></article>
+      </section>
+    </main>
+  </body>
+</html>

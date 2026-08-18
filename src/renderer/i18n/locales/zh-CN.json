@@ -33,6 +33,7 @@
     "importFailed": "无法导入：请选择 Imprint 导出的主题 Tokens JSON 文件",
     "dataCleared": "主题与分析记录已清除",
     "historyDeleted": "历史记录已删除",
+    "comparisonReviewApproved": "比较审阅已批准并记录",
     "actionFailed": "操作失败，请重试"
   },
   "analyze": {
@@ -862,8 +863,8 @@
   },
   "history": {
     "title": "分析历史",
-    "description": "打开完整分析结果，可再次导出或保存为网站主题",
-    "search": "搜索 URL...",
+    "description": "打开历史结果，并比较同一网站在不同时间的可追溯变化",
+    "search": "搜索网站名称或 URL...",
     "duration": "{{seconds}}s",
     "durationMin": "{{minutes}} 分钟",
     "pageCount": "{{count}} 个页面",
@@ -886,7 +887,137 @@
     "nextPage": "下一页",
     "confirmDeleteSelected": "确定删除选中的 {{count}} 条历史记录吗？此操作不可撤销。",
     "noResults": "暂无分析记录",
-    "noResultsTip": "前往「分析」页面开始提取设计风格"
+    "noResultsTip": "前往「分析」页面开始提取设计风格",
+    "compareCaptures": "比较两次分析",
+    "comparisonPicker": {
+      "title": "比较两次分析",
+      "description": "明确选择修改前后的两次分析记录。一次记录可能包含多个页面和屏幕尺寸。",
+      "loading": "正在读取可比较记录...",
+      "loadFailed": "无法读取分析记录，请关闭后重试。",
+      "emptyTitle": "没有可组成前后关系的分析记录",
+      "emptyDescription": "请先分析同一网站的同一路由至少两次。只有时间更晚的同路由记录才能作为后期记录。",
+      "comparabilityNote": "这里只提供同一路由且时间更晚的记录。两次分析仍应使用相同页面数量、屏幕尺寸、访问方式和捕获设置；不一致时结果会说明为什么无法比较。连续分析未变化的页面只能验证捕获稳定性，不能验证变化检出。",
+      "earlierLabel": "较早记录",
+      "laterLabel": "较晚记录",
+      "captureMeta": "{{count}} 个页面 · {{viewports}}",
+      "compare": "开始比较"
+    },
+    "referenceComparison": {
+      "title": "分析比较",
+      "factOnly": "这里只报告两次捕获中能够可靠比较的已观察变化，变化不自动等同于缺陷。",
+      "reference": "较早记录",
+      "target": "较晚记录",
+      "from": "较早值",
+      "to": "较晚值",
+      "referenceEvidence": "较早记录证据",
+      "targetEvidence": "较晚记录证据",
+      "limitedTitle": "可比性有限",
+      "limitedDescription": "两次捕获通过了 Imprint 当前支持的可比性检查，但这不是像素验收或规范合规结论。",
+      "inconclusiveTitle": "无法给出比较结论",
+      "differencesTitle": "已记录的条件差异",
+      "observationOnly": "这是捕获证据的事实比较，不会作为 token 规则写入 Design Contract。",
+      "status": {
+        "changed": "发现变化",
+        "unchanged": "未发现支持范围内的变化",
+        "inconclusive": "证据不足"
+      },
+      "categoryStatus": {
+        "changed": "{{count}} 项变化",
+        "unchanged": "未发现变化",
+        "unchangedPartial": "可比部分未发现变化",
+        "inconclusive": "证据不足",
+        "not-supported": "暂不支持"
+      },
+      "categoryCoverage": {
+        "partial": "有限覆盖",
+        "none": "没有可比证据"
+      },
+      "categoryScope": {
+        "title": "类别比较范围",
+        "categoryLabel": "{{category}}：",
+        "separator": "；",
+        "limitations": {
+          "section-level-properties-only": "仅比较成功配对区块的顺序、布局模式、显示/定位、最大宽度和网格列数；间距由独立类别报告",
+          "unresolved-entities-excluded": "无法可靠一一对应的相似元素已自动排除，避免误报变化",
+          "medium-confidence-entity-matches": "部分区块仅达到中置信身份配对",
+          "observed-interaction-styles-only": "仅比较实际观察到且能按页面、触发方式和属性对应的交互样式组",
+          "interaction-observations-unpaired": "至少一组交互证据或覆盖条件无法对应",
+          "matched-responsive-observations-only": "仅比较相同视口组合中成功配对区块的已观察响应式行为",
+          "responsive-observations-unpaired": "至少一条响应式观察或区块身份无法对应",
+          "single-viewport": "至少一次分析只有一个视口，无法比较响应式行为"
+        }
+      },
+      "categories": {
+        "colors": "颜色",
+        "typography": "排版",
+        "spacing": "间距",
+        "radii": "圆角",
+        "layout": "布局",
+        "interaction-states": "交互状态",
+        "responsive": "响应式行为"
+      },
+      "changeKind": {
+        "added": "新增",
+        "removed": "移除",
+        "changed": "修改"
+      },
+      "review": {
+        "decisionTitle": "治理决定",
+        "approveTarget": "批准后续值",
+        "ignore": "不纳入契约",
+        "progress": "已审阅 {{decided}} / {{total}} 项变化",
+        "contractScope": "只有明确批准且当前支持的 token 规则会进入这份部分 Design Contract。",
+        "approve": "批准 {{count}} 条规则",
+        "approving": "正在批准...",
+        "approvedTitle": "比较审阅已批准",
+        "approvedDescription": "Design Contract v{{version}} 记录了 {{count}} 条明确批准且当前支持的 token 规则。",
+        "versionHistory": "该路由已保留 {{count}} 个不可变契约版本。",
+        "revise": "修订决定",
+        "errors": {
+          "analysis-not-found": "这条历史记录已不存在。",
+          "same-analysis": "不能使用同一条记录的两侧进行审阅。",
+          "analysis-order-invalid": "两条记录的时间顺序无效，请重新选择。",
+          "invalid-analysis-data": "其中一条历史捕获无法被安全读取。",
+          "comparison-not-changed": "只有结论明确且发现变化的比较才能批准。",
+          "comparison-inconclusive": "证据不足的比较不能批准。",
+          "route-mismatch": "两次捕获已不再指向同一路由。",
+          "invalid-decision": "至少一项审阅决定无效。",
+          "duplicate-decision": "同一项变化被重复审阅。",
+          "unknown-change": "提交前比较内容已经发生变化。",
+          "stale-comparison": "比较内容或观察值已经变化，请重新打开比较后再批准。",
+          "missing-decision": "批准前必须审阅每一项受支持的变化。",
+          "no-approved-changes": "至少批准一条目标规则后才能建立 Design Contract 版本。"
+        }
+      },
+      "reasons": {
+        "missing-evidence": "其中一次捕获不包含设计证据。",
+        "missing-capture-manifest": "其中一次捕获不包含捕获清单。",
+        "schema-mismatch": "两次捕获使用了不同的证据结构版本。",
+        "capture-manifest-schema-mismatch": "两次捕获使用了不同的捕获清单结构版本。",
+        "capture-settings-mismatch": "两次请求的捕获设置不一致。",
+        "capture-environment-mismatch": "两次捕获中有会影响 token 提取的环境设置不一致。",
+        "stabilization-mismatch": "两次捕获使用了不同的稳定化策略。",
+        "route-mismatch": "两次捕获的入口路由不一致。",
+        "page-set-mismatch": "两次捕获的页面或视口集合不一致。",
+        "access-mode-mismatch": "两次捕获使用了不同的访客或登录访问模式。",
+        "language-mismatch": "两次捕获使用了不同的页面语言。",
+        "incomplete-coverage": "至少一次捕获的页面或视口覆盖不完整。",
+        "missing-page-health": "至少一个捕获页面缺少健康检查结果。",
+        "unhealthy-page": "至少一个捕获页面不具备比较证据资格。"
+      },
+      "limitations": {
+        "browser-environment-differs": "浏览器产品、版本、运行模式、操作系统或架构不一致。",
+        "tool-version-differs": "两次捕获由不同版本的 Imprint 生成。",
+        "exact-observed-values-only": "当前精确比较受支持的 token 值和结构化观察，尚未校准感知容差。",
+        "entry-and-captured-page-set-only": "可比性仅覆盖已记录的入口路由、页面集合和视口。"
+      },
+      "errors": {
+        "analysis-not-found": "这条历史记录已不存在。",
+        "same-analysis": "请选择两条不同的分析记录。",
+        "analysis-order-invalid": "较晚记录必须晚于较早记录。",
+        "invalid-analysis-data": "其中一条历史捕获无法被安全读取。"
+      }
+    }
   },
   "settings": {
     "title": "设置",

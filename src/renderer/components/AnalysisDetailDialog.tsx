@@ -10,15 +10,17 @@ import { ResultOverview } from './analyze/ResultOverview'
 
 interface AnalysisDetailDialogProps {
   analysisId: string
+  initialEvidenceId?: string
   onClose: (changed: boolean) => void
 }
 
-export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDialogProps) {
+export function AnalysisDetailDialog({ analysisId, initialEvidenceId, onClose }: AnalysisDetailDialogProps) {
   const { t } = useTranslation()
   const [result, setResult] = useState<AnalysisResultData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const summaryChanged = useRef(false)
+  const initialEvidenceOpened = useRef(false)
   const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
   const closeDialog = useCallback(() => onClose(summaryChanged.current), [onClose])
 
@@ -65,6 +67,12 @@ export function AnalysisDetailDialog({ analysisId, onClose }: AnalysisDetailDial
       .catch(() => setError(true))
       .finally(() => setLoading(false))
   }, [analysisId])
+
+  useEffect(() => {
+    if (!result || !initialEvidenceId || initialEvidenceOpened.current) return
+    initialEvidenceOpened.current = true
+    evidenceViewer.openEvidence(initialEvidenceId)
+  }, [evidenceViewer, initialEvidenceId, result])
 
   return (
     <div

@@ -111,15 +111,26 @@ the completed artifacts through files or MCP, but they never participate in extr
 
 ```bash
 pnpm build:cli
+imprint doctor
+imprint doctor --browser-path "/path/to/chrome" --json
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --format profile
 imprint extract https://example.com --format reconstruction
 ```
 
+`imprint doctor` verifies Node.js, the operating system, browser executable access, and an actual headless launch without
+navigating to a website. `--browser-path` selects an explicit Chrome, Edge, or Chromium executable for both diagnostics
+and extraction; an invalid explicit path fails instead of silently falling back. The CLI uses stable exit codes: `0`
+success, `2` invalid command/options, `3` missing or unusable runtime dependency, `4` capture/export failure, and `130`
+SIGINT cancellation. Doctor reports schema `1` JSON with `--json`; it diagnoses the environment but does not install a
+browser.
+
 The MCP server exposes deterministic `imprint_extract` and `imprint_compare` tools. It requires no provider credentials.
 `imprint_compare` accepts either two URLs or two previously exported Design Profiles and supports token or deterministic
-language-depth comparison.
+language-depth comparison. Its stdio transport writes one newline-delimited JSON-RPC message per stdout line, keeps logs
+on stderr, and supports legacy lifecycle negotiation through protocol version `2025-11-25`. The compiled server is
+covered by an official `@modelcontextprotocol/sdk` client contract test.
 
 ## Download
 

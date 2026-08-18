@@ -215,6 +215,65 @@ runs out, the tab strip scrolls horizontally instead.
   reduced-motion checks independently, including capture, rule-construction, or rendering failure layers; never collapse
   them into a single opaque quality score.
 
+## Analysis comparison and attributed governance
+
+- Analysis History exposes one visible **Compare two analyses** page action. Its picker names and previews both records,
+  defaults to the two latest eligible records, and offers only later records for the same normalized route. Users may
+  choose any earlier and later pair for that route; comparison does not create or mutate a pinned reference. Repeated
+  row-level comparison buttons and per-record reference actions are avoided.
+- The comparison checks the recorded page and viewport set, access mode, language, coverage, and page-health eligibility
+  before reporting supported token changes. Missing or incompatible evidence produces `inconclusive`, never “no
+  change.” The requested page count is an upper bound: coverage is complete when every page selected from successful
+  discovery and every planned viewport capture succeeds, even if the site exposes fewer pages than the limit. A selected
+  page or planned viewport that fails remains incomplete. Selecting two records does not approve either record as a
+  design standard.
+- Each new analysis stores a versioned Capture Manifest with requested viewports and page limits, access mode, locale,
+  timezone, color scheme, reduced-motion preference, the runtime browser identity, each captured viewport's effective
+  DPR/user agent/emulation profile, browser and tool versions, actual animation-freeze coverage, font readiness,
+  page-health coverage, and explicit limitations. Missing legacy manifests or differences in conditions that can affect
+  token extraction produce `inconclusive`; browser, platform, or tool-version differences remain visible
+  limitations for the currently exact token comparison.
+- Before browser work begins, every entry point must normalize its inputs through versioned Analysis Request schema
+  `1`: an HTTP(S) URL, an ordered deduplicated subset of desktop/tablet/mobile viewports, an integer page count from 1
+  to 5, access mode, dark-mode extraction choice, depth, and page-discovery mode. Entry points may declare different
+  defaults, but they must pass the resulting explicit request to the same core analyzer. Invalid values are rejected
+  instead of silently falling back to another viewport or page count. The request schema version is recorded in the
+  Capture Manifest; a recorded-version mismatch, including a new capture compared with a legacy capture that lacks
+  the field, makes the comparison inconclusive.
+- Even when manifest checks pass, label the comparison as limited because tolerances and cross-capture entity matching
+  are not yet calibrated. Do not present it as pixel fidelity, compliance, or a universal drift verdict.
+- Comparison cards group color, typography, spacing, radius, layout, interaction-state, and responsive results. Token
+  categories compare their stored scales. Layout comparison is limited to matched sections and the observed order,
+  layout mode, display/position, maximum width, and grid-column count; gap remains owned by the spacing category so a
+  spacing-token change does not inflate the layout category. Interaction comparison is limited to
+  observed style groups that align by page, trigger, and changed-property set. Responsive comparison is limited to
+  matched sections observed across the same viewport pair. Each reported change links to evidence on both captures.
+  Unresolved identities and unaligned observations are excluded and produce explicit limited coverage; when reliable
+  pairs remain, the category may say only that its comparable evidence has no observed change. Category-level
+  `inconclusive` is reserved for cases with no comparable evidence, such as a responsive comparison with only one
+  viewport. Neither result claims that excluded or unobserved behavior is unchanged.
+- Cross-capture entity identity is a separate experimental result, not another drift category. Sections match only
+  through a unique exact semantic signature (role, layout mode, parent role, component semantics) or, at medium
+  confidence, when the same section role is unique on both captures. Components match only by a unique type,
+  element-kind, and role signature inside an already matched section. Repeated candidates remain `ambiguous` and a
+  missing counterpart remains `unmatched`; neither status is automatically reported as a design change. Do not pair
+  repeated sections or components by DOM order, evidence ID, or an uncalibrated similarity threshold.
+- Entity matching remains internal comparison machinery rather than a user task. The normal report does not expose
+  aggregate match counts, raw evidence IDs, or ambiguous candidate groups. When unresolved identities limit a category,
+  its scope states in plain language that similar elements were excluded to prevent false change reports. Evidence links
+  remain visible on actual reported changes, where they provide a concrete action instead of debugging noise.
+- “Changed” is a factual observation, not a defect. For a conclusive changed comparison, the user may explicitly mark
+  every supported token change as either **Approve later value** or **Exclude from contract**. Approval requires a
+  decision for every reported change and at least one approved target rule; the main process recomputes the comparison
+  and rejects missing, duplicate, unknown, stale, or inconclusive decisions instead of trusting renderer input.
+- Layout, interaction-state, and responsive changes are observation-only and cannot be approved into a token contract.
+  An approved review creates an immutable, versioned partial Design Contract containing only the explicitly approved
+  color, typography, spacing, and radius rules plus their two-sided evidence references and comparison limitations.
+  Excluded changes remain in the immutable review snapshot and audit event but do not enter the contract. Revising a
+  review appends a new contract version and retains earlier versions. This does not approve observed layout,
+  interaction, responsive, page-content, or pixel behavior, so the whole capture is still not called an Approved Baseline
+  and no compliance verdict is implied.
+
 ## Authenticated analysis
 
 - Start URL analysis in an isolated visitor context. Do not read or copy the user's everyday Chrome profile.
@@ -241,6 +300,18 @@ runs out, the tab strip scrolls horizontally instead.
 - Never log cookies, credentials, or storage values. Authentication state stays local and is not part of exported
   design artifacts.
 
+## URL privacy boundaries
+
+- The complete submitted URL is used only while navigating and may remain in the active input for retry. Desktop result
+  views, recovery state, history rows, Theme Library snapshots, generated artifacts, Design Evidence, token provenance,
+  and logs remove URL userinfo, the full query string, and fragments before storage or display.
+- Database startup migration applies the same redaction to legacy analysis and theme URLs, nested evidence and token
+  provenance URLs, screenshot metadata, and generated documents. Logger startup redacts URLs in the current and rotated
+  local logs. These migrations intentionally do not retain the removed values.
+- Route paths remain because they identify the analyzed page and may still contain sensitive business or personal data.
+  Automatic path classification cannot guarantee safe sharing; users must review paths and captured screenshot content
+  before exporting or sharing. Imprint does not claim that URL redaction masks sensitive content rendered inside a page.
+
 ## Multi-page analysis evidence
 
 - Place a compact, clearly labeled Pages to analyze control below the URL-and-action row. Let its help text use the full
@@ -254,7 +325,11 @@ runs out, the tab strip scrolls horizontally instead.
   asset URLs, and favors a diverse set of product, pricing, documentation, company, support, and content pages instead
   of filling the run with several near-identical routes. Links inside the primary content or top navigation outrank
   footer-only contact and support routes; low-representativeness utility routes are skipped rather than used to fill a
-  page quota.
+  page quota. For a non-root entry URL, discovered descendant routes keep the entered path's context; when at least one
+  usable descendant exists, automatic selection stays within that context instead of mixing in unrelated global routes.
+  When no such descendant exists, normal same-origin diversity scoring remains the fallback. If a selected route fails
+  navigation or the page-health gate, analysis may try at most two additional ranked candidates while the overall
+  analysis budget allows; fallback candidates never increase the requested page count.
 - The entry page remains authoritative for canvas, surface, and foreground roles. Additional pages may strengthen or
   add action colors, components, breakpoints, motion, and other tokens. Token JSON and DTCG exports carry deterministic
   per-token confidence, observation counts, source pages, and provenance; repeated viewports are captures, not distinct

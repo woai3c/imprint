@@ -33,6 +33,7 @@
     "importFailed": "Import failed: choose a theme Tokens JSON file exported by Imprint",
     "dataCleared": "Themes and analysis history cleared",
     "historyDeleted": "History record deleted",
+    "comparisonReviewApproved": "Comparison review approved and recorded",
     "actionFailed": "Action failed. Please try again."
   },
   "analyze": {
@@ -906,8 +907,8 @@
   },
   "history": {
     "title": "Analysis History",
-    "description": "Reopen a complete result to export it again or save it as a website theme",
-    "search": "Search URL...",
+    "description": "Reopen results and compare attributed changes for the same website over time",
+    "search": "Search website name or URL...",
     "duration": "{{seconds}}s",
     "durationMin": "{{minutes}} min",
     "pageCount": "{{count}} pages",
@@ -932,7 +933,142 @@
     "confirmDeleteSelected_one": "Delete the selected history record? This cannot be undone.",
     "confirmDeleteSelected_other": "Delete the {{count}} selected history records? This cannot be undone.",
     "noResults": "No analysis records yet",
-    "noResultsTip": "Go to the Analyze page to start extracting design styles"
+    "noResultsTip": "Go to the Analyze page to start extracting design styles",
+    "compareCaptures": "Compare two analyses",
+    "comparisonPicker": {
+      "title": "Compare two analyses",
+      "description": "Choose the analyses from before and after a change. One analysis may contain multiple pages and screen sizes.",
+      "loading": "Loading comparable analyses...",
+      "loadFailed": "Analysis records could not be loaded. Close this dialog and try again.",
+      "emptyTitle": "No before-and-after pair is available",
+      "emptyDescription": "Analyze the same website route at least twice. Only a later record for that route can be selected as the later analysis.",
+      "comparabilityNote": "Only later records for the same route are offered here. Both analyses should still use the same page count, screen sizes, access mode, and capture settings; otherwise the result explains why no comparison verdict is possible. Repeating an unchanged page checks capture stability, not change detection.",
+      "earlierLabel": "Earlier analysis",
+      "laterLabel": "Later analysis",
+      "captureMeta_one": "{{count}} page · {{viewports}}",
+      "captureMeta_other": "{{count}} pages · {{viewports}}",
+      "compare": "Start comparison"
+    },
+    "referenceComparison": {
+      "title": "Analysis comparison",
+      "factOnly": "Reports observed changes only where the two captures can be compared reliably. A change is not automatically a defect.",
+      "reference": "Earlier analysis",
+      "target": "Later analysis",
+      "from": "Earlier value",
+      "to": "Later value",
+      "referenceEvidence": "Earlier evidence",
+      "targetEvidence": "Later evidence",
+      "limitedTitle": "Limited comparability",
+      "limitedDescription": "The stored captures match on the checks Imprint currently supports, but this is not a pixel or compliance verdict.",
+      "inconclusiveTitle": "No comparison verdict",
+      "differencesTitle": "Recorded condition differences",
+      "observationOnly": "This is a factual comparison of captured evidence and is not written to the Design Contract as a token rule.",
+      "status": {
+        "changed": "Changed",
+        "unchanged": "No supported changes",
+        "inconclusive": "Inconclusive"
+      },
+      "categoryStatus": {
+        "changed_one": "{{count}} change",
+        "changed_other": "{{count}} changes",
+        "unchanged": "No supported changes",
+        "unchangedPartial": "No changes in comparable evidence",
+        "inconclusive": "Insufficient evidence",
+        "not-supported": "Not supported"
+      },
+      "categoryCoverage": {
+        "partial": "Limited coverage",
+        "none": "No comparable evidence"
+      },
+      "categoryScope": {
+        "title": "Category comparison scope",
+        "categoryLabel": "{{category}}: ",
+        "separator": "; ",
+        "limitations": {
+          "section-level-properties-only": "Compares only the order, layout mode, display/position, maximum width, and grid column count of matched sections; spacing is reported separately",
+          "unresolved-entities-excluded": "Similar elements that cannot be paired reliably are excluded to prevent false change reports",
+          "medium-confidence-entity-matches": "Some sections have only medium-confidence identity matches",
+          "observed-interaction-styles-only": "Compares only observed interaction-style groups aligned by page, trigger, and property set",
+          "interaction-observations-unpaired": "At least one interaction observation or coverage condition could not be aligned",
+          "matched-responsive-observations-only": "Compares only observed responsive behavior for matched sections across the same viewport pair",
+          "responsive-observations-unpaired": "At least one responsive observation or section identity could not be aligned",
+          "single-viewport": "At least one analysis has only one viewport, so responsive behavior cannot be compared"
+        }
+      },
+      "categories": {
+        "colors": "Colors",
+        "typography": "Typography",
+        "spacing": "Spacing",
+        "radii": "Border radius",
+        "layout": "Layout",
+        "interaction-states": "Interaction states",
+        "responsive": "Responsive behavior"
+      },
+      "changeKind": {
+        "added": "Added",
+        "removed": "Removed",
+        "changed": "Changed"
+      },
+      "review": {
+        "decisionTitle": "Governance decision",
+        "approveTarget": "Approve later value",
+        "ignore": "Exclude from contract",
+        "progress": "{{decided}} of {{total}} changes reviewed",
+        "contractScope": "Only approved supported token rules enter this partial Design Contract.",
+        "approve_one": "Approve {{count}} rule",
+        "approve_other": "Approve {{count}} rules",
+        "approving": "Approving...",
+        "approvedTitle": "Approved comparison review",
+        "approvedDescription_one": "Design Contract v{{version}} records {{count}} approved supported token rule.",
+        "approvedDescription_other": "Design Contract v{{version}} records {{count}} approved supported token rules.",
+        "versionHistory_one": "{{count}} immutable contract version is retained for this route.",
+        "versionHistory_other": "{{count}} immutable contract versions are retained for this route.",
+        "revise": "Revise decisions",
+        "errors": {
+          "analysis-not-found": "This history record no longer exists.",
+          "same-analysis": "The same analysis cannot be reviewed on both sides.",
+          "analysis-order-invalid": "The selected analyses are not in a valid time order.",
+          "invalid-analysis-data": "One of the stored captures cannot be read safely.",
+          "comparison-not-changed": "Only a conclusive changed comparison can be approved.",
+          "comparison-inconclusive": "An inconclusive comparison cannot be approved.",
+          "route-mismatch": "The captures no longer identify the same route.",
+          "invalid-decision": "At least one review decision is invalid.",
+          "duplicate-decision": "A change was reviewed more than once.",
+          "unknown-change": "The comparison changed before this review was submitted.",
+          "stale-comparison": "The comparison or observed values changed. Reopen it before approving.",
+          "missing-decision": "Review every supported change before approving.",
+          "no-approved-changes": "Approve at least one target rule to create a Design Contract version."
+        }
+      },
+      "reasons": {
+        "missing-evidence": "One capture does not contain Design Evidence.",
+        "missing-capture-manifest": "One capture does not contain a Capture Manifest.",
+        "schema-mismatch": "The captures use different evidence schema versions.",
+        "capture-manifest-schema-mismatch": "The captures use different Capture Manifest schema versions.",
+        "capture-settings-mismatch": "The requested capture settings differ.",
+        "capture-environment-mismatch": "A capture environment setting that can affect extracted tokens differs.",
+        "stabilization-mismatch": "The captures used different stabilization strategies.",
+        "route-mismatch": "The entry routes do not match.",
+        "page-set-mismatch": "The captured page and viewport sets do not match.",
+        "access-mode-mismatch": "The captures used different visitor or signed-in access modes.",
+        "language-mismatch": "The captures used different page languages.",
+        "incomplete-coverage": "At least one capture has incomplete page or viewport coverage.",
+        "missing-page-health": "At least one captured page has no health result.",
+        "unhealthy-page": "At least one captured page is not eligible as comparison evidence."
+      },
+      "limitations": {
+        "browser-environment-differs": "The browser product, version, execution mode, operating system, or architecture differs.",
+        "tool-version-differs": "The captures were produced by different Imprint versions.",
+        "exact-observed-values-only": "Supported token values and structured observations are compared exactly; perceptual tolerances are not yet calibrated.",
+        "entry-and-captured-page-set-only": "Comparability is limited to the recorded entry route, page set, and viewports."
+      },
+      "errors": {
+        "analysis-not-found": "This history record no longer exists.",
+        "same-analysis": "Choose two different analysis records.",
+        "analysis-order-invalid": "The later analysis must be newer than the earlier analysis.",
+        "invalid-analysis-data": "One of the stored captures cannot be read safely."
+      }
+    }
   },
   "settings": {
     "title": "Settings",

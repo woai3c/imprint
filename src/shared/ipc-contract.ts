@@ -1,12 +1,43 @@
+import type { AnalysisDepth, AnalysisViewport } from '../core/analyzer/analysis-request.js'
 import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
-import type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
+import type { ReferenceComparisonResult } from '../core/analyzer/reference-compare.js'
+import type {
+  AnalysisTiming,
+  AuthMode,
+  CaptureManifest,
+  ExtractionIssue,
+  LoginDecision,
+  PageCoverage,
+} from '../core/analyzer/types.js'
 import type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
+import type {
+  ApprovedComparisonReview,
+  ApprovedDesignContract,
+  ComparisonReviewDecisionInput,
+  ComparisonReviewValidationError,
+} from '../core/governance/design-contract.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
-export type { AnalysisTiming, AuthMode, ExtractionIssue, LoginDecision, PageCoverage } from '../core/analyzer/types.js'
+export type { AnalysisDepth, AnalysisRequest, AnalysisViewport } from '../core/analyzer/analysis-request.js'
+export type {
+  AnalysisTiming,
+  AuthMode,
+  CaptureManifest,
+  ExtractionIssue,
+  LoginDecision,
+  PageCoverage,
+} from '../core/analyzer/types.js'
 export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
+export type { ReferenceComparisonResult } from '../core/analyzer/reference-compare.js'
+export type {
+  ApprovedComparisonReview,
+  ApprovedDesignContract,
+  ComparisonReviewDecisionInput,
+  ComparisonReviewDecisionValue,
+  ComparisonReviewValidationError,
+} from '../core/governance/design-contract.js'
 export type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
@@ -81,12 +112,14 @@ export interface AnalysisRecord {
   id: string
   theme_id: string | null
   theme_name: string | null
+  site_name: string
   url: string
   pages_analyzed: number
   viewports: string
   duration_ms: number | null
   created_at: string
   screenshot_path: string | null
+  route_identity: string | null
 }
 
 export interface AnalysisSummaryPage {
@@ -133,6 +166,7 @@ export interface AnalysisResultData {
   finalUrl?: string
   extractionIssues?: ExtractionIssue[]
   pageCoverage?: PageCoverage
+  captureManifest?: CaptureManifest
   designEvidence?: DesignEvidence
   designProfile?: DesignProfile | null
   reconstructionBrief?: string | null
@@ -149,6 +183,7 @@ export interface AnalysisDetailData {
   durationMs: number | null
   analysisTiming?: AnalysisTiming
   createdAt: string
+  routeIdentity: string | null
   tokens: Record<string, unknown>
   cssVariables: string
   tailwindTheme: string
@@ -164,17 +199,42 @@ export interface AnalysisDetailData {
   reconstructionBrief: string | null
   agentContext: AgentContextBundle | null
   validationReport: ValidationReport | null
+  captureManifest: CaptureManifest | null
 }
 
 export interface AnalyzeOptions {
-  viewports?: string[]
+  viewports?: AnalysisViewport[]
   maxPages?: number
   useSession?: boolean
   authMode?: AuthMode
   language?: string
-  depth?: 'standard' | 'deep'
+  depth?: AnalysisDepth
   pageDiscovery?: PageDiscoveryMode
 }
+
+export type AnalysisComparisonResponse =
+  | {
+      success: true
+      comparison: ReferenceComparisonResult
+      review: ApprovedComparisonReview | null
+      contractHistory: ApprovedDesignContract[]
+    }
+  | {
+      success: false
+      reason: 'analysis-not-found' | 'same-analysis' | 'analysis-order-invalid' | 'invalid-analysis-data'
+    }
+
+export type ApproveComparisonReviewResponse =
+  | { success: true; review: ApprovedComparisonReview }
+  | {
+      success: false
+      reason:
+        | 'analysis-not-found'
+        | 'same-analysis'
+        | 'analysis-order-invalid'
+        | 'invalid-analysis-data'
+        | ComparisonReviewValidationError
+    }
 
 export interface AnalyzeResponse extends Partial<AnalysisResultData> {
   error?: boolean
@@ -261,6 +321,12 @@ export interface ElectronAPI {
   getAnalysisSummaries: () => Promise<AnalysisRecord[]>
   getAnalysisSummariesPage: (query?: AnalysisSummaryPageQuery) => Promise<AnalysisSummaryPage>
   getAnalysis: (id: string) => Promise<AnalysisDetailData | null>
+  compareAnalyses: (earlierAnalysisId: string, laterAnalysisId: string) => Promise<AnalysisComparisonResponse>
+  approveComparisonReview: (
+    earlierAnalysisId: string,
+    laterAnalysisId: string,
+    decisions: ComparisonReviewDecisionInput[],
+  ) => Promise<ApproveComparisonReviewResponse>
   deleteAnalysis: (id: string) => Promise<{ success: boolean }>
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>
   openExternal: (url: string) => Promise<void>

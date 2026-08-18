@@ -18,6 +18,7 @@ export interface PageDiscoveryResult {
 
 interface PageCandidate extends DiscoveredPage {
   locationScore: number
+  contextualDescendant: boolean
 }
 
 const EXCLUDED_PATHS = [
@@ -33,36 +34,17 @@ const EXCLUDED_PATHS = [
 
 const TRACKING_PARAMETERS = /^(?:fbclid|gclid|mc_cid|mc_eid|ref|source|utm_.+)$/i
 const MIN_REPRESENTATIVE_SCORE = 90
-const GITHUB_GLOBAL_PATHS = new Set([
-  'apps',
-  'collections',
-  'enterprise',
-  'features',
-  'marketplace',
-  'open-source',
-  'organizations',
-  'orgs',
-  'pricing',
-  'resources',
-  'search',
-  'settings',
-  'solutions',
-  'sponsors',
-  'topics',
-  'trending',
-])
-
-function scopedPathPrefix(base: URL): string | null {
-  const hostname = base.hostname.toLowerCase().replace(/^www\./, '')
-  const segments = base.pathname.split('/').filter(Boolean)
-  if (hostname === 'github.com' && segments.length >= 2 && !GITHUB_GLOBAL_PATHS.has(segments[0].toLowerCase())) {
-    return `/${segments[0]}/${segments[1]}`
-  }
-  return null
-}
 
 function normalizedUrl(candidate: string, baseUrl: string): URL | null {
   try {
+    // URL() percent-encodes stray quote characters instead of rejecting them. These
+    // values normally come from malformed markup and must not become crawl targets.
+    if (
+      /[\u0000-\u001f\u007f\s"'`<>]/u.test(candidate) ||
+      /%(?:25)*(?:0[0-9a-f]|1[0-9a-f]|20|22|27|3c|3e|60|7f)/i.test(candidate)
+    ) {
+      return null
+    }
     const base = new URL(baseUrl)
     const resolved = new URL(candidate, base)
     if (!['http:', 'https:'].includes(resolved.protocol) || resolved.origin !== base.origin) return null
@@ -100,10 +82,11 @@ export function scorePageUrl(candidate: string, baseUrl: string, locationScore =
   const base = new URL(baseUrl)
   const basePath = base.pathname.replace(/\/$/, '') || '/'
   if (url.pathname === basePath) return null
-  const pathScope = scopedPathPrefix(base)
-  if (pathScope && url.pathname !== pathScope && !url.pathname.startsWith(`${pathScope}/`)) return null
 
   const segments = url.pathname.split('/').filter(Boolean)
+  const baseSegments = basePath.split('/').filter(Boolean)
+  const contextualDescendant = basePath !== '/' && url.pathname.startsWith(`${basePath}/`)
+  const relativeDepth = contextualDescendant ? segments.length - baseSegments.length : segments.length
   const kind = classifyPageKind(url.pathname)
   const boosts: Record<PageKind, number> = {
     pricing: 36,
@@ -116,13 +99,13 @@ export function scorePageUrl(candidate: string, baseUrl: string, locationScore =
     support: -12,
     contact: -14,
   }
-  let score = 100 + boosts[kind] + locationScore - Math.max(0, segments.length - 1) * 12
+  let score = 100 + boosts[kind] + locationScore - Math.max(0, relativeDepth - 1) * 12
   if (url.search) score -= 15
   if (segments.some((segment) => /^\d+$/.test(segment) || segment.length > 64)) {
     score -= kind === 'content' ? 2 : 20
   }
 
-  return { url: url.href, source: 'dom', kind, score, locationScore }
+  return { url: url.href, source: 'dom', kind, score, locationScore, contextualDescendant }
 }
 
 async function discoverDomCandidates(page: Page, baseUrl: string): Promise<PageCandidate[]> {
@@ -130,7 +113,7 @@ async function discoverDomCandidates(page: Page, baseUrl: string): Promise<PageC
     const locationScore = (anchor: HTMLAnchorElement): number => {
       if (anchor.closest('nav, header, [role="navigation"], [aria-label*="nav" i], [data-nav]')) return 24
       if (anchor.closest('footer')) return -20
-      if (anchor.closest('main, article, [role="main"]')) return 12
+      if (anchor.closest('main, article, [role="main"]')) return 24
       return 0
     }
     return [...document.querySelectorAll<HTMLAnchorElement>('a[href]')].map((anchor) => ({
@@ -212,9 +195,11 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
   const ranked = [...byUrl.values()]
     .filter((candidate) => candidate.score >= MIN_REPRESENTATIVE_SCORE)
     .sort((first, second) => second.score - first.score || first.url.localeCompare(second.url))
+  const contextual = ranked.filter((candidate) => candidate.contextualDescendant)
+  const selectionPool = contextual.length > 0 ? contextual : ranked
   const selected: PageCandidate[] = []
-  while (selected.length < maximum && selected.length < ranked.length) {
-    const candidatesLeft = ranked.filter(
+  while (selected.length < maximum && selected.length < selectionPool.length) {
+    const candidatesLeft = selectionPool.filter(
       (candidate) => !selected.some((selectedPage) => selectedPage.url === candidate.url),
     )
     const rankedForDiversity = candidatesLeft
@@ -241,7 +226,7 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
     selected.push(next)
   }
 
-  return selected.map(({ locationScore: _locationScore, ...page }) => page)
+  return selected.map(({ locationScore: _locationScore, contextualDescendant: _contextualDescendant, ...page }) => page)
 }
 
 export async function discoverPages(

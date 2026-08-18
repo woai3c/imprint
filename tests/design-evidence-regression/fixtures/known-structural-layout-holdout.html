@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Known structural layout holdout</title>
+    <script>
+      if (new URLSearchParams(location.search).get('variant') === 'changed') {
+        document.documentElement.dataset.variant = 'changed'
+      }
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f7f3ec;
+        color: #29231d;
+        font-family: Georgia, serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      main {
+        width: calc(100% - 64px);
+        max-width: 1040px;
+        margin: 48px auto;
+      }
+      .intro {
+        margin-bottom: 24px;
+        padding: 24px;
+        border: 1px solid #d8cfc2;
+        background: #ffffff;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+        padding: 24px;
+        border: 1px solid #d8cfc2;
+        background: #ffffff;
+      }
+      .tile {
+        min-height: 112px;
+        padding: 16px;
+        border: 1px solid #e4ddd3;
+      }
+      :root[data-variant='changed'] .gallery {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      @media (max-width: 600px) {
+        main {
+          width: calc(100% - 32px);
+          margin: 24px auto;
+        }
+        .gallery {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        :root[data-variant='changed'] .gallery {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="intro">
+        <h1>Layout holdout surface</h1>
+        <p>Only the observed grid behavior changes between captures.</p>
+      </section>
+      <section class="gallery" aria-label="Gallery samples">
+        <article class="tile"><h2>Alpha</h2></article>
+        <article class="tile"><h2>Beta</h2></article>
+        <article class="tile"><h2>Gamma</h2></article>
+        <article class="tile"><h2>Delta</h2></article>
+      </section>
+    </main>
+  </body>
+</html>

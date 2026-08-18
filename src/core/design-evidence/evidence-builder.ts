@@ -30,7 +30,7 @@ export interface CapturedPageEvidence {
   interactionStyles?: InteractionStyles
   interactionObservations?: InteractionObservationSnapshot[]
   health?: PageHealthReport
-  supplementalImages?: Array<Omit<EvidenceImage, 'id' | 'sectionId'> & { sectionKey?: string }>
+  supplementalImages?: Array<Omit<EvidenceImage, 'id' | 'sectionId'> & { sectionKey?: string; valid?: boolean }>
 }
 
 export interface BuildDesignEvidenceInput {
@@ -191,7 +191,10 @@ function changedSectionValues(
   if (from.order !== to.order) changes.sequenceIndex = { from: from.order, to: to.order }
   if (from.layoutMode !== to.layoutMode) changes.layoutMode = { from: from.layoutMode, to: to.layoutMode }
   for (const key of new Set([...Object.keys(from.styles), ...Object.keys(to.styles)])) {
-    if (from.styles[key] !== to.styles[key]) changes[key] = { from: from.styles[key], to: to.styles[key] }
+    const fromValue = from.styles[key]
+    const toValue = to.styles[key]
+    if (key === 'childGridTemplateColumns' && (!fromValue?.trim() || !toValue?.trim())) continue
+    if (fromValue !== toValue) changes[key] = { from: fromValue, to: toValue }
   }
   for (const key of ['x', 'y', 'width', 'height'] as const) {
     if (Math.abs(from.rect[key] - to.rect[key]) >= 0.04) {
@@ -389,7 +392,34 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const pseudoIds = createInstanceIdRegistry('pseudo', pageId, pseudoSnapshots)
     const ariaStateIds = createInstanceIdRegistry('interaction', pageId, capture.snapshot.ariaStates || [])
     const activeInteractionIds = createInstanceIdRegistry('interaction', pageId, capture.interactionObservations || [])
-    imageIds.set(captureKey, imageId)
+    const overviewImages =
+      capture.screenshot.valid === false
+        ? []
+        : [
+            {
+              id: imageId,
+              kind: 'overview' as const,
+              path: capture.screenshot.path,
+              width: capture.screenshot.width || capture.snapshot.width,
+              height: capture.screenshot.height || capture.snapshot.height,
+              contentHash: imageContentHash(capture.screenshot.path),
+            },
+          ]
+    const supplementalImages = (capture.supplementalImages || []).flatMap((candidate, index) => {
+      const { valid, ...image } = candidate
+      return valid === false
+        ? []
+        : [
+            {
+              ...image,
+              id: createEvidenceId('image', pageId, image.kind, index),
+              contentHash: imageContentHash(image.path),
+            },
+          ]
+    })
+    const evidenceImages = [...overviewImages, ...supplementalImages]
+    const citationImageId = evidenceImages[0]?.id
+    if (citationImageId) imageIds.set(captureKey, citationImageId)
     for (const section of capture.snapshot.sections) {
       sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
     }
@@ -420,21 +450,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         }),
       ),
       health: capture.health,
-      images: [
-        {
-          id: imageId,
-          kind: 'overview',
-          path: capture.screenshot.path,
-          width: capture.screenshot.width || capture.snapshot.width,
-          height: capture.screenshot.height || capture.snapshot.height,
-          contentHash: imageContentHash(capture.screenshot.path),
-        },
-        ...(capture.supplementalImages || []).map((image, index) => ({
-          ...image,
-          id: createEvidenceId('image', pageId, image.kind, index),
-          contentHash: imageContentHash(image.path),
-        })),
-      ],
+      images: evidenceImages,
     })
 
     const page = pages[pages.length - 1]
@@ -702,7 +718,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const observedKeys = new Set((capture.interactionObservations || []).map((observation) => observation.key))
     for (const candidate of capture.snapshot.interactionCandidates) {
       if (!observedKeys.has(candidate.key)) {
-        skippedCandidateLabels.push(`skipped-interaction:${candidate.kind}@${candidate.key.slice(0, 60)}`)
+        const label = `skipped-interaction:${candidate.kind}@${candidate.key.slice(0, 60)}`
+        if (!skippedCandidateLabels.includes(label)) skippedCandidateLabels.push(label)
       }
     }
   }

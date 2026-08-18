@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Known structural interaction holdout</title>
+    <script>
+      if (new URLSearchParams(location.search).get('variant') === 'changed') {
+        document.documentElement.dataset.variant = 'changed'
+      }
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #eef5f2;
+        color: #17312a;
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      main {
+        width: calc(100% - 64px);
+        max-width: 880px;
+        margin: 48px auto;
+      }
+      .panel {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        padding: 24px;
+        border: 1px solid #c7d9d2;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .copy {
+        align-self: center;
+      }
+      h1,
+      p {
+        margin: 0;
+      }
+      .action {
+        align-self: center;
+        justify-self: start;
+        padding: 12px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: #176b54;
+        color: #ffffff;
+        font: inherit;
+        transition: transform 150ms ease;
+      }
+      .action:hover {
+        transform: scale(1.02);
+      }
+      :root[data-variant='changed'] .action:hover {
+        transform: scale(1.08);
+      }
+      @media (max-width: 600px) {
+        main {
+          width: calc(100% - 32px);
+          margin: 24px auto;
+        }
+        .panel {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <div class="copy">
+          <h1>Interaction holdout surface</h1>
+          <p>Only the observed hover transform changes between captures.</p>
+        </div>
+        <button class="action" type="button">Observe interaction</button>
+      </section>
+    </main>
+  </body>
+</html>

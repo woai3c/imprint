@@ -19,6 +19,10 @@ describe('page discovery scoring', () => {
     expect(scorePageUrl('/signin', baseUrl)).toBeNull()
     expect(scorePageUrl('/legal/privacy', baseUrl)).toBeNull()
     expect(scorePageUrl('/brand/logo.svg', baseUrl)).toBeNull()
+    expect(scorePageUrl('/enterprise"', baseUrl)).toBeNull()
+    expect(scorePageUrl('/enterprise%22', baseUrl)).toBeNull()
+    expect(scorePageUrl('/enterprise%2522', baseUrl)).toBeNull()
+    expect(scorePageUrl('/enterprise%252522', baseUrl)).toBeNull()
   })
 
   test('normalizes tracking parameters and fragments before deduplication', () => {
@@ -27,13 +31,12 @@ describe('page discovery scoring', () => {
     expect(page?.kind).toBe('product')
   })
 
-  test('keeps GitHub repository discovery inside the repository path scope', () => {
-    const repository = 'https://github.com/woai3c/x-code-cli'
+  test('applies identical scoring rules across hostnames', () => {
+    const first = scorePageUrl('/products/editor', 'https://alpha.test/people/sample', 12)
+    const second = scorePageUrl('/products/editor', 'https://beta.test/people/sample', 12)
 
-    expect(scorePageUrl('/pricing', repository, 24)).toBeNull()
-    expect(scorePageUrl('/enterprise', repository, 24)).toBeNull()
-    expect(scorePageUrl('/woai3c/x-code-cli/issues', repository, 12)?.url).toBe(
-      'https://github.com/woai3c/x-code-cli/issues',
+    expect(first && { kind: first.kind, score: first.score }).toEqual(
+      second && { kind: second.kind, score: second.score },
     )
   })
 

@@ -9,6 +9,7 @@ import { chromium } from 'playwright-core'
 
 import { findBrowser } from '../../dist/core/analyzer/browser-finder.js'
 import { detectComponents } from '../../dist/core/analyzer/component-detect.js'
+import { extractStyles } from '../../dist/core/analyzer/style-extractor.js'
 import { observeSafeInteractions } from '../../dist/core/design-evidence/interaction-observer.js'
 import { extractPageEvidence } from '../../dist/core/design-evidence/page-extractor.js'
 
@@ -95,8 +96,29 @@ test('detects visible semantic components and a visually bounded card', async ()
   }
   const observations = await observeSafeInteractions(page, evidence, 10)
   assert.equal(observations.length, 1, 'Only the restorable local disclosure should produce active evidence')
-  assert.equal(observations[0].after.transform, 'matrix(1, 0, 0, 1, 0, -2)')
+  assert.equal(observations[0].after.ariaExpanded, 'true')
+  assert.equal(observations[0].after.controlledHidden, 'false')
   assert.equal(unsafeWriteRequests, 0, 'Non-GET side effects must be blocked before reaching the fixture server')
+  await page.close()
+})
+
+test('discards an interaction observation when restoring the control leaves page geometry changed', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <main>
+      <button aria-expanded="false" aria-controls="panel" onclick="
+        this.setAttribute('aria-expanded', this.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
+        document.getElementById('panel').toggleAttribute('hidden');
+        document.querySelector('.payload')?.remove();
+      ">Details</button>
+      <section id="panel" hidden>Panel</section>
+      <div class="payload" style="height:1400px">Long content</div>
+    </main>`)
+  const evidence = await extractPageEvidence(page, 'desktop')
+
+  const observations = await observeSafeInteractions(page, evidence, 1, 3_000)
+
+  assert.equal(observations.length, 0)
   await page.close()
 })
 
@@ -152,16 +174,34 @@ test('classifies a long repeated feed as a content page while preserving its fea
   await page.close()
 })
 
-test('recognizes creator workspaces and column discovery routes', async () => {
+test('recognizes workspace and content routes by general URL semantics', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
-  await page.goto(new URL('/creator', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
-  const creator = await extractPageEvidence(page, 'desktop')
+  await page.goto(new URL('/editor', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
+  const workspace = await extractPageEvidence(page, 'desktop')
 
-  await page.goto(new URL('/column-square', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
-  const columns = await extractPageEvidence(page, 'desktop')
+  await page.goto(new URL('/article', fixtureUrl).href, { waitUntil: 'domcontentloaded' })
+  const content = await extractPageEvidence(page, 'desktop')
 
-  assert.equal(creator.role, 'workspace')
-  assert.equal(columns.role, 'content')
+  assert.equal(workspace.role, 'workspace')
+  assert.equal(content.role, 'content')
+  await page.close()
+})
+
+test('classifies a public profile before generic table and navigation heuristics', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <main>
+      <header><nav><a href="/profile">Overview</a></nav></header>
+      <section itemscope itemtype="https://schema.org/Person">
+        <h1 itemprop="name">Sample creator</h1><span itemprop="additionalName">sample-creator</span>
+      </section>
+      <div role="tablist"><button role="tab">Contributions</button></div>
+      <table><tbody><tr><td>Recent activity</td></tr></tbody></table>
+    </main>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+
+  assert.equal(evidence.role, 'profile')
   await page.close()
 })
 
@@ -360,6 +400,29 @@ test('preserves sibling ARIA status components inside a heuristic status-list co
   await page.close()
 })
 
+test('excludes one-pixel live regions from visual status evidence and style roles', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      main { min-height:200px; }
+      .sr-status { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0, 0, 0, 0); background:#b42318; color:white; }
+    </style>
+    <main><div role="status" class="sr-status">Saved</div><p>Visible content</p></main>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const styles = await extractStyles(page)
+
+  assert.equal(
+    evidence.components.some((component) => component.type === 'status'),
+    false,
+  )
+  assert.equal(
+    Object.keys(styles.usageCount).some((key) => key.startsWith('status')),
+    false,
+  )
+  await page.close()
+})
+
 test('drops blank pseudo geometry while retaining blank pseudo elements with a visible border', async () => {
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
   await page.setContent(`<!doctype html>
@@ -389,6 +452,54 @@ test('drops blank pseudo geometry while retaining blank pseudo elements with a v
 
   assert.equal(evidence.pseudoElements.filter((pseudo) => pseudo.kind === 'before').length, 1)
   assert.equal(evidence.pseudoElements[0].styles.borderTop, '3px solid rgb(153, 27, 27)')
+  await page.close()
+})
+
+test('excludes pseudo elements hidden by display, visibility, or opacity', async () => {
+  const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      main { min-height:200px; }
+      .display-hidden::after, .visibility-hidden::after, .opacity-hidden::after, .visible::after {
+        content:'Tooltip';
+        background:rgb(37, 41, 46);
+        color:white;
+      }
+      .display-hidden::after { display:none; }
+      .visibility-hidden::after { visibility:hidden; }
+      .opacity-hidden::after { opacity:0; }
+      .visible::after { display:inline; visibility:visible; opacity:1; }
+    </style>
+    <main>
+      <button class="display-hidden">Display</button>
+      <button class="visibility-hidden">Visibility</button>
+      <button class="opacity-hidden">Opacity</button>
+      <button class="visible">Visible</button>
+    </main>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const tooltips = evidence.pseudoElements.filter((pseudo) => pseudo.styles.content === '"Tooltip"')
+
+  assert.equal(tooltips.length, 1)
+  assert.match(tooltips[0].target, /button:nth-of-type\(4\)/)
+  await page.close()
+})
+
+test('requires a material first-letter difference before recording pseudo evidence', async () => {
+  const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      main { min-height:200px; }
+      .ordinary { line-height:normal; }
+      .drop-cap::first-letter { float:left; font-size:48px; color:rgb(153, 27, 27); }
+    </style>
+    <main><p class="ordinary">Ordinary paragraph</p><p class="drop-cap">Editorial paragraph</p></main>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const firstLetters = evidence.pseudoElements.filter((pseudo) => pseudo.kind === 'first-letter')
+
+  assert.equal(firstLetters.length, 1)
+  assert.match(firstLetters[0].target, /p:nth-of-type\(2\)/)
   await page.close()
 })
 

@@ -11,14 +11,29 @@ import {
   removeManagedSession,
 } from '../core/analyzer/browser-session.js'
 import {
-  type AuthMode,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
+  CORE_ANALYSIS_REQUEST_DEFAULTS,
   type LoginDecision,
-  type PageDiscoveryMode,
+  createAnalysisRequest,
 } from '../core/analyzer/index.js'
 import { isPageHealthEvidenceEligible } from '../core/analyzer/page-health.js'
-import type { AnalysisTiming, DesignToken } from '../core/analyzer/types.js'
+import {
+  type ReferenceCaptureInput,
+  compareReferenceCaptures,
+  routeIdentityFromUrl,
+} from '../core/analyzer/reference-compare.js'
+import type { AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
+import {
+  redactUrlsInText,
+  sanitizeAuthWallDetectionForDisplay,
+  sanitizeDesignEvidenceForPersistence,
+  sanitizeDesignTokensForPersistence,
+  sanitizeExtractionIssuesForDisplay,
+  sanitizePageCoverageForPersistence,
+  sanitizePageScreenshotsForPersistence,
+  sanitizeUrlForPersistence,
+} from '../core/analyzer/url-privacy.js'
 import { generateAgentContextBundle } from '../core/design-context/agent-context.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { generateReconstructionBrief } from '../core/design-context/reconstruction-brief.js'
@@ -36,7 +51,14 @@ import {
   restoreDarkModeExportData,
 } from '../core/export/index.js'
 import {
+  type ApprovedComparisonReview,
+  type ApprovedDesignContract,
+  type ComparisonReviewDecisionInput,
+  createApprovedComparisonReview,
+} from '../core/governance/design-contract.js'
+import {
   type AnalysisRecoveryResponse,
+  type AnalyzeOptions,
   type AnalyzeResponse,
   type AppSettings,
   type PageScreenshotData,
@@ -282,9 +304,23 @@ function toAnalysisSummary(
   { page_screenshots_json: screenshots, design_evidence_json: _designEvidenceJson, ...record }: Record<string, unknown>,
   screenshotPath?: string | null,
 ) {
+  const evidence = readDesignEvidence(_designEvidenceJson)
+  const siteNameCandidates = [evidence?.source?.siteName, evidence?.pages?.find((page) => page.siteName)?.siteName]
+  const siteName =
+    siteNameCandidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() ||
+    hostnameFromUrl(String(record.url || ''))
   return {
     ...record,
+    site_name: siteName,
     screenshot_path: screenshotPath === undefined ? readFirstScreenshotPath(screenshots) : screenshotPath,
+  }
+}
+
+function hostnameFromUrl(value: string): string {
+  try {
+    return new URL(value).hostname.replace(/^www\./, '') || value
+  } catch {
+    return value
   }
 }
 
@@ -298,6 +334,29 @@ async function toAnalysisSummaryWithThumbnail(record: Record<string, unknown>) {
 
 function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
   return JSON.parse((serialized as string) || '[]') as PageScreenshotData[]
+}
+
+function readCaptureManifest(serialized: unknown): CaptureManifest | null {
+  if (typeof serialized !== 'string') return null
+  try {
+    const manifest = JSON.parse(serialized) as unknown
+    if (
+      !isRecord(manifest) ||
+      manifest.schemaVersion !== '1' ||
+      !isRecord(manifest.tool) ||
+      !isRecord(manifest.request) ||
+      !isRecord(manifest.environment) ||
+      !Array.isArray(manifest.environment.viewports) ||
+      !isRecord(manifest.stabilization) ||
+      !isRecord(manifest.stabilization.animationFreeze) ||
+      !isRecord(manifest.capture)
+    ) {
+      return null
+    }
+    return manifest as unknown as CaptureManifest
+  } catch {
+    return null
+  }
 }
 
 function readDarkModeExportData(
@@ -411,6 +470,112 @@ function buildStoredAnalysisResult(
     analysisTiming: readAnalysisTiming(record.analysis_timing_json),
     url: record.url,
   }
+}
+
+function referenceCaptureFromRecord(record: Record<string, unknown>): ReferenceCaptureInput | null {
+  try {
+    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
+    if (
+      !isRecord(tokens) ||
+      !isRecord(tokens.colors) ||
+      !isRecord(tokens.typography) ||
+      !Array.isArray(tokens.typography.fontFamilies) ||
+      !Array.isArray(tokens.typography.fontStacks) ||
+      !Array.isArray(tokens.typography.fontSizes) ||
+      !Array.isArray(tokens.typography.fontWeights) ||
+      !Array.isArray(tokens.typography.lineHeights) ||
+      !Array.isArray(tokens.typography.letterSpacings) ||
+      !Array.isArray(tokens.spacing) ||
+      !Array.isArray(tokens.radii)
+    ) {
+      return null
+    }
+    return {
+      analysisId: String(record.id),
+      url: String(record.final_url || record.url || ''),
+      createdAt: typeof record.created_at === 'string' ? record.created_at : undefined,
+      tokens,
+      evidence: readDesignEvidence(record.design_evidence_json),
+      manifest: readCaptureManifest(record.capture_manifest_json),
+    }
+  } catch {
+    return null
+  }
+}
+
+type AnalysisComparisonLookup =
+  | {
+      success: true
+      target: Record<string, unknown>
+      reference: Record<string, unknown>
+      comparison: ReturnType<typeof compareReferenceCaptures>
+    }
+  | {
+      success: false
+      reason: 'analysis-not-found' | 'same-analysis' | 'analysis-order-invalid' | 'invalid-analysis-data'
+    }
+
+function resolveAnalysisComparison(earlierAnalysisId: string, laterAnalysisId: string): AnalysisComparisonLookup {
+  const db = getDb()
+  const reference = db.prepare('SELECT * FROM analyses WHERE id = ?').get(earlierAnalysisId) as
+    Record<string, unknown> | undefined
+  const target = db.prepare('SELECT * FROM analyses WHERE id = ?').get(laterAnalysisId) as
+    Record<string, unknown> | undefined
+  if (!reference || !target) return { success: false, reason: 'analysis-not-found' }
+  if (earlierAnalysisId === laterAnalysisId) return { success: false, reason: 'same-analysis' }
+  const referenceTime = Date.parse(String(reference.created_at || ''))
+  const targetTime = Date.parse(String(target.created_at || ''))
+  if (Number.isNaN(referenceTime) || Number.isNaN(targetTime) || referenceTime >= targetTime) {
+    return { success: false, reason: 'analysis-order-invalid' }
+  }
+
+  const referenceCapture = referenceCaptureFromRecord(reference)
+  const targetCapture = referenceCaptureFromRecord(target)
+  if (!referenceCapture || !targetCapture) return { success: false, reason: 'invalid-analysis-data' }
+  return {
+    success: true,
+    target,
+    reference,
+    comparison: compareReferenceCaptures(referenceCapture, targetCapture),
+  }
+}
+
+function latestApprovedComparisonReview(targetId: string, referenceId: string): ApprovedComparisonReview | null {
+  const record = getDb()
+    .prepare(
+      `SELECT review_json
+       FROM comparison_reviews
+       WHERE target_analysis_id = ? AND reference_analysis_id = ? AND status = 'approved'
+       ORDER BY approved_at DESC, created_at DESC
+       LIMIT 1`,
+    )
+    .get(targetId, referenceId) as { review_json: string } | undefined
+  if (!record) return null
+  try {
+    const review = JSON.parse(record.review_json) as ApprovedComparisonReview
+    return review?.status === 'approved' && review.targetAnalysisId === targetId ? review : null
+  } catch {
+    return null
+  }
+}
+
+function approvedDesignContractHistory(routeIdentity: string): ApprovedDesignContract[] {
+  const records = getDb()
+    .prepare(
+      `SELECT contract_json
+       FROM design_contract_versions
+       WHERE route_identity = ?
+       ORDER BY version DESC`,
+    )
+    .all(routeIdentity) as Array<{ contract_json: string }>
+  return records.flatMap((record) => {
+    try {
+      const contract = JSON.parse(record.contract_json) as ApprovedDesignContract
+      return contract?.scope === 'supported-token-rules' ? [contract] : []
+    } catch {
+      return []
+    }
+  })
 }
 
 async function saveTextFile(content: string, options: SaveTextFileOptions) {
@@ -647,7 +812,7 @@ export function registerIpcHandlers() {
     const records = db
       .prepare(
         `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                 a.created_at, a.page_screenshots_json
+                 a.created_at, a.page_screenshots_json, a.route_identity, a.design_evidence_json
          FROM analyses a
          LEFT JOIN themes t ON t.id = a.theme_id
          ORDER BY a.created_at DESC`,
@@ -666,7 +831,13 @@ export function registerIpcHandlers() {
         ? Math.min(100, Math.max(1, Math.floor(query?.pageSize || 10)))
         : 10
       const search = typeof query?.search === 'string' ? query.search.trim().slice(0, 500) : ''
-      const where = search ? "WHERE a.url LIKE @search OR COALESCE(t.name, '') LIKE @search" : ''
+      const where = search
+        ? `WHERE a.url LIKE @search OR COALESCE(t.name, '') LIKE @search
+             OR CASE WHEN json_valid(a.design_evidence_json)
+               THEN COALESCE(json_extract(a.design_evidence_json, '$.source.siteName'), '') LIKE @search
+               ELSE 0
+             END`
+        : ''
       const searchParams = search ? { search: `%${search}%` } : {}
       const matchingIds = (
         db
@@ -684,8 +855,7 @@ export function registerIpcHandlers() {
       const records = db
         .prepare(
           `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                   a.created_at, a.page_screenshots_json,
-                   a.design_evidence_json
+                   a.created_at, a.page_screenshots_json, a.route_identity, a.design_evidence_json
            FROM analyses a
            LEFT JOIN themes t ON t.id = a.theme_id
            ${where}
@@ -760,6 +930,7 @@ export function registerIpcHandlers() {
       durationMs: record.duration_ms,
       analysisTiming: readAnalysisTiming(record.analysis_timing_json),
       createdAt: record.created_at,
+      routeIdentity: record.route_identity || null,
       tokens,
       cssVariables: record.css_variables || '',
       tailwindTheme: record.tailwind_theme || '',
@@ -777,8 +948,102 @@ export function registerIpcHandlers() {
       reconstructionBrief,
       agentContext,
       validationReport: storedContext.validationReport,
+      captureManifest: readCaptureManifest(record.capture_manifest_json),
     }
   })
+
+  ipcMain.handle('analyses:compare', (_event, earlierAnalysisId: string, laterAnalysisId: string) => {
+    const lookup = resolveAnalysisComparison(earlierAnalysisId, laterAnalysisId)
+    if (!lookup.success) return lookup
+    return {
+      success: true,
+      comparison: lookup.comparison,
+      review: latestApprovedComparisonReview(String(lookup.target.id), String(lookup.reference.id)),
+      contractHistory: approvedDesignContractHistory(lookup.comparison.target.routeIdentity),
+    }
+  })
+
+  ipcMain.handle(
+    'analyses:approveComparisonReview',
+    (_event, earlierAnalysisId: string, laterAnalysisId: string, input: unknown) => {
+      const lookup = resolveAnalysisComparison(earlierAnalysisId, laterAnalysisId)
+      if (!lookup.success) return lookup
+      if (!Array.isArray(input)) return { success: false, reason: 'invalid-decision' }
+
+      const db = getDb()
+      return db.transaction(() => {
+        const routeIdentity = lookup.comparison.target.routeIdentity
+        const latestVersion = db
+          .prepare('SELECT MAX(version) AS version FROM design_contract_versions WHERE route_identity = ?')
+          .get(routeIdentity) as { version: number | null }
+        const now = new Date().toISOString()
+        const reviewId = randomUUID()
+        const contractId = randomUUID()
+        const result = createApprovedComparisonReview(lookup.comparison, input as ComparisonReviewDecisionInput[], {
+          reviewId,
+          contractId,
+          contractVersion: (latestVersion.version || 0) + 1,
+          approvedAt: now,
+        })
+        if (!result.success) return result
+
+        db.prepare(
+          `INSERT INTO comparison_reviews
+         (id, route_identity, reference_analysis_id, target_analysis_id, status, review_json, contract_id, approved_at, created_at)
+         VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?)`,
+        ).run(
+          reviewId,
+          routeIdentity,
+          result.review.referenceAnalysisId,
+          result.review.targetAnalysisId,
+          JSON.stringify(result.review),
+          contractId,
+          now,
+          now,
+        )
+        db.prepare(
+          `INSERT INTO design_contract_versions
+         (id, route_identity, version, review_id, contract_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(
+          contractId,
+          routeIdentity,
+          result.review.contract.version,
+          reviewId,
+          JSON.stringify(result.review.contract),
+          now,
+        )
+        db.prepare(
+          `INSERT INTO governance_events
+         (id, route_identity, event_type, entity_id, payload_json, created_at)
+         VALUES (?, ?, 'comparison-review-approved', ?, ?, ?)`,
+        ).run(
+          randomUUID(),
+          routeIdentity,
+          reviewId,
+          JSON.stringify({
+            reviewId,
+            contractId,
+            contractVersion: result.review.contract.version,
+            referenceAnalysisId: result.review.referenceAnalysisId,
+            targetAnalysisId: result.review.targetAnalysisId,
+            approvedChangeIds: result.review.decisions
+              .filter(({ decision }) => decision === 'approve-target')
+              .map(({ change }) => change.id),
+            ignoredChangeIds: result.review.decisions
+              .filter(({ decision }) => decision === 'ignore')
+              .map(({ change }) => change.id),
+          }),
+          now,
+        )
+        log.info(
+          'governance',
+          `approved comparison review: reviewId=${reviewId} contractVersion=${result.review.contract.version}`,
+        )
+        return result
+      })()
+    },
+  )
 
   // --- Isolated browser sessions ---
   ipcMain.handle('browserSessions:list', () => {
@@ -833,20 +1098,14 @@ export function registerIpcHandlers() {
     async (
       event,
       url: string,
-      options?: {
-        viewports?: string[]
-        maxPages?: number
-        useSession?: boolean
-        authMode?: AuthMode
-        language?: string
-        depth?: 'standard' | 'deep'
-        pageDiscovery?: PageDiscoveryMode
-      },
+      // Keep the renderer, preload, and main process on the same request input contract.
+      options?: AnalyzeOptions,
     ) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       const senderId = event.sender.id
       const analysisController = new AbortController()
-      const recoverableRun = analysisRecoveryRegistry.start(senderId, url)
+      const displayUrl = sanitizeUrlForPersistence(url)
+      const recoverableRun = analysisRecoveryRegistry.start(senderId, displayUrl)
       const completeRun = (response: AnalyzeResponse): AnalyzeResponse => {
         return analysisRecoveryRegistry.complete(senderId, recoverableRun, response)
       }
@@ -859,22 +1118,31 @@ export function registerIpcHandlers() {
       event.sender.once('destroyed', abortWhenRendererCloses)
       let analysisStage = 'progress.launchingBrowser'
 
-      log.info(
-        'analysis',
-        `start: url=${url} viewports=${options?.viewports?.join(',') ?? 'default'} maxPages=${options?.maxPages ?? 'default'} authMode=${options?.authMode ?? 'auto'}`,
-      )
-
       try {
         const currentSettings = getSettings()
+        const request = createAnalysisRequest(
+          { url, ...options },
+          {
+            ...CORE_ANALYSIS_REQUEST_DEFAULTS,
+            viewports: options?.depth === 'deep' ? ['desktop', 'tablet', 'mobile'] : ['desktop', 'mobile'],
+          },
+        )
+        log.info(
+          'analysis',
+          `start: url=${displayUrl} viewports=${request.viewports.join(',')} maxPages=${request.maxPages} authMode=${request.authMode} requestSchema=${request.schemaVersion}`,
+        )
         const effectiveOptions = {
-          ...options,
-          viewports:
-            options?.viewports || (options?.depth === 'deep' ? ['desktop', 'tablet', 'mobile'] : ['desktop', 'mobile']),
+          viewports: request.viewports,
+          maxPages: request.maxPages,
+          authMode: request.authMode,
+          extractDarkMode: request.extractDarkMode,
+          depth: request.depth,
+          pageDiscovery: request.pageDiscovery,
           proxyServer: currentSettings.proxyServer || undefined,
           signal: analysisController.signal,
         }
         const result = await analyzeUrl(
-          url,
+          request.url,
           effectiveOptions,
           (step, percent) => {
             analysisStage = step
@@ -884,51 +1152,63 @@ export function registerIpcHandlers() {
           (request, signal) => waitForLoginDecision(win, request, signal),
         )
 
+        const persistedTokens = sanitizeDesignTokensForPersistence(result.tokens)
+        const persistedEvidence = sanitizeDesignEvidenceForPersistence(result.designEvidence)
+        const persistedScreenshots = sanitizePageScreenshotsForPersistence(result.pageScreenshots)
+        const persistedPageCoverage = sanitizePageCoverageForPersistence(result.pageCoverage)
+        const persistedFinalUrl = sanitizeUrlForPersistence(result.finalUrl)
+        const displayedIssues = sanitizeExtractionIssuesForDisplay(result.extractionIssues)
         const outputLanguage = options?.language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
         const deterministicContext = createDeterministicDesignContext(
-          result.designEvidence,
-          result.tokens,
+          persistedEvidence,
+          persistedTokens,
           outputLanguage,
         )
-        const darkModeExport = buildDarkModeExportData(result.darkMode)
-        const cssVars = generateCssVariables(result.tokens, darkModeExport, result.breakpoints)
-        const tailwind = generateTailwindTheme(result.tokens, darkModeExport, result.breakpoints)
+        const rawDarkModeExport = buildDarkModeExportData(result.darkMode)
+        const darkModeExport = rawDarkModeExport?.darkTokens
+          ? {
+              ...rawDarkModeExport,
+              darkTokens: sanitizeDesignTokensForPersistence(rawDarkModeExport.darkTokens),
+            }
+          : rawDarkModeExport
+        const cssVars = generateCssVariables(persistedTokens, darkModeExport, result.breakpoints)
+        const tailwind = generateTailwindTheme(persistedTokens, darkModeExport, result.breakpoints)
         const designDoc = generateDesignDoc(
-          result.tokens,
-          url,
+          persistedTokens,
+          displayUrl,
           result.featureTags,
           darkModeExport,
           result.breakpoints,
           result.components,
           outputLanguage,
-          result.designEvidence,
+          persistedEvidence,
           deterministicContext.profile,
         )
 
         const db = getDb()
         const analysisId = result.analysisId
         const viewports = effectiveOptions.viewports
-        const pagesAnalyzed = Math.max(1, new Set(result.pageScreenshots.map((screenshot) => screenshot.url)).size)
+        const pagesAnalyzed = Math.max(1, new Set(persistedScreenshots.map((screenshot) => screenshot.url)).size)
         db.prepare(
           `INSERT INTO analyses
            (id, url, pages_analyzed, viewports, duration_ms, created_at,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
-             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url,
+             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url, route_identity,
              design_evidence_json, design_profile_json, evidence_coverage_json,
-             validation_report_json, analysis_timing_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             validation_report_json, analysis_timing_json, capture_manifest_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
-          url,
+          displayUrl,
           pagesAnalyzed,
           JSON.stringify(viewports),
           result.duration,
           new Date().toISOString(),
-          JSON.stringify(result.tokens),
+          JSON.stringify(persistedTokens),
           cssVars,
           tailwind,
           designDoc,
-          JSON.stringify(result.pageScreenshots || []),
+          JSON.stringify(persistedScreenshots),
           JSON.stringify(result.featureTags || []),
           darkModeExport?.darkTokens ? JSON.stringify(darkModeExport.darkTokens) : null,
           result.darkMode?.hasDarkMode ? result.darkMode.method : null,
@@ -936,43 +1216,45 @@ export function registerIpcHandlers() {
           result.darkMode?.hasDarkMode ? 1 : 0,
           result.accessMode ?? null,
           result.authWallDetected ? 1 : 0,
-          result.finalUrl ?? null,
-          generateDesignEvidenceJson(result.designEvidence),
+          persistedFinalUrl,
+          routeIdentityFromUrl(persistedFinalUrl || displayUrl),
+          generateDesignEvidenceJson(persistedEvidence),
           JSON.stringify(deterministicContext.profile),
-          JSON.stringify(result.designEvidence.coverage),
+          JSON.stringify(persistedEvidence.coverage),
           JSON.stringify(deterministicContext.validationReport),
           JSON.stringify(result.timing),
+          JSON.stringify(result.captureManifest),
         )
 
         log.info(
           'analysis',
-          `done: url=${url} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${result.extractionIssues.length}`,
+          `done: url=${displayUrl} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${displayedIssues.length}`,
         )
         log.info(
           'analysis',
           `timing: total=${result.timing.totalMs}ms screenshots=${result.timing.screenshotCaptureMs || 0}ms ` +
             `images=${result.timing.imageCount} userWaitExcluded=${result.timing.userWaitMs || 0}ms`,
         )
-        result.extractionIssues.slice(0, 8).forEach((issue, index) => {
+        displayedIssues.slice(0, 8).forEach((issue, index) => {
           const reason = issue.reason.replace(/\\s+/g, ' ').slice(0, 360)
           log.warn('analysis', `degraded #${index + 1}: stage=${issue.stage} reason=${reason}`)
         })
-        if (result.extractionIssues.length > 8) {
-          log.warn('analysis', `degraded: ${result.extractionIssues.length - 8} additional issues omitted`)
+        if (displayedIssues.length > 8) {
+          log.warn('analysis', `degraded: ${displayedIssues.length - 8} additional issues omitted`)
         }
 
         return completeRun({
           analysisId,
           savedThemeId: null,
-          tokens: result.tokens as unknown as Record<string, unknown>,
+          tokens: persistedTokens as unknown as Record<string, unknown>,
           cssVariables: cssVars,
           tailwindTheme: tailwind,
           designDoc,
           screenshots: result.screenshots,
-          pageScreenshots: result.pageScreenshots,
+          pageScreenshots: persistedScreenshots,
           duration: result.duration,
           analysisTiming: result.timing,
-          url,
+          url: displayUrl,
           hasDarkMode: result.darkMode?.hasDarkMode ?? false,
           darkModeMethod: result.darkMode?.method ?? 'none',
           darkModeSelector: result.darkMode?.selector,
@@ -981,10 +1263,11 @@ export function registerIpcHandlers() {
           breakpoints: result.breakpoints,
           accessMode: result.accessMode,
           authWallDetected: result.authWallDetected,
-          finalUrl: result.finalUrl,
-          extractionIssues: result.extractionIssues,
-          pageCoverage: result.pageCoverage,
-          designEvidence: result.designEvidence,
+          finalUrl: persistedFinalUrl,
+          extractionIssues: displayedIssues,
+          pageCoverage: persistedPageCoverage,
+          captureManifest: result.captureManifest,
+          designEvidence: persistedEvidence,
           designProfile: deterministicContext.profile,
           reconstructionBrief: deterministicContext.reconstructionBrief,
           agentContext: deterministicContext.agentContext,
@@ -992,23 +1275,23 @@ export function registerIpcHandlers() {
         })
       } catch (err: unknown) {
         if (analysisController.signal.aborted) {
-          log.info('analysis', `cancelled: url=${url}`)
+          log.info('analysis', `cancelled: url=${displayUrl}`)
           return completeRun({ cancelled: true })
         }
         if (err instanceof AuthenticationRequiredError) {
-          log.info('analysis', `auth required: url=${url}`)
+          log.info('analysis', `auth required: url=${displayUrl}`)
           return completeRun({
             authRequired: true,
-            detection: err.detection,
+            detection: sanitizeAuthWallDetectionForDisplay(err.detection),
           })
         }
         if (err instanceof AuthenticationCancelledError) {
-          log.info('analysis', `cancelled at login decision: url=${url}`)
+          log.info('analysis', `cancelled at login decision: url=${displayUrl}`)
           return completeRun({ cancelled: true })
         }
-        const message = err instanceof Error ? err.message : String(err)
-        log.error('analysis', `failed during ${analysisStage}: url=${url} error=${message}`)
-        console.error(`[imprint] analysis failed during ${analysisStage}:`, err)
+        const message = redactUrlsInText(err instanceof Error ? err.message : String(err))
+        log.error('analysis', `failed during ${analysisStage}: url=${displayUrl} error=${message}`)
+        console.error(`[imprint] analysis failed during ${analysisStage}: ${message}`)
         return completeRun({ error: true, message, stage: analysisStage })
       } finally {
         event.sender.removeListener('destroyed', abortWhenRendererCloses)

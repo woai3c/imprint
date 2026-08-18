@@ -12,10 +12,63 @@
       "quit": "Quit Imprint"
     }
   },
+  "analyzer": {
+    "errors": {
+      "browserNotFound": "Chrome, Edge, or Chromium was not found. Install a supported browser or configure an explicit executable path.",
+      "invalidBrowserPath": "The configured browser path is not an accessible executable file: {{path}}"
+    }
+  },
   "cli": {
     "errors": {
+      "prefix": "Error",
       "missingOptionValue": "Option {{option}} requires a value.",
-      "unknownOption": "Unknown option: {{option}}"
+      "unknownOption": "Unknown option: {{option}}",
+      "unexpectedArgument": "Unexpected argument: {{value}}",
+      "invalidUrl": "Provide exactly one valid HTTP(S) URL.",
+      "invalidViewport": "Viewport must be desktop, tablet, mobile, or all: {{value}}",
+      "invalidPageCount": "--pages must be an integer from 1 to 5: {{value}}",
+      "invalidAuthMode": "The access mode is invalid.",
+      "invalidDarkMode": "The dark-mode setting is invalid.",
+      "invalidDepth": "The analysis depth is invalid.",
+      "invalidPageDiscovery": "--discovery must be auto, links, or sitemap: {{value}}",
+      "browserNotFound": "No supported Chrome, Edge, or Chromium installation was found. Run `imprint doctor` or provide --browser-path.",
+      "invalidBrowserPath": "--browser-path is not an accessible executable file: {{path}}",
+      "cancelled": "Analysis cancelled.",
+      "runtime": "Analysis failed: {{message}}"
+    },
+    "doctor": {
+      "heading": "Imprint environment diagnostics",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "unavailable": "unavailable",
+      "ready": "Environment ready.",
+      "notReady": "Environment not ready.",
+      "checks": {
+        "node-runtime": "Node.js runtime",
+        "platform": "Operating system",
+        "browser-path": "Browser executable",
+        "browser-launch": "Headless browser launch"
+      }
+    },
+    "usage": {
+      "doctor": "imprint doctor [--browser-path <path>] [--json]",
+      "browserPath": "--browser-path <path>  Use this Chrome, Edge, or Chromium executable"
+    }
+  },
+  "mcp": {
+    "started": "Imprint MCP Server started (stdio mode)",
+    "errors": {
+      "parse": "Parse error",
+      "invalidRequest": "Invalid Request",
+      "invalidParams": "Invalid method parameters",
+      "invalidInitialize": "Initialize requires a protocolVersion, capabilities, and clientInfo",
+      "alreadyInitialized": "The MCP connection is already initialized",
+      "notInitialized": "Initialize the MCP connection before using tools",
+      "invalidToolCall": "tools/call requires a tool name and object arguments",
+      "unknownTool": "Unknown tool: {{name}}",
+      "methodNotFound": "Method not found: {{method}}",
+      "toolExecution": "Tool execution failed: {{message}}",
+      "internal": "Internal server error"
     }
   },
   "agentGuide": {
@@ -398,7 +451,11 @@
         "listing": "listing",
         "dashboard": "dashboard",
         "article": "article",
-        "product": "product"
+        "product": "product",
+        "pricing": "pricing",
+        "profile": "profile",
+        "account": "account",
+        "workspace": "workspace"
       }
     },
     "howToUse": {
@@ -421,7 +478,13 @@
       "noStableShadowScale": "no stable shadow scale observed",
       "layeredElevationSystem": "layered elevation system",
       "weightContrastHierarchy": "weight contrast hierarchy",
-      "extensiveCssVariableUsage": "extensive CSS variable usage"
+      "extensiveCssVariableUsage": "extensive CSS variable usage",
+      "sectionGradientAndCompoundRadius": "section-level gradient and compound-radius treatments observed",
+      "sectionGradient": "section-level gradient treatments observed",
+      "sectionCompoundRadius": "section-level compound-radius treatments observed",
+      "dominantActionWithDecorativeAccents": "single dominant action family with multicolor decorative accents",
+      "neutralPaletteSingleAccent": "neutral palette with a single accent",
+      "richColorSystem": "rich color system"
     },
     "contrast": {
       "heading": "### Component Contrast Notes",

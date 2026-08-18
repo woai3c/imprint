@@ -39,6 +39,9 @@ export function isUsefulResponsiveChange(
 ): boolean {
   if (property.startsWith('rect.') || property === 'visibility' || values.from === values.to) return false
   if (property === 'gridTemplateColumns' || property === 'childGridTemplateColumns') {
+    if (typeof values.from !== 'string' || typeof values.to !== 'string' || !values.from.trim() || !values.to.trim()) {
+      return false
+    }
     const fromColumns = topLevelGridColumnCount(values.from)
     const toColumns = topLevelGridColumnCount(values.to)
     return fromColumns === null || toColumns === null || fromColumns !== toColumns

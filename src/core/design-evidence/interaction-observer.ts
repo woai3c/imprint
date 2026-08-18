@@ -176,6 +176,34 @@ function statesMatch(first: Record<string, string>, second: Record<string, strin
   return [...new Set([...Object.keys(first), ...Object.keys(second)])].every((key) => first[key] === second[key])
 }
 
+async function readPageGeometry(
+  page: Page,
+  deadline: number,
+): Promise<{ width: number; height: number; url: string } | null> {
+  return settleBeforeDeadline(
+    page.evaluate(() => ({
+      width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0, innerWidth),
+      height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0, innerHeight),
+      url: location.href,
+    })),
+    deadline,
+    null,
+  )
+}
+
+function pageGeometryMatches(
+  first: { width: number; height: number; url: string } | null,
+  second: { width: number; height: number; url: string } | null,
+): boolean {
+  return Boolean(
+    first &&
+    second &&
+    first.url === second.url &&
+    Math.abs(first.width - second.width) <= 4 &&
+    Math.abs(first.height - second.height) <= 8,
+  )
+}
+
 async function restoreCandidate(
   page: Page,
   candidate: PageInteractionCandidateSnapshot,
@@ -193,6 +221,7 @@ async function restoreCandidate(
   } else {
     await clickCandidate(page, candidate, deadline)
   }
+  await settleBeforeDeadline(page.mouse.move(0, 0), deadline, undefined)
   await waitForTargetMotion(page, candidate, deadline)
   return statesMatch(before, await readTargetState(page, candidate, deadline))
 }
@@ -208,15 +237,18 @@ export async function observeSafeInteractions(
 
   for (const candidate of snapshot.interactionCandidates.slice(0, maxActions)) {
     if (deadline - Date.now() < 1_500) break
-    const candidateDeadline = Math.min(deadline, Date.now() + 1_500)
+    const candidateDeadline = Math.min(deadline, Date.now() + 1_800)
     const before = await readTargetState(page, candidate, candidateDeadline)
+    const pageGeometryBefore = await readPageGeometry(page, candidateDeadline)
     if (!before) continue
     if (!(await clickCandidate(page, candidate, candidateDeadline))) continue
+    await settleBeforeDeadline(page.mouse.move(0, 0), candidateDeadline, undefined)
     await waitForTargetMotion(page, candidate, candidateDeadline)
     const after = await readTargetState(page, candidate, candidateDeadline)
     if (!after) continue
     const changedProperties = diffProperties(before, after)
 
+    let observation: InteractionObservationSnapshot | undefined
     if (changedProperties.length > 0) {
       const transition = await settleBeforeDeadline(
         page.evaluate((input) => {
@@ -232,7 +264,7 @@ export async function observeSafeInteractions(
         candidateDeadline,
         undefined,
       )
-      observations.push({
+      observation = {
         key: candidate.key,
         sectionKey: candidate.sectionKey,
         targetKey: candidate.key,
@@ -243,17 +275,20 @@ export async function observeSafeInteractions(
         after,
         changedProperties,
         transition,
-      })
+      }
     }
 
-    if (!(await restoreCandidate(page, candidate, before, candidateDeadline))) {
-      const reloadBudget = Math.min(750, Math.max(1, deadline - Date.now()))
-      const reloaded = await page
-        .reload({ waitUntil: 'domcontentloaded', timeout: reloadBudget })
-        .then(() => true)
-        .catch(() => false)
-      if (!reloaded) break
+    const targetRestored = await restoreCandidate(page, candidate, before, candidateDeadline)
+    const geometryRestored = pageGeometryMatches(
+      pageGeometryBefore,
+      await readPageGeometry(page, Math.min(deadline, Date.now() + 250)),
+    )
+    if (!targetRestored || !geometryRestored) {
+      const reloadBudget = Math.min(3_000, Math.max(1, deadline - Date.now()))
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: reloadBudget }).catch(() => {})
+      break
     }
+    if (observation) observations.push(observation)
     if (Date.now() >= deadline) break
   }
 

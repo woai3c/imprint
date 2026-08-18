@@ -3,10 +3,32 @@ import { describe, expect, it } from 'vitest'
 import {
   appendExtractionIssueLimitation,
   appendFailedCaptureHealthLimitations,
+  extractionIssueLimitation,
   isPageHealthExtractionIssue,
 } from '../../src/core/analyzer/extraction-limitations.js'
 
 describe('extraction limitations', () => {
+  it('removes terminal control sequences from persisted diagnostics', () => {
+    const limitation = extractionIssueLimitation({
+      stage: 'navigation',
+      reason: '\u001b[31mTimeout\u001b[0m\u0007 failed',
+    })
+
+    expect(decodeURIComponent(limitation)).toBe('extraction-issue:navigation:Timeout failed')
+  })
+
+  it('keeps diagnostic punctuation outside sanitized URLs', () => {
+    const limitation = extractionIssueLimitation({
+      stage: 'page-2:desktop',
+      reason:
+        'page.goto: Timeout. Call log: - navigating to "https://example.test/people/sample/project?token=secret", waiting until "domcontentloaded"',
+    })
+
+    expect(decodeURIComponent(limitation)).toBe(
+      'extraction-issue:page-2:desktop:page.goto: Timeout. Call log: - navigating to "https://example.test/people/sample/project", waiting until "domcontentloaded"',
+    )
+  })
+
   it('publishes health details only when their capture failed', () => {
     const limitations: string[] = []
     const initialHealthIssue = {

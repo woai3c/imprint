@@ -244,6 +244,16 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
       return paintedFill || paintedBorder
     }
+    const hasStatusEvidenceGeometry = (element: Element): boolean => {
+      const rect = element.getBoundingClientRect()
+      const computed = getComputedStyle(element)
+      return (
+        rect.width >= 4 &&
+        rect.height >= 4 &&
+        (computed.clip === 'auto' || computed.clip === '') &&
+        (computed.clipPath === 'none' || computed.clipPath === '')
+      )
+    }
     const stronglyBoundedCandidates = new Set([...statusCandidates].filter(hasStrongStatusVisualBoundary))
     const independentStrongDescendantCounts = new Map<Element, number>()
     for (const element of stronglyBoundedCandidates) {
@@ -258,6 +268,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     }
     const preferredStatusCandidates = new Set(
       [...statusCandidates].filter((element) => {
+        if (!hasStatusEvidenceGeometry(element)) return false
         if (statusCandidateKinds.get(element) === 'native') return true
         if (candidatesWithNativeDescendants.has(element)) return false
         return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2

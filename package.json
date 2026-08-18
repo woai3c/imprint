@@ -1,7 +1,7 @@
 {
   "name": "imprint",
   "productName": "Imprint",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Extract website UI design styles and export as CSS/Tailwind themes for AI to use",
   "author": "woai3c",
   "license": "MIT",

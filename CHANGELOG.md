@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are generated from Conventional Commits by `pnpm release`.
 
+## [0.0.4] - 2026-08-18
+
+### Added
+
+- add evidence-aware desktop comparison (#1) (ea4e43b)
+
+### Changed
+
+- remove remaining built-in AI artifacts (859c41d)
+- remove built-in AI features (431d9ba)
+
+### Fixed
+
+- make design analysis deterministic (5a30038)
+
 ## [0.0.3] - 2026-08-14
 
 ### Added

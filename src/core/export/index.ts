@@ -337,6 +337,13 @@ interface DesignDocFrontMatterInput {
   darkMode?: DarkModeExportData
   breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>
   components?: ComponentVariantPattern[]
+  componentSummary?: Array<{
+    name: string
+    type: string
+    count: number
+    semanticRole?: string
+    elementKinds?: string[]
+  }>
   evidence?: DesignEvidence
   profile?: DesignProfile | null
 }
@@ -493,6 +500,7 @@ function resolveDesignDocComponents(
 
 function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefined): Array<{
   name: string
+  type: string
   count: number
   confidence: number
   styles: Record<string, string>
@@ -524,6 +532,7 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
     const sampleSize = measured[Math.floor(measured.length / 2)]
     return {
       name,
+      type: components[0]?.type || name,
       count: components.length,
       confidence:
         Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) /
@@ -585,7 +594,18 @@ function designDocColorRoleSummary(tokens: DesignToken): Record<string, unknown>
 }
 
 function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesignMdFrontMatter {
-  const { tokens, language, url, featureTags, darkMode, breakpoints, components = [], evidence, profile } = input
+  const {
+    tokens,
+    language,
+    url,
+    featureTags,
+    darkMode,
+    breakpoints,
+    components = [],
+    componentSummary = components,
+    evidence,
+    profile,
+  } = input
   const source = evidence?.source.finalUrl || url
   const colors = buildDesignMdColorTokens(tokens)
   const typography = designMdTypographyTokens(tokens)
@@ -665,7 +685,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ...(source ? { finalUrl: source } : {}),
           ...(evidence ? { accessMode: evidence.source.accessMode } : {}),
         },
-        featureTags: featureTags || evidence?.featureTags || [],
+        featureTags: (featureTags || evidence?.featureTags || []).map((tag) => localizedFeatureTag(tag, language)),
         evidence: {
           layer: evidence ? 'observed' : 'tokens',
           ...(evidence
@@ -687,7 +707,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ...(profile?.catalogVersion ? { catalogVersion: profile.catalogVersion } : {}),
         },
         ...(Object.keys(nonstandardTokens).length > 0 ? { nonstandardTokens } : {}),
-        ...(components.length > 0
+        ...(componentSummary.length > 0
           ? {
               componentSummary: {
                 source: evidence?.components.length ? 'design-evidence' : 'component-detector',
@@ -703,9 +723,9 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                       ],
                     }
                   : {}),
-                patterns: components.length,
-                instances: components.reduce((total, component) => total + component.count, 0),
-                details: components.map((component) => ({
+                patterns: componentSummary.length,
+                instances: componentSummary.reduce((total, component) => total + component.count, 0),
+                details: componentSummary.map((component) => ({
                   name: component.name,
                   type: component.type,
                   count: component.count,
@@ -1146,7 +1166,7 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\bborderBottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bboxShadow\b/g, coreT(language, 'export.reconstruction.terms.boxShadow')],
     [/\bsticky\b/gi, coreT(language, 'export.reconstruction.terms.sticky')],
-    [/\btop(?=\s+\d)/gi, coreT(language, 'export.reconstruction.terms.top')],
+    [/(?<!-)\btop(?=\s+\d)/gi, coreT(language, 'export.reconstruction.terms.top')],
   ]
   return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
 }
@@ -1168,6 +1188,12 @@ function localizedFeatureTag(tag: string, language: DocLanguage): string {
     'layered elevation system': 'layeredElevationSystem',
     'weight contrast hierarchy': 'weightContrastHierarchy',
     'extensive CSS variable usage': 'extensiveCssVariableUsage',
+    'section-level gradient and compound-radius treatments observed': 'sectionGradientAndCompoundRadius',
+    'section-level gradient treatments observed': 'sectionGradient',
+    'section-level compound-radius treatments observed': 'sectionCompoundRadius',
+    'single dominant action family with multicolor decorative accents': 'dominantActionWithDecorativeAccents',
+    'neutral palette with a single accent': 'neutralPaletteSingleAccent',
+    'rich color system': 'richColorSystem',
   }
   return keys[tag] ? coreT(language, `export.featureTags.${keys[tag]}`) : tag
 }
@@ -1314,6 +1340,7 @@ function isVisiblePseudoValue(property: string, value: string | undefined): bool
   if (!value) return false
   if (property === 'backgroundColor') return !isTransparentColor(value)
   if (property === 'boxShadow') return value !== 'none'
+  if (/^border(?:Top|Right|Bottom|Left)?$/.test(property)) return hasVisibleBorder(value)
   return !/^(?:none|normal|auto|0px|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\))$/i.test(value)
 }
 
@@ -1654,6 +1681,7 @@ export function generateDesignDoc(
     darkMode,
     breakpoints: documentBreakpoints,
     components: documentComponents,
+    componentSummary: [...documentComponents, ...freeformEvidenceComponents],
     evidence: designEvidence,
     profile: designProfile,
   })

@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
+import { redactUrlsInText } from '../core/analyzer/url-privacy.js'
+
 export type LogLevel = 'info' | 'warn' | 'error'
 
 const MAX_LOG_BYTES = 5 * 1024 * 1024
@@ -21,15 +23,18 @@ export function initLogger(): string {
   const logsDir = path.join(app.getPath('userData'), 'logs')
   fs.mkdirSync(logsDir, { recursive: true })
   logFilePath = path.join(logsDir, 'imprint.log')
+  const oldLogFilePath = path.join(logsDir, 'imprint.old.log')
 
   try {
     const stats = fs.statSync(logFilePath)
     if (stats.size > MAX_LOG_BYTES) {
-      fs.renameSync(logFilePath, path.join(logsDir, 'imprint.old.log'))
+      fs.renameSync(logFilePath, oldLogFilePath)
     }
   } catch {
     // No existing log to rotate
   }
+  sanitizeExistingLogFile(logFilePath)
+  sanitizeExistingLogFile(oldLogFilePath)
 
   process.on('uncaughtException', (error) => {
     write('error', 'process', `uncaughtException: ${formatError(error)}`)
@@ -40,6 +45,16 @@ export function initLogger(): string {
 
   log.info('app', `logger initialized at ${logFilePath}`)
   return logFilePath
+}
+
+function sanitizeExistingLogFile(filePath: string): void {
+  try {
+    const current = fs.readFileSync(filePath, 'utf8')
+    const sanitized = redactUrlsInText(current)
+    if (current !== sanitized) fs.writeFileSync(filePath, sanitized, { encoding: 'utf8', mode: 0o600 })
+  } catch {
+    // Missing or unreadable legacy logs do not prevent startup.
+  }
 }
 
 export function getLogDir(): string {
@@ -53,7 +68,7 @@ function formatError(error: unknown): string {
 
 function write(level: LogLevel, scope: string, message: string) {
   if (!logFilePath) return
-  const line = `${new Date().toISOString()} [${level.toUpperCase()}] [${scope}] ${message}\n`
+  const line = `${new Date().toISOString()} [${level.toUpperCase()}] [${scope}] ${redactUrlsInText(message)}\n`
   const lineBytes = Buffer.byteLength(line)
   if (queuedBytes + lineBytes > MAX_BUFFERED_BYTES) {
     droppedLines += 1

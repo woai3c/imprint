@@ -4,6 +4,7 @@
  */
 import { app } from 'electron'
 
+import type { AnalysisDepth, AnalysisViewport } from '../../core/analyzer/analysis-request.js'
 import {
   type AnalysisResult,
   type AuthMode,
@@ -13,13 +14,14 @@ import {
 } from '../../core/analyzer/index.js'
 
 export interface ElectronAnalysisOptions {
-  viewports?: string[]
+  viewports?: AnalysisViewport[]
   maxPages?: number
   useSession?: boolean
   authMode?: AuthMode
   extractDarkMode?: boolean
-  depth?: 'standard' | 'deep'
+  depth?: AnalysisDepth
   pageDiscovery?: PageDiscoveryMode
+  browserPath?: string
   proxyServer?: string
   signal?: AbortSignal
 }
@@ -36,6 +38,7 @@ export async function analyzeUrl(
       ...options,
       dataDir: app.getPath('userData'),
       browserResourcesDir: app.isPackaged ? process.resourcesPath : undefined,
+      toolVersion: app.getVersion(),
       onLoginRequired,
     },
     onProgress,

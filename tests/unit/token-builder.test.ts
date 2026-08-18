@@ -27,6 +27,21 @@ describe('design token builder', () => {
     expect(result.usageCount?.['radius:9999px']).toBe(49)
   })
 
+  test('keeps composite spacing shorthands out of the reusable scalar scale', () => {
+    const styles = createExtractedStyles({
+      spacings: ['4px', '4px 10px', '8px'],
+      usageCount: {
+        'spacing:4px': 12,
+        'spacing:4px 10px': 80,
+        'spacing:8px': 20,
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['4px', '8px'])
+  })
+
   test('selects typography and effects using usageCount', () => {
     const commonShadow = '0 2px 8px rgb(0 0 0 / 20%)'
     const rareShadow = '0 1px 1px rgb(0 0 0 / 5%)'
@@ -71,6 +86,21 @@ describe('design token builder', () => {
     expect(tokens.typography.fontStacks[0]).toBe('Inter, sans-serif')
     expect(tokens.shadows).toEqual([rareShadow, commonShadow])
     expect(tokens.transitions).toEqual(['0.15s', '200ms', '0.3s'])
+  })
+
+  test('merges sub-pixel font-size noise into one reusable token', () => {
+    const styles = createExtractedStyles({
+      fontSizes: ['11.9px', '12px', '16px'],
+      usageCount: {
+        'fontSize:11.9px': 5,
+        'fontSize:12px': 20,
+        'fontSize:16px': 30,
+      },
+    })
+
+    const tokens = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(tokens.typography.fontSizes).toEqual(['0.75rem', '1rem'])
   })
 
   test('uses directly rendered text coverage instead of nested element counts for the primary font', () => {

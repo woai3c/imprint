@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
 
 import type { LoginDecision, LoginRequest } from '../core/analyzer/types.js'
+import { sanitizeAuthWallDetectionForDisplay } from '../core/analyzer/url-privacy.js'
 
 interface PendingLoginDecision {
   requestId: string
@@ -46,7 +47,7 @@ export function waitForLoginDecision(
     win.webContents.once('destroyed', handleDestroyed)
     win.webContents.send('analysis:loginRequired', {
       requestId,
-      detection: request.detection,
+      detection: sanitizeAuthWallDetectionForDisplay(request.detection),
       retry: request.retry,
     })
   })

@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { AppSettings, ElectronAPI, LoginRequiredEvent, RendererPerformanceSample } from '../shared/ipc-contract.js'
+import type {
+  AnalyzeOptions,
+  AppSettings,
+  ElectronAPI,
+  LoginRequiredEvent,
+  RendererPerformanceSample,
+} from '../shared/ipc-contract.js'
 
 const api = {
   platform: process.platform,
@@ -16,17 +22,7 @@ const api = {
   exportTheme: (id: string, format: string) => ipcRenderer.invoke('themes:export', id, format),
 
   // Analysis
-  analyzeUrl: (
-    url: string,
-    options?: {
-      viewports?: string[]
-      maxPages?: number
-      useSession?: boolean
-      authMode?: 'auto' | 'anonymous' | 'managed'
-      language?: string
-      depth?: 'standard' | 'deep'
-    },
-  ) => ipcRenderer.invoke('analyze:url', url, options),
+  analyzeUrl: (url: string, options?: AnalyzeOptions) => ipcRenderer.invoke('analyze:url', url, options),
   recoverAnalysis: () => ipcRenderer.invoke('analysis:recover'),
   acknowledgeAnalysis: () => ipcRenderer.invoke('analysis:acknowledge'),
   cancelAnalysis: () => ipcRenderer.invoke('analysis:cancel'),
@@ -56,6 +52,18 @@ const api = {
   getAnalysisSummaries: () => ipcRenderer.invoke('analyses:listSummaries'),
   getAnalysisSummariesPage: (query = {}) => ipcRenderer.invoke('analyses:listSummariesPage', query),
   getAnalysis: (id: string) => ipcRenderer.invoke('analyses:get', id),
+  compareAnalyses: (earlierAnalysisId: string, laterAnalysisId: string) =>
+    ipcRenderer.invoke('analyses:compare', earlierAnalysisId, laterAnalysisId),
+  approveComparisonReview: (
+    earlierAnalysisId: string,
+    laterAnalysisId: string,
+    decisions: Array<{
+      changeId: string
+      decision: 'approve-target' | 'ignore'
+      expectedFrom: string | null
+      expectedTo: string | null
+    }>,
+  ) => ipcRenderer.invoke('analyses:approveComparisonReview', earlierAnalysisId, laterAnalysisId, decisions),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
   deleteAnalyses: (ids: string[]) => ipcRenderer.invoke('analyses:deleteMany', ids),
 

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Known structural partial coverage</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f2f4f7;
+        color: #202936;
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      main {
+        width: calc(100% - 64px);
+        max-width: 920px;
+        margin: 48px auto;
+      }
+      .hero,
+      .repeated {
+        padding: 24px;
+        border: 1px solid #cfd6df;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .repeated + .repeated {
+        margin-top: 16px;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      .action {
+        align-self: center;
+        justify-self: start;
+        padding: 12px 20px;
+        border: 0;
+        border-radius: 8px;
+        background: #2457d6;
+        color: #ffffff;
+        font: inherit;
+      }
+      .action:hover {
+        transform: translateY(-2px);
+      }
+      @media (max-width: 600px) {
+        main {
+          width: calc(100% - 32px);
+          margin: 24px auto;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div>
+          <h1>Partial coverage surface</h1>
+          <p>The unique responsive section remains comparable.</p>
+        </div>
+        <button class="action" type="button">Observe state</button>
+      </section>
+      <section class="repeated">
+        <h2>Repeated region</h2>
+        <p>These regions intentionally share the same semantic signature.</p>
+      </section>
+      <section class="repeated">
+        <h2>Repeated region</h2>
+        <p>These regions intentionally share the same semantic signature.</p>
+      </section>
+    </main>
+  </body>
+</html>

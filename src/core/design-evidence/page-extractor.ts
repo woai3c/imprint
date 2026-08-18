@@ -266,20 +266,35 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return tag === 'MAIN' || tag === 'ARTICLE' || tag === 'SECTION' ? 'content' : 'unknown'
     }
 
-    const pageRole = (): 'landing' | 'content' | 'product' | 'pricing' | 'account' | 'workspace' | 'unknown' => {
+    const pageRole = (): PageRole => {
       const path = location.pathname.toLowerCase()
       if (/\/(pricing|plans|billing)(\/|$)/.test(path)) return 'pricing'
       if (/\/(workspace|editor|studio|console|creator)(\/|$)/.test(path)) return 'workspace'
-      if (/\/(account|profile|settings|dashboard)(\/|$)/.test(path)) return 'account'
+      if (/\/(profile)(\/|$)/.test(path)) return 'profile'
+      if (/\/(account|settings|dashboard)(\/|$)/.test(path)) return 'account'
       if (/\/(product|products|features)(\/|$)/.test(path)) return 'product'
-      if (/\/(article|blog|docs|guide|about|column|column-square|explore|discover)(\/|$)/.test(path)) return 'content'
+      if (/\/(article|blog|docs|guide|about|explore|discover)(\/|$)/.test(path)) return 'content'
+      if (
+        document.querySelector(
+          'main [itemscope][itemtype="https://schema.org/Person"], main [itemscope][itemtype="http://schema.org/Person"], main [itemprop~="additionalName"]',
+        )
+      ) {
+        return 'profile'
+      }
       const article = document.querySelector('article')
       if (article && (article.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) return 'content'
       const main = document.querySelector('main, [role="main"]')
       if (main && !main.querySelector('h1') && (main.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) {
         return 'content'
       }
-      if (document.querySelector('table') && document.querySelector('header, nav, [role="navigation"]')) {
+      const hasApplicationControls = Boolean(
+        document.querySelector('[role="tablist"], .toolbar, [class*="workspace" i], [data-testid*="workspace" i]'),
+      )
+      if (
+        hasApplicationControls &&
+        document.querySelector('table, [role="grid"], [role="treegrid"]') &&
+        document.querySelector('header, nav, [role="navigation"]')
+      ) {
         return 'workspace'
       }
       if (document.querySelector('h1') && document.querySelectorAll('main > section, main section').length >= 2) {
@@ -745,6 +760,16 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
       return paintedFill || paintedBorder
     }
+    const hasStatusEvidenceGeometry = (element: Element): boolean => {
+      const rect = element.getBoundingClientRect()
+      const computed = computedFor(element)
+      return (
+        rect.width >= 4 &&
+        rect.height >= 4 &&
+        (computed.clip === 'auto' || computed.clip === '') &&
+        (computed.clipPath === 'none' || computed.clipPath === '')
+      )
+    }
     const stronglyBoundedCandidates = new Set(statusCandidates.filter(hasStrongStatusVisualBoundary))
     const independentStrongDescendantCounts = new Map<Element, number>()
     for (const element of stronglyBoundedCandidates) {
@@ -759,6 +784,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     }
     const preferredStatusCandidates = new Set(
       statusCandidates.filter((element) => {
+        if (!hasStatusEvidenceGeometry(element)) return false
         if (statusCandidateKinds.get(element) === 'native') return true
         if (candidatesWithNativeDescendants.has(element)) return false
         return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2
@@ -1043,6 +1069,14 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       ] as const) {
         const pseudo = getComputedStyle(element, selector)
         const content = pseudo.content
+        const opacity = Number.parseFloat(pseudo.opacity)
+        if (
+          pseudo.display === 'none' ||
+          ['hidden', 'collapse'].includes(pseudo.visibility) ||
+          (Number.isFinite(opacity) && opacity <= 0)
+        ) {
+          continue
+        }
         if (!content || ['none', 'normal', '""', "''"].includes(content)) continue
         const unquotedContent = content.replace(/^(['"])([\s\S]*)\1$/, '$2').trim()
         const isTransparentMaterial = (value: string) =>
@@ -1101,12 +1135,16 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         lineHeight: firstLetter.lineHeight,
         float: firstLetter.cssFloat,
       }
-      const differs = Object.entries(firstLetterStyles).some(([name, value]) => {
-        const baseValue =
-          name === 'float' ? base.cssFloat : base.getPropertyValue(name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`))
-        return value && value !== baseValue
-      })
-      if (differs) {
+      const normalizedFamily = (value: string) => value.replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+      const numericDifference = (first: string, second: string) =>
+        Math.abs(Number.parseFloat(first) - Number.parseFloat(second))
+      const meaningfulDifference =
+        (firstLetter.cssFloat && firstLetter.cssFloat !== 'none' && firstLetter.cssFloat !== base.cssFloat) ||
+        firstLetter.color !== base.color ||
+        numericDifference(firstLetter.fontSize, base.fontSize) >= 1 ||
+        numericDifference(firstLetter.fontWeight, base.fontWeight) >= 100 ||
+        normalizedFamily(firstLetter.fontFamily) !== normalizedFamily(base.fontFamily)
+      if (meaningfulDifference) {
         pseudoElements.push({
           key: `first-letter:${locatorFor(element)}`,
           sectionKey: section.key,

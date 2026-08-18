@@ -3,6 +3,41 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { isLinux, isMacOS, isWindows } from '../../shared/platform.js'
+import { coreT } from '../i18n/index.js'
+
+export type BrowserExecutableErrorCode = 'browser-not-found' | 'invalid-browser-path'
+
+export class BrowserExecutableError extends Error {
+  constructor(
+    readonly code: BrowserExecutableErrorCode,
+    readonly browserPath?: string,
+  ) {
+    super(
+      coreT(
+        'en',
+        code === 'browser-not-found' ? 'analyzer.errors.browserNotFound' : 'analyzer.errors.invalidBrowserPath',
+        {
+          path: browserPath,
+        },
+      ),
+    )
+    this.name = 'BrowserExecutableError'
+  }
+}
+
+export function validateBrowserExecutablePath(browserPath: string): string | undefined {
+  const trimmedPath = browserPath.trim()
+  if (!trimmedPath) return undefined
+
+  const resolvedPath = path.resolve(trimmedPath)
+  try {
+    if (!fs.statSync(resolvedPath).isFile()) return undefined
+    fs.accessSync(resolvedPath, isWindows(process.platform) ? fs.constants.F_OK : fs.constants.F_OK | fs.constants.X_OK)
+    return resolvedPath
+  } catch {
+    return undefined
+  }
+}
 
 export function findBrowser(): string | undefined {
   if (isWindows(process.platform)) {
@@ -103,4 +138,22 @@ export function findHeadlessBrowser(resourcesDir?: string): string | undefined {
   }
 
   return findBrowser()
+}
+
+export function resolveBrowserExecutables(
+  explicitPath?: string,
+  resourcesDir?: string,
+): { interactive: string; headless: string } {
+  if (explicitPath !== undefined) {
+    const executablePath = validateBrowserExecutablePath(explicitPath)
+    if (!executablePath) throw new BrowserExecutableError('invalid-browser-path', explicitPath)
+    return { interactive: executablePath, headless: executablePath }
+  }
+
+  const interactive = findBrowser()
+  if (!interactive) throw new BrowserExecutableError('browser-not-found')
+  return {
+    interactive,
+    headless: findHeadlessBrowser(resourcesDir) || interactive,
+  }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
@@ -6,18 +7,22 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import electronPath from 'electron'
+
 import { _electron as electron } from 'playwright-core'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixturePath = path.join(repoRoot, 'tests', 'e2e', 'fixtures', 'design-system.html')
 const resultDir = path.join(repoRoot, 'test-results')
 const failureScreenshotPath = path.join(resultDir, 'core-flow-failure.png')
+const databaseHelperPath = path.join(repoRoot, 'tests', 'e2e', 'helpers', 'legacy-database.mjs')
 
 let fixtureServer
 let fixtureUrl
 let electronApp
 let page
 let userDataDir
+let comparisonFixtureChanged = false
 
 function launchApp(locale = 'en-US') {
   return electron.launch({
@@ -32,6 +37,20 @@ function launchApp(locale = 'en-US') {
     locale,
     timeout: 60_000,
   })
+}
+
+function inspectGovernance() {
+  const result = spawnSync(
+    electronPath,
+    [databaseHelperPath, 'inspect-governance', path.join(userDataDir, 'copy-design.db')],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    },
+  )
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  return JSON.parse(result.stdout)
 }
 
 const authFixture = Buffer.from(`<!doctype html>
@@ -71,7 +90,23 @@ before(async () => {
     const requiresAuthentication = request.url?.startsWith('/private')
     const authenticated = request.headers.cookie?.split(/;\s*/).includes('imprint_e2e_auth=1') ?? false
     const authenticationRequired = requiresAuthentication && !authenticated
-    const body = authenticationRequired ? authFixture : fixture
+    const comparisonBody = comparisonFixtureChanged
+      ? Buffer.from(
+          fixture
+            .toString('utf8')
+            .replace('--fixture-brand: #2563eb', '--fixture-brand: #dc2626')
+            .replace('max-width: 960px', 'max-width: 840px')
+            .replace('grid-template-columns: repeat(2, minmax(0, 1fr))', 'grid-template-columns: repeat(3, 1fr)')
+            .replace('background: #1d4ed8', 'background: #b91c1c')
+            .replace('<section class="hero">', '<div class="layout-wrapper"><section class="hero">')
+            .replace('</section>\n      <form', '</section></div>\n      <form'),
+        )
+      : fixture
+    const body = authenticationRequired
+      ? authFixture
+      : request.url?.startsWith('/comparison')
+        ? comparisonBody
+        : fixture
     const responseHeaders = {
       'cache-control': 'no-store',
       'content-length': body.length,
@@ -126,6 +161,7 @@ test('switches themes in the current validation scenario', async () => {
 
 test('extracts and persists a deterministic local design system', { timeout: 300_000 }, async (t) => {
   try {
+    const submittedFixtureUrl = `${fixtureUrl}?access_token=private-value#private-panel`
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
     assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
 
@@ -133,7 +169,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('proxy-server').waitFor({ state: 'visible' })
 
     await page.locator('a[href="#/"]').click()
-    await page.getByTestId('analyze-url').fill(fixtureUrl)
+    await page.getByTestId('analyze-url').fill(submittedFixtureUrl)
     await page.getByTestId('analyze-submit').click()
 
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
@@ -285,20 +321,55 @@ test('extracts and persists a deterministic local design system', { timeout: 300
       const fullRecords = await window.electronAPI.getAnalyses()
       return {
         summaryKeys: Object.keys(summaries[0] || {}),
+        summarySiteNames: summaries.map((record) => record.site_name),
         summaryHasScreenshot: typeof summaries[0]?.screenshot_path === 'string',
         pageTotals: [firstPage.total, firstPage.matchingIds.length],
         pageSizes: [firstPage.records.length, secondPage.records.length],
         pageNumbers: [firstPage.page, secondPage.page],
         fullRecordHasTokens: Object.hasOwn(fullRecords[0] || {}, 'tokens_json'),
+        fullRecordsContainSubmittedSecrets: JSON.stringify(fullRecords).includes('private-value'),
+        captureManifestSchema: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.schemaVersion,
+        captureRequestSchema: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.schemaVersion,
       }
     })
     assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
     assert.equal(analysisListPayloads.summaryKeys.includes('design_doc'), false)
+    assert.deepEqual(analysisListPayloads.summarySiteNames, ['Imprint Fixture', 'Imprint Fixture'])
     assert.equal(analysisListPayloads.summaryHasScreenshot, true)
     assert.deepEqual(analysisListPayloads.pageTotals, [2, 2])
     assert.deepEqual(analysisListPayloads.pageSizes, [1, 1])
     assert.deepEqual(analysisListPayloads.pageNumbers, [1, 2])
     assert.equal(analysisListPayloads.fullRecordHasTokens, true)
+    assert.equal(analysisListPayloads.fullRecordsContainSubmittedSecrets, false)
+    assert.equal(analysisListPayloads.captureManifestSchema, '1')
+    assert.equal(analysisListPayloads.captureRequestSchema, '1')
+    const siteNameSearch = await page.evaluate(() =>
+      window.electronAPI.getAnalysisSummariesPage({ page: 1, pageSize: 10, search: 'Imprint Fixture' }),
+    )
+    assert.equal(siteNameSearch.total, 2)
+
+    const historyRows = page.getByTestId('history-record')
+    assert.equal(await page.getByText('Imprint Fixture', { exact: true }).count(), 2)
+    assert.equal(await page.getByTestId('history-compare-reference').count(), 0)
+    await page.getByTestId('history-open-comparison-picker').click()
+    const comparisonPicker = page.getByTestId('comparison-picker-dialog')
+    await comparisonPicker.waitFor({ state: 'visible' })
+    assert.match((await comparisonPicker.textContent()) || '', /choose the analyses from before and after a change/i)
+    assert.notEqual(
+      await page.getByTestId('comparison-picker-earlier').inputValue(),
+      await page.getByTestId('comparison-picker-later').inputValue(),
+    )
+    await page.getByTestId('comparison-picker-submit').click()
+    await comparisonPicker.waitFor({ state: 'detached' })
+    await page.getByTestId('reference-comparison-dialog').waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('reference-comparison-status').textContent(), 'Inconclusive')
+    assert.match(
+      (await page.getByTestId('reference-comparison-dialog').textContent()) || '',
+      /page and viewport sets do not match/i,
+    )
+    await page.getByTestId('reference-comparison-dialog').getByRole('button', { name: 'Close' }).click()
+    await page.getByTestId('reference-comparison-dialog').waitFor({ state: 'detached' })
+
     const firstHistoryRecord = await page.getByTestId('history-record').first().elementHandle()
     await firstHistoryRecord.click()
     await page.getByTestId('analysis-detail-dialog').waitFor({ state: 'visible' })
@@ -485,3 +556,134 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     throw error
   }
 })
+
+test(
+  'loads changed token and observed-evidence comparisons through the Desktop database and IPC path',
+  { timeout: 180_000 },
+  async () => {
+    const comparisonUrl = `${fixtureUrl}comparison`
+    comparisonFixtureChanged = false
+    const earlierAnalysisId = await page.evaluate(async (url) => {
+      const result = await window.electronAPI.analyzeUrl(url, {
+        viewports: ['desktop', 'mobile'],
+        maxPages: 1,
+        authMode: 'anonymous',
+      })
+      if (!result.analysisId) throw new Error(result.message || 'Earlier analysis failed')
+      return result.analysisId
+    }, comparisonUrl)
+
+    comparisonFixtureChanged = true
+    const laterAnalysisId = await page.evaluate(async (url) => {
+      const result = await window.electronAPI.analyzeUrl(url, {
+        viewports: ['desktop', 'mobile'],
+        maxPages: 1,
+        authMode: 'anonymous',
+      })
+      if (!result.analysisId) throw new Error(result.message || 'Later analysis failed')
+      return result.analysisId
+    }, comparisonUrl)
+    const comparison = await page.evaluate(
+      ({ earlierId, laterId }) => window.electronAPI.compareAnalyses(earlierId, laterId),
+      { earlierId: earlierAnalysisId, laterId: laterAnalysisId },
+    )
+
+    assert.equal(comparison.success, true)
+    assert.equal(comparison.comparison.status, 'changed')
+    assert.equal(comparison.review, null)
+    assert.deepEqual(comparison.contractHistory, [])
+    assert.deepEqual(comparison.comparison.comparability.reasons, [])
+    assert.ok(comparison.comparison.entityMatching)
+    assert.ok(comparison.comparison.entityMatching.summary.sections.matchedPairs > 0)
+    assert.equal(
+      comparison.comparison.entityMatching.limitations.includes('ambiguous-and-unmatched-are-not-drift'),
+      true,
+    )
+    assert.ok(
+      comparison.comparison.categories.some(
+        (category) => category.category === 'colors' && category.status === 'changed',
+      ),
+    )
+    for (const categoryName of ['layout', 'interaction-states', 'responsive']) {
+      const category = comparison.comparison.categories.find(({ category }) => category === categoryName)
+      assert.equal(category?.status, 'changed')
+      assert.equal(category?.coverage, 'partial')
+      assert.ok(category.changes.length > 0)
+      assert.equal(
+        category.changes.every(({ reviewable }) => reviewable === false),
+        true,
+      )
+    }
+    const invalidPairResults = await page.evaluate(
+      ({ earlierId, laterId }) =>
+        Promise.all([
+          window.electronAPI.compareAnalyses(earlierId, earlierId),
+          window.electronAPI.compareAnalyses(laterId, earlierId),
+        ]),
+      { earlierId: earlierAnalysisId, laterId: laterAnalysisId },
+    )
+    assert.deepEqual(invalidPairResults, [
+      { success: false, reason: 'same-analysis' },
+      { success: false, reason: 'analysis-order-invalid' },
+    ])
+    const staleDecisions = comparison.comparison.categories.flatMap((category) =>
+      category.changes.map((change, index) => ({
+        changeId: change.id,
+        decision: index === 0 ? 'approve-target' : 'ignore',
+        expectedFrom: change.from ?? null,
+        expectedTo: change.to ?? null,
+      })),
+    )
+    const missingAnalysisApproval = await page.evaluate(
+      ({ laterId, decisions }) => window.electronAPI.approveComparisonReview('missing-analysis', laterId, decisions),
+      { laterId: comparison.comparison.target.analysisId, decisions: staleDecisions },
+    )
+    assert.deepEqual(missingAnalysisApproval, { success: false, reason: 'analysis-not-found' })
+
+    await page.locator('a[href="#/history"]').click()
+    await page.getByTestId('history-open-comparison-picker').click()
+    await page.getByTestId('comparison-picker-earlier').selectOption(earlierAnalysisId)
+    await page.getByTestId('comparison-picker-later').selectOption(laterAnalysisId)
+    await page.getByTestId('comparison-picker-submit').click()
+    const dialog = page.getByTestId('reference-comparison-dialog')
+    await dialog.waitFor({ state: 'visible' })
+    assert.equal(await page.getByTestId('reference-comparison-status').textContent(), 'Changed')
+    await dialog.getByText('Category comparison scope', { exact: true }).waitFor()
+    assert.equal(await dialog.getByTestId('entity-matching-details').count(), 0)
+    assert.equal((await dialog.getByText(/factual comparison of captured evidence/i).count()) > 0, true)
+
+    const approveButtons = dialog.getByRole('button', { name: 'Approve later value' })
+    const ignoreButtons = dialog.getByRole('button', { name: 'Exclude from contract' })
+    const decisionCount = await approveButtons.count()
+    assert.ok(decisionCount > 0)
+    await approveButtons.first().click()
+    for (let index = 1; index < decisionCount; index += 1) await ignoreButtons.nth(index).click()
+    await page.getByTestId('approve-comparison-review').click()
+    await dialog.getByText(/Design Contract v1 records/i).waitFor()
+    await dialog.getByText(/1 immutable contract version/i).waitFor()
+
+    await dialog.getByRole('button', { name: 'Revise decisions' }).click()
+    await page.getByTestId('approve-comparison-review').click()
+    await dialog.getByText(/Design Contract v2 records/i).waitFor()
+    await dialog.getByText(/2 immutable contract versions/i).waitFor()
+
+    const reopened = await page.evaluate(
+      ({ earlierId, laterId }) => window.electronAPI.compareAnalyses(earlierId, laterId),
+      { earlierId: earlierAnalysisId, laterId: laterAnalysisId },
+    )
+    assert.equal(reopened.success, true)
+    assert.equal(reopened.review.contract.version, 2)
+    assert.deepEqual(
+      reopened.contractHistory.map(({ version }) => version),
+      [2, 1],
+    )
+    const governance = inspectGovernance()
+    assert.equal(governance.reviews.length, 2)
+    assert.equal(governance.contracts.length, 2)
+    assert.deepEqual(
+      governance.events.map(({ event_type }) => event_type),
+      ['comparison-review-approved', 'comparison-review-approved'],
+    )
+    await dialog.getByRole('button', { name: 'Close' }).click()
+  },
+)

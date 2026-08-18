@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { normalizeColorValue } from '../../src/core/analyzer/color-cluster.js'
 import { analyze, findBrowser } from '../../src/core/analyzer/index.js'
+import { compareReferenceCaptures } from '../../src/core/analyzer/reference-compare.js'
 import { generateDesignDoc } from '../../src/core/export/index.js'
 import type { FixtureAnnotation } from './annotation-types.js'
 
@@ -61,6 +62,21 @@ async function analyzeFixture(fixture: string, dataDir: string) {
   return analyze(`${baseUrl}/${fixture}.html`, {
     viewports: ['desktop', 'mobile'],
     maxPages: 1,
+    useSession: false,
+    dataDir,
+  })
+}
+
+async function analyzeKnownChangeFixture(
+  fixture: string,
+  variant: 'reference' | 'changed',
+  dataDir: string,
+  viewports: Array<'desktop' | 'mobile'> = ['desktop'],
+  maxPages = 1,
+) {
+  return analyze(`${baseUrl}/${fixture}.html?variant=${variant}`, {
+    viewports,
+    maxPages,
     useSession: false,
     dataDir,
   })
@@ -345,7 +361,241 @@ describe('Design Evidence browser regression corpus', () => {
         expect(rerun.designEvidence.sections.map((section) => section.id)).toEqual(
           evidence.sections.map((section) => section.id),
         )
+        const stability = compareReferenceCaptures(
+          {
+            analysisId: result.analysisId,
+            url: result.finalUrl,
+            tokens: result.tokens,
+            evidence: result.designEvidence,
+            manifest: result.captureManifest,
+          },
+          {
+            analysisId: rerun.analysisId,
+            url: rerun.finalUrl,
+            tokens: rerun.tokens,
+            evidence: rerun.designEvidence,
+            manifest: rerun.captureManifest,
+          },
+        )
+        expect(stability.comparability.reasons, 'repeat capture must remain comparable').toEqual([])
+        expect(stability.status, 'repeat capture must not report token drift').toBe('unchanged')
       },
     )
   }
+
+  const knownChangeCases = [
+    {
+      role: 'calibration',
+      fixture: 'known-change-calibration',
+      expectedChangedCategories: ['colors', 'typography', 'spacing', 'radii'],
+    },
+    {
+      role: 'holdout',
+      fixture: 'known-change-holdout',
+      expectedChangedCategories: ['colors', 'radii'],
+    },
+  ] as const
+
+  for (const knownChange of knownChangeCases) {
+    it.skipIf(!browserAvailable)(
+      `detects frozen ${knownChange.role} changes without unsupported category drift`,
+      { timeout: 240_000 },
+      async () => {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `imprint-${knownChange.role}-`))
+        const reference = await analyzeKnownChangeFixture(knownChange.fixture, 'reference', dataDir)
+        const target = await analyzeKnownChangeFixture(knownChange.fixture, 'changed', dataDir)
+        const comparison = compareReferenceCaptures(
+          {
+            analysisId: reference.analysisId,
+            url: reference.finalUrl,
+            tokens: reference.tokens,
+            evidence: reference.designEvidence,
+            manifest: reference.captureManifest,
+          },
+          {
+            analysisId: target.analysisId,
+            url: target.finalUrl,
+            tokens: target.tokens,
+            evidence: target.designEvidence,
+            manifest: target.captureManifest,
+          },
+        )
+        const expected = new Set<string>(knownChange.expectedChangedCategories)
+        const actual = new Set(
+          comparison.categories
+            .filter((category) => category.status === 'changed')
+            .map((category) => category.category),
+        )
+        const falseNegatives = [...expected].filter((category) => !actual.has(category))
+        const falsePositives = [...actual].filter((category) => !expected.has(category))
+
+        expect(comparison.comparability.reasons).toEqual([])
+        expect(falseNegatives, 'known injected changes must be detected').toEqual([])
+        expect(falsePositives, 'unchanged supported categories must remain stable').toEqual([])
+        expect(comparison.categories.find((category) => category.category === 'responsive')).toMatchObject({
+          status: 'inconclusive',
+          coverage: 'none',
+          limitations: ['matched-responsive-observations-only', 'single-viewport'],
+          changes: [],
+        })
+      },
+    )
+  }
+
+  it.skipIf(!browserAvailable)(
+    'treats maxPages as an upper bound when a healthy site exposes only the entry page',
+    { timeout: 240_000 },
+    async () => {
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-page-limit-'))
+      const reference = await analyzeKnownChangeFixture(
+        'known-change-calibration',
+        'reference',
+        dataDir,
+        ['desktop', 'mobile'],
+        3,
+      )
+      const repeated = await analyzeKnownChangeFixture(
+        'known-change-calibration',
+        'reference',
+        dataDir,
+        ['desktop', 'mobile'],
+        3,
+      )
+      const comparison = compareReferenceCaptures(
+        {
+          analysisId: reference.analysisId,
+          url: reference.finalUrl,
+          tokens: reference.tokens,
+          evidence: reference.designEvidence,
+          manifest: reference.captureManifest,
+        },
+        {
+          analysisId: repeated.analysisId,
+          url: repeated.finalUrl,
+          tokens: repeated.tokens,
+          evidence: repeated.designEvidence,
+          manifest: repeated.captureManifest,
+        },
+      )
+
+      expect(reference.designEvidence.coverage).toMatchObject({
+        pageCoverage: 'complete',
+        urlCoverage: { requested: 1, captured: 1 },
+        captureCoverage: { expected: 2, captured: 2, status: 'complete' },
+      })
+      expect(reference.captureManifest).toMatchObject({
+        request: { maxPages: 3 },
+        capture: {
+          pages: { requested: 3, discovered: 0, selected: 0, analyzed: 1 },
+          expected: 2,
+          captured: 2,
+          status: 'complete',
+        },
+      })
+      expect(comparison.comparability.reasons).toEqual([])
+      expect(comparison.status).toBe('unchanged')
+    },
+  )
+
+  const structuralChangeCases = [
+    {
+      role: 'calibration',
+      fixture: 'known-structural-calibration',
+      expectedChangedCategories: ['layout', 'interaction-states', 'responsive'],
+    },
+    {
+      role: 'layout holdout',
+      fixture: 'known-structural-layout-holdout',
+      expectedChangedCategories: ['layout', 'responsive'],
+    },
+    {
+      role: 'interaction holdout',
+      fixture: 'known-structural-interaction-holdout',
+      expectedChangedCategories: ['interaction-states'],
+    },
+  ] as const
+
+  for (const knownChange of structuralChangeCases) {
+    it.skipIf(!browserAvailable)(
+      `detects frozen structural ${knownChange.role} changes without category drift`,
+      { timeout: 300_000 },
+      async () => {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `imprint-structural-${knownChange.role}-`))
+        const reference = await analyzeKnownChangeFixture(knownChange.fixture, 'reference', dataDir, [
+          'desktop',
+          'mobile',
+        ])
+        const referenceRepeat = await analyzeKnownChangeFixture(knownChange.fixture, 'reference', dataDir, [
+          'desktop',
+          'mobile',
+        ])
+        const target = await analyzeKnownChangeFixture(knownChange.fixture, 'changed', dataDir, ['desktop', 'mobile'])
+        const captureInput = (result: typeof reference) => ({
+          analysisId: result.analysisId,
+          url: result.finalUrl,
+          tokens: result.tokens,
+          evidence: result.designEvidence,
+          manifest: result.captureManifest,
+        })
+        const repeated = compareReferenceCaptures(captureInput(reference), captureInput(referenceRepeat))
+        const comparison = compareReferenceCaptures(captureInput(reference), captureInput(target))
+        const expected = new Set<string>(knownChange.expectedChangedCategories)
+        const actual = new Set(
+          comparison.categories
+            .filter((category) => category.status === 'changed')
+            .map((category) => category.category),
+        )
+        const falseNegatives = [...expected].filter((category) => !actual.has(category))
+        const falsePositives = [...actual].filter((category) => !expected.has(category))
+
+        expect(repeated.comparability.reasons, 'unchanged structural rerun must remain comparable').toEqual([])
+        expect(repeated.status, 'unchanged structural rerun must not report drift').toBe('unchanged')
+        expect(repeated.categories.flatMap((category) => category.changes)).toEqual([])
+        expect(comparison.comparability.reasons).toEqual([])
+        expect(falseNegatives, 'known structural changes must be detected').toEqual([])
+        expect(falsePositives, 'unchanged categories must not be reported').toEqual([])
+        for (const categoryName of expected) {
+          const category = comparison.categories.find((candidate) => candidate.category === categoryName)
+          expect(category?.coverage).toBe('partial')
+          expect(category?.changes.length).toBeGreaterThan(0)
+          expect(category?.changes.every((change) => change.reviewable === false)).toBe(true)
+        }
+      },
+    )
+  }
+
+  it.skipIf(!browserAvailable)(
+    'keeps reliable structural subsets comparable when repeated sections remain ambiguous',
+    { timeout: 240_000 },
+    async () => {
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-structural-partial-'))
+      const reference = await analyzeFixture('known-structural-partial-coverage', dataDir)
+      const target = await analyzeFixture('known-structural-partial-coverage', dataDir)
+      const comparison = compareReferenceCaptures(
+        {
+          analysisId: reference.analysisId,
+          url: reference.finalUrl,
+          tokens: reference.tokens,
+          evidence: reference.designEvidence,
+          manifest: reference.captureManifest,
+        },
+        {
+          analysisId: target.analysisId,
+          url: target.finalUrl,
+          tokens: target.tokens,
+          evidence: target.designEvidence,
+          manifest: target.captureManifest,
+        },
+      )
+      const layout = comparison.categories.find((category) => category.category === 'layout')
+      const responsive = comparison.categories.find((category) => category.category === 'responsive')
+
+      expect(comparison.status).toBe('unchanged')
+      expect(comparison.entityMatching?.summary.sections.ambiguousGroups).toBeGreaterThan(0)
+      expect(layout).toMatchObject({ status: 'unchanged', coverage: 'partial', changes: [] })
+      expect(layout?.limitations).toContain('unresolved-entities-excluded')
+      expect(responsive).toMatchObject({ status: 'unchanged', coverage: 'partial', changes: [] })
+      expect(responsive?.limitations).toContain('responsive-observations-unpaired')
+    },
+  )
 })

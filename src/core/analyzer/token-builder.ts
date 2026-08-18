@@ -305,6 +305,10 @@ function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<s
   return normalized
 }
 
+function isScalarLength(value: string): boolean {
+  return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em)$/i.test(value.trim())
+}
+
 export function normalizeDesignTokenUsageCount(usageCount: Readonly<Record<string, number>>): Record<string, number> {
   const normalized: Record<string, number> = {}
   for (const [key, count] of Object.entries(usageCount)) {
@@ -459,7 +463,10 @@ export function buildDesignTokens(
   })
 
   // Typography - sort by frequency and pick unique values
-  const fontSizeFreq = frequencyForCategory(styles, 'fontSize', styles.fontSizes)
+  // Computed font sizes frequently contain sub-pixel layout noise (for example
+  // 11.9062px beside an authored 12px). Normalize that noise before creating a
+  // reusable scale so one intended size cannot become two tokens.
+  const fontSizeFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'fontSize', styles.fontSizes))
   const sortedFontSizes = numericSort(sortByFrequency(fontSizeFreq).map(pxToRem).filter(uniqueFilter()).slice(0, 8))
 
   const fontWeightFreq = frequencyForCategory(styles, 'fontWeight', styles.fontWeights)
@@ -474,6 +481,7 @@ export function buildDesignTokens(
   const spacingFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'spacing', styles.spacings))
   const spacings = sortByFrequency(spacingFreq)
     .filter((v) => {
+      if (!isScalarLength(v)) return false
       const num = parseFloat(v)
       return !isNaN(num) && num > 0 && num <= 96
     })

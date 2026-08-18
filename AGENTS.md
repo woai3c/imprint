@@ -17,6 +17,11 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - Avoid unnecessary questions; ask only when a key decision requires confirmation.
 - Use sub-agents judiciously and avoid unnecessary parallelism.
 - Keep code changes minimal and avoid unrelated refactoring.
+- Keep analyzer and extraction behavior site-agnostic. Do not branch on hostnames, brands, vendor-specific routes,
+  CSS classes, test IDs, or other implementation details of a particular website to improve its result. Use web
+  standards and general DOM/URL semantics, and validate general claims with neutral fixtures covering multiple site
+  structures. If a case cannot be handled generically, report the limitation instead of adding a site adapter or
+  tuning logic and fixtures to make a named website's result look better.
 - Verify actual results through testing; do not assume something is complete just because it looks complete.
 - Protect existing code and data.
 - Report key results without unnecessary progress updates.
@@ -30,6 +35,7 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
 - `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge
 - `pnpm test:design-evidence` — run the annotated Design Evidence browser regression suite
+- `pnpm run test:comparison-site -- --variant reference` — serve the deterministic local site used to manually verify Desktop history comparison; scenario details are in `tests/comparison-site/README.md`
 - `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
 - `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
   trigger native Windows x64 and macOS arm64/x64 release builds

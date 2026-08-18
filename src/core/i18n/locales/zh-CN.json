@@ -12,10 +12,63 @@
       "quit": "退出印记"
     }
   },
+  "analyzer": {
+    "errors": {
+      "browserNotFound": "未找到 Chrome、Edge 或 Chromium。请安装受支持的浏览器，或配置明确的可执行文件路径。",
+      "invalidBrowserPath": "配置的浏览器路径不是可访问的可执行文件：{{path}}"
+    }
+  },
   "cli": {
     "errors": {
+      "prefix": "错误",
       "missingOptionValue": "选项 {{option}} 需要提供值。",
-      "unknownOption": "未知选项：{{option}}"
+      "unknownOption": "未知选项：{{option}}",
+      "unexpectedArgument": "非预期参数：{{value}}",
+      "invalidUrl": "请提供且仅提供一个有效的 HTTP(S) URL。",
+      "invalidViewport": "视口必须是 desktop、tablet、mobile 或 all：{{value}}",
+      "invalidPageCount": "--pages 必须是 1 到 5 之间的整数：{{value}}",
+      "invalidAuthMode": "访问模式无效。",
+      "invalidDarkMode": "深色模式设置无效。",
+      "invalidDepth": "分析深度无效。",
+      "invalidPageDiscovery": "--discovery 必须是 auto、links 或 sitemap：{{value}}",
+      "browserNotFound": "未找到受支持的 Chrome、Edge 或 Chromium。请运行 `imprint doctor` 或提供 --browser-path。",
+      "invalidBrowserPath": "--browser-path 不是可访问的可执行文件：{{path}}",
+      "cancelled": "分析已取消。",
+      "runtime": "分析失败：{{message}}"
+    },
+    "doctor": {
+      "heading": "Imprint 环境诊断",
+      "pass": "通过",
+      "fail": "失败",
+      "unavailable": "不可用",
+      "ready": "环境已就绪。",
+      "notReady": "环境未就绪。",
+      "checks": {
+        "node-runtime": "Node.js 运行时",
+        "platform": "操作系统",
+        "browser-path": "浏览器可执行文件",
+        "browser-launch": "无头浏览器启动"
+      }
+    },
+    "usage": {
+      "doctor": "imprint doctor [--browser-path <路径>] [--json]",
+      "browserPath": "--browser-path <路径>  使用指定的 Chrome、Edge 或 Chromium 可执行文件"
+    }
+  },
+  "mcp": {
+    "started": "Imprint MCP 服务器已启动（stdio 模式）",
+    "errors": {
+      "parse": "解析错误",
+      "invalidRequest": "无效请求",
+      "invalidParams": "方法参数无效",
+      "invalidInitialize": "初始化请求必须包含 protocolVersion、capabilities 和 clientInfo",
+      "alreadyInitialized": "MCP 连接已完成初始化",
+      "notInitialized": "使用工具前请先初始化 MCP 连接",
+      "invalidToolCall": "tools/call 必须包含工具名称和对象参数",
+      "unknownTool": "未知工具：{{name}}",
+      "methodNotFound": "未找到方法：{{method}}",
+      "toolExecution": "工具执行失败：{{message}}",
+      "internal": "服务器内部错误"
     }
   },
   "agentGuide": {
@@ -398,7 +451,11 @@
         "listing": "列表",
         "dashboard": "仪表盘",
         "article": "文章",
-        "product": "产品"
+        "product": "产品",
+        "pricing": "定价",
+        "profile": "个人资料",
+        "account": "账户",
+        "workspace": "工作区"
       }
     },
     "howToUse": {
@@ -421,7 +478,13 @@
       "noStableShadowScale": "未观察到稳定阴影刻度",
       "layeredElevationSystem": "分层式高度系统",
       "weightContrastHierarchy": "字重对比层级",
-      "extensiveCssVariableUsage": "大量使用 CSS 变量"
+      "extensiveCssVariableUsage": "大量使用 CSS 变量",
+      "sectionGradientAndCompoundRadius": "观察到区块级渐变与复合圆角处理",
+      "sectionGradient": "观察到区块级渐变处理",
+      "sectionCompoundRadius": "观察到区块级复合圆角处理",
+      "dominantActionWithDecorativeAccents": "单一主导操作色系搭配多彩装饰强调",
+      "neutralPaletteSingleAccent": "中性色板搭配单一强调色",
+      "richColorSystem": "丰富的色彩系统"
     },
     "contrast": {
       "heading": "### 组件对比度注意事项",

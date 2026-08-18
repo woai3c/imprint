@@ -1,24 +1,15 @@
 import type { ExtractionIssue } from './types.js'
+import { redactUrlsInText } from './url-privacy.js'
 
 export function isPageHealthExtractionIssue(issue: ExtractionIssue): boolean {
   return /:(?:capture-)?health:/.test(issue.stage)
 }
 
 function publicExtractionIssueReason(reason: string): string {
-  return (
-    reason
-      .replace(/https?:\/\/[^\s]+/gi, (value) => {
-        try {
-          const url = new URL(value)
-          return `${url.origin}${url.pathname}`
-        } catch {
-          return '[url]'
-        }
-      })
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 180) || 'unknown reason'
-  )
+  const cleaned = reason
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
+  return redactUrlsInText(cleaned).replace(/\s+/g, ' ').trim().slice(0, 180) || 'unknown reason'
 }
 
 export function extractionIssueLimitation(issue: ExtractionIssue): string {

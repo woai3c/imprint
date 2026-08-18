@@ -22,9 +22,86 @@ export interface AnalysisOptions {
   pageDiscovery?: PageDiscoveryMode
   dataDir: string
   browserResourcesDir?: string
+  browserPath?: string
   proxyServer?: string
+  toolVersion?: string
   signal?: AbortSignal
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
+}
+
+export interface CaptureViewportManifest {
+  name: string
+  width: number
+  height: number
+  deviceScaleFactor: number
+  mobile: boolean
+}
+
+export interface CaptureViewportEnvironment extends CaptureViewportManifest {
+  source: 'requested' | 'adaptive'
+  emulationProfile: 'browser-default' | 'pixel-7-android-13'
+  userAgent: string
+}
+
+export interface CaptureManifest {
+  schemaVersion: '1'
+  capturedAt: string
+  tool: {
+    name: 'imprint'
+    version: string | null
+  }
+  request: {
+    schemaVersion?: '1'
+    viewports: CaptureViewportManifest[]
+    maxPages: number
+    pageDiscovery: PageDiscoveryMode
+    depth: 'standard' | 'deep'
+    accessMode: 'anonymous' | 'managed'
+  }
+  environment: {
+    platform: string
+    architecture: string
+    browser: {
+      engine: 'chromium'
+      product: 'chrome' | 'edge' | 'chromium' | 'unknown'
+      version: string | null
+      userAgent: string
+      headless: boolean
+    }
+    locale: string
+    languages: string[]
+    timezone: string
+    colorScheme: 'light' | 'dark' | 'no-preference'
+    reducedMotion: 'reduce' | 'no-preference'
+    deviceScaleFactor: number
+    viewports: CaptureViewportEnvironment[]
+  }
+  stabilization: {
+    strategyVersion: '1'
+    pageHealthRecorded: true
+    animationFreeze: {
+      eligibleCaptures: number
+      attemptedCaptures: number
+      succeededCaptures: number
+      failedCaptures: number
+      coverage: 'complete' | 'partial' | 'none'
+    }
+    fontsReady: boolean
+  }
+  capture: {
+    pageKeys: string[]
+    pages: {
+      requested: number
+      discovered: number
+      selected: number
+      analyzed: number
+    }
+    expected: number
+    captured: number
+    status: 'complete' | 'partial'
+    coverageLimitations: string[]
+  }
+  limitations: string[]
 }
 
 export interface PageScreenshot {
@@ -33,6 +110,8 @@ export interface PageScreenshot {
   viewport: string
   width?: number
   height?: number
+  /** False when the encoded image does not match the intended capture geometry. */
+  valid?: boolean
 }
 
 export interface ExtractedStyles {
@@ -209,4 +288,5 @@ export interface AnalysisResult {
   finalUrl: string
   extractionIssues: ExtractionIssue[]
   pageCoverage: PageCoverage
+  captureManifest: CaptureManifest
 }

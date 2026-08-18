@@ -1,11 +1,20 @@
-import { ChevronLeft, ChevronRight, ExternalLink, ImageIcon, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, GitCompareArrows, ImageIcon, Trash2, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { AnalysisRecord } from '../../shared/ipc-contract'
+import type {
+  AnalysisRecord,
+  ApprovedComparisonReview,
+  ApprovedDesignContract,
+  ComparisonReviewDecisionInput,
+  ReferenceComparisonResult,
+} from '../../shared/ipc-contract'
 import { AnalysisDetailDialog } from '../components/AnalysisDetailDialog'
+import { CaptureComparisonPickerDialog } from '../components/CaptureComparisonPickerDialog'
 import { PageHeader } from '../components/PageHeader'
+import { ReferenceComparisonDialog } from '../components/ReferenceComparisonDialog'
+import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
@@ -23,7 +32,12 @@ export function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [detailId, setDetailId] = useState<string | null>(null)
+  const [detailTarget, setDetailTarget] = useState<{ analysisId: string; evidenceId?: string } | null>(null)
+  const [comparison, setComparison] = useState<ReferenceComparisonResult | null>(null)
+  const [comparisonReview, setComparisonReview] = useState<ApprovedComparisonReview | null>(null)
+  const [contractHistory, setContractHistory] = useState<ApprovedDesignContract[]>([])
+  const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false)
+  const [comparingId, setComparingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
   const [matchingIds, setMatchingIds] = useState<string[]>([])
@@ -97,6 +111,45 @@ export function HistoryPage() {
     }
   }
 
+  const handleCompare = async (earlier: AnalysisRecord, later: AnalysisRecord) => {
+    setComparingId(later.id)
+    try {
+      const response = await window.electronAPI.compareAnalyses(earlier.id, later.id)
+      if (!response.success) {
+        notify(t(`history.referenceComparison.errors.${response.reason}`), 'error')
+        return
+      }
+      setComparison(response.comparison)
+      setComparisonReview(response.review)
+      setContractHistory(response.contractHistory)
+      setComparisonPickerOpen(false)
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    } finally {
+      setComparingId(null)
+    }
+  }
+
+  const handleApproveComparisonReview = async (decisions: ComparisonReviewDecisionInput[]) => {
+    if (!comparison) return
+    try {
+      const response = await window.electronAPI.approveComparisonReview(
+        comparison.reference.analysisId,
+        comparison.target.analysisId,
+        decisions,
+      )
+      if (!response.success) {
+        notify(t(`history.referenceComparison.review.errors.${response.reason}`), 'error')
+        return
+      }
+      setComparisonReview(response.review)
+      setContractHistory((current) => [response.review.contract, ...current])
+      notify(t('feedback.comparisonReviewApproved'))
+    } catch {
+      notify(t('feedback.actionFailed'), 'error')
+    }
+  }
+
   const selectedFilteredCount = matchingIds.filter((id) => selectedIds.has(id)).length
   const allFilteredSelected = matchingIds.length > 0 && selectedFilteredCount === matchingIds.length
   const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected
@@ -125,7 +178,20 @@ export function HistoryPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title={t('history.title')} description={t('history.description')} />
+      <PageHeader
+        title={t('history.title')}
+        description={t('history.description')}
+        actions={
+          <Button
+            data-testid="history-open-comparison-picker"
+            disabled={loading}
+            onClick={() => setComparisonPickerOpen(true)}
+          >
+            <GitCompareArrows size={16} aria-hidden="true" />
+            {t('history.compareCaptures')}
+          </Button>
+        }
+      />
 
       <div className="px-8 mb-4">
         <input
@@ -202,11 +268,11 @@ export function HistoryPage() {
                   data-testid="history-record"
                   role="button"
                   tabIndex={0}
-                  onClick={() => setDetailId(record.id)}
+                  onClick={() => setDetailTarget({ analysisId: record.id })}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      setDetailId(record.id)
+                      setDetailTarget({ analysisId: record.id })
                     }
                   }}
                   aria-label={t('history.viewRecord', { url: record.url })}
@@ -227,7 +293,7 @@ export function HistoryPage() {
                   <HistoryThumbnail path={record.screenshot_path} url={record.url} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
-                      <span className="text-sm truncate">{record.url}</span>
+                      <span className="truncate text-sm font-medium">{record.site_name}</span>
                       {record.duration_ms != null && record.duration_ms > 0 && (
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {record.duration_ms >= 60000
@@ -237,6 +303,10 @@ export function HistoryPage() {
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span className="max-w-full truncate" title={record.url}>
+                        {record.url}
+                      </span>
+                      <span>·</span>
                       <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
                       {record.theme_name && <span>· {record.theme_name}</span>}
                     </div>
@@ -246,7 +316,7 @@ export function HistoryPage() {
                     {formatLocalDateTime(record.created_at, i18n.language)}
                   </span>
 
-                  <div className="flex gap-1" onClick={(event) => event.stopPropagation()}>
+                  <div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
                     <IconButton
                       icon={ExternalLink}
                       label={t('history.openSource')}
@@ -316,12 +386,40 @@ export function HistoryPage() {
           loading={deleting}
         />
       )}
-      {detailId && (
+      {detailTarget && (
         <AnalysisDetailDialog
-          analysisId={detailId}
+          analysisId={detailTarget.analysisId}
+          initialEvidenceId={detailTarget.evidenceId}
           onClose={(changed) => {
-            setDetailId(null)
+            setDetailTarget(null)
             if (changed) setRefreshKey((current) => current + 1)
+          }}
+        />
+      )}
+      {comparisonPickerOpen && (
+        <CaptureComparisonPickerDialog
+          busy={comparingId !== null}
+          onCompare={handleCompare}
+          onClose={() => setComparisonPickerOpen(false)}
+        />
+      )}
+      {comparison && (
+        <ReferenceComparisonDialog
+          key={comparisonReview?.id ?? 'draft-comparison-review'}
+          comparison={comparison}
+          review={comparisonReview}
+          contractHistory={contractHistory}
+          onApprove={handleApproveComparisonReview}
+          onClose={() => {
+            setComparison(null)
+            setComparisonReview(null)
+            setContractHistory([])
+          }}
+          onOpenEvidence={(analysisId, evidenceId) => {
+            setComparison(null)
+            setComparisonReview(null)
+            setContractHistory([])
+            setDetailTarget({ analysisId, evidenceId })
           }}
         />
       )}

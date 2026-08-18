@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Known change calibration</title>
+    <script>
+      if (new URLSearchParams(location.search).get('variant') === 'changed') {
+        document.documentElement.dataset.variant = 'changed'
+      }
+    </script>
+    <style>
+      :root {
+        --page: #f6f8fc;
+        --surface: #ffffff;
+        --text: #152033;
+        --primary: #2255ff;
+        --space: 16px;
+        --radius: 8px;
+        --heading-size: 32px;
+      }
+      :root[data-variant='changed'] {
+        --primary: #d93624;
+        --space: 28px;
+        --radius: 18px;
+        --heading-size: 40px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--page);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      main {
+        width: min(960px, calc(100% - 64px));
+        margin: 48px auto;
+        display: grid;
+        gap: var(--space);
+      }
+      .hero,
+      .card {
+        padding: var(--space);
+        border-radius: var(--radius);
+        background: var(--surface);
+        border: 1px solid #d8deea;
+      }
+      h1 {
+        margin: 0 0 var(--space);
+        font-size: var(--heading-size);
+        line-height: 1.2;
+      }
+      p {
+        margin: 0;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--space);
+      }
+      button {
+        margin-top: var(--space);
+        padding: 12px var(--space);
+        border: 0;
+        border-radius: var(--radius);
+        background: var(--primary);
+        color: #ffffff;
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Evidence calibration surface</h1>
+        <p>This controlled page changes one value in every currently supported comparison category.</p>
+        <button type="button">Primary action</button>
+      </section>
+      <section class="cards" aria-label="Example cards">
+        <article class="card">
+          <strong>Capture</strong>
+          <p>Observe the rendered system.</p>
+        </article>
+        <article class="card">
+          <strong>Compare</strong>
+          <p>Report only supported changes.</p>
+        </article>
+        <article class="card">
+          <strong>Review</strong>
+          <p>Keep evidence attached.</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

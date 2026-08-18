@@ -11,8 +11,9 @@ import {
   extractPageEvidence,
   observeSafeInteractions,
 } from '../design-evidence/index.js'
+import { createAnalysisRequest } from './analysis-request.js'
 import { detectAuthWall } from './auth-wall.js'
-import { findBrowser, findHeadlessBrowser } from './browser-finder.js'
+import { resolveBrowserExecutables } from './browser-finder.js'
 import {
   getManagedProfileDir,
   getManagedStorageStatePath,
@@ -20,6 +21,7 @@ import {
   hasManagedStorageState,
   markManagedSession,
 } from './browser-session.js'
+import { buildCaptureManifest } from './capture-manifest.js'
 import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents, mergeComponentPatterns } from './component-detect.js'
 import { extractDarkMode } from './dark-mode-detect.js'
@@ -53,6 +55,7 @@ import type {
   AnalysisOptions,
   AnalysisResult,
   AnalysisTiming,
+  CaptureViewportEnvironment,
   DarkModeResult,
   DesignToken,
   ExtractedStyles,
@@ -61,13 +64,36 @@ import type {
   LoginDecision,
   PageScreenshot,
 } from './types.js'
-import { configurePageViewport } from './viewport-emulation.js'
+import { sanitizeUrlForPersistence } from './url-privacy.js'
+import { configurePageViewport, mobileUserAgent } from './viewport-emulation.js'
 
 export type { ComponentPattern } from './component-detect.js'
 export type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 export type { AuthWallDetection, AuthWallReason } from './auth-wall.js'
 export type { DesignEvidence } from '../design-evidence/types.js'
-export { findBrowser, findHeadlessBrowser } from './browser-finder.js'
+export {
+  BrowserExecutableError,
+  findBrowser,
+  findHeadlessBrowser,
+  resolveBrowserExecutables,
+  validateBrowserExecutablePath,
+} from './browser-finder.js'
+export type { BrowserExecutableErrorCode } from './browser-finder.js'
+export {
+  ANALYSIS_REQUEST_SCHEMA_VERSION,
+  ANALYSIS_VIEWPORTS,
+  CORE_ANALYSIS_REQUEST_DEFAULTS,
+  AnalysisRequestError,
+  createAnalysisRequest,
+} from './analysis-request.js'
+export type {
+  AnalysisDepth,
+  AnalysisRequest,
+  AnalysisRequestDefaults,
+  AnalysisRequestErrorCode,
+  AnalysisRequestInput,
+  AnalysisViewport,
+} from './analysis-request.js'
 export {
   AuthenticationBrowserClosedError,
   AuthenticationCancelledError,
@@ -90,6 +116,7 @@ export type {
   TokenConfidence,
   TokenEvidence,
 } from './types.js'
+export type { CaptureManifest, CaptureViewportEnvironment, CaptureViewportManifest } from './types.js'
 export type { PageDiscoveryMode, PageKind } from './page-discovery.js'
 
 const VIEWPORTS: Record<string, { width: number; height: number }> = {
@@ -155,6 +182,8 @@ interface BrowserRuntime {
   browser: Browser | null
   context: BrowserContext
   kind: 'ephemeral' | 'managed-profile' | 'managed-state'
+  executablePath: string
+  headless: boolean
 }
 
 function detectSystemProxy(): string | undefined {
@@ -196,7 +225,7 @@ async function launchRuntime(
 ): Promise<BrowserRuntime> {
   const proxyServer = explicitProxy || detectSystemProxy()
   const proxyConfig = proxyServer ? { proxy: { server: proxyServer } } : {}
-  if (proxyServer) console.log('[imprint] using proxy:', proxyServer)
+  if (proxyServer) console.error('[imprint] using proxy:', sanitizeUrlForPersistence(proxyServer))
 
   if (mode === 'managed') {
     const storageStatePath = getManagedStorageStatePath(dataDir, url)
@@ -211,7 +240,7 @@ async function launchRuntime(
         storageState: storageStatePath,
         ...proxyConfig,
       })
-      return { browser, context, kind: 'managed-state' }
+      return { browser, context, kind: 'managed-state', executablePath, headless: true }
     }
 
     const profileDir = getManagedProfileDir(dataDir, url)
@@ -223,7 +252,7 @@ async function launchRuntime(
       viewport: VIEWPORTS.desktop,
       ...proxyConfig,
     })
-    return { browser: null, context, kind: 'managed-profile' }
+    return { browser: null, context, kind: 'managed-profile', executablePath, headless }
   }
 
   const browser = await chromium.launch({
@@ -233,7 +262,34 @@ async function launchRuntime(
     ...proxyConfig,
   })
   const context = await browser.newContext(proxyConfig)
-  return { browser, context, kind: 'ephemeral' }
+  return { browser, context, kind: 'ephemeral', executablePath, headless }
+}
+
+async function readBrowserEnvironment(page: Page) {
+  return page.evaluate(() => ({
+    userAgent: navigator.userAgent,
+    locale: navigator.language || '',
+    languages: [...(navigator.languages || [])],
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    colorScheme: matchMedia('(prefers-color-scheme: dark)').matches
+      ? ('dark' as const)
+      : matchMedia('(prefers-color-scheme: light)').matches
+        ? ('light' as const)
+        : ('no-preference' as const),
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? ('reduce' as const)
+      : ('no-preference' as const),
+    deviceScaleFactor: window.devicePixelRatio,
+  }))
+}
+
+async function readRuntimeBrowserEnvironment(context: BrowserContext) {
+  const page = await context.newPage()
+  try {
+    return await readBrowserEnvironment(page)
+  } finally {
+    await page.close()
+  }
 }
 
 async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
@@ -376,18 +432,60 @@ function recordScreenshotDimensionIssue(
   filePath: string,
   expectedWidth: number,
   expectedHeight: number,
-): void {
+): boolean {
   const actual = inspectPngDimensions(filePath)
   if (!actual) {
     issues.push({ stage, reason: 'screenshot-dimensions-unreadable' })
-    return
+    return false
   }
   if (Math.abs(actual.width - expectedWidth) > 4 || Math.abs(actual.height - expectedHeight) > 8) {
     issues.push({
       stage,
       reason: `screenshot-dimensions-mismatch expected=${Math.round(expectedWidth)}x${Math.round(expectedHeight)} actual=${actual.width}x${actual.height}`,
     })
+    return false
   }
+  return true
+}
+
+function screenshotDimensionsMatch(
+  filePath: string,
+  expectedWidth: number,
+  expectedHeight: number,
+): { width: number; height: number } | null {
+  const actual = inspectPngDimensions(filePath)
+  if (!actual) return null
+  return Math.abs(actual.width - expectedWidth) <= 4 && Math.abs(actual.height - expectedHeight) <= 8 ? actual : null
+}
+
+async function captureValidatedOverview(
+  page: Page,
+  filePath: string,
+  expectedWidth: number,
+  expectedHeight: number,
+  timeout?: number,
+): Promise<{ dimensions: { width: number; height: number } | null; valid: boolean }> {
+  await page.screenshot({ path: filePath, fullPage: true, ...(timeout ? { timeout } : {}) })
+  let dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+  if (dimensions) return { dimensions, valid: true }
+  const initialDimensions = inspectPngDimensions(filePath)
+
+  // Dynamic pages can occasionally make Chromium return only the viewport for a
+  // full-page request. A fixed document-space clip is deterministic and Playwright
+  // captures it beyond the current viewport.
+  try {
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.waitForTimeout(100)
+    await page.screenshot({
+      path: filePath,
+      clip: { x: 0, y: 0, width: expectedWidth, height: expectedHeight },
+      ...(timeout ? { timeout } : {}),
+    })
+  } catch {
+    return { dimensions: inspectPngDimensions(filePath) || initialDimensions, valid: false }
+  }
+  dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+  return { dimensions: dimensions || inspectPngDimensions(filePath), valid: Boolean(dimensions) }
 }
 
 function pageIdentityUrl(value: string): string {
@@ -427,12 +525,24 @@ async function guardAnalysisExtractionStage<T>(
  * Accepts a `dataDir` for file output (screenshots, session cache).
  */
 export async function analyze(
-  url: string,
+  inputUrl: string,
   options: AnalysisOptions,
   onProgress?: (step: string, percent: number) => void,
 ): Promise<AnalysisResult> {
   throwIfAnalysisAborted(options.signal)
+  const request = createAnalysisRequest({
+    url: inputUrl,
+    viewports: options.viewports,
+    maxPages: options.maxPages,
+    useSession: options.useSession,
+    authMode: options.authMode,
+    extractDarkMode: options.extractDarkMode,
+    depth: options.depth,
+    pageDiscovery: options.pageDiscovery,
+  })
+  const url = request.url
   const startTime = Date.now()
+  const capturedAt = new Date(startTime).toISOString()
   let userWaitMs = 0
   const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
   const timing: AnalysisTiming = {
@@ -463,8 +573,8 @@ export async function analyze(
   const guardExtractionStage = <T>(issues: ExtractionIssue[], stage: string, fallback: T, run: () => Promise<T>) =>
     guardAnalysisExtractionStage(issues, stage, fallback, run, options.signal)
   const analysisId = randomUUID()
-  const viewportNames = options.viewports || ['desktop', 'mobile']
-  const pageLimit = Math.min(5, Math.max(1, Math.floor(options.maxPages ?? 3)))
+  const viewportNames = request.viewports
+  const pageLimit = request.maxPages
   const screenshotDir = path.join(options.dataDir, 'screenshots')
   if (!fs.existsSync(screenshotDir)) {
     fs.mkdirSync(screenshotDir, { recursive: true })
@@ -472,15 +582,13 @@ export async function analyze(
 
   onProgress?.('progress.launchingBrowser', 5)
 
-  const interactiveExecutablePath = findBrowser()
-  if (!interactiveExecutablePath) {
-    throw new Error('Chrome/Edge not found. Please install Google Chrome or Microsoft Edge.')
-  }
-  const headlessExecutablePath = findHeadlessBrowser(options.browserResourcesDir) || interactiveExecutablePath
-  console.log('[imprint] interactive browser resolved:', interactiveExecutablePath)
-  console.log('[imprint] headless browser resolved:', headlessExecutablePath)
+  const resolvedBrowsers = resolveBrowserExecutables(options.browserPath, options.browserResourcesDir)
+  const interactiveExecutablePath = resolvedBrowsers.interactive
+  const headlessExecutablePath = resolvedBrowsers.headless
+  console.error('[imprint] interactive browser resolved:', interactiveExecutablePath)
+  console.error('[imprint] headless browser resolved:', headlessExecutablePath)
 
-  const authMode = options.authMode ?? (options.useSession === false ? 'anonymous' : 'managed')
+  const authMode = request.authMode
   let accessMode: 'anonymous' | 'managed' = authMode === 'managed' ? 'managed' : 'anonymous'
   const initialViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
 
@@ -671,6 +779,7 @@ export async function analyze(
       finalUrl = authDetection.finalUrl
     }
     if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
+    const browserEnvironment = await readRuntimeBrowserEnvironment(runtime.context)
     timing.browserMs = activeElapsedMs()
 
     const allStyles: ExtractedStyles[] = []
@@ -683,12 +792,13 @@ export async function analyze(
     const allInteractions: InteractionStyles = { hover: [], focus: [], active: [], disabled: [] }
     const extractionIssues: ExtractionIssue[] = []
     const analysisLimitations: string[] = []
+    const animationFreezeAttempts: Array<{ url: string; viewport: string; succeeded: boolean }> = []
     const analyzedPages = new Map<
       string,
       { source: 'requested' | 'dom' | 'sitemap'; kind: 'entry' | DiscoveredPage['kind'] }
     >()
-    let discoveredPages: DiscoveredPage[] = []
     let discoveredPageCount = 0
+    let selectedPageCount = 0
     let darkModeResult: DarkModeResult | null = null
     let components: ComponentPattern[] = []
     let breakpoints: ResponsiveBreakpoint[] = []
@@ -745,6 +855,7 @@ export async function analyze(
         motion = await guardExtractionStage(extractionIssues, `${stagePrefix}:motion`, [], () => detectMotion(page))
       }
       const animationIssue = await freezePageAnimations(page)
+      animationFreezeAttempts.push({ url: page.url(), viewport: vpName, succeeded: !animationIssue })
       if (animationIssue) {
         extractionIssues.push({
           stage: `${stagePrefix}:prepare:${animationIssue.stage}`,
@@ -765,7 +876,7 @@ export async function analyze(
         () => extractInteractionStyles(page),
       )
 
-      if (i === 0 && options.extractDarkMode !== false) {
+      if (i === 0 && request.extractDarkMode) {
         darkModeResult = await guardExtractionStage(extractionIssues, `${stagePrefix}:dark-mode`, null, () =>
           extractDarkMode(page, styles),
         )
@@ -840,7 +951,7 @@ export async function analyze(
             () => detectBreakpoints(page),
           )
           entryBreakpointWidths = new Set(breakpoints.map((breakpoint) => breakpoint.width))
-          if (options.extractDarkMode !== false) {
+          if (request.extractDarkMode) {
             darkModeResult = await guardExtractionStage(
               extractionIssues,
               `${stagePrefix}:capture-health:refresh-dark-mode`,
@@ -865,17 +976,12 @@ export async function analyze(
       const evidenceSnapshot = await extractPageEvidence(page, vpName)
       if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
       timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
-      const interactionObservations =
-        i === 0 && accessMode === 'anonymous' && !authDetection.detected
-          ? await guardExtractionStage(extractionIssues, `${stagePrefix}:safe-interactions`, [], () =>
-              observeSafeInteractions(page, evidenceSnapshot, 4, 6_000),
-            )
-          : []
+      let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
         const viewportPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-viewport.png`)
         await measure('screenshotCaptureMs', () => page.screenshot({ path: viewportPath, fullPage: false }))
-        recordScreenshotDimensionIssue(
+        const viewportValid = recordScreenshotDimensionIssue(
           extractionIssues,
           `${stagePrefix}:screenshot:viewport`,
           viewportPath,
@@ -887,6 +993,7 @@ export async function analyze(
           path: viewportPath,
           width: viewport.width,
           height: viewport.height,
+          valid: viewportValid,
           sourceRect: {
             x: 0,
             y: 0,
@@ -941,7 +1048,7 @@ export async function analyze(
           const regionPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-region-${sectionIndex + 1}.png`)
           try {
             await measure('screenshotCaptureMs', () => page.screenshot({ path: regionPath, clip }))
-            recordScreenshotDimensionIssue(
+            const regionValid = recordScreenshotDimensionIssue(
               extractionIssues,
               `${stagePrefix}:screenshot:region`,
               regionPath,
@@ -953,6 +1060,7 @@ export async function analyze(
               path: regionPath,
               width: Math.round(clip.width),
               height: Math.round(clip.height),
+              valid: regionValid,
               sourceRect,
               sectionKey: section.key,
             })
@@ -963,21 +1071,33 @@ export async function analyze(
         }
         await page.evaluate(() => window.scrollTo(0, 0))
       }
-      await measure('screenshotCaptureMs', () => page.screenshot({ path: screenshotPath, fullPage: true }))
-      recordScreenshotDimensionIssue(
-        extractionIssues,
-        `${stagePrefix}:screenshot:overview`,
-        screenshotPath,
-        evidenceSnapshot.width,
-        evidenceSnapshot.height,
+      const overviewCapture = await measure('screenshotCaptureMs', () =>
+        captureValidatedOverview(page, screenshotPath, evidenceSnapshot.width, evidenceSnapshot.height),
       )
+      if (!overviewCapture.valid) {
+        recordScreenshotDimensionIssue(
+          extractionIssues,
+          `${stagePrefix}:screenshot:overview`,
+          screenshotPath,
+          evidenceSnapshot.width,
+          evidenceSnapshot.height,
+        )
+      }
       screenshots.push(screenshotPath)
-      const screenshotDimensions = inspectPngDimensions(screenshotPath)
       const pageScreenshot = {
         url: page.url(),
         path: screenshotPath,
         viewport: vpName,
-        ...(screenshotDimensions || {}),
+        ...(overviewCapture.dimensions || {}),
+        valid: overviewCapture.valid,
+      }
+      if (i === 0 && accessMode === 'anonymous' && !authDetection.detected) {
+        interactionObservations = await guardExtractionStage(
+          extractionIssues,
+          `${stagePrefix}:safe-interactions`,
+          [],
+          () => observeSafeInteractions(page, evidenceSnapshot, 4, 6_000),
+        )
       }
       pageScreenshots.push(pageScreenshot)
       capturedPageEvidence.push({
@@ -1005,14 +1125,16 @@ export async function analyze(
       }
       onProgress?.('progress.discoveringPages', 75)
 
+      const candidateLimit = Math.min(6, subPageLimit + 2)
       const discovery = await discoverPages(
         discoveryPage,
         discoveryPage.url() || finalUrl,
-        subPageLimit,
-        options.pageDiscovery,
+        candidateLimit,
+        request.pageDiscovery,
       )
-      discoveredPages = discovery.pages
+      const discoveredPages = discovery.pages
       discoveredPageCount = discovery.candidateCount
+      selectedPageCount = Math.min(subPageLimit, discoveredPages.length)
       extractionIssues.push(
         ...discovery.issues.map((issue) => ({
           stage: `page-discovery:${issue.stage}`,
@@ -1021,8 +1143,11 @@ export async function analyze(
       )
       if (!canReuseInitialPage) await discoveryPage.close()
 
+      let successfulSubPageCount = 0
       for (let i = 0; i < discoveredPages.length; i++) {
         throwIfAnalysisAborted(options.signal)
+        if (successfulSubPageCount >= subPageLimit) break
+        if (i >= subPageLimit && Date.now() - startTime >= 100_000) break
         const discoveredPage = discoveredPages[i]
         const subUrl = discoveredPage.url
         onProgress?.(
@@ -1070,6 +1195,7 @@ export async function analyze(
             detectMotion(subPage),
           )
           const animationIssue = await freezePageAnimations(subPage)
+          animationFreezeAttempts.push({ url: subPage.url(), viewport: mainViewportName, succeeded: !animationIssue })
           if (animationIssue) {
             extractionIssues.push({
               stage: `${stagePrefix}:prepare:${animationIssue.stage}`,
@@ -1160,36 +1286,43 @@ export async function analyze(
           const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}.png`)
           const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
           timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
-          const interactionObservations =
-            accessMode === 'anonymous'
-              ? await guardExtractionStage(extractionIssues, `${stagePrefix}:safe-interactions`, [], () =>
-                  observeSafeInteractions(subPage, evidenceSnapshot, 4, 6_000),
-                )
-              : []
+          let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
           const viewportPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}-viewport.png`)
           await measure('screenshotCaptureMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
-          recordScreenshotDimensionIssue(
+          const viewportValid = recordScreenshotDimensionIssue(
             extractionIssues,
             `${stagePrefix}:screenshot:viewport`,
             viewportPath,
             mainViewport.width,
             mainViewport.height,
           )
-          await measure('screenshotCaptureMs', () => subPage.screenshot({ path: screenshotPath, fullPage: true }))
-          recordScreenshotDimensionIssue(
-            extractionIssues,
-            `${stagePrefix}:screenshot:overview`,
-            screenshotPath,
-            evidenceSnapshot.width,
-            evidenceSnapshot.height,
+          const overviewCapture = await measure('screenshotCaptureMs', () =>
+            captureValidatedOverview(subPage, screenshotPath, evidenceSnapshot.width, evidenceSnapshot.height),
           )
+          if (!overviewCapture.valid) {
+            recordScreenshotDimensionIssue(
+              extractionIssues,
+              `${stagePrefix}:screenshot:overview`,
+              screenshotPath,
+              evidenceSnapshot.width,
+              evidenceSnapshot.height,
+            )
+          }
           screenshots.push(screenshotPath)
-          const screenshotDimensions = inspectPngDimensions(screenshotPath)
           const pageScreenshot = {
             url: subPage.url(),
             path: screenshotPath,
             viewport: mainViewportName,
-            ...(screenshotDimensions || {}),
+            ...(overviewCapture.dimensions || {}),
+            valid: overviewCapture.valid,
+          }
+          if (accessMode === 'anonymous') {
+            interactionObservations = await guardExtractionStage(
+              extractionIssues,
+              `${stagePrefix}:safe-interactions`,
+              [],
+              () => observeSafeInteractions(subPage, evidenceSnapshot, 4, 6_000),
+            )
           }
           pageScreenshots.push(pageScreenshot)
           capturedPageEvidence.push({
@@ -1204,6 +1337,7 @@ export async function analyze(
                 path: viewportPath,
                 width: mainViewport.width,
                 height: mainViewport.height,
+                valid: viewportValid,
                 sourceRect: {
                   x: 0,
                   y: 0,
@@ -1213,6 +1347,7 @@ export async function analyze(
               },
             ],
           })
+          successfulSubPageCount += 1
 
           const entryRole = capturedPageEvidence[0]?.snapshot.role
           const hasNovelBreakpoints = subPageBreakpoints.some(
@@ -1336,14 +1471,14 @@ export async function analyze(
                     : subPage.screenshot({ path: mobileOverviewPath, fullPage: true, timeout })
                 }),
               )
-              recordScreenshotDimensionIssue(
+              const mobileViewportValid = recordScreenshotDimensionIssue(
                 extractionIssues,
                 `${mobileStagePrefix}:screenshot:viewport`,
                 mobileViewportPath,
                 VIEWPORTS.mobile.width,
                 VIEWPORTS.mobile.height,
               )
-              recordScreenshotDimensionIssue(
+              const mobileOverviewValid = recordScreenshotDimensionIssue(
                 extractionIssues,
                 `${mobileStagePrefix}:screenshot:overview`,
                 mobileOverviewPath,
@@ -1356,6 +1491,7 @@ export async function analyze(
                 path: mobileOverviewPath,
                 viewport: 'mobile',
                 ...(screenshotDimensions || {}),
+                valid: mobileOverviewValid,
               }
               screenshots.push(mobileOverviewPath)
               pageScreenshots.push(mobilePageScreenshot)
@@ -1370,6 +1506,7 @@ export async function analyze(
                     path: mobileViewportPath,
                     width: VIEWPORTS.mobile.width,
                     height: VIEWPORTS.mobile.height,
+                    valid: mobileViewportValid,
                     sourceRect: {
                       x: 0,
                       y: 0,
@@ -1483,15 +1620,17 @@ export async function analyze(
       .filter((issue) => !isPageHealthExtractionIssue(issue))
       .slice(0, 8)
       .forEach((issue) => appendExtractionIssueLimitation(analysisLimitations, issue))
+    const plannedPageCount = 1 + selectedPageCount
+    const plannedCaptureCount = viewportNames.length + selectedPageCount + (adaptiveMobilePlanned ? 1 : 0)
     let designEvidence = buildDesignEvidence({
       analysisId,
       requestedUrl: url,
       finalUrl,
       accessMode,
       authWallDetected,
-      expectedPageCount: pageLimit,
+      expectedPageCount: plannedPageCount,
       expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
-      expectedCaptureCount: viewportNames.length + Math.max(0, pageLimit - 1) + (adaptiveMobilePlanned ? 1 : 0),
+      expectedCaptureCount: plannedCaptureCount,
       screenshotAssetIssueCount: extractionIssues.filter(
         (issue) =>
           /:screenshot:overview$/.test(issue.stage) &&
@@ -1530,6 +1669,57 @@ export async function analyze(
     }
     throwIfAnalysisAborted(options.signal)
 
+    const pageCoverage = {
+      requested: pageLimit,
+      discovered: discoveredPageCount,
+      selected: selectedPageCount,
+      analyzed: analyzedPages.size,
+      pages: [...analyzedPages].map(([pageUrl, metadata]) => ({ url: pageUrl, ...metadata })),
+    }
+    const requestedViewports = viewportNames.map((name) => {
+      const viewport = VIEWPORTS[name] || VIEWPORTS.desktop
+      return {
+        name,
+        ...viewport,
+        deviceScaleFactor: name === 'mobile' ? 1 : browserEnvironment.deviceScaleFactor,
+        mobile: name === 'mobile',
+      }
+    })
+    const viewportEnvironments: CaptureViewportEnvironment[] = requestedViewports.map((viewport) => ({
+      ...viewport,
+      source: 'requested' as const,
+      emulationProfile: viewport.mobile ? ('pixel-7-android-13' as const) : ('browser-default' as const),
+      userAgent: viewport.mobile ? mobileUserAgent(browserEnvironment.userAgent) : browserEnvironment.userAgent,
+    }))
+    if (adaptiveMobileCaptured && !viewportEnvironments.some((viewport) => viewport.name === 'mobile')) {
+      viewportEnvironments.push({
+        name: 'mobile',
+        ...VIEWPORTS.mobile,
+        deviceScaleFactor: 1,
+        mobile: true,
+        source: 'adaptive',
+        emulationProfile: 'pixel-7-android-13',
+        userAgent: mobileUserAgent(browserEnvironment.userAgent),
+      })
+    }
+    const captureManifest = buildCaptureManifest({
+      capturedAt,
+      requestSchemaVersion: request.schemaVersion,
+      toolVersion: options.toolVersion,
+      viewports: requestedViewports,
+      maxPages: pageLimit,
+      pageDiscovery: request.pageDiscovery,
+      depth: request.depth,
+      accessMode,
+      executablePath: runtime.executablePath,
+      headless: runtime.headless,
+      environment: browserEnvironment,
+      viewportEnvironments,
+      animationFreezeAttempts,
+      evidence: designEvidence,
+      pageCoverage,
+    })
+
     return {
       analysisId,
       tokens,
@@ -1549,13 +1739,8 @@ export async function analyze(
       authWallDetected,
       finalUrl,
       extractionIssues,
-      pageCoverage: {
-        requested: pageLimit,
-        discovered: discoveredPageCount,
-        selected: discoveredPages.length,
-        analyzed: analyzedPages.size,
-        pages: [...analyzedPages].map(([pageUrl, metadata]) => ({ url: pageUrl, ...metadata })),
-      },
+      pageCoverage,
+      captureManifest,
     }
   } catch (error) {
     throwIfAnalysisAborted(options.signal)

@@ -28,27 +28,38 @@ import {
   generateLocalVisualQa,
   generateTailwindTheme,
 } from '../core/export/index.js'
+import { coreTranslator } from '../core/i18n/index.js'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
-  id: string | number
+  id?: string | number
   method: string
   params?: Record<string, unknown>
 }
 
 interface JsonRpcResponse {
   jsonrpc: '2.0'
-  id: string | number
+  id: string | number | null
   result?: unknown
   error?: { code: number; message: string }
 }
 
 const SERVER_INFO = {
   name: 'imprint',
-  version: '0.1.0',
-  capabilities: {
-    tools: {},
-  },
+  version: '0.0.3',
+}
+
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
+const mcpT = coreTranslator('en', 'mcp')
+
+class ProtocolError extends Error {
+  constructor(
+    readonly code: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ProtocolError'
+  }
 }
 
 const TOOLS = [
@@ -97,7 +108,7 @@ const TOOLS = [
   },
 ]
 
-async function handleToolCall(name: string, params: Record<string, unknown>): Promise<unknown> {
+async function handleToolCall(name: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
   const dataDir = getDefaultDataDir()
 
   if (name === 'imprint_extract') {
@@ -117,6 +128,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
       dataDir,
       maxPages,
       pageDiscovery,
+      signal,
     })
 
     const tokens = result.tokens
@@ -240,8 +252,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     const urlB = params.urlB as string
 
     const [resultA, resultB] = await Promise.all([
-      analyze(urlA, { viewports: ['desktop'], dataDir }),
-      analyze(urlB, { viewports: ['desktop'], dataDir }),
+      analyze(urlA, { viewports: ['desktop'], dataDir, signal }),
+      analyze(urlB, { viewports: ['desktop'], dataDir, signal }),
     ])
 
     if (params.depth === 'language') {
@@ -270,82 +282,172 @@ async function handleToolCall(name: string, params: Record<string, unknown>): Pr
     return { content: [{ type: 'text', text: JSON.stringify(diff, null, 2) }] }
   }
 
-  throw new Error(`Unknown tool: ${name}`)
+  throw new ProtocolError(-32602, mcpT('errors.unknownTool', { name }))
 }
 
 function sendResponse(response: JsonRpcResponse) {
-  const json = JSON.stringify(response)
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`)
+  process.stdout.write(`${JSON.stringify(response)}\n`)
 }
 
-async function handleRequest(request: JsonRpcRequest) {
+function sendError(id: JsonRpcResponse['id'], code: number, message: string): void {
+  sendResponse({ jsonrpc: '2.0', id, error: { code, message } })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function requestKey(id: string | number): string {
+  return `${typeof id}:${String(id)}`
+}
+
+const activeRequests = new Map<string, AbortController>()
+let initializeResponded = false
+let initialized = false
+
+async function handleRequest(request: JsonRpcRequest & { id: string | number }) {
   try {
     let result: unknown
 
     switch (request.method) {
-      case 'initialize':
-        result = { protocolVersion: '2024-11-05', serverInfo: SERVER_INFO, capabilities: { tools: {} } }
+      case 'initialize': {
+        if (initializeResponded) throw new ProtocolError(-32600, mcpT('errors.alreadyInitialized'))
+        const requestedVersion =
+          typeof request.params?.protocolVersion === 'string' ? request.params.protocolVersion : null
+        const clientInfo = request.params?.clientInfo
+        if (
+          !requestedVersion ||
+          !isRecord(request.params?.capabilities) ||
+          !isRecord(clientInfo) ||
+          typeof clientInfo.name !== 'string' ||
+          typeof clientInfo.version !== 'string'
+        ) {
+          throw new ProtocolError(-32602, mcpT('errors.invalidInitialize'))
+        }
+        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(
+          requestedVersion as (typeof SUPPORTED_PROTOCOL_VERSIONS)[number],
+        )
+          ? requestedVersion
+          : SUPPORTED_PROTOCOL_VERSIONS[0]
+        result = { protocolVersion, serverInfo: SERVER_INFO, capabilities: { tools: {} } }
+        initializeResponded = true
+        break
+      }
+
+      case 'ping':
+        result = {}
         break
 
       case 'tools/list':
+        if (!initialized) throw new ProtocolError(-32600, mcpT('errors.notInitialized'))
         result = { tools: TOOLS }
         break
 
       case 'tools/call': {
-        const toolName = (request.params as { name: string }).name
-        const args = (request.params as { arguments?: Record<string, unknown> }).arguments || {}
-        result = await handleToolCall(toolName, args)
+        if (!initialized) throw new ProtocolError(-32600, mcpT('errors.notInitialized'))
+        const toolName = request.params?.name
+        const args = request.params?.arguments
+        if (typeof toolName !== 'string' || (args !== undefined && !isRecord(args))) {
+          throw new ProtocolError(-32602, mcpT('errors.invalidToolCall'))
+        }
+        const controller = new AbortController()
+        const key = requestKey(request.id)
+        activeRequests.set(key, controller)
+        try {
+          result = await handleToolCall(toolName, args || {}, controller.signal)
+        } catch (error) {
+          if (controller.signal.aborted) return
+          if (error instanceof ProtocolError) throw error
+          result = {
+            content: [
+              {
+                type: 'text',
+                text: mcpT('errors.toolExecution', {
+                  message: error instanceof Error ? error.message : String(error),
+                }),
+              },
+            ],
+            isError: true,
+          }
+        } finally {
+          activeRequests.delete(key)
+        }
         break
       }
 
-      case 'notifications/initialized':
-        return
-
       default:
-        sendResponse({
-          jsonrpc: '2.0',
-          id: request.id,
-          error: { code: -32601, message: `Method not found: ${request.method}` },
-        })
-        return
+        throw new ProtocolError(-32601, mcpT('errors.methodNotFound', { method: request.method }))
     }
 
     sendResponse({ jsonrpc: '2.0', id: request.id, result })
-  } catch (err) {
-    sendResponse({
-      jsonrpc: '2.0',
-      id: request.id,
-      error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
-    })
+  } catch (error) {
+    if (error instanceof ProtocolError) {
+      sendError(request.id, error.code, error.message)
+      return
+    }
+    sendError(request.id, -32603, mcpT('errors.internal'))
   }
 }
 
+function handleNotification(notification: JsonRpcRequest): void {
+  if (notification.method === 'notifications/initialized') {
+    if (initializeResponded) initialized = true
+    return
+  }
+  if (notification.method === 'notifications/cancelled') {
+    const requestId = notification.params?.requestId
+    if (typeof requestId === 'string' || typeof requestId === 'number') {
+      activeRequests.get(requestKey(requestId))?.abort(new DOMException('MCP request cancelled', 'AbortError'))
+    }
+  }
+}
+
+async function handleLine(line: string): Promise<void> {
+  if (!line.trim()) return
+
+  let message: unknown
+  try {
+    message = JSON.parse(line)
+  } catch {
+    sendError(null, -32700, mcpT('errors.parse'))
+    return
+  }
+
+  if (!isRecord(message) || message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
+    sendError(null, -32600, mcpT('errors.invalidRequest'))
+    return
+  }
+
+  const request = message as unknown as JsonRpcRequest
+  if (request.id === undefined) {
+    handleNotification(request)
+    return
+  }
+  if (typeof request.id !== 'string' && typeof request.id !== 'number') {
+    sendError(null, -32600, mcpT('errors.invalidRequest'))
+    return
+  }
+  if (request.params !== undefined && !isRecord(request.params)) {
+    sendError(request.id, -32602, mcpT('errors.invalidParams'))
+    return
+  }
+
+  await handleRequest(request as JsonRpcRequest & { id: string | number })
+}
+
 function startStdioServer() {
-  const rl = readline.createInterface({ input: process.stdin })
-  let buffer = ''
-
+  const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
   rl.on('line', (line) => {
-    buffer += line
-
-    if (line.trim() === '' && buffer.trim()) {
-      // Check for Content-Length header pattern
-      const contentMatch = buffer.match(/Content-Length:\s*(\d+)/)
-      if (contentMatch) {
-        buffer = ''
-        return
-      }
+    void handleLine(line)
+  })
+  rl.on('close', () => {
+    for (const controller of activeRequests.values()) {
+      controller.abort(new DOMException('MCP transport closed', 'AbortError'))
     }
-
-    try {
-      const request = JSON.parse(buffer.trim()) as JsonRpcRequest
-      buffer = ''
-      handleRequest(request)
-    } catch {
-      // Not a complete JSON yet, keep buffering
-    }
+    activeRequests.clear()
   })
 
-  process.stderr.write('Imprint MCP Server started (stdio mode)\n')
+  process.stderr.write(`${mcpT('started')}\n`)
 }
 
 startStdioServer()

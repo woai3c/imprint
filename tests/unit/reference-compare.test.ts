@@ -323,10 +323,9 @@ describe('reference capture comparison', () => {
     expect(primaryChange).toMatchObject({ kind: 'changed', from: '#2255ff', to: '#dd3322' })
     expect(primaryChange?.referenceEvidenceIds).toEqual(['reference-hero'])
     expect(primaryChange?.targetEvidenceIds).toEqual(['target-hero'])
-    expect(primaryChange?.reviewable).toBe(true)
   })
 
-  it('reports conservative section-level layout changes as observation-only evidence', () => {
+  it('reports conservative section-level layout changes from paired evidence', () => {
     const target = capture('target')
     target.evidence!.sections[0].order = 1
     target.evidence!.sections[0].layoutMode = 'sticky'
@@ -346,7 +345,6 @@ describe('reference capture comparison', () => {
       'layout.hero.1.display',
       'layout.hero.1.gridTemplateColumns',
     ])
-    expect(layout.changes.every((item) => item.reviewable === false)).toBe(true)
     expect(layout.changes[0].referenceEvidenceIds).toEqual(['reference-hero'])
     expect(layout.changes[0].targetEvidenceIds).toEqual(['target-hero'])
   })
@@ -367,7 +365,6 @@ describe('reference capture comparison', () => {
       tokenPath: 'interaction.hover.css-pseudo-class:hover.color',
       referenceEvidenceIds: ['reference-hover'],
       targetEvidenceIds: ['target-hover'],
-      reviewable: false,
     })
   })
 
@@ -387,7 +384,6 @@ describe('reference capture comparison', () => {
       tokenPath: 'responsive.hero.desktop-mobile',
       referenceEvidenceIds: ['reference-responsive-hero', 'reference-hero', 'reference-hero-mobile'],
       targetEvidenceIds: ['target-responsive-hero', 'target-hero', 'target-hero-mobile'],
-      reviewable: false,
     })
   })
 

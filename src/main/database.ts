@@ -74,37 +74,6 @@ export function runDatabaseMigrations(database: Database.Database) {
       created_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS comparison_reviews (
-      id TEXT PRIMARY KEY,
-      route_identity TEXT NOT NULL,
-      reference_analysis_id TEXT NOT NULL,
-      target_analysis_id TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status = 'approved'),
-      review_json TEXT NOT NULL,
-      contract_id TEXT NOT NULL,
-      approved_at TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS design_contract_versions (
-      id TEXT PRIMARY KEY,
-      route_identity TEXT NOT NULL,
-      version INTEGER NOT NULL CHECK (version > 0),
-      review_id TEXT NOT NULL UNIQUE,
-      contract_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE (route_identity, version)
-    );
-
-    CREATE TABLE IF NOT EXISTS governance_events (
-      id TEXT PRIMARY KEY,
-      route_identity TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
   `)
 
   // Analysis results are stored as text so history records can be reopened
@@ -157,15 +126,6 @@ export function runDatabaseMigrations(database: Database.Database) {
   normalizeStoredAnalysisDurations(database)
   database.exec('CREATE INDEX IF NOT EXISTS idx_analyses_theme_id ON analyses(theme_id)')
   database.exec('CREATE INDEX IF NOT EXISTS idx_analyses_route_identity ON analyses(route_identity)')
-  database.exec(
-    'CREATE INDEX IF NOT EXISTS idx_comparison_reviews_target ON comparison_reviews(target_analysis_id, approved_at DESC)',
-  )
-  database.exec(
-    'CREATE INDEX IF NOT EXISTS idx_design_contract_versions_route ON design_contract_versions(route_identity, version DESC)',
-  )
-  database.exec(
-    'CREATE INDEX IF NOT EXISTS idx_governance_events_route ON governance_events(route_identity, created_at DESC)',
-  )
   database.exec('DROP INDEX IF EXISTS idx_analyses_reference_route')
 }
 

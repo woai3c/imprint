@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
@@ -7,15 +6,12 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import electronPath from 'electron'
-
 import { _electron as electron } from 'playwright-core'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixturePath = path.join(repoRoot, 'tests', 'e2e', 'fixtures', 'design-system.html')
 const resultDir = path.join(repoRoot, 'test-results')
 const failureScreenshotPath = path.join(resultDir, 'core-flow-failure.png')
-const databaseHelperPath = path.join(repoRoot, 'tests', 'e2e', 'helpers', 'legacy-database.mjs')
 
 let fixtureServer
 let fixtureUrl
@@ -37,20 +33,6 @@ function launchApp(locale = 'en-US') {
     locale,
     timeout: 60_000,
   })
-}
-
-function inspectGovernance() {
-  const result = spawnSync(
-    electronPath,
-    [databaseHelperPath, 'inspect-governance', path.join(userDataDir, 'copy-design.db')],
-    {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    },
-  )
-  assert.equal(result.status, 0, result.stderr || result.stdout)
-  return JSON.parse(result.stdout)
 }
 
 const authFixture = Buffer.from(`<!doctype html>
@@ -590,8 +572,6 @@ test(
 
     assert.equal(comparison.success, true)
     assert.equal(comparison.comparison.status, 'changed')
-    assert.equal(comparison.review, null)
-    assert.deepEqual(comparison.contractHistory, [])
     assert.deepEqual(comparison.comparison.comparability.reasons, [])
     assert.ok(comparison.comparison.entityMatching)
     assert.ok(comparison.comparison.entityMatching.summary.sections.matchedPairs > 0)
@@ -609,10 +589,6 @@ test(
       assert.equal(category?.status, 'changed')
       assert.equal(category?.coverage, 'partial')
       assert.ok(category.changes.length > 0)
-      assert.equal(
-        category.changes.every(({ reviewable }) => reviewable === false),
-        true,
-      )
     }
     const invalidPairResults = await page.evaluate(
       ({ earlierId, laterId }) =>
@@ -626,20 +602,6 @@ test(
       { success: false, reason: 'same-analysis' },
       { success: false, reason: 'analysis-order-invalid' },
     ])
-    const staleDecisions = comparison.comparison.categories.flatMap((category) =>
-      category.changes.map((change, index) => ({
-        changeId: change.id,
-        decision: index === 0 ? 'approve-target' : 'ignore',
-        expectedFrom: change.from ?? null,
-        expectedTo: change.to ?? null,
-      })),
-    )
-    const missingAnalysisApproval = await page.evaluate(
-      ({ laterId, decisions }) => window.electronAPI.approveComparisonReview('missing-analysis', laterId, decisions),
-      { laterId: comparison.comparison.target.analysisId, decisions: staleDecisions },
-    )
-    assert.deepEqual(missingAnalysisApproval, { success: false, reason: 'analysis-not-found' })
-
     await page.locator('a[href="#/history"]').click()
     await page.getByTestId('history-open-comparison-picker').click()
     await page.getByTestId('comparison-picker-earlier').selectOption(earlierAnalysisId)
@@ -650,40 +612,64 @@ test(
     assert.equal(await page.getByTestId('reference-comparison-status').textContent(), 'Changed')
     await dialog.getByText('Category comparison scope', { exact: true }).waitFor()
     assert.equal(await dialog.getByTestId('entity-matching-details').count(), 0)
-    assert.equal((await dialog.getByText(/factual comparison of captured evidence/i).count()) > 0, true)
-
-    const approveButtons = dialog.getByRole('button', { name: 'Approve later value' })
-    const ignoreButtons = dialog.getByRole('button', { name: 'Exclude from contract' })
-    const decisionCount = await approveButtons.count()
-    assert.ok(decisionCount > 0)
-    await approveButtons.first().click()
-    for (let index = 1; index < decisionCount; index += 1) await ignoreButtons.nth(index).click()
-    await page.getByTestId('approve-comparison-review').click()
-    await dialog.getByText(/Design Contract v1 records/i).waitFor()
-    await dialog.getByText(/1 immutable contract version/i).waitFor()
-
-    await dialog.getByRole('button', { name: 'Revise decisions' }).click()
-    await page.getByTestId('approve-comparison-review').click()
-    await dialog.getByText(/Design Contract v2 records/i).waitFor()
-    await dialog.getByText(/2 immutable contract versions/i).waitFor()
-
-    const reopened = await page.evaluate(
-      ({ earlierId, laterId }) => window.electronAPI.compareAnalyses(earlierId, laterId),
-      { earlierId: earlierAnalysisId, laterId: laterAnalysisId },
+    assert.equal(await dialog.getByText('Limited comparability', { exact: true }).count(), 0)
+    const layoutSummaries = dialog.getByTestId('layout-change-summary')
+    assert.ok((await layoutSummaries.count()) > 0)
+    const layoutSummaryTexts = await layoutSummaries.allTextContents()
+    assert.equal(
+      layoutSummaryTexts.every((summary) => !/layout\./i.test(summary)),
+      true,
     )
-    assert.equal(reopened.success, true)
-    assert.equal(reopened.review.contract.version, 2)
-    assert.deepEqual(
-      reopened.contractHistory.map(({ version }) => version),
-      [2, 1],
+    assert.equal(
+      layoutSummaryTexts.every((summary) =>
+        /identified page sections before|matched .* sections? changed/i.test(summary),
+      ),
+      true,
     )
-    const governance = inspectGovernance()
-    assert.equal(governance.reviews.length, 2)
-    assert.equal(governance.contracts.length, 2)
-    assert.deepEqual(
-      governance.events.map(({ event_type }) => event_type),
-      ['comparison-review-approved', 'comparison-review-approved'],
+
+    await dialog.getByTestId('open-visual-diff').click()
+    const visualDiff = page.getByTestId('visual-diff-dialog')
+    await visualDiff.waitFor({ state: 'visible' })
+    assert.match(
+      (await page.getByTestId('reference-comparison-backdrop').getAttribute('class')) || '',
+      /bg-transparent/,
     )
+    assert.match((await page.getByTestId('visual-diff-backdrop').getAttribute('class')) || '', /bg-black\/55/)
+    await page.waitForFunction(() => {
+      const reference = document.querySelector('[data-testid="visual-diff-reference"]')
+      const target = document.querySelector('[data-testid="visual-diff-target"]')
+      return (
+        reference instanceof HTMLCanvasElement &&
+        target instanceof HTMLCanvasElement &&
+        reference.width > 0 &&
+        target.width > 0
+      )
+    })
+    await visualDiff.getByRole('button', { name: 'Close' }).click()
+    await visualDiff.waitFor({ state: 'detached' })
+    await dialog.waitFor({ state: 'visible' })
+
+    await dialog.getByTestId('comparison-choose-another').click()
+    const reopenedPicker = page.getByTestId('comparison-picker-dialog')
+    await reopenedPicker.waitFor({ state: 'visible' })
+    assert.equal(await reopenedPicker.getByRole('status').count(), 0)
+    assert.equal(await page.getByTestId('comparison-picker-earlier').inputValue(), earlierAnalysisId)
+    assert.equal(await page.getByTestId('comparison-picker-later').inputValue(), laterAnalysisId)
+    await page.getByTestId('comparison-picker-submit').click()
+    await dialog.waitFor({ state: 'visible' })
+
+    assert.equal(await dialog.getByText(/Approve later value|Exclude from contract|Design Contract/i).count(), 0)
+    const copyReport = dialog.getByTestId('copy-comparison-report')
+    await copyReport.hover()
+    await copyReport.getByRole('tooltip').waitFor({ state: 'visible' })
+    assert.equal(await copyReport.getByRole('tooltip').textContent(), 'Copy report')
+    const exportReport = dialog.getByTestId('export-comparison-report')
+    await exportReport.hover()
+    await exportReport.getByRole('tooltip').waitFor({ state: 'visible' })
+    assert.equal(await exportReport.getByRole('tooltip').textContent(), 'Export Markdown')
+    await copyReport.click()
+    await page.getByText('Copied to clipboard', { exact: true }).waitFor()
+    await exportReport.waitFor()
     await dialog.getByRole('button', { name: 'Close' }).click()
   },
 )

@@ -137,7 +137,7 @@ if (operation === 'create') {
     themes: database.prepare('SELECT * FROM themes ORDER BY id').all(),
     analysisColumns: database.prepare('PRAGMA table_info(analyses)').all(),
     indexes: database.prepare('PRAGMA index_list(analyses)').all(),
-    governanceTables: database
+    obsoleteComparisonTables: database
       .prepare(
         `SELECT name FROM sqlite_master
          WHERE type = 'table' AND name IN ('comparison_reviews', 'design_contract_versions', 'governance_events')
@@ -146,14 +146,6 @@ if (operation === 'create') {
       .all(),
   }
   process.stdout.write(JSON.stringify(snapshot))
-} else if (operation === 'inspect-governance') {
-  process.stdout.write(
-    JSON.stringify({
-      reviews: database.prepare('SELECT * FROM comparison_reviews ORDER BY created_at').all(),
-      contracts: database.prepare('SELECT * FROM design_contract_versions ORDER BY version').all(),
-      events: database.prepare('SELECT * FROM governance_events ORDER BY created_at').all(),
-    }),
-  )
 } else {
   throw new Error(`Unknown operation: ${operation}`)
 }

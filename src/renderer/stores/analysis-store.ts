@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import type { AnalysisResultData } from '../../shared/ipc-contract'
+import { invalidateComparisonRecords } from '../lib/comparison-records-cache.js'
 import { getAnalysisPageCountPreference, setAnalysisPageCountPreference } from '../lib/preferences'
 
 export type { AnalysisResultData } from '../../shared/ipc-contract'
@@ -37,12 +38,15 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   analyzing: false,
   progress: null,
   setResult: (result, url) =>
-    set({
-      lastResult: result,
-      lastUrl: url,
-      failure: null,
-      analyzing: false,
-      progress: null,
+    set((state) => {
+      if (result.analysisId && result.analysisId !== state.lastResult?.analysisId) invalidateComparisonRecords()
+      return {
+        lastResult: result,
+        lastUrl: url,
+        failure: null,
+        analyzing: false,
+        progress: null,
+      }
     }),
   mergeResult: (result) =>
     set((state) => {

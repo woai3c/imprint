@@ -32,6 +32,7 @@ describe('manual comparison site', () => {
     expect(availableVariants).toEqual([
       'colors',
       'custom',
+      'damaged-overlay',
       'interaction',
       'layout-responsive',
       'radii',

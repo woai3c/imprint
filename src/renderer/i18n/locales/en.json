@@ -33,7 +33,6 @@
     "importFailed": "Import failed: choose a theme Tokens JSON file exported by Imprint",
     "dataCleared": "Themes and analysis history cleared",
     "historyDeleted": "History record deleted",
-    "comparisonReviewApproved": "Comparison review approved and recorded",
     "actionFailed": "Action failed. Please try again."
   },
   "analyze": {
@@ -954,15 +953,55 @@
       "factOnly": "Reports observed changes only where the two captures can be compared reliably. A change is not automatically a defect.",
       "reference": "Earlier analysis",
       "target": "Later analysis",
+      "chooseAnother": "Choose another pair",
       "from": "Earlier value",
       "to": "Later value",
-      "referenceEvidence": "Earlier evidence",
-      "targetEvidence": "Later evidence",
-      "limitedTitle": "Limited comparability",
-      "limitedDescription": "The stored captures match on the checks Imprint currently supports, but this is not a pixel or compliance verdict.",
+      "visualDiff": {
+        "open": "View screenshot differences",
+        "title": "Screenshot differences",
+        "description": "Compares the saved screenshots. Text, numbers, ads, and layout can all appear as pixel differences; an outline means that at least part of the enclosed area changed, not that every item inside it changed.",
+        "capture": "Screenshot",
+        "dimensions": "{{referenceWidth}} × {{referenceHeight}} → {{targetWidth}} × {{targetHeight}}",
+        "loading": "Generating the visual difference...",
+        "highlightLegend": "At least part of each outlined area differs between screenshots",
+        "noVisibleDifference": "No difference reached the visual display threshold.",
+        "heightChanged": "The captured page height changed.",
+        "heightAligned": "The page height changed. Matching content above and below the change was aligned to avoid marking the whole shifted page.",
+        "scaled": "Large screenshots are proportionally reduced for this preview.",
+        "imageEnds": "This screenshot ends here.",
+        "errors": {
+          "load-failed": "One of the saved screenshots is unavailable or cannot be read.",
+          "width-mismatch": "The screenshot widths differ, so a pixel-aligned visual difference would be misleading."
+        }
+      },
+      "captureConditionTitle": "Capture conditions differ",
+      "captureConditionDescription": "The analyses can still be compared, but these recorded differences limit how the result should be interpreted.",
       "inconclusiveTitle": "No comparison verdict",
       "differencesTitle": "Recorded condition differences",
-      "observationOnly": "This is a factual comparison of captured evidence and is not written to the Design Contract as a token rule.",
+      "report": {
+        "actionsLabel": "Comparison actions",
+        "copyAction": "Copy report",
+        "exportAction": "Export Markdown",
+        "title": "Imprint Analysis Comparison Report",
+        "recordsTitle": "Compared analyses",
+        "conclusionTitle": "Conclusion",
+        "statusLabel": "Result:",
+        "changedCategoriesLabel": "Categories with reported changes:",
+        "changedItemsLabel": "Reported changes:",
+        "urlLabel": "URL",
+        "capturedAtLabel": "Captured at",
+        "analysisIdLabel": "Analysis ID",
+        "reasonsTitle": "Why no comparison verdict was possible",
+        "limitationsTitle": "Comparison limitations",
+        "conditionDifferencesTitle": "Recorded condition differences",
+        "categoryOverviewTitle": "Category overview",
+        "categoryColumn": "Category",
+        "resultColumn": "Result",
+        "coverageColumn": "Coverage",
+        "scopeTitle": "Category comparison scope",
+        "changesTitle": "Reported changes",
+        "noChanges": "No changes were reported in comparable evidence."
+      },
       "status": {
         "changed": "Changed",
         "unchanged": "No supported changes",
@@ -977,6 +1016,7 @@
         "not-supported": "Not supported"
       },
       "categoryCoverage": {
+        "complete": "Complete coverage",
         "partial": "Limited coverage",
         "none": "No comparable evidence"
       },
@@ -1009,36 +1049,61 @@
         "removed": "Removed",
         "changed": "Changed"
       },
-      "review": {
-        "decisionTitle": "Governance decision",
-        "approveTarget": "Approve later value",
-        "ignore": "Exclude from contract",
-        "progress": "{{decided}} of {{total}} changes reviewed",
-        "contractScope": "Only approved supported token rules enter this partial Design Contract.",
-        "approve_one": "Approve {{count}} rule",
-        "approve_other": "Approve {{count}} rules",
-        "approving": "Approving...",
-        "approvedTitle": "Approved comparison review",
-        "approvedDescription_one": "Design Contract v{{version}} records {{count}} approved supported token rule.",
-        "approvedDescription_other": "Design Contract v{{version}} records {{count}} approved supported token rules.",
-        "versionHistory_one": "{{count}} immutable contract version is retained for this route.",
-        "versionHistory_other": "{{count}} immutable contract versions are retained for this route.",
-        "revise": "Revise decisions",
-        "errors": {
-          "analysis-not-found": "This history record no longer exists.",
-          "same-analysis": "The same analysis cannot be reviewed on both sides.",
-          "analysis-order-invalid": "The selected analyses are not in a valid time order.",
-          "invalid-analysis-data": "One of the stored captures cannot be read safely.",
-          "comparison-not-changed": "Only a conclusive changed comparison can be approved.",
-          "comparison-inconclusive": "An inconclusive comparison cannot be approved.",
-          "route-mismatch": "The captures no longer identify the same route.",
-          "invalid-decision": "At least one review decision is invalid.",
-          "duplicate-decision": "A change was reviewed more than once.",
-          "unknown-change": "The comparison changed before this review was submitted.",
-          "stale-comparison": "The comparison or observed values changed. Reopen it before approving.",
-          "missing-decision": "Review every supported change before approving.",
-          "no-approved-changes": "Approve at least one target rule to create a Design Contract version."
-        }
+      "layoutChange": {
+        "section": "Page",
+        "context": "{{route}} · {{viewports}}",
+        "titles": {
+          "order": {
+            "fewerBefore": "Fewer sections appear before the {{role}}",
+            "moreBefore": "More sections appear before the {{role}}"
+          },
+          "property": "{{role}} section changed its {{property}}"
+        },
+        "summaries": {
+          "order": {
+            "fewerBefore": "In {{context}}, the number of identified page sections before the {{role}} changed from {{from}} to {{to}}, a decrease of {{delta}}.",
+            "moreBefore": "In {{context}}, the number of identified page sections before the {{role}} changed from {{from}} to {{to}}, an increase of {{delta}}."
+          },
+          "property_one": "In {{context}}, the matched {{role}} section changed its {{property}} from “{{from}}” to “{{to}}”.",
+          "property_other": "In {{context}}, {{count}} matched {{role}} sections changed their {{property}} from “{{from}}” to “{{to}}”."
+        },
+        "properties": {
+          "order": "page order",
+          "layoutMode": "layout behavior",
+          "display": "display layout",
+          "position": "positioning",
+          "maxWidth": "maximum width",
+          "gridTemplateColumns": "grid column count",
+          "childGridTemplateColumns": "inner grid column count"
+        },
+        "values": {
+          "layoutMode": {
+            "flow": "normal page flow",
+            "sticky": "sticky",
+            "fixed": "fixed to the viewport",
+            "overlay": "overlay"
+          },
+          "display": {
+            "block": "block layout",
+            "flex": "flex layout",
+            "grid": "grid layout",
+            "inline": "inline layout",
+            "inline-block": "inline-block layout",
+            "none": "hidden"
+          },
+          "position": {
+            "static": "normal positioning",
+            "relative": "relative positioning",
+            "absolute": "absolute positioning",
+            "fixed": "fixed positioning",
+            "sticky": "sticky positioning"
+          }
+        },
+        "columnCount_one": "{{count}} column",
+        "columnCount_other": "{{count}} columns",
+        "orderExplanation": "This proves that the section's relative page structure changed. By itself, it cannot distinguish deletion, merging, reordering, or a change in section detection.",
+        "notRecorded": "not recorded",
+        "technicalDetails": "View technical details"
       },
       "reasons": {
         "missing-evidence": "One capture does not contain Design Evidence.",

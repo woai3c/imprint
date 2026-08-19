@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1",
+  "id": "controlled-v1",
+  "request": {
+    "viewports": ["desktop", "mobile"],
+    "maxPages": 3,
+    "depth": "standard",
+    "pageDiscovery": "auto",
+    "extractDarkMode": false
+  },
+  "scenarios": [
+    {
+      "id": "unchanged-reference",
+      "role": "calibration",
+      "repetitions": 2,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "reference"
+      },
+      "expectation": {
+        "status": "unchanged",
+        "changedCategories": []
+      }
+    },
+    {
+      "id": "changed-colors",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "colors"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["colors"]
+      }
+    },
+    {
+      "id": "changed-typography",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "typography"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["typography"]
+      }
+    },
+    {
+      "id": "changed-spacing",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "spacing"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["spacing"]
+      }
+    },
+    {
+      "id": "changed-radii",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "radii"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["radii"]
+      }
+    },
+    {
+      "id": "changed-layout-responsive",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "layout-responsive"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["layout", "responsive"]
+      }
+    },
+    {
+      "id": "changed-interaction",
+      "role": "regression-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "interaction"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["interaction-states"]
+      }
+    },
+    {
+      "id": "viewport-mismatch-fail-closed",
+      "role": "calibration",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "reference"
+      },
+      "targetRequest": {
+        "viewports": ["desktop"]
+      },
+      "expectation": {
+        "status": "inconclusive",
+        "changedCategories": [],
+        "comparabilityReasons": [
+          "capture-environment-mismatch",
+          "capture-settings-mismatch",
+          "page-set-mismatch",
+          "stabilization-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "damaged-overlay-fail-closed",
+      "role": "calibration",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "damaged-overlay"
+      },
+      "expectation": {
+        "status": "inconclusive",
+        "changedCategories": [],
+        "comparabilityReasons": ["incomplete-coverage", "page-set-mismatch", "stabilization-mismatch"]
+      }
+    }
+  ]
+}

@@ -80,7 +80,7 @@ test('migrates and redacts a populated legacy Desktop database idempotently', { 
     false,
   )
   assert.deepEqual(
-    secondSnapshot.governanceTables.map(({ name }) => name),
-    ['comparison_reviews', 'design_contract_versions', 'governance_events'],
+    secondSnapshot.obsoleteComparisonTables.map(({ name }) => name),
+    [],
   )
 })

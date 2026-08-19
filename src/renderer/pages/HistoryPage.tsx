@@ -3,13 +3,7 @@ import { ChevronLeft, ChevronRight, ExternalLink, GitCompareArrows, ImageIcon, T
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type {
-  AnalysisRecord,
-  ApprovedComparisonReview,
-  ApprovedDesignContract,
-  ComparisonReviewDecisionInput,
-  ReferenceComparisonResult,
-} from '../../shared/ipc-contract'
+import type { AnalysisRecord, ComparisonVisualPair, ReferenceComparisonResult } from '../../shared/ipc-contract'
 import { AnalysisDetailDialog } from '../components/AnalysisDetailDialog'
 import { CaptureComparisonPickerDialog } from '../components/CaptureComparisonPickerDialog'
 import { PageHeader } from '../components/PageHeader'
@@ -18,6 +12,7 @@ import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
+import { loadComparisonRecords, removeComparisonRecords } from '../lib/comparison-records-cache.js'
 import { formatLocalDateTime } from '../lib/date-time'
 import { getScreenshotUrl } from '../lib/page-screenshots'
 import { useFeedbackStore } from '../stores/feedback-store'
@@ -34,9 +29,9 @@ export function HistoryPage() {
   const [deleting, setDeleting] = useState(false)
   const [detailTarget, setDetailTarget] = useState<{ analysisId: string; evidenceId?: string } | null>(null)
   const [comparison, setComparison] = useState<ReferenceComparisonResult | null>(null)
-  const [comparisonReview, setComparisonReview] = useState<ApprovedComparisonReview | null>(null)
-  const [contractHistory, setContractHistory] = useState<ApprovedDesignContract[]>([])
+  const [comparisonVisualPairs, setComparisonVisualPairs] = useState<ComparisonVisualPair[]>([])
   const [comparisonPickerOpen, setComparisonPickerOpen] = useState(false)
+  const [comparisonSelection, setComparisonSelection] = useState<{ earlierId: string; laterId: string } | null>(null)
   const [comparingId, setComparingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
@@ -44,6 +39,12 @@ export function HistoryPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    void loadComparisonRecords().catch(() => {
+      // The comparison picker shows a retryable error if its own load fails.
+    })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -75,6 +76,7 @@ export function HistoryPage() {
     setDeleting(true)
     try {
       await window.electronAPI.deleteAnalysis(pendingDeleteId)
+      removeComparisonRecords([pendingDeleteId])
       setRecords((current) => current.filter((record) => record.id !== pendingDeleteId))
       setSelectedIds((current) => {
         if (!current.has(pendingDeleteId)) return current
@@ -98,6 +100,7 @@ export function HistoryPage() {
     try {
       const ids = [...selectedIds]
       await window.electronAPI.deleteAnalyses(ids)
+      removeComparisonRecords(ids)
       const removed = new Set(ids)
       setRecords((current) => current.filter((record) => !removed.has(record.id)))
       setSelectedIds(new Set())
@@ -120,33 +123,13 @@ export function HistoryPage() {
         return
       }
       setComparison(response.comparison)
-      setComparisonReview(response.review)
-      setContractHistory(response.contractHistory)
+      setComparisonVisualPairs(response.visualPairs)
+      setComparisonSelection({ earlierId: earlier.id, laterId: later.id })
       setComparisonPickerOpen(false)
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     } finally {
       setComparingId(null)
-    }
-  }
-
-  const handleApproveComparisonReview = async (decisions: ComparisonReviewDecisionInput[]) => {
-    if (!comparison) return
-    try {
-      const response = await window.electronAPI.approveComparisonReview(
-        comparison.reference.analysisId,
-        comparison.target.analysisId,
-        decisions,
-      )
-      if (!response.success) {
-        notify(t(`history.referenceComparison.review.errors.${response.reason}`), 'error')
-        return
-      }
-      setComparisonReview(response.review)
-      setContractHistory((current) => [response.review.contract, ...current])
-      notify(t('feedback.comparisonReviewApproved'))
-    } catch {
-      notify(t('feedback.actionFailed'), 'error')
     }
   }
 
@@ -174,6 +157,11 @@ export function HistoryPage() {
       else next.add(id)
       return next
     })
+  }
+
+  const clearComparison = () => {
+    setComparison(null)
+    setComparisonVisualPairs([])
   }
 
   return (
@@ -399,27 +387,22 @@ export function HistoryPage() {
       {comparisonPickerOpen && (
         <CaptureComparisonPickerDialog
           busy={comparingId !== null}
+          initialEarlierId={comparisonSelection?.earlierId}
+          initialLaterId={comparisonSelection?.laterId}
           onCompare={handleCompare}
           onClose={() => setComparisonPickerOpen(false)}
         />
       )}
       {comparison && (
         <ReferenceComparisonDialog
-          key={comparisonReview?.id ?? 'draft-comparison-review'}
           comparison={comparison}
-          review={comparisonReview}
-          contractHistory={contractHistory}
-          onApprove={handleApproveComparisonReview}
-          onClose={() => {
-            setComparison(null)
-            setComparisonReview(null)
-            setContractHistory([])
+          visualPairs={comparisonVisualPairs}
+          onCompareAnother={() => {
+            clearComparison()
+            setComparisonPickerOpen(true)
           }}
-          onOpenEvidence={(analysisId, evidenceId) => {
-            setComparison(null)
-            setComparisonReview(null)
-            setContractHistory([])
-            setDetailTarget({ analysisId, evidenceId })
+          onClose={() => {
+            clearComparison()
           }}
         />
       )}

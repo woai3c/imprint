@@ -5,21 +5,34 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 import type { AnalysisRecord } from '../../shared/ipc-contract'
+import { loadComparisonRecords, peekComparisonRecords } from '../lib/comparison-records-cache.js'
 import { formatLocalDateTime } from '../lib/date-time'
 import { Button } from './ui/Button'
 
 interface CaptureComparisonPickerDialogProps {
   busy: boolean
+  initialEarlierId?: string
+  initialLaterId?: string
   onCompare: (earlier: AnalysisRecord, later: AnalysisRecord) => Promise<void>
   onClose: () => void
 }
 
-export function CaptureComparisonPickerDialog({ busy, onCompare, onClose }: CaptureComparisonPickerDialogProps) {
+export function CaptureComparisonPickerDialog({
+  busy,
+  initialEarlierId,
+  initialLaterId,
+  onCompare,
+  onClose,
+}: CaptureComparisonPickerDialogProps) {
   const { t } = useTranslation()
-  const [records, setRecords] = useState<AnalysisRecord[]>([])
-  const [earlierId, setEarlierId] = useState('')
-  const [laterId, setLaterId] = useState('')
-  const [loading, setLoading] = useState(true)
+  const initialRecords = peekComparisonRecords()
+  const initialPair = initialRecords
+    ? (selectedPair(initialRecords, initialEarlierId, initialLaterId) ?? defaultPair(initialRecords))
+    : null
+  const [records, setRecords] = useState<AnalysisRecord[]>(initialRecords ?? [])
+  const [earlierId, setEarlierId] = useState(initialPair?.earlier.id ?? '')
+  const [laterId, setLaterId] = useState(initialPair?.later.id ?? '')
+  const [loading, setLoading] = useState(initialRecords === null)
   const [loadFailed, setLoadFailed] = useState(false)
 
   const earlierCandidates = useMemo(
@@ -35,12 +48,11 @@ export function CaptureComparisonPickerDialog({ busy, onCompare, onClose }: Capt
 
   useEffect(() => {
     let cancelled = false
-    window.electronAPI
-      .getAnalysisSummaries()
+    loadComparisonRecords()
       .then((nextRecords) => {
         if (cancelled) return
         setRecords(nextRecords)
-        const pair = defaultPair(nextRecords)
+        const pair = selectedPair(nextRecords, initialEarlierId, initialLaterId) ?? defaultPair(nextRecords)
         setEarlierId(pair?.earlier.id ?? '')
         setLaterId(pair?.later.id ?? '')
         setLoadFailed(false)
@@ -54,7 +66,7 @@ export function CaptureComparisonPickerDialog({ busy, onCompare, onClose }: Capt
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [initialEarlierId, initialLaterId])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -243,6 +255,18 @@ function defaultPair(records: AnalysisRecord[]): { earlier: AnalysisRecord; late
     if (later) return { earlier, later }
   }
   return null
+}
+
+function selectedPair(
+  records: AnalysisRecord[],
+  earlierId?: string,
+  laterId?: string,
+): { earlier: AnalysisRecord; later: AnalysisRecord } | null {
+  if (!earlierId || !laterId) return null
+  const earlier = records.find((record) => record.id === earlierId)
+  if (!earlier) return null
+  const later = laterRecordsFor(earlier, records).find((record) => record.id === laterId)
+  return later ? { earlier, later } : null
 }
 
 function optionLabel(record: AnalysisRecord, language: string): string {

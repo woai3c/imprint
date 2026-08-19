@@ -72,7 +72,6 @@ export interface ReferenceComparisonChange {
   to?: string
   referenceEvidenceIds: string[]
   targetEvidenceIds: string[]
-  reviewable: boolean
 }
 
 export interface ReferenceCategoryComparison {
@@ -365,7 +364,6 @@ function change(
     referenceEvidenceIds:
       from !== undefined && reference.evidence ? evidenceIdsForToken(reference.evidence, tokenPath) : [],
     targetEvidenceIds: to !== undefined && target.evidence ? evidenceIdsForToken(target.evidence, tokenPath) : [],
-    reviewable: true,
   }
 }
 
@@ -468,7 +466,6 @@ function observedChange(
     ...(to !== undefined ? { to } : {}),
     referenceEvidenceIds,
     targetEvidenceIds,
-    reviewable: false,
   }
 }
 

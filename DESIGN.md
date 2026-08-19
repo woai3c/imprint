@@ -215,7 +215,7 @@ runs out, the tab strip scrolls horizontally instead.
   reduced-motion checks independently, including capture, rule-construction, or rendering failure layers; never collapse
   them into a single opaque quality score.
 
-## Analysis comparison and attributed governance
+## Analysis comparison and reporting
 
 - Analysis History exposes one visible **Compare two analyses** page action. Its picker names and previews both records,
   defaults to the two latest eligible records, and offers only later records for the same normalized route. Users may
@@ -225,8 +225,7 @@ runs out, the tab strip scrolls horizontally instead.
   before reporting supported token changes. Missing or incompatible evidence produces `inconclusive`, never “no
   change.” The requested page count is an upper bound: coverage is complete when every page selected from successful
   discovery and every planned viewport capture succeeds, even if the site exposes fewer pages than the limit. A selected
-  page or planned viewport that fails remains incomplete. Selecting two records does not approve either record as a
-  design standard.
+  page or planned viewport that fails remains incomplete. Selecting two records does not mutate either record.
 - Each new analysis stores a versioned Capture Manifest with requested viewports and page limits, access mode, locale,
   timezone, color scheme, reduced-motion preference, the runtime browser identity, each captured viewport's effective
   DPR/user agent/emulation profile, browser and tool versions, actual animation-freeze coverage, font readiness,
@@ -247,7 +246,8 @@ runs out, the tab strip scrolls horizontally instead.
   layout mode, display/position, maximum width, and grid-column count; gap remains owned by the spacing category so a
   spacing-token change does not inflate the layout category. Interaction comparison is limited to
   observed style groups that align by page, trigger, and changed-property set. Responsive comparison is limited to
-  matched sections observed across the same viewport pair. Each reported change links to evidence on both captures.
+  matched sections observed across the same viewport pair. The comparison exposes one visible visual-difference action
+  instead of sending users through raw evidence identifiers or replacing the comparison with a single-analysis view.
   Unresolved identities and unaligned observations are excluded and produce explicit limited coverage; when reliable
   pairs remain, the category may say only that its comparable evidence has no observed change. Category-level
   `inconclusive` is reserved for cases with no comparable evidence, such as a responsive comparison with only one
@@ -260,19 +260,40 @@ runs out, the tab strip scrolls horizontally instead.
   repeated sections or components by DOM order, evidence ID, or an uncalibrated similarity threshold.
 - Entity matching remains internal comparison machinery rather than a user task. The normal report does not expose
   aggregate match counts, raw evidence IDs, or ambiguous candidate groups. When unresolved identities limit a category,
-  its scope states in plain language that similar elements were excluded to prevent false change reports. Evidence links
-  remain visible on actual reported changes, where they provide a concrete action instead of debugging noise.
-- “Changed” is a factual observation, not a defect. For a conclusive changed comparison, the user may explicitly mark
-  every supported token change as either **Approve later value** or **Exclude from contract**. Approval requires a
-  decision for every reported change and at least one approved target rule; the main process recomputes the comparison
-  and rejects missing, duplicate, unknown, stale, or inconclusive decisions instead of trusting renderer input.
-- Layout, interaction-state, and responsive changes are observation-only and cannot be approved into a token contract.
-  An approved review creates an immutable, versioned partial Design Contract containing only the explicitly approved
-  color, typography, spacing, and radius rules plus their two-sided evidence references and comparison limitations.
-  Excluded changes remain in the immutable review snapshot and audit event but do not enter the contract. Revising a
-  review appends a new contract version and retains earlier versions. This does not approve observed layout,
-  interaction, responsive, page-content, or pixel behavior, so the whole capture is still not called an Approved Baseline
-  and no compliance verdict is implied.
+  its scope states in plain language that similar elements were excluded to prevent false change reports. Two-sided
+  evidence references remain stored for traceability but are not exposed as navigation controls.
+- Visual difference pairs only uniquely matched, readable full-page screenshots from the same normalized page route and
+  viewport, and the action is absent when every paired screenshot has the same recorded content hash. It opens above the
+  comparison and returns to the unchanged comparison when closed. The comparison header provides a visible return to
+  the pair picker, preserving the current pair so users can continue with another comparison without closing and
+  restarting the flow. The default view keeps the earlier and later original screenshots side by side with synchronized
+  vertical context and outlines meaningful difference regions without recoloring their content. When page height
+  changes and an unchanged prefix and suffix can be established reliably,
+  align those regions around the inserted or removed middle instead of marking every downstream shifted pixel. State
+  when height alignment or proportional preview reduction is applied. Preview reduction must apply one uniform scale to
+  both captures; independently rounded vertical scales create false text differences on long pages. Minor rendering
+  noise below the display threshold is ignored. Describe the result as screenshot differences: text, numbers, ads, and
+  layout may all contribute, and a rectangular outline means that some pixels inside it changed rather than every item
+  in the rectangle. The image is a visual observation only: it does not infer a DOM cause, establish compliance, or
+  classify a change as a defect.
+- “Changed” is a factual observation, not a defect. Comparison has no approval, contract, or governance workflow. The
+  user can copy the current localized report or export it as a standalone Markdown file. Both outputs include the two
+  analysis records and capture times, the overall result, comparability reasons and limitations, category coverage,
+  and every reported change. Exported reports must preserve the same factual boundaries as the visible comparison and
+  must not introduce causal, defect, or compliance claims. The comparison header stays on one line: return, title,
+  result, and report actions. Screenshot difference is a compact outlined text button and is absent when no visual pair
+  exists; copy and Markdown export remain icon actions with immediate hover and keyboard-focus tooltips. Fixed product
+  boundaries such as exact-observed-value and captured-page-only scope do not produce a repeated banner; the category
+  coverage and exported report retain those boundaries. Only capture-specific browser or tool differences receive a
+  visible condition warning. Comparison candidates are cached for the renderer session and reused when returning to the
+  picker or reopening it. A successful new analysis invalidates that cache; deleting records updates it in place. A
+  visual-difference dialog uses the standard modal scrim without stacking it over the comparison dialog's scrim.
+- Present layout observations in plain language using the observed section role, page route, viewport, property, and
+  direction of change. Identical observations for the same route across viewports are grouped into one summary; raw
+  evidence paths and values remain available only in collapsed technical details. Section `order` is a zero-based
+  extraction index, so the interface describes it as the number of identified sections before the matched section,
+  never as a user-facing ordinal position. Do not infer a section name, purpose, or cause that the evidence did not
+  record.
 
 ## Authenticated analysis
 
@@ -359,7 +380,8 @@ runs out, the tab strip scrolls horizontally instead.
   Long token previews and documents must never extend beyond an unscrollable clipped surface. Escape, the visible close
   action, and a direct click on the surrounding backdrop all dismiss the dialog; interaction inside it never does.
 - History and detail preview images use cached small thumbnails; full-resolution screenshots load only when the user
-  opens the lightbox. The detail backdrop uses an opaque scrim without live blur to keep opening and closing responsive.
+  opens the lightbox or visual difference. The detail backdrop uses an opaque scrim without live blur to keep opening
+  and closing responsive.
 - Deleting a history record is destructive and requires explicit confirmation; deleting a record never removes a
   theme that was already saved to the library.
 - History rows support multi-select through always-visible checkboxes, including a select-all checkbox that applies to

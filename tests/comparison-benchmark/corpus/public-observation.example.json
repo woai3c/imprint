@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1",
+  "id": "public-online-observation",
+  "request": {
+    "viewports": ["desktop", "mobile"],
+    "maxPages": 3,
+    "depth": "standard",
+    "pageDiscovery": "auto",
+    "extractDarkMode": false
+  },
+  "scenarios": [
+    {
+      "id": "public-page-repeat",
+      "role": "calibration",
+      "repetitions": 1,
+      "source": {
+        "kind": "url-pair",
+        "referenceUrl": "https://example.com/",
+        "targetUrl": "https://example.com/",
+        "networkAccessConfirmed": true
+      },
+      "expectation": {
+        "status": "observe",
+        "changedCategories": []
+      }
+    }
+  ]
+}

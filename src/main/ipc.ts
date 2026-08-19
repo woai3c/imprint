@@ -51,12 +51,6 @@ import {
   restoreDarkModeExportData,
 } from '../core/export/index.js'
 import {
-  type ApprovedComparisonReview,
-  type ApprovedDesignContract,
-  type ComparisonReviewDecisionInput,
-  createApprovedComparisonReview,
-} from '../core/governance/design-contract.js'
-import {
   type AnalysisRecoveryResponse,
   type AnalyzeOptions,
   type AnalyzeResponse,
@@ -71,6 +65,7 @@ import {
 import { isRecord } from '../shared/type-guards.js'
 import { AnalysisRecoveryRegistry } from './analysis-recovery.js'
 import { analyzeUrl } from './analyzer/index.js'
+import { createComparisonVisualPairs } from './comparison-visuals.js'
 import { getDb } from './database.js'
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
@@ -540,44 +535,6 @@ function resolveAnalysisComparison(earlierAnalysisId: string, laterAnalysisId: s
   }
 }
 
-function latestApprovedComparisonReview(targetId: string, referenceId: string): ApprovedComparisonReview | null {
-  const record = getDb()
-    .prepare(
-      `SELECT review_json
-       FROM comparison_reviews
-       WHERE target_analysis_id = ? AND reference_analysis_id = ? AND status = 'approved'
-       ORDER BY approved_at DESC, created_at DESC
-       LIMIT 1`,
-    )
-    .get(targetId, referenceId) as { review_json: string } | undefined
-  if (!record) return null
-  try {
-    const review = JSON.parse(record.review_json) as ApprovedComparisonReview
-    return review?.status === 'approved' && review.targetAnalysisId === targetId ? review : null
-  } catch {
-    return null
-  }
-}
-
-function approvedDesignContractHistory(routeIdentity: string): ApprovedDesignContract[] {
-  const records = getDb()
-    .prepare(
-      `SELECT contract_json
-       FROM design_contract_versions
-       WHERE route_identity = ?
-       ORDER BY version DESC`,
-    )
-    .all(routeIdentity) as Array<{ contract_json: string }>
-  return records.flatMap((record) => {
-    try {
-      const contract = JSON.parse(record.contract_json) as ApprovedDesignContract
-      return contract?.scope === 'supported-token-rules' ? [contract] : []
-    } catch {
-      return []
-    }
-  })
-}
-
 async function saveTextFile(content: string, options: SaveTextFileOptions) {
   const result = await dialog.showSaveDialog({
     defaultPath: options.defaultName,
@@ -958,92 +915,16 @@ export function registerIpcHandlers() {
     return {
       success: true,
       comparison: lookup.comparison,
-      review: latestApprovedComparisonReview(String(lookup.target.id), String(lookup.reference.id)),
-      contractHistory: approvedDesignContractHistory(lookup.comparison.target.routeIdentity),
+      visualPairs: createComparisonVisualPairs(
+        readPageScreenshots(lookup.reference.page_screenshots_json),
+        readPageScreenshots(lookup.target.page_screenshots_json),
+        {
+          referenceEvidence: readDesignEvidence(lookup.reference.design_evidence_json),
+          targetEvidence: readDesignEvidence(lookup.target.design_evidence_json),
+        },
+      ),
     }
   })
-
-  ipcMain.handle(
-    'analyses:approveComparisonReview',
-    (_event, earlierAnalysisId: string, laterAnalysisId: string, input: unknown) => {
-      const lookup = resolveAnalysisComparison(earlierAnalysisId, laterAnalysisId)
-      if (!lookup.success) return lookup
-      if (!Array.isArray(input)) return { success: false, reason: 'invalid-decision' }
-
-      const db = getDb()
-      return db.transaction(() => {
-        const routeIdentity = lookup.comparison.target.routeIdentity
-        const latestVersion = db
-          .prepare('SELECT MAX(version) AS version FROM design_contract_versions WHERE route_identity = ?')
-          .get(routeIdentity) as { version: number | null }
-        const now = new Date().toISOString()
-        const reviewId = randomUUID()
-        const contractId = randomUUID()
-        const result = createApprovedComparisonReview(lookup.comparison, input as ComparisonReviewDecisionInput[], {
-          reviewId,
-          contractId,
-          contractVersion: (latestVersion.version || 0) + 1,
-          approvedAt: now,
-        })
-        if (!result.success) return result
-
-        db.prepare(
-          `INSERT INTO comparison_reviews
-         (id, route_identity, reference_analysis_id, target_analysis_id, status, review_json, contract_id, approved_at, created_at)
-         VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?)`,
-        ).run(
-          reviewId,
-          routeIdentity,
-          result.review.referenceAnalysisId,
-          result.review.targetAnalysisId,
-          JSON.stringify(result.review),
-          contractId,
-          now,
-          now,
-        )
-        db.prepare(
-          `INSERT INTO design_contract_versions
-         (id, route_identity, version, review_id, contract_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(
-          contractId,
-          routeIdentity,
-          result.review.contract.version,
-          reviewId,
-          JSON.stringify(result.review.contract),
-          now,
-        )
-        db.prepare(
-          `INSERT INTO governance_events
-         (id, route_identity, event_type, entity_id, payload_json, created_at)
-         VALUES (?, ?, 'comparison-review-approved', ?, ?, ?)`,
-        ).run(
-          randomUUID(),
-          routeIdentity,
-          reviewId,
-          JSON.stringify({
-            reviewId,
-            contractId,
-            contractVersion: result.review.contract.version,
-            referenceAnalysisId: result.review.referenceAnalysisId,
-            targetAnalysisId: result.review.targetAnalysisId,
-            approvedChangeIds: result.review.decisions
-              .filter(({ decision }) => decision === 'approve-target')
-              .map(({ change }) => change.id),
-            ignoredChangeIds: result.review.decisions
-              .filter(({ decision }) => decision === 'ignore')
-              .map(({ change }) => change.id),
-          }),
-          now,
-        )
-        log.info(
-          'governance',
-          `approved comparison review: reviewId=${reviewId} contractVersion=${result.review.contract.version}`,
-        )
-        return result
-      })()
-    },
-  )
 
   // --- Isolated browser sessions ---
   ipcMain.handle('browserSessions:list', () => {

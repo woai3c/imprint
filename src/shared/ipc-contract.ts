@@ -12,12 +12,6 @@ import type {
 } from '../core/analyzer/types.js'
 import type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
-import type {
-  ApprovedComparisonReview,
-  ApprovedDesignContract,
-  ComparisonReviewDecisionInput,
-  ComparisonReviewValidationError,
-} from '../core/governance/design-contract.js'
 
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 export type { AnalysisDepth, AnalysisRequest, AnalysisViewport } from '../core/analyzer/analysis-request.js'
@@ -31,13 +25,6 @@ export type {
 } from '../core/analyzer/types.js'
 export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 export type { ReferenceComparisonResult } from '../core/analyzer/reference-compare.js'
-export type {
-  ApprovedComparisonReview,
-  ApprovedDesignContract,
-  ComparisonReviewDecisionInput,
-  ComparisonReviewDecisionValue,
-  ComparisonReviewValidationError,
-} from '../core/governance/design-contract.js'
 export type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 
 export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
@@ -141,6 +128,22 @@ export interface PageScreenshotData {
   path: string
   viewport: string
   thumbnailPath?: string
+  width?: number
+  height?: number
+  valid?: boolean
+}
+
+export interface ComparisonVisualCapture {
+  path: string
+  width?: number
+  height?: number
+}
+
+export interface ComparisonVisualPair {
+  url: string
+  viewport: string
+  reference: ComparisonVisualCapture
+  target: ComparisonVisualCapture
 }
 
 export interface AnalysisResultData {
@@ -216,24 +219,11 @@ export type AnalysisComparisonResponse =
   | {
       success: true
       comparison: ReferenceComparisonResult
-      review: ApprovedComparisonReview | null
-      contractHistory: ApprovedDesignContract[]
+      visualPairs: ComparisonVisualPair[]
     }
   | {
       success: false
       reason: 'analysis-not-found' | 'same-analysis' | 'analysis-order-invalid' | 'invalid-analysis-data'
-    }
-
-export type ApproveComparisonReviewResponse =
-  | { success: true; review: ApprovedComparisonReview }
-  | {
-      success: false
-      reason:
-        | 'analysis-not-found'
-        | 'same-analysis'
-        | 'analysis-order-invalid'
-        | 'invalid-analysis-data'
-        | ComparisonReviewValidationError
     }
 
 export interface AnalyzeResponse extends Partial<AnalysisResultData> {
@@ -322,11 +312,6 @@ export interface ElectronAPI {
   getAnalysisSummariesPage: (query?: AnalysisSummaryPageQuery) => Promise<AnalysisSummaryPage>
   getAnalysis: (id: string) => Promise<AnalysisDetailData | null>
   compareAnalyses: (earlierAnalysisId: string, laterAnalysisId: string) => Promise<AnalysisComparisonResponse>
-  approveComparisonReview: (
-    earlierAnalysisId: string,
-    laterAnalysisId: string,
-    decisions: ComparisonReviewDecisionInput[],
-  ) => Promise<ApproveComparisonReviewResponse>
   deleteAnalysis: (id: string) => Promise<{ success: boolean }>
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>
   openExternal: (url: string) => Promise<void>

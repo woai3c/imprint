@@ -54,16 +54,6 @@ const api = {
   getAnalysis: (id: string) => ipcRenderer.invoke('analyses:get', id),
   compareAnalyses: (earlierAnalysisId: string, laterAnalysisId: string) =>
     ipcRenderer.invoke('analyses:compare', earlierAnalysisId, laterAnalysisId),
-  approveComparisonReview: (
-    earlierAnalysisId: string,
-    laterAnalysisId: string,
-    decisions: Array<{
-      changeId: string
-      decision: 'approve-target' | 'ignore'
-      expectedFrom: string | null
-      expectedTo: string | null
-    }>,
-  ) => ipcRenderer.invoke('analyses:approveComparisonReview', earlierAnalysisId, laterAnalysisId, decisions),
   deleteAnalysis: (id: string) => ipcRenderer.invoke('analyses:delete', id),
   deleteAnalyses: (ids: string[]) => ipcRenderer.invoke('analyses:deleteMany', ids),
 

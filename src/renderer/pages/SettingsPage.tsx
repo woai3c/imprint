@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import type { AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { removeComparisonRecords } from '../lib/comparison-records-cache.js'
 import { useFeedbackStore } from '../stores/feedback-store'
 
 export function SettingsPage() {
@@ -51,7 +52,11 @@ export function SettingsPage() {
       const themes = await window.electronAPI.getThemes()
       for (const theme of themes) await window.electronAPI.deleteTheme(theme.id)
       const analyses = await window.electronAPI.getAnalysisSummaries()
-      if (analyses.length > 0) await window.electronAPI.deleteAnalyses(analyses.map((analysis) => analysis.id))
+      const analysisIds = analyses.map((analysis) => analysis.id)
+      if (analysisIds.length > 0) {
+        await window.electronAPI.deleteAnalyses(analysisIds)
+        removeComparisonRecords(analysisIds)
+      }
       notify(t('feedback.dataCleared'))
       setConfirmClearAll(false)
     } catch {

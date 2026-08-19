@@ -31,6 +31,8 @@
     "test:e2e": "pnpm build && pnpm build:cli && pnpm exec electron-rebuild --force --only better-sqlite3 && node --test tests/e2e/*.test.mjs",
     "test:all": "pnpm test && pnpm test:e2e",
     "test:comparison-site": "node tests/comparison-site/server.mjs",
+    "prebenchmark:comparison": "pnpm build:cli",
+    "benchmark:comparison": "node scripts/comparison-benchmark.mjs",
     "lint": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

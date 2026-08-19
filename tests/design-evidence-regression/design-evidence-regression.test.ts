@@ -558,7 +558,6 @@ describe('Design Evidence browser regression corpus', () => {
           const category = comparison.categories.find((candidate) => candidate.category === categoryName)
           expect(category?.coverage).toBe('partial')
           expect(category?.changes.length).toBeGreaterThan(0)
-          expect(category?.changes.every((change) => change.reviewable === false)).toBe(true)
         }
       },
     )

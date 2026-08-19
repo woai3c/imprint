@@ -52,6 +52,10 @@ starting another scenario so that separate categories are not mixed together.
 | `layout-responsive` | Feature grid desktop columns `3` → `2`    | Layout and responsive behavior |
 | `interaction`       | Observed hover offset `-2px` → `-8px`     | Interaction states             |
 
+The `damaged-overlay` variant is reserved for fail-closed benchmark coverage. It deliberately obscures the document
+with a full-viewport fixed surface and is expected to produce an unusable or incomplete capture, not a changed design
+category.
+
 The scenario files are under `variants/`; each contains only its deliberate CSS override. Layout and responsive
 behavior overlap in the grid scenario because changing the desktop column count also changes the observed desktop-to-
 mobile transition. This is expected, not a category-isolation claim.

@@ -1,0 +1,17 @@
+.site-header {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  justify-content: center;
+  background: #ffffff;
+}
+
+.site-header nav,
+main,
+footer {
+  visibility: hidden;
+}

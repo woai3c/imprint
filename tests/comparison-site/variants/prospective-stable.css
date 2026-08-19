@@ -1,0 +1,14 @@
+/* Explicit declarations below are intentionally equivalent to the reference computed styles. */
+.feature-card {
+  border-style: solid;
+}
+
+.action:hover {
+  transform: translateY(-2px);
+}
+
+@media (max-width: 640px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}

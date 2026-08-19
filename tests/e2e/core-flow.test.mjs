@@ -639,12 +639,19 @@ test(
       const reference = document.querySelector('[data-testid="visual-diff-reference"]')
       const target = document.querySelector('[data-testid="visual-diff-target"]')
       return (
-        reference instanceof HTMLCanvasElement &&
-        target instanceof HTMLCanvasElement &&
-        reference.width > 0 &&
-        target.width > 0
+        reference instanceof HTMLImageElement &&
+        target instanceof HTMLImageElement &&
+        reference.complete &&
+        target.complete &&
+        reference.naturalWidth > 0 &&
+        target.naturalWidth > 0
       )
     })
+    assert.equal(await visualDiff.getByText('Earlier analysis', { exact: true }).count(), 0)
+    assert.equal(await visualDiff.getByText('Later analysis', { exact: true }).count(), 0)
+    assert.equal(await visualDiff.getByTestId('visual-diff-zoom-level').textContent(), '100%')
+    await visualDiff.getByRole('button', { name: 'Zoom in' }).click()
+    assert.equal(await visualDiff.getByTestId('visual-diff-zoom-level').textContent(), '125%')
     await visualDiff.getByRole('button', { name: 'Close' }).click()
     await visualDiff.waitFor({ state: 'detached' })
     await dialog.waitFor({ state: 'visible' })

@@ -7,10 +7,20 @@ change analyzer behavior.
 The benchmark reports raw counts and individual failures. A passing controlled corpus is not a universal live-site
 accuracy claim and does not establish user comprehension or product value.
 
+An optional versioned quality policy can constrain a specific frozen corpus. Policies may require corpus composition
+and set maximum error counts, but they cannot turn controlled-fixture results into a live-site claim. Runtime remains
+observation-only until repeated cross-machine evidence justifies a threshold.
+
 ## Run the controlled corpus
 
 ```sh
 pnpm benchmark:comparison
+```
+
+Run a corpus against an explicit policy with:
+
+```sh
+pnpm benchmark:comparison -- --corpus <corpus.json> --policy <policy.json>
 ```
 
 The command builds the CLI/shared core first, uses only the local deterministic comparison site, and writes:
@@ -53,6 +63,23 @@ regression holdout. A new untouched sample is required for the next prospective 
 
 The current controlled variants were already visible during comparison development. They are therefore labeled as
 calibration or regression holdouts, never as independent prospective holdouts.
+
+The Desktop P0 prospective policy is frozen in
+`tests/comparison-benchmark/policies/desktop-p0-prospective-v1.json`. It requires a deterministic loopback corpus whose
+scenarios are all prospective holdouts, cover changed/unchanged/inconclusive outcomes and all seven declared comparison
+categories, and contain no declared-ground-truth, fail-closed, evidence-reference, or execution failures. Those strict
+requirements are valid for controlled ground truth only.
+
+Run that frozen acceptance set directly with:
+
+```sh
+pnpm benchmark:comparison:prospective
+```
+
+The policy pins both the prospective corpus file and every referenced local fixture file. It also refuses to run when
+the comparison implementation differs from the frozen commit. If a result is inspected and then used to change
+comparison behavior, that scenario is no longer prospective: move it to regression coverage and create a new unseen
+scenario before making another prospective claim.
 
 ## Evaluation rules
 

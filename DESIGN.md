@@ -276,6 +276,10 @@ runs out, the tab strip scrolls horizontally instead.
   layout may all contribute, and a rectangular outline means that some pixels inside it changed rather than every item
   in the rectangle. The image is a visual observation only: it does not infer a DOM cause, establish compliance, or
   classify a change as a defect.
+- The visual-difference viewer displays the saved full-resolution screenshot files while deriving difference regions
+  from one uniformly scaled preview. One shared control zooms both sides from the fitted view to 300% without changing
+  their left-earlier, right-later order. Do not repeat visible earlier/later labels above the images; that established
+  order and accessible image names preserve the distinction without covering screenshot content.
 - “Changed” is a factual observation, not a defect. Comparison has no approval, contract, or governance workflow. The
   user can copy the current localized report or export it as a standalone Markdown file. Both outputs include the two
   analysis records and capture times, the overall result, comparability reasons and limitations, category coverage,

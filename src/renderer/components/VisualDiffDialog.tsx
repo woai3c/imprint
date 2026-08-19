@@ -1,6 +1,6 @@
-import { Loader2, X } from 'lucide-react'
+import { Loader2, Minus, Plus, X } from 'lucide-react'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -14,8 +14,6 @@ interface VisualDiffDialogProps {
 }
 
 interface RenderedDiff {
-  reference: Uint8ClampedArray
-  target: Uint8ClampedArray
   width: number
   referenceHeight: number
   targetHeight: number
@@ -34,6 +32,9 @@ type VisualDiffError = 'load-failed' | 'width-mismatch'
 
 const MAX_PREVIEW_WIDTH = 1200
 const MAX_PREVIEW_PIXELS = 4_000_000
+const MIN_ZOOM = 1
+const MAX_ZOOM = 3
+const ZOOM_STEP = 0.25
 
 async function loadScreenshot(path: string): Promise<ImageBitmap> {
   const response = await fetch(getScreenshotUrl(path))
@@ -61,8 +62,7 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
   const [rendered, setRendered] = useState<RenderedDiff | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<VisualDiffError | null>(null)
-  const referenceCanvas = useRef<HTMLCanvasElement>(null)
-  const targetCanvas = useRef<HTMLCanvasElement>(null)
+  const [zoom, setZoom] = useState(MIN_ZOOM)
   const pair = pairs[pairIndex]
 
   useEffect(() => {
@@ -101,8 +101,6 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
           if (!cancelled) {
             setRendered({
               ...diff,
-              reference: new Uint8ClampedArray(referencePixels.data),
-              target: new Uint8ClampedArray(targetPixels.data),
               width,
               referenceHeight,
               targetHeight,
@@ -129,24 +127,6 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
       cancelled = true
     }
   }, [pair])
-
-  useEffect(() => {
-    if (!rendered || !referenceCanvas.current || !targetCanvas.current) return
-    referenceCanvas.current.width = rendered.width
-    referenceCanvas.current.height = rendered.referenceHeight
-    targetCanvas.current.width = rendered.width
-    targetCanvas.current.height = rendered.targetHeight
-    referenceCanvas.current
-      .getContext('2d')
-      ?.putImageData(
-        new ImageData(new Uint8ClampedArray(rendered.reference), rendered.width, rendered.referenceHeight),
-        0,
-        0,
-      )
-    targetCanvas.current
-      .getContext('2d')
-      ?.putImageData(new ImageData(new Uint8ClampedArray(rendered.target), rendered.width, rendered.targetHeight), 0, 0)
-  }, [rendered])
 
   const translatedViewport = viewportLabelKey(pair.viewport) ? t(viewportLabelKey(pair.viewport)) : pair.viewport
 
@@ -194,6 +174,7 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
                   setRendered(null)
                   setError(null)
                   setLoading(true)
+                  setZoom(MIN_ZOOM)
                   setPairIndex(Number(event.target.value))
                 }}
                 className="h-8 max-w-lg rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
@@ -213,14 +194,48 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
             {pair.url} · {translatedViewport}
           </span>
           {rendered && (
-            <span className="ml-auto shrink-0 text-muted-foreground">
-              {t('history.referenceComparison.visualDiff.dimensions', {
-                referenceWidth: rendered.originalReferenceWidth,
-                referenceHeight: rendered.originalReferenceHeight,
-                targetWidth: rendered.originalTargetWidth,
-                targetHeight: rendered.originalTargetHeight,
-              })}
-            </span>
+            <>
+              <div
+                role="group"
+                aria-label={t('history.referenceComparison.visualDiff.zoomControls')}
+                className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-border bg-background p-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))}
+                  disabled={zoom <= MIN_ZOOM}
+                  aria-label={t('history.referenceComparison.visualDiff.zoomOut')}
+                  title={t('history.referenceComparison.visualDiff.zoomOut')}
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Minus size={14} aria-hidden="true" />
+                </button>
+                <span
+                  data-testid="visual-diff-zoom-level"
+                  className="min-w-11 text-center tabular-nums text-foreground"
+                >
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))}
+                  disabled={zoom >= MAX_ZOOM}
+                  aria-label={t('history.referenceComparison.visualDiff.zoomIn')}
+                  title={t('history.referenceComparison.visualDiff.zoomIn')}
+                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Plus size={14} aria-hidden="true" />
+                </button>
+              </div>
+              <span className="shrink-0 text-muted-foreground">
+                {t('history.referenceComparison.visualDiff.dimensions', {
+                  referenceWidth: rendered.originalReferenceWidth,
+                  referenceHeight: rendered.originalReferenceHeight,
+                  targetWidth: rendered.originalTargetWidth,
+                  targetHeight: rendered.originalTargetHeight,
+                })}
+              </span>
+            </>
           )}
         </div>
 
@@ -238,19 +253,17 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
               {t(`history.referenceComparison.visualDiff.errors.${error}`)}
             </div>
           ) : rendered ? (
-            <div className="mx-auto min-w-[720px] max-w-[1600px]">
-              <div className="sticky top-0 z-10 grid grid-cols-2 gap-3 pb-2">
-                <div className="rounded-md border border-border bg-background/95 px-3 py-2 text-xs font-medium shadow-sm">
-                  {t('history.referenceComparison.reference')}
-                </div>
-                <div className="rounded-md border border-border bg-background/95 px-3 py-2 text-xs font-medium shadow-sm">
-                  {t('history.referenceComparison.target')}
-                </div>
-              </div>
+            <div className="mx-auto min-w-[720px]" style={{ width: `${zoom * 100}%`, maxWidth: `${1600 * zoom}px` }}>
               <div className="grid grid-cols-2 gap-3">
                 <div className="overflow-hidden rounded-lg border border-border bg-warning/10">
                   <div className="relative">
-                    <canvas ref={referenceCanvas} data-testid="visual-diff-reference" className="block h-auto w-full" />
+                    <img
+                      src={getScreenshotUrl(pair.reference.path)}
+                      alt={t('history.referenceComparison.visualDiff.referenceImageAlt')}
+                      data-testid="visual-diff-reference"
+                      draggable={false}
+                      className="block h-auto w-full"
+                    />
                     <DiffRegions
                       regions={rendered.referenceRegions}
                       width={rendered.width}
@@ -265,7 +278,13 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border bg-warning/10">
                   <div className="relative">
-                    <canvas ref={targetCanvas} data-testid="visual-diff-target" className="block h-auto w-full" />
+                    <img
+                      src={getScreenshotUrl(pair.target.path)}
+                      alt={t('history.referenceComparison.visualDiff.targetImageAlt')}
+                      data-testid="visual-diff-target"
+                      draggable={false}
+                      className="block h-auto w-full"
+                    />
                     <DiffRegions
                       regions={rendered.targetRegions}
                       width={rendered.width}

@@ -33,6 +33,7 @@
     "test:comparison-site": "node tests/comparison-site/server.mjs",
     "prebenchmark:comparison": "pnpm build:cli",
     "benchmark:comparison": "node scripts/comparison-benchmark.mjs",
+    "benchmark:comparison:prospective": "pnpm build:cli && node scripts/comparison-benchmark.mjs --corpus tests/comparison-benchmark/corpus/prospective.json --policy tests/comparison-benchmark/policies/desktop-p0-prospective-v1.json",
     "lint": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

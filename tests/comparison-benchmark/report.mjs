@@ -19,6 +19,7 @@ export function renderBenchmarkMarkdown(report) {
     `- Commit: \`${report.run.commit}\`${report.run.dirty ? ' (dirty working tree)' : ''}`,
     `- Tool: \`${report.run.toolVersion}\``,
     `- Corpus: \`${report.corpus.id}\` (SHA-256 \`${report.corpus.sha256}\`)`,
+    `- Referenced fixture bundle: SHA-256 \`${report.corpus.fixtureSha256}\``,
     `- Browser: ${report.run.browser || 'unavailable'}`,
     `- Platform: \`${report.run.platform}\` / \`${report.run.architecture}\``,
     `- Started: ${report.run.startedAt}`,
@@ -53,6 +54,28 @@ export function renderBenchmarkMarkdown(report) {
     `- Unexpected inconclusive results: ${report.summary.totals.unexpectedInconclusive}`,
     `- Expected changes that became inconclusive: ${report.summary.totals.expectedChangeInconclusive}`,
     '',
+    '## Quality policy',
+    '',
+    report.qualityPolicy.status === 'not-defined'
+      ? `- Status: not defined — ${report.qualityPolicy.note}`
+      : `- Status: **${report.qualityPolicy.status.toUpperCase()}**`,
+  ]
+
+  if (report.qualityPolicy.status !== 'not-defined') {
+    lines.push(
+      `- Policy: \`${report.qualityPolicy.id}\` (SHA-256 \`${report.qualityPolicy.sha256}\`)`,
+      `- Frozen against: \`${report.qualityPolicy.frozenAgainstCommit}\` on ${report.qualityPolicy.frozenAt}`,
+      `- Runtime: ${report.qualityPolicy.runtime.mode} — ${report.qualityPolicy.runtime.reason}`,
+      `- Claim boundary: ${report.qualityPolicy.claimBoundary}`,
+    )
+    if (report.qualityPolicy.issues.length > 0) {
+      lines.push('', 'Policy issues:', '')
+      for (const issue of report.qualityPolicy.issues) lines.push(`- \`${issue.code}\`: ${JSON.stringify(issue)}`)
+    }
+  }
+
+  lines.push(
+    '',
     '## Category results',
     '',
     tableRow([
@@ -65,7 +88,7 @@ export function renderBenchmarkMarkdown(report) {
       'Stable',
     ]),
     tableRow(['---', '---:', '---:', '---:', '---:', '---:', '---:']),
-  ]
+  )
 
   for (const category of comparisonCategories) {
     const result = report.summary.categories[category]
@@ -107,7 +130,7 @@ export function renderBenchmarkMarkdown(report) {
     '',
     '- Controlled fixtures measure declared behavior and fail-closed rules; they do not establish arbitrary live-site accuracy.',
     '- Public or mutable live sites cannot provide false-positive ground truth unless their content and capture conditions are controlled.',
-    '- Current regression holdouts prevent future regressions but are not independent prospective holdouts.',
+    '- A prospective holdout remains independent only until its result is inspected and used to change the implementation.',
     '- A passing report does not establish user comprehension or product value.',
     '',
   )

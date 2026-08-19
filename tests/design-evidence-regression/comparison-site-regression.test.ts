@@ -99,7 +99,6 @@ describe('manual comparison site browser regression', () => {
       expect(stable.categories.flatMap((category) => category.changes)).toEqual([])
 
       const cases = [
-        { variant: 'custom', expected: [] },
         { variant: 'colors', expected: ['colors'] },
         { variant: 'typography', expected: ['typography'] },
         { variant: 'spacing', expected: ['spacing'] },

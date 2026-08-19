@@ -372,7 +372,10 @@ function compareNamedColors(
   target: ReferenceCaptureInput,
 ): ReferenceComparisonChange[] {
   const changes: ReferenceComparisonChange[] = []
-  const names = [...new Set([...Object.keys(reference.tokens.colors), ...Object.keys(target.tokens.colors)])].sort()
+  const isGeneratedPaletteName = (name: string) => /^(?:dark-)?palette-\d+$/.test(name)
+  const names = [...new Set([...Object.keys(reference.tokens.colors), ...Object.keys(target.tokens.colors)])]
+    .filter((name) => !isGeneratedPaletteName(name))
+    .sort()
   for (const name of names) {
     const from = reference.tokens.colors[name]
     const to = target.tokens.colors[name]
@@ -380,6 +383,31 @@ function compareNamedColors(
     if (from === undefined) changes.push(change('colors', 'added', tokenPath, reference, target, undefined, to))
     else if (to === undefined) changes.push(change('colors', 'removed', tokenPath, reference, target, from))
     else if (from !== to) changes.push(change('colors', 'changed', tokenPath, reference, target, from, to))
+  }
+
+  for (const prefix of ['', 'dark-']) {
+    const pattern = new RegExp(`^${prefix}palette-\\d+$`)
+    const referencePalette = new Map(Object.entries(reference.tokens.colors).filter(([name]) => pattern.test(name)))
+    const targetPalette = new Map(Object.entries(target.tokens.colors).filter(([name]) => pattern.test(name)))
+    const targetPaletteValues = new Set(targetPalette.values())
+    const sharedValues = new Set([...referencePalette.values()].filter((value) => targetPaletteValues.has(value)))
+    const remainingReference = new Map([...referencePalette].filter(([, value]) => !sharedValues.has(value)))
+    const remainingTarget = new Map([...targetPalette].filter(([, value]) => !sharedValues.has(value)))
+    const stableNames = [...remainingReference.keys()].filter((name) => remainingTarget.has(name)).sort()
+
+    for (const name of stableNames) {
+      const from = remainingReference.get(name)!
+      const to = remainingTarget.get(name)!
+      changes.push(change('colors', 'changed', `colors.${name}`, reference, target, from, to))
+      remainingReference.delete(name)
+      remainingTarget.delete(name)
+    }
+    for (const [name, value] of [...remainingReference].sort(([first], [second]) => first.localeCompare(second))) {
+      changes.push(change('colors', 'removed', `colors.${name}`, reference, target, value))
+    }
+    for (const [name, value] of [...remainingTarget].sort(([first], [second]) => first.localeCompare(second))) {
+      changes.push(change('colors', 'added', `colors.${name}`, reference, target, undefined, value))
+    }
   }
   return changes
 }
@@ -555,6 +583,72 @@ function compareLayoutEvidence(
 interface ObservationGroup {
   tokenPath: string
   values: Map<string, string[]>
+  directlyObservedValues: Map<string, string[]>
+}
+
+function normalizedTransformNumber(value: number): string {
+  const normalized = Math.abs(value) < 1e-9 ? 0 : Number(value.toFixed(6))
+  return String(normalized)
+}
+
+function normalizedTransformMatrix(values: number[]): string {
+  return `matrix(${values.map(normalizedTransformNumber).join(', ')})`
+}
+
+function parsedNumber(value: string): number | null {
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parsedPixelLength(value: string): number | null {
+  const match = value.trim().match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(px)?$/i)
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed) || (!match[2] && parsed !== 0)) return null
+  return parsed
+}
+
+/** Normalize only transforms whose 2D equivalence can be proven without element geometry. */
+function normalizedInteractionTransform(value: string | undefined): string {
+  const normalized = normalizedText(value) || 'none'
+  if (normalized.toLowerCase() === 'none') return normalizedTransformMatrix([1, 0, 0, 1, 0, 0])
+
+  const matrix = normalized.match(/^matrix\(([^)]+)\)$/i)
+  if (matrix) {
+    const values = matrix[1].split(',').map(parsedNumber)
+    if (values.length === 6 && values.every((item): item is number => item !== null)) {
+      return normalizedTransformMatrix(values)
+    }
+  }
+
+  const translateX = normalized.match(/^translateX\(([^)]+)\)$/i)
+  if (translateX) {
+    const x = parsedPixelLength(translateX[1])
+    if (x !== null) return normalizedTransformMatrix([1, 0, 0, 1, x, 0])
+  }
+
+  const translateY = normalized.match(/^translateY\(([^)]+)\)$/i)
+  if (translateY) {
+    const y = parsedPixelLength(translateY[1])
+    if (y !== null) return normalizedTransformMatrix([1, 0, 0, 1, 0, y])
+  }
+
+  const translate = normalized.match(/^translate\(([^)]+)\)$/i)
+  if (translate) {
+    const values = translate[1].split(/\s*,\s*|\s+/).filter(Boolean)
+    const x = parsedPixelLength(values[0] || '')
+    const y = parsedPixelLength(values[1] || '0')
+    if (values.length <= 2 && x !== null && y !== null) {
+      return normalizedTransformMatrix([1, 0, 0, 1, x, y])
+    }
+  }
+
+  return normalized
+}
+
+function normalizedInteractionValue(property: string, value: string | undefined): string {
+  return property === 'transform' ? normalizedInteractionTransform(value) : normalizedText(value) || ''
 }
 
 function interactionGroups(evidence: DesignEvidence): Map<string, ObservationGroup> {
@@ -567,14 +661,30 @@ function interactionGroups(evidence: DesignEvidence): Map<string, ObservationGro
     if (properties.length === 0) continue
     const key = [pageKey(page), observation.driver, observation.trigger.kind, properties.join('+')].join('|')
     const tokenPath = `interaction.${observation.driver}.${observation.trigger.kind}.${properties.join('+')}`
-    const before = Object.fromEntries(properties.map((property) => [property, observation.before[property] ?? '']))
-    const after = Object.fromEntries(properties.map((property) => [property, observation.after[property] ?? '']))
+    const before = Object.fromEntries(
+      properties.map((property) => [property, normalizedInteractionValue(property, observation.before[property])]),
+    )
+    const after = Object.fromEntries(
+      properties.map((property) => [property, normalizedInteractionValue(property, observation.after[property])]),
+    )
     const value = JSON.stringify({ before, after })
-    const group = groups.get(key) || { tokenPath, values: new Map<string, string[]>() }
+    const group = groups.get(key) || {
+      tokenPath,
+      values: new Map<string, string[]>(),
+      directlyObservedValues: new Map<string, string[]>(),
+    }
     const evidenceIds = group.values.get(value) || []
     evidenceIds.push(observation.id)
     group.values.set(value, evidenceIds)
+    if (properties.some((property) => Object.hasOwn(observation.before, property))) {
+      const observedEvidenceIds = group.directlyObservedValues.get(value) || []
+      observedEvidenceIds.push(observation.id)
+      group.directlyObservedValues.set(value, observedEvidenceIds)
+    }
     groups.set(key, group)
+  }
+  for (const group of groups.values()) {
+    if (group.directlyObservedValues.size > 0) group.values = group.directlyObservedValues
   }
   return groups
 }

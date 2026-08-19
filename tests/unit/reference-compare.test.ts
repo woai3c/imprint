@@ -190,6 +190,25 @@ function addHoverEvidence(input: ReferenceCaptureInput, afterColor: string): voi
   ]
 }
 
+function addHoverTransformEvidence(
+  input: ReferenceCaptureInput,
+  observations: Array<{ before?: string; after: string }>,
+): void {
+  input.evidence!.interactionObservations = observations.map((observation, index) => ({
+    id: `${input.analysisId}-hover-transform-${index + 1}`,
+    pageId: `${input.analysisId}-page`,
+    sectionId: `${input.analysisId}-hero`,
+    targetId: `${input.analysisId}-action-${index + 1}`,
+    driver: 'hover',
+    safety: 'passive',
+    trigger: { kind: 'css-pseudo-class:hover' },
+    before: observation.before === undefined ? {} : { transform: observation.before },
+    after: { transform: observation.after },
+    changedProperties: ['transform'],
+    evidenceRefs: [`${input.analysisId}-hero`],
+  }))
+}
+
 function addAmbiguousSections(input: ReferenceCaptureInput): void {
   const base = input.evidence!.sections[0]
   for (let index = 1; index <= 2; index += 1) {
@@ -325,6 +344,44 @@ describe('reference capture comparison', () => {
     expect(primaryChange?.targetEvidenceIds).toEqual(['target-hero'])
   })
 
+  it('does not report a palette change when only generated palette indexes move', () => {
+    const referenceTokens = tokens({
+      colors: { background: '#ffffff', primary: '#2255ff', 'palette-1': '#f8fafc' },
+    })
+    const targetTokens = tokens({
+      colors: { background: '#ffffff', primary: '#2255ff', 'palette-2': '#f8fafc' },
+    })
+    const colors = compareReferenceCaptures(
+      capture('reference', undefined, referenceTokens),
+      capture('target', undefined, targetTokens),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(colors.status).toBe('unchanged')
+    expect(colors.changes).toEqual([])
+  })
+
+  it('continues to report a real palette value change at a stable index', () => {
+    const referenceTokens = tokens({
+      colors: { background: '#ffffff', primary: '#2255ff', 'palette-1': '#f8fafc' },
+    })
+    const targetTokens = tokens({
+      colors: { background: '#ffffff', primary: '#2255ff', 'palette-1': '#111827' },
+    })
+    const colors = compareReferenceCaptures(
+      capture('reference', undefined, referenceTokens),
+      capture('target', undefined, targetTokens),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(colors.status).toBe('changed')
+    expect(colors.changes).toHaveLength(1)
+    expect(colors.changes[0]).toMatchObject({
+      kind: 'changed',
+      tokenPath: 'colors.palette-1',
+      from: '#f8fafc',
+      to: '#111827',
+    })
+  })
+
   it('reports conservative section-level layout changes from paired evidence', () => {
     const target = capture('target')
     target.evidence!.sections[0].order = 1
@@ -365,6 +422,63 @@ describe('reference capture comparison', () => {
       tokenPath: 'interaction.hover.css-pseudo-class:hover.color',
       referenceEvidenceIds: ['reference-hover'],
       targetEvidenceIds: ['target-hover'],
+    })
+  })
+
+  it('does not report equivalent authored and computed transform representations as interaction changes', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addHoverTransformEvidence(reference, [
+      { before: 'none', after: 'matrix(1, 0, 0, 1, 0, -2)' },
+      { after: 'translateY(-2px)' },
+    ])
+    addHoverTransformEvidence(target, [{ after: 'translateY(-2px)' }])
+
+    const interaction = compareReferenceCaptures(reference, target).categories.find(
+      (category) => category.category === 'interaction-states',
+    )!
+
+    expect(interaction.status).toBe('unchanged')
+    expect(interaction.changes).toEqual([])
+  })
+
+  it('continues to report transforms with different rendered effects', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addHoverTransformEvidence(reference, [{ before: 'none', after: 'matrix(1, 0, 0, 1, 0, -2)' }])
+    addHoverTransformEvidence(target, [{ before: 'none', after: 'translateY(-8px)' }])
+
+    const interaction = compareReferenceCaptures(reference, target).categories.find(
+      (category) => category.category === 'interaction-states',
+    )!
+
+    expect(interaction.status).toBe('changed')
+    expect(interaction.changes).toHaveLength(1)
+  })
+
+  it('prioritizes directly observed transforms over inactive stylesheet candidates', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addHoverTransformEvidence(reference, [
+      { before: 'none', after: 'matrix(1, 0, 0, 1, 0, -2)' },
+      { after: 'translateY(-2px)' },
+      { after: 'translateY(-6px)' },
+    ])
+    addHoverTransformEvidence(target, [
+      { before: 'none', after: 'matrix(1, 0, 0, 1, 0, -6)' },
+      { after: 'translateY(-2px)' },
+      { after: 'translateY(-6px)' },
+    ])
+
+    const interaction = compareReferenceCaptures(reference, target).categories.find(
+      (category) => category.category === 'interaction-states',
+    )!
+
+    expect(interaction.status).toBe('changed')
+    expect(interaction.changes).toHaveLength(1)
+    expect(interaction.changes[0]).toMatchObject({
+      from: 'transform: matrix(1, 0, 0, 1, 0, 0) → matrix(1, 0, 0, 1, 0, -2)',
+      to: 'transform: matrix(1, 0, 0, 1, 0, 0) → matrix(1, 0, 0, 1, 0, -6)',
     })
   })
 

@@ -37,6 +37,7 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - `pnpm test:design-evidence` — run the annotated Design Evidence browser regression suite
 - `pnpm run test:comparison-site -- --variant reference` — serve the deterministic local site used to manually verify Desktop history comparison; scenario details are in `tests/comparison-site/README.md`
 - `pnpm benchmark:comparison` — build the shared core, run the local controlled comparison corpus, and write ignored JSON/Markdown quality reports under `tmp/comparison-benchmark/`
+- `pnpm benchmark:comparison:prospective` — build the CLI and enforce the frozen Desktop P0 prospective comparison policy in a real browser
 - `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
 - `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
   trigger native Windows x64 and macOS arm64/x64 release builds

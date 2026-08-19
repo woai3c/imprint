@@ -35,6 +35,8 @@ describe('manual comparison site', () => {
       'damaged-overlay',
       'interaction',
       'layout-responsive',
+      'prospective-all-categories',
+      'prospective-stable',
       'radii',
       'reference',
       'spacing',

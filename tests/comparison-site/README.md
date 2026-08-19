@@ -52,6 +52,11 @@ starting another scenario so that separate categories are not mixed together.
 | `layout-responsive` | Feature grid desktop columns `3` → `2`    | Layout and responsive behavior |
 | `interaction`       | Observed hover offset `-2px` → `-8px`     | Interaction states             |
 
+The `prospective-stable` and `prospective-all-categories` variants belong to the pinned `prospective-v1` corpus. The
+first declares computed-style-equivalent overrides and the second changes all seven supported categories. They are
+acceptance evidence, not manual tuning surfaces: do not edit their CSS or declared expectations after inspecting a
+benchmark result. A scenario used to change comparison behavior must move to regression coverage.
+
 The `damaged-overlay` variant is reserved for fail-closed benchmark coverage. It deliberately obscures the document
 with a full-viewport fixed surface and is expected to produce an unusable or incomplete capture, not a changed design
 category.

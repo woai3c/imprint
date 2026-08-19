@@ -11,6 +11,7 @@ import {
   evaluateComparison,
   evaluateExecutionFailure,
 } from '../tests/comparison-benchmark/evaluate.mjs'
+import { evaluateQualityPolicy, validateQualityPolicy } from '../tests/comparison-benchmark/policy.mjs'
 import { renderBenchmarkMarkdown } from '../tests/comparison-benchmark/report.mjs'
 import { createComparisonSiteServer } from '../tests/comparison-site/server.mjs'
 
@@ -23,6 +24,7 @@ function usage() {
 
 Options:
   --corpus <path>       Corpus JSON (default: tests/comparison-benchmark/corpus/controlled.json)
+  --policy <path>       Optional versioned quality policy JSON
   --output <directory>  Report directory (default: tmp/comparison-benchmark/<timestamp>-<commit>)
   --browser-path <path> Explicit Chrome/Edge/Chromium executable
   --repetitions <count> Override each scenario's declared repetition count
@@ -43,6 +45,7 @@ function readValue(args, name) {
 function parseArguments(args) {
   const known = new Set([
     '--corpus',
+    '--policy',
     '--output',
     '--browser-path',
     '--repetitions',
@@ -60,6 +63,7 @@ function parseArguments(args) {
   }
   return {
     corpusPath: path.resolve(repositoryRoot, readValue(args, '--corpus') || defaultCorpusPath),
+    policyPath: readValue(args, '--policy') ? path.resolve(repositoryRoot, readValue(args, '--policy')) : undefined,
     outputPath: readValue(args, '--output'),
     browserPath: readValue(args, '--browser-path'),
     repetitions,
@@ -83,6 +87,41 @@ function git(args, fallback) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex')
+}
+
+function fixtureSha256(corpus) {
+  const comparisonSiteScenarios = corpus.scenarios.filter((scenario) => scenario.source.kind === 'comparison-site')
+  if (comparisonSiteScenarios.length === 0) return sha256('no-local-fixtures')
+  const variantNames = new Set(
+    comparisonSiteScenarios.flatMap((scenario) => [scenario.source.referenceVariant, scenario.source.targetVariant]),
+  )
+  const files = [
+    'tests/comparison-site/index.html',
+    'tests/comparison-site/base.css',
+    'tests/comparison-site/server.mjs',
+    ...[...variantNames].sort().map((variant) => `tests/comparison-site/variants/${variant}.css`),
+  ]
+  const hash = createHash('sha256')
+  for (const file of files) {
+    hash.update(file)
+    hash.update('\0')
+    hash.update(fs.readFileSync(path.join(repositoryRoot, file)))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
+function assertFrozenImplementation(policy) {
+  const paths = policy.requirements.implementationPaths
+  const changed = git(['diff', '--name-only', policy.frozenAgainstCommit, '--', ...paths], '__git-error__')
+  const untracked = git(['ls-files', '--others', '--exclude-standard', '--', ...paths], '__git-error__')
+  if (changed === '__git-error__' || untracked === '__git-error__') {
+    throw new Error('Unable to verify the quality policy implementation baseline')
+  }
+  const files = [...new Set([...changed.split('\n'), ...untracked.split('\n')].filter(Boolean))].sort()
+  if (files.length > 0) {
+    throw new Error(`Quality policy implementation differs from its frozen baseline: ${files.join(', ')}`)
+  }
 }
 
 function timestampForPath(value) {
@@ -307,11 +346,18 @@ async function main() {
   const corpusText = fs.readFileSync(options.corpusPath, 'utf8')
   const corpus = JSON.parse(corpusText)
   validateCorpus(corpus)
+  const corpusHash = sha256(corpusText)
+  const fixtureHash = fixtureSha256(corpus)
+  const policyText = options.policyPath ? fs.readFileSync(options.policyPath, 'utf8') : null
+  const policy = policyText ? JSON.parse(policyText) : null
+  if (policy) {
+    validateQualityPolicy(policy)
+    assertFrozenImplementation(policy)
+  }
 
   const analyzerModule = await import('../dist/core/analyzer/index.js')
   const comparisonModule = await import('../dist/core/analyzer/reference-compare.js')
-  const resolvedBrowser = options.browserPath || analyzerModule.findBrowser()
-  if (!resolvedBrowser) throw new Error('No Chrome, Edge, or Chromium browser was found')
+  const resolvedBrowsers = analyzerModule.resolveBrowserExecutables(options.browserPath)
 
   const startedAt = new Date().toISOString()
   const commit = git(['rev-parse', 'HEAD'], 'unknown')
@@ -405,6 +451,20 @@ async function main() {
   }
 
   const completedAt = new Date().toISOString()
+  const summary = aggregateEvaluations(results)
+  const qualityPolicy = policy
+    ? evaluateQualityPolicy({
+        policy,
+        corpus,
+        corpusSha256: corpusHash,
+        fixtureSha256: fixtureHash,
+        summary,
+        policySha256: sha256(policyText),
+      })
+    : {
+        status: 'not-defined',
+        note: 'Scenario ground truth is evaluated without a versioned quality policy.',
+      }
   const report = {
     schemaVersion: '1',
     run: {
@@ -412,7 +472,7 @@ async function main() {
       dirty: git(['status', '--porcelain'], '').length > 0,
       toolVersion: packageJson.version,
       browser: observedBrowser,
-      browserExecutableKind: path.basename(resolvedBrowser),
+      browserExecutableKind: path.basename(resolvedBrowsers.headless),
       platform: process.platform,
       architecture: process.arch,
       nodeVersion: process.version,
@@ -422,14 +482,12 @@ async function main() {
     corpus: {
       id: corpus.id,
       schemaVersion: corpus.schemaVersion,
-      sha256: sha256(corpusText),
+      sha256: corpusHash,
+      fixtureSha256: fixtureHash,
       scenarioCount: corpus.scenarios.length,
     },
-    qualityPolicy: {
-      status: 'not-defined',
-      note: 'Scenario ground truth is evaluated without a universal quality threshold.',
-    },
-    summary: aggregateEvaluations(results),
+    qualityPolicy,
+    summary,
     scenarios: results,
   }
 
@@ -441,6 +499,7 @@ async function main() {
     `[benchmark] ${report.summary.totals.passedPairs}/${report.summary.totals.evaluatedPairs} evaluated capture pairs matched ground truth; ${report.summary.totals.observationOnlyPairs} observation-only\n`,
   )
   if (report.summary.totals.failedPairs > 0) process.exitCode = 1
+  if (report.qualityPolicy.status === 'failed') process.exitCode = 1
   if (cancelled) process.exitCode = 130
 }
 

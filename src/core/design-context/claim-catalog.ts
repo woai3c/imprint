@@ -654,8 +654,9 @@ function buildComponentClaims(
     if (urls.size >= 2) placements.push({ kind: 'signature' })
     const isPrimary = variants.includes('primary')
     if (isPrimary) placements.push({ kind: 'singleton', slot: 'attention.action' })
-    const variantClause = variants.length
-      ? t('componentVariantClause', { count: variants.length, variants: variants.join(', ') })
+    const localizedVariants = variants.map((variant) => t(`componentVariants.${variant}`, { defaultValue: variant }))
+    const variantClause = localizedVariants.length
+      ? t('componentVariantClause', { count: localizedVariants.length, variants: localizedVariants.join(', ') })
       : ''
     builder.add(`component-${type}-${role}`, placements, {
       statement: t(type === role ? 'componentStatementSameRole' : 'componentStatementWithRole', {
@@ -736,12 +737,16 @@ function buildInteractionClaims(
     const placements: DesignClaimCatalogPlacement[] = [{ kind: 'interaction', bucket: 'driver' }]
     if (representative.driver === 'scroll') placements.push({ kind: 'interaction', bucket: 'scrollNarrative' })
     builder.add(`interaction-pattern-${key}`, placements, {
-      statement: t('interactionPatternStatement', {
-        count: samples.length,
-        safety: representative.safety,
-        driver: representative.driver,
-        properties: stableList(representative.changedProperties).join(', '),
-      }),
+      statement: t(
+        representative.safety === 'passive'
+          ? 'passiveInteractionPatternStatement'
+          : 'activeInteractionPatternStatement',
+        {
+          count: samples.length,
+          driver: representative.driver,
+          properties: stableList(representative.changedProperties).join(', '),
+        },
+      ),
       implementation: t(
         representative.safety === 'passive' ? 'passiveInteractionImplementation' : 'activeInteractionImplementation',
       ),

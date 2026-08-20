@@ -43,10 +43,10 @@
     "44px high",
     "tab click: selected state no → yes",
     "tab",
-    "status-positive",
-    "status-warning",
-    "delta-positive",
-    "delta-negative",
+    "status indicator (positive)",
+    "status indicator (warning)",
+    "positive delta",
+    "negative delta",
     "columns 4 → 2"
   ]
 }

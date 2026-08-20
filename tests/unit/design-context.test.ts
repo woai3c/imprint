@@ -219,6 +219,8 @@ describe('deterministic design context', () => {
     const englishMarkdown = generateDesignProfileMarkdown(englishProfile, tokens, new Map(), cardEvidence)
 
     expect(actionMarkdown).toContain('观察到 1 个用于主要操作的按钮组件，外形为常规圆角')
+    expect(actionMarkdown).toContain('包含以下变体：主按钮')
+    expect(actionMarkdown).not.toContain('包含以下变体：主要')
     expect(englishMarkdown).toContain('Observed 1 card component with rounded corners.')
   })
 })

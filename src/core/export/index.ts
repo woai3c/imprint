@@ -1583,6 +1583,41 @@ function reconstructionResponsiveFacts(evidence: DesignEvidence): Reconstruction
   ]
 }
 
+function readableReconstructionComponentName(name: string, language: DocLanguage): string {
+  const parts = name.split('-').filter(Boolean)
+  const type = parts[0]
+  if (type === 'delta' && parts[1]) {
+    return coreT(language, 'export.reconstruction.deltaVariant', {
+      direction: coreT(language, `export.reconstruction.componentTraits.${parts[1]}`, {
+        defaultValue: parts[1],
+      }),
+    })
+  }
+  const knownTypes = new Set(['button', 'card', 'navigation', 'input', 'table', 'modal', 'list', 'tab', 'status'])
+  if (!type || !knownTypes.has(type)) return localizeReconstructionFact(name.replaceAll('-', ' '), language)
+
+  let label = coreT(language, `export.reconstruction.componentTypes.${type}`, { defaultValue: type })
+  let traitStart = 1
+  if (type === 'button' && ['primary', 'secondary', 'destructive', 'text', 'icon'].includes(parts[1] || '')) {
+    label = coreT(language, `export.reconstruction.buttonVariants.${parts[1]}`, { defaultValue: label })
+    traitStart = 2
+  }
+  const traits = parts.slice(traitStart).map((trait) => {
+    const radius = /^r(\d+(?:\.\d+)?)$/.exec(trait)?.[1]
+    const traitNamespace =
+      type === 'card' && ['flat', 'outlined', 'elevated', 'square'].includes(trait) ? 'cardTraits' : 'componentTraits'
+    return radius
+      ? coreT(language, 'export.reconstruction.radiusTrait', { radius })
+      : coreT(language, `export.reconstruction.${traitNamespace}.${trait}`, { defaultValue: trait })
+  })
+  return traits.length > 0
+    ? coreT(language, 'export.reconstruction.componentVariant', {
+        label,
+        traits: traits.join(coreT(language, 'export.reconstruction.traitSeparator')),
+      })
+    : label
+}
+
 function reconstructionSummary(
   evidence: DesignEvidence,
   tokens: DesignToken,
@@ -1604,10 +1639,9 @@ function reconstructionSummary(
   )
   const signatureFacts = reconstructionSignatureFacts(evidence).slice(0, 8)
   const responsiveFacts = reconstructionResponsiveFacts(evidence).slice(0, 6)
-  const variants = components.slice(0, 12).map((component) => {
-    const kinds = component.elementKinds?.length ? ` (${component.elementKinds.join('/')})` : ''
-    return `${component.name} ×${component.count}${kinds}`
-  })
+  const variants = components
+    .slice(0, 12)
+    .map((component) => `${readableReconstructionComponentName(component.name, language)} ×${component.count}`)
   // The reconstruction summary is the document's canonical observed layer; profile claims stay separate.
   const scope = coreT(language, `export.reconstruction.${multiPage ? 'siteScope' : 'pageScope'}`, {
     title: pageTitle,

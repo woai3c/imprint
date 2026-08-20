@@ -586,6 +586,52 @@ describe('Design Evidence', () => {
     expect(document).toContain('`大量使用 CSS 变量`')
   })
 
+  it('uses readable component names in the Chinese reconstruction summary', () => {
+    const evidence = buildFixtureEvidence()
+    const desktopButton = evidence.components.find(
+      (component) => component.type === 'button' && component.pageId === evidence.pages[0].id,
+    )!
+    desktopButton.rect.height = 0.02
+    desktopButton.styles = {
+      ...desktopButton.styles,
+      border: '1px solid rgb(37, 99, 235)',
+      borderRadius: '6px',
+    }
+    evidence.components.push({
+      ...structuredClone(desktopButton),
+      id: 'component-primary-large',
+      rect: { ...desktopButton.rect, height: 0.04 },
+      styles: {
+        ...desktopButton.styles,
+        border: 'none',
+        borderRadius: '6px',
+      },
+    })
+    evidence.components.push(
+      {
+        ...structuredClone(desktopButton),
+        id: 'component-delta-positive',
+        type: 'status',
+        role: 'delta-positive',
+      },
+      {
+        ...structuredClone(desktopButton),
+        id: 'component-status-warning',
+        type: 'status',
+        role: 'status-warning',
+      },
+    )
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
+    const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
+
+    expect(summary).toContain('主按钮（小尺寸、圆角、描边） ×1')
+    expect(summary).toContain('主按钮（大尺寸、圆角、实色填充） ×1')
+    expect(summary).toContain('正向变化值 ×1')
+    expect(summary).toContain('状态提示（警告） ×1')
+    expect(summary).not.toContain('button-primary-')
+  })
+
   it('uses human-readable interaction and structure terms throughout the Chinese report', () => {
     const evidence = buildFixtureEvidence()
     const page = evidence.pages.find((candidate) => candidate.viewport === 'desktop')!

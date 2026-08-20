@@ -78,6 +78,7 @@ function scopeUrl(url: string): string {
 function buildClaimScopeFormatter(
   evidence: DesignEvidence | undefined,
   t: ReturnType<typeof coreTranslator>,
+  maximumVisibleScopes = 2,
 ): (claim: DesignClaim) => string | null {
   if (!evidence) return () => null
 
@@ -123,12 +124,31 @@ function buildClaimScopeFormatter(
             .join('/')}`,
       )
     if (scopes.length === 0) return null
-    const visible = scopes.slice(0, 2)
+    const visible = scopes.slice(0, maximumVisibleScopes)
     if (scopes.length > visible.length) {
       visible.push(t('scopeMore', { count: scopes.length - visible.length }))
     }
     return visible.join(t('scopeSeparator'))
   }
+}
+
+function isSectionLayoutClaim(claim: DesignClaim): boolean {
+  return Boolean(
+    claim.assertions?.some((assertion) => assertion.kind === 'section' && assertion.predicate === 'layout-mode'),
+  )
+}
+
+function sectionLayoutModes(claim: DesignClaim): string[] {
+  return [
+    ...new Set(
+      claim.assertions
+        ?.filter((assertion) => assertion.kind === 'section' && assertion.predicate === 'layout-mode')
+        .flatMap((assertion) => {
+          const values = Array.isArray(assertion.value) ? assertion.value : [assertion.value]
+          return values.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        }) || [],
+    ),
+  ].sort()
 }
 
 function isExecutedInteractionClaim(claim: DesignClaim): boolean {
@@ -335,6 +355,7 @@ export function generateDesignProfileMarkdown(
     renderedClaimKeys: new Set<string>(),
     scopeForClaim: buildClaimScopeFormatter(evidence, t),
   }
+  const exactScopeForClaim = buildClaimScopeFormatter(evidence, t, Number.MAX_SAFE_INTEGER)
   const compositionClaims = Object.entries(profile.composition).map(([label, claim]) => ({
     ...claim,
     label: t(`claimLabels.${label}`),
@@ -353,12 +374,49 @@ export function generateDesignProfileMarkdown(
     { ...profile.attention.actionHierarchy, label: t('claimLabels.actionHierarchy') },
     { ...profile.attention.contrastStrategy, label: t('claimLabels.contrastStrategy') },
   ]
-  const sectionClaims = profile.sectionGrammar.flatMap((grammar) =>
-    [...grammar.composition, ...grammar.contentRhythm, ...grammar.transitionToNext].map((claim) => ({
-      ...claim,
-      label: translatedTerm(grammar.role, t),
-    })),
-  )
+  const scopedSectionLayouts = new Map<string, Array<{ role: string; layouts: string[]; claim: DesignClaim }>>()
+  const standaloneSectionLayouts: LabeledClaim[] = []
+  for (const grammar of profile.sectionGrammar) {
+    for (const claim of grammar.composition) {
+      const layouts = sectionLayoutModes(claim)
+      const scope = exactScopeForClaim(claim)
+      if (layouts.length === 0 || !scope) {
+        standaloneSectionLayouts.push({ ...claim, label: translatedTerm(grammar.role, t) })
+        continue
+      }
+      const key = JSON.stringify([layouts, scope])
+      const group = scopedSectionLayouts.get(key) || []
+      group.push({ role: grammar.role, layouts, claim })
+      scopedSectionLayouts.set(key, group)
+    }
+  }
+  const groupedSectionLayouts = [...scopedSectionLayouts.values()].flatMap((group): LabeledClaim[] => {
+    const roles = [...new Set(group.map((item) => item.role))].sort()
+    if (roles.length < 2) {
+      return group.map(({ role, claim }) => ({ ...claim, label: translatedTerm(role, t) }))
+    }
+    const merged = group.slice(1).reduce((result, item) => mergeClaims(result, item.claim), group[0].claim)
+    return [
+      {
+        ...merged,
+        label: t('claimLabels.layout'),
+        statement: t('sectionLayoutSummary', {
+          roles: roles.join(', '),
+          layouts: group[0].layouts.join(', '),
+        }),
+      },
+    ]
+  })
+  const sectionClaims = [
+    ...standaloneSectionLayouts,
+    ...groupedSectionLayouts,
+    ...profile.sectionGrammar.flatMap((grammar) =>
+      [...grammar.contentRhythm, ...grammar.transitionToNext].map((claim) => ({
+        ...claim,
+        label: translatedTerm(grammar.role, t),
+      })),
+    ),
+  ]
   const executedInteractionClaims = profile.interactionLanguage.primaryDrivers.filter(isExecutedInteractionClaim)
   const additionalPatternClaims = [
     { ...profile.visualLanguage.surfaces, label: t('claimLabels.surfaces') },
@@ -395,7 +453,12 @@ export function generateDesignProfileMarkdown(
     '',
     t('catalogLayerNotice'),
     '',
-    ...claimLines(t('sections.selectedHighlights'), profile.signatureMoves, t, claimOptions),
+    ...claimLines(
+      t('sections.selectedHighlights'),
+      profile.signatureMoves.filter((claim) => !isSectionLayoutClaim(claim)),
+      t,
+      claimOptions,
+    ),
     ...claimLines(t('sections.composition'), compositionClaims, t, claimOptions),
     ...claimLines(t('sections.attention'), attentionClaims, t, claimOptions),
     ...claimLines(t('sections.sectionSemantics'), sectionClaims, t, claimOptions),

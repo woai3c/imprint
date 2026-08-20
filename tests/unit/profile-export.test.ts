@@ -220,6 +220,71 @@ describe('deterministic profile export', () => {
     expect(markdown).toContain('evidence refs: 2 · scope: example.com/ · desktop')
   })
 
+  it('summarizes identical section layouts only when their complete route and viewport scope matches', () => {
+    const profile = createProfile()
+    const scopedEvidence = structuredClone(evidence)
+    scopedEvidence.pages.push({
+      ...structuredClone(scopedEvidence.pages[0]),
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      images: [{ id: 'image-secondary', kind: 'overview', path: 'secondary.png', width: 1440, height: 900 }],
+    })
+    scopedEvidence.sections.push(
+      {
+        ...structuredClone(scopedEvidence.sections[0]),
+        id: 'section-header',
+        role: 'header',
+      },
+      {
+        ...structuredClone(scopedEvidence.sections[0]),
+        id: 'section-aside',
+        pageId: 'page-secondary',
+        role: 'aside',
+        evidenceRefs: ['image-secondary'],
+      },
+    )
+    const layoutClaim = (role: string, evidenceId: string, statement: string): DesignClaim => ({
+      ...claim(statement, 'high', evidenceId),
+      assertions: [
+        {
+          kind: 'section',
+          target: role,
+          predicate: 'layout-mode',
+          scope: 'page',
+          evidenceIds: [evidenceId],
+          value: 'flow',
+        },
+      ],
+    })
+    profile.sectionGrammar = [
+      {
+        role: 'content',
+        composition: [layoutClaim('content', 'section-main', 'Content sections use flow layout')],
+        contentRhythm: [],
+        transitionToNext: [],
+      },
+      {
+        role: 'header',
+        composition: [layoutClaim('header', 'section-header', 'Header sections use flow layout')],
+        contentRhythm: [],
+        transitionToNext: [],
+      },
+      {
+        role: 'aside',
+        composition: [layoutClaim('aside', 'section-aside', 'Aside sections use flow layout')],
+        contentRhythm: [],
+        transitionToNext: [],
+      },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile, tokens, new Map(), scopedEvidence)
+
+    expect(markdown).toContain('**Layout:** content, header sections share the same normal document flow layout.')
+    expect(markdown).toContain('**aside:** Aside sections use normal document flow layout')
+    expect(markdown).not.toContain('Content sections use normal document flow layout')
+    expect(markdown).not.toContain('Header sections use normal document flow layout')
+  })
+
   it('renders localized technical terms and privacy-safe human-readable scope', () => {
     const profile = createProfile()
     profile.language = 'zh-CN'

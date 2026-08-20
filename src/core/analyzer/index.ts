@@ -37,6 +37,7 @@ import {
   isPageHealthExtractionIssue,
 } from './extraction-limitations.js'
 import { buildEvidenceBackedClaims, generateFeatureTags } from './feature-tags.js'
+import { navigateWithRecovery } from './navigation.js'
 import { type DiscoveredPage, discoverPages } from './page-discovery.js'
 import { ensurePageHealth } from './page-health.js'
 import { freezePageAnimations, preparePageForExtraction } from './page-preparer.js'
@@ -316,10 +317,20 @@ function throwIfAnalysisAborted(signal?: AbortSignal): void {
   throw new DOMException('Analysis cancelled', 'AbortError')
 }
 
-async function navigatePage(page: Page, url: string, timeout = 60000): Promise<number | undefined> {
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
+async function navigatePage(
+  page: Page,
+  url: string,
+  timeout = 60000,
+  options: { retry?: boolean } = {},
+): Promise<number | undefined> {
+  const result = await navigateWithRecovery(page, url, { timeoutMs: timeout, retry: options.retry })
+  if (result.recoveredAfterTimeout) {
+    console.error(`[imprint] navigation recovered from a committed document after timeout (attempt ${result.attempts})`)
+  } else if (result.attempts > 1) {
+    console.error('[imprint] navigation succeeded on retry after timeout')
+  }
   await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
-  return response?.status()
+  return result.status
 }
 
 async function saveManagedStorageState(context: BrowserContext, dataDir: string, url: string): Promise<void> {
@@ -1430,7 +1441,7 @@ export async function analyze(
             const withinAdaptiveBudget = () => Date.now() < adaptiveDeadline
             await runWithinDeadline(adaptiveDeadline, () => configurePageViewport(subPage, 'mobile', VIEWPORTS.mobile))
             const mobilePageStatus = await runWithinDeadline(adaptiveDeadline, () =>
-              navigatePage(subPage, subUrl, Math.max(1, adaptiveDeadline - Date.now())),
+              navigatePage(subPage, subUrl, Math.max(1, adaptiveDeadline - Date.now()), { retry: false }),
             )
             await runWithinDeadline(adaptiveDeadline, () => subPage.waitForTimeout(150))
             if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')

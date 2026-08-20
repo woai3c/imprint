@@ -1,0 +1,20 @@
+:root {
+  --primary: #b42318;
+  --space: 18px;
+  --radius: 12px;
+  --title-size: 46px;
+}
+
+.hero {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.action:hover {
+  transform: translateX(4px);
+}
+
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

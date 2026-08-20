@@ -65,7 +65,7 @@ The current controlled variants were already visible during comparison developme
 calibration or regression holdouts, never as independent prospective holdouts.
 
 The current Desktop P0 prospective policy is frozen in
-`tests/comparison-benchmark/policies/desktop-p0-prospective-v2.json`. It requires a deterministic loopback corpus whose
+`tests/comparison-benchmark/policies/desktop-p0-prospective-v3.json`. It requires a deterministic loopback corpus whose
 scenarios are all prospective holdouts, cover changed/unchanged/inconclusive outcomes and all seven declared comparison
 categories, and contain no declared-ground-truth, fail-closed, evidence-reference, or execution failures. Those strict
 requirements are valid for controlled ground truth only.
@@ -82,7 +82,9 @@ comparison behavior, that scenario is no longer prospective: move it to regressi
 scenario before making another prospective claim.
 
 Earlier versioned policies and corpora remain in the repository as historical evidence. They are not silently moved to
-a newer implementation baseline after their results have been inspected.
+a newer implementation baseline after their results have been inspected. The first v2 run detected six of seven
+declared categories but did not report layout because its changed repeated section could not be paired uniquely; that
+failed sample is retained as a boundary of the documented conservative entity-matching scope, not rewritten as a pass.
 
 ## Evaluation rules
 

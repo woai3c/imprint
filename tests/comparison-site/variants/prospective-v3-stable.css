@@ -1,0 +1,14 @@
+/* Equivalent computed values expressed independently from earlier prospective fixtures. */
+.hero {
+  grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr);
+}
+
+.action:hover {
+  transform: translate(0, -2px);
+}
+
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

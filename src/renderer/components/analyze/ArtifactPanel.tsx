@@ -30,22 +30,17 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
   const [selectedTab, setActiveTab] = useState<ExportTab>('overview')
   const [savingTheme, setSavingTheme] = useState(false)
   const [saveConflict, setSaveConflict] = useState<ThemeSaveConflict | null>(null)
-  const activeTab = selectedTab === 'reconstruction' && !result.reconstructionBrief ? 'overview' : selectedTab
-
-  const exportArtifact = activeTab === 'overview' || activeTab === 'preview' ? 'markdown' : activeTab
-  const activeArtifactLabel = t(`analyze.artifacts.${exportArtifact}`)
+  const activeTab = selectedTab
+  const activeArtifactLabel = t('analyze.artifacts.markdown')
   const showCopyDownload = activeTab !== 'preview'
 
-  const tabs: { id: ExportTab; label: string }[] = artifactTabIds(Boolean(result.reconstructionBrief)).map((id) => ({
+  const tabs: { id: ExportTab; label: string }[] = artifactTabIds().map((id) => ({
     id,
     label: t(
       {
         overview: 'analyze.tabOverview',
         preview: 'analyze.tabPreview',
         markdown: 'analyze.tabMarkdown',
-        reconstruction: 'analyze.tabReconstruction',
-        tailwind: 'analyze.tabTailwind',
-        css: 'analyze.tabCss',
       }[id],
     ),
   }))
@@ -54,13 +49,8 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
   const designMarkdown = splitDesignMarkdown(result.designDoc || '')
 
   const handleCopy = async () => {
-    let content = ''
-    if (activeTab === 'tailwind') content = result.tailwindTheme || ''
-    else if (activeTab === 'css') content = result.cssVariables || ''
-    else if (activeTab === 'reconstruction') content = result.reconstructionBrief || ''
-    else content = result.designDoc || ''
     try {
-      await navigator.clipboard.writeText(content)
+      await navigator.clipboard.writeText(result.designDoc || '')
       notify(t('feedback.copied'))
     } catch {
       notify(t('feedback.actionFailed'), 'error')
@@ -68,25 +58,8 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
   }
 
   const handleExportFile = async () => {
-    let content = ''
-    let ext: 'md' | 'css' = 'md'
-    let filename = 'DESIGN.md'
-    if (activeTab === 'tailwind') {
-      content = result.tailwindTheme
-      ext = 'css'
-      filename = 'tailwind-theme.css'
-    } else if (activeTab === 'css') {
-      content = result.cssVariables
-      ext = 'css'
-      filename = 'theme-variables.css'
-    } else if (activeTab === 'reconstruction') {
-      content = result.reconstructionBrief || ''
-      filename = 'RECONSTRUCTION.md'
-    } else {
-      content = result.designDoc
-    }
     try {
-      const exportResult = await window.electronAPI.exportFile(content, filename, ext)
+      const exportResult = await window.electronAPI.exportFile(result.designDoc, 'DESIGN.md', 'md')
       if (exportResult.success) notify(t('feedback.exported'))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -150,11 +123,7 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
               {showCopyDownload && (
                 <IconButton
                   icon={Copy}
-                  label={
-                    activeTab === 'reconstruction'
-                      ? t('analyze.designDna.copyBrief')
-                      : t('analyze.copyCurrent', { format: activeArtifactLabel })
-                  }
+                  label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
                   onClick={handleCopy}
                 />
               )}
@@ -224,23 +193,6 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
                 <Markdown remarkPlugins={[remarkGfm]}>{designMarkdown.body}</Markdown>
               </div>
             </div>
-          )}
-          {activeTab === 'reconstruction' && result.reconstructionBrief && (
-            <div
-              data-testid="artifact-content-reconstruction"
-              className="prose prose-sm dark:prose-invert max-w-none p-6 prose-code:before:content-none prose-code:after:content-none"
-            >
-              <Markdown remarkPlugins={[remarkGfm]}>{result.reconstructionBrief}</Markdown>
-            </div>
-          )}
-          {(activeTab === 'tailwind' || activeTab === 'css') && (
-            <pre
-              data-testid={`artifact-content-${activeTab}`}
-              className="text-xs font-mono whitespace-pre-wrap wrap-break-word leading-relaxed p-4"
-            >
-              {activeTab === 'tailwind' && result.tailwindTheme}
-              {activeTab === 'css' && result.cssVariables}
-            </pre>
           )}
         </div>
       </div>

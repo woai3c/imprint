@@ -227,6 +227,15 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
   const captureCoverage = evidence.coverage.captureCoverage
   const assetCoverage = resolveScreenshotAssetCoverage(evidence)
   const coverageT = coreTranslator(language, 'designEvidence.coverage')
+  const termT = coreTranslator(language, 'profileExport')
+  const term = (value: string): string => {
+    const aliases: Record<string, string> = {
+      'node.heading.fontSize': 'headingFontSize',
+    }
+    return termT(`terms.${aliases[value] || value}`, { defaultValue: value })
+  }
+  const observedValue = (value: string): string =>
+    ['hidden', 'visible', 'true', 'false', 'absent'].includes(value) ? term(value) : value
   const stateMetrics = computeInteractionStateMetrics(evidence)
   const iconRegions = evidence.coverage.mediaCoverage.iconRegions ?? 0
 
@@ -270,17 +279,6 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
       : `- Media evidence: ${evidence.coverage.mediaCoverage.majorRegions} major regions (${evidence.coverage.mediaCoverage.classifiedRegions} classified), plus ${iconRegions} icon instances not counted as major regions`,
   )
   lines.push('')
-
-  if (evidence.deterministicClaims?.length) {
-    lines.push(zh ? '### 基于证据的确定性主张' : '### Evidence-backed Deterministic Claims')
-    lines.push('')
-    for (const claim of evidence.deterministicClaims) {
-      lines.push(
-        `- **${claim.label}** (${claim.confidence}) — ${claim.reasons.join(' ')} [${claim.evidenceRefs.map((ref) => `\`${ref}\``).join(', ')}]`,
-      )
-    }
-    lines.push('')
-  }
 
   appendTypographyRoleMatrix(lines, evidence, zh)
 
@@ -450,7 +448,7 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
     const passivePropSummary = [...passivePropertyCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
-      .map(([prop, count]) => `${prop} ×${count}`)
+      .map(([prop, count]) => `${term(prop)} ×${count}`)
       .join(', ')
     if (passivePropSummary) {
       lines.push(`- ${zh ? '被动声明属性' : 'Passively declared properties'}: ${passivePropSummary}`)
@@ -458,7 +456,7 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
     const activePropSummary = [...activePropertyCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
-      .map(([prop, count]) => `${prop} ×${count}`)
+      .map(([prop, count]) => `${term(prop)} ×${count}`)
       .join(', ')
     if (activePropSummary) {
       lines.push(`- ${zh ? '已执行变化属性' : 'Executed changed properties'}: ${activePropSummary}`)
@@ -492,7 +490,11 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
           const before = observation.before[property]
           const after = observation.after[property]
           if (after === undefined || before === after) return []
-          return [before === undefined ? `${property}: ${after}` : `${property}: ${before} → ${after}`]
+          return [
+            before === undefined
+              ? `${term(property)}: ${observedValue(after)}`
+              : `${term(property)}: ${observedValue(before)} → ${observedValue(after)}`,
+          ]
         })
         .slice(0, 4)
         .join('; ')
@@ -526,12 +528,12 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
       const changeType = displayedResponsiveChangeType(observation.changeType, properties)
       lines.push(
         zh
-          ? `- ${context}：${observation.fromViewport} → ${observation.toViewport}，${changeType}（${properties.join('、')}）`
-          : `- ${context}: ${observation.fromViewport} → ${observation.toViewport}, ${changeType} (${properties.join(', ')})`,
+          ? `- ${context}：${term(observation.fromViewport)} → ${term(observation.toViewport)}，${term(changeType)}（${properties.map(term).join('、')}）`
+          : `- ${context}: ${term(observation.fromViewport)} → ${term(observation.toViewport)}, ${term(changeType)} (${properties.map(term).join(', ')})`,
       )
       const values = changes
         .slice(0, 12)
-        .map(([property, value]) => `${property}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`)
+        .map(([property, value]) => `${term(property)}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`)
         .join('; ')
       if (values) lines.push(`  - ${values}`)
     }

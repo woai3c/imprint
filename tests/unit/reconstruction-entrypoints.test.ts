@@ -26,9 +26,8 @@ describe('CLI reconstruction formats', () => {
   })
 })
 
-describe('Desktop reconstruction artifact', () => {
-  test('shows the Brief tab only when IPC returned an eligible artifact', () => {
-    expect(artifactTabIds(false)).not.toContain('reconstruction')
-    expect(artifactTabIds(true)).toContain('reconstruction')
+describe('Desktop analysis artifacts', () => {
+  test('keeps DESIGN.md as the only exported document', () => {
+    expect(artifactTabIds()).toEqual(['overview', 'preview', 'markdown'])
   })
 })

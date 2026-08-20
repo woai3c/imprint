@@ -589,7 +589,6 @@ function designDocColorRoleSummary(tokens: DesignToken): Record<string, unknown>
   return {
     ...(primaryAction ? { primaryAction } : {}),
     ...(semanticPairs && Object.keys(semanticPairs).length > 0 ? { semanticPairs } : {}),
-    provenanceArtifact: 'design-evidence.json',
   }
 }
 
@@ -1153,6 +1152,9 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\baside\b/gi, coreT(language, 'export.reconstruction.terms.aside')],
     [/\bfeature-group\b/gi, coreT(language, 'export.reconstruction.terms.featureGroup')],
     [/\bhero\b/gi, coreT(language, 'export.reconstruction.terms.hero')],
+    [/\bbody(?=\s+border-(?:top|right|bottom|left)\b)/gi, coreT(language, 'export.reconstruction.terms.body')],
+    [/\bbutton\b/gi, coreT(language, 'export.reconstruction.terms.button')],
+    [/\bclick\b/gi, coreT(language, 'export.reconstruction.terms.click')],
     [/\baction\b/gi, coreT(language, 'export.reconstruction.terms.action')],
     [/\bfooter\b/gi, coreT(language, 'export.reconstruction.terms.footer')],
     [/\bmax-width\b/gi, coreT(language, 'export.reconstruction.terms.maxWidth')],
@@ -1163,10 +1165,22 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\bheight\b/gi, coreT(language, 'export.reconstruction.terms.height')],
     [/\border\b/gi, coreT(language, 'export.reconstruction.terms.order')],
     [/\bsequenceIndex\b/g, coreT(language, 'export.reconstruction.terms.order')],
+    [/\bariaExpanded\b/g, coreT(language, 'export.reconstruction.terms.ariaExpanded')],
+    [/\bariaSelected\b/g, coreT(language, 'export.reconstruction.terms.ariaSelected')],
+    [/\bcontrolledVisibility\b/g, coreT(language, 'export.reconstruction.terms.controlledVisibility')],
+    [/\bcontrolledOpacity\b/g, coreT(language, 'export.reconstruction.terms.controlledOpacity')],
+    [/\bborder-left\b/g, coreT(language, 'export.reconstruction.terms.borderLeft')],
+    [/\bborder-right\b/g, coreT(language, 'export.reconstruction.terms.borderRight')],
+    [/\bborder-top\b/g, coreT(language, 'export.reconstruction.terms.borderTop')],
+    [/\bborder-bottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bborderBottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bboxShadow\b/g, coreT(language, 'export.reconstruction.terms.boxShadow')],
     [/\bsticky\b/gi, coreT(language, 'export.reconstruction.terms.sticky')],
     [/(?<!-)\btop(?=\s+\d)/gi, coreT(language, 'export.reconstruction.terms.top')],
+    [/\bfalse(?=\s*→)/g, coreT(language, 'export.reconstruction.terms.false')],
+    [/(?<=→\s)\btrue\b(?=\s*(?:,|$))/g, coreT(language, 'export.reconstruction.terms.true')],
+    [/\bhidden(?=\s*→)/g, coreT(language, 'export.reconstruction.terms.hidden')],
+    [/(?<=→\s)\bvisible\b(?=\s*(?:,|$))/g, coreT(language, 'export.reconstruction.terms.visible')],
   ]
   return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
 }
@@ -1196,12 +1210,6 @@ function localizedFeatureTag(tag: string, language: DocLanguage): string {
     'rich color system': 'richColorSystem',
   }
   return keys[tag] ? coreT(language, `export.featureTags.${keys[tag]}`) : tag
-}
-
-function localizedPageRole(role: string, language: DocLanguage): string {
-  const key = `export.reconstruction.pageRoles.${role}`
-  const translated = coreT(language, key)
-  return translated === key ? role : translated
 }
 
 function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
@@ -1588,7 +1596,6 @@ function reconstructionSummary(
     evidence.source.title ||
     desktopPage?.title ||
     new URL(evidence.source.finalUrl).hostname
-  const pageRole = !desktopPage?.role || desktopPage.role === 'unknown' ? 'page' : desktopPage.role
   const canonicalTopology = evidence.topology.pages.find((page) => page.pageId === desktopPage?.id)
   const sectionRoles = compactRoleSequence(
     canonicalTopology?.sectionIds
@@ -1602,9 +1609,9 @@ function reconstructionSummary(
     return `${component.name} ×${component.count}${kinds}`
   })
   // The reconstruction summary is the document's canonical observed layer; profile claims stay separate.
-  const thesis = coreT(language, 'export.reconstruction.thesis', {
+  const scope = coreT(language, `export.reconstruction.${multiPage ? 'siteScope' : 'pageScope'}`, {
     title: pageTitle,
-    role: localizedPageRole(pageRole, language),
+    pageCount: new Set(evidence.pages.map((page) => page.url)).size,
   })
   const preserve = [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
     coreT(language, 'export.reconstruction.preserveFact', {
@@ -1621,7 +1628,7 @@ function reconstructionSummary(
   return [
     coreT(language, 'export.reconstruction.heading'),
     '',
-    `- **${label(multiPage ? 'siteThesis' : 'pageThesis')}:** ${thesis}`,
+    `- **${label(multiPage ? 'siteThesis' : 'pageThesis')}:** ${scope}`,
     sectionRoles?.length
       ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionRoles.map((role) => localizeReconstructionFact(role, language)).join(' → ')}`
       : '',
@@ -1894,8 +1901,8 @@ export function generateDesignDoc(
   }
   lines.push(
     zh
-      ? '\n> 超过 96px 的低频页面几何不进入可复用刻度；完整 max-width、区块尺寸与响应式值保留在 Design Evidence。'
-      : '\n> Low-frequency page geometry above 96px is excluded from the reusable scale; complete max-width, section, and responsive values remain in Design Evidence.',
+      ? '\n> 超过 96px 的低频页面几何不进入可复用刻度；有代表性的结构尺寸与响应式变化已保留在本文档中。'
+      : '\n> Low-frequency page geometry above 96px is excluded from the reusable scale; representative structural dimensions and responsive changes remain in this document.',
   )
   if (documentBreakpoints.length > 0) {
     lines.push(zh ? '\n### CSS 中声明的响应式断点\n' : '\n### Responsive Breakpoints Declared in CSS\n')
@@ -1992,7 +1999,7 @@ export function generateDesignDoc(
     if (designEvidence) {
       lines.push(
         zh
-          ? '> 实例数按每个页面的一次 canonical 捕获统计；优先使用 desktop。其他视口只用于响应式观察，不重复累计实例。\n'
+          ? '> 实例数按每个页面的一次代表性捕获统计；优先使用桌面端。其他视口只用于响应式观察，不重复累计实例。\n'
           : '> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n',
       )
     }

@@ -195,10 +195,13 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
 
-    await page.getByTestId('artifact-tab-css').click()
-    const css = await page.getByTestId('artifact-content-css').textContent()
-    assert.match(css || '', /:root\s*\{/)
-    assert.match(css || '', /--color-/)
+    assert.equal(await page.getByTestId('artifact-tab-css').count(), 0)
+    await page.getByTestId('artifact-tab-markdown').click()
+    const markdown = await page.getByTestId('artifact-content-markdown').textContent()
+    assert.match(markdown || '', /Design System/)
+    await page.getByRole('button', { name: 'Copy DESIGN.md', exact: true }).click()
+    await page.getByText('Copied to clipboard', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Export DESIGN.md', exact: true }).count(), 1)
 
     const previousManagedScreenshotSrc = await page
       .getByTestId('analysis-page-screenshot')

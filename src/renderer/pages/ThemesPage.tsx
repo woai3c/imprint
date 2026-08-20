@@ -4,21 +4,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 
-import { THEME_EXPORT_FORMATS, type ThemeExportFormat, type ThemeSummaryRecord } from '../../shared/ipc-contract'
-import { InfoTip } from '../components/InfoTip'
+import type { ThemeSummaryRecord } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { createExtractedThemePreview } from '../lib/extracted-theme-preview'
 import { useFeedbackStore } from '../stores/feedback-store'
-import {
-  builtinThemes,
-  generateThemeCss,
-  generateThemeJson,
-  generateThemeMarkdown,
-  generateThemeTailwind,
-  useSkinStore,
-} from '../stores/skin-store'
+import { builtinThemes, generateThemeMarkdown, useSkinStore } from '../stores/skin-store'
 import type { AppTheme, ThemeCategory, ThemeColors } from '../stores/skin-store'
 import { useThemeStore } from '../stores/theme-store'
 
@@ -30,19 +22,9 @@ export function ThemesPage() {
   const { themes, loading, error, fetchThemes, renameTheme, deleteTheme } = useThemeStore()
   const notify = useFeedbackStore((state) => state.show)
   const [tab, setTab] = useState<'builtin' | 'extracted'>('builtin')
-  const [exportFormat, setExportFormat] = useState<ThemeExportFormat>('markdown')
   const [pendingDeleteTheme, setPendingDeleteTheme] = useState<ThemeSummaryRecord | null>(null)
   const [deleting, setDeleting] = useState(false)
   const activeBuiltinTheme = builtinThemes.find((theme) => theme.id === currentThemeId) || builtinThemes[0]
-
-  useEffect(() => {
-    window.electronAPI.getSettings().then((settings: { exportFormat?: string }) => {
-      const savedFormat = settings.exportFormat
-      if (THEME_EXPORT_FORMATS.includes(savedFormat as ThemeExportFormat)) {
-        setExportFormat(savedFormat as ThemeExportFormat)
-      }
-    })
-  }, [])
 
   useEffect(() => {
     void fetchThemes()
@@ -81,46 +63,13 @@ export function ThemesPage() {
   const handleExportBuiltin = async (theme: AppTheme) => {
     const localizedTheme = localizeBuiltinTheme(theme)
     const language = i18n.resolvedLanguage?.startsWith('zh') ? 'zh-CN' : 'en'
-    const exports: Record<ThemeExportFormat, { content: string; filename: string; ext: string }> = {
-      markdown: {
-        content: generateThemeMarkdown(localizedTheme, language),
-        filename: `imprint-${theme.id}-DESIGN.md`,
-        ext: 'md',
-      },
-      css: {
-        content: generateThemeCss(localizedTheme),
-        filename: `imprint-${theme.id}-variables.css`,
-        ext: 'css',
-      },
-      tailwind: {
-        content: generateThemeTailwind(localizedTheme),
-        filename: `imprint-${theme.id}-tailwind.css`,
-        ext: 'css',
-      },
-      json: {
-        content: generateThemeJson(localizedTheme),
-        filename: `imprint-${theme.id}-tokens.json`,
-        ext: 'json',
-      },
-    }
-    const selectedExport = exports[exportFormat]
-    const hasAssets = !!theme.backgroundImage
 
     try {
-      let exportResult: { success?: boolean; canceled?: boolean; error?: boolean }
-      if (hasAssets) {
-        exportResult = await window.electronAPI.exportToDirectory(
-          [{ name: selectedExport.filename, content: selectedExport.content }],
-          [theme.backgroundImage!],
-          '',
-        )
-      } else {
-        exportResult = await window.electronAPI.exportFile(
-          selectedExport.content,
-          selectedExport.filename,
-          selectedExport.ext,
-        )
-      }
+      const exportResult = await window.electronAPI.exportFile(
+        generateThemeMarkdown(localizedTheme, language),
+        `imprint-${theme.id}-DESIGN.md`,
+        'md',
+      )
       if (exportResult.success) notify(t('feedback.themeExported', { theme: localizedTheme.name }))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -128,14 +77,9 @@ export function ThemesPage() {
     }
   }
 
-  const handleExportFormatChange = (format: ThemeExportFormat) => {
-    setExportFormat(format)
-    window.electronAPI.saveSettings({ exportFormat: format })
-  }
-
   const handleExportExtracted = async (theme: ThemeSummaryRecord) => {
     try {
-      const result = await window.electronAPI.exportTheme(theme.id, exportFormat)
+      const result = await window.electronAPI.exportTheme(theme.id)
       if (result.success) notify(t('feedback.themeExported', { theme: theme.name }))
       else if (result.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -171,7 +115,7 @@ export function ThemesPage() {
     <div className="h-full flex flex-col">
       <PageHeader title={t('themes.title')} description={t('themes.description')} />
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-8">
+      <div className="mb-4 px-8">
         <div className="flex w-fit gap-1 rounded-lg bg-secondary p-1">
           <button
             type="button"
@@ -193,25 +137,6 @@ export function ThemesPage() {
           >
             {t('themes.extracted')} ({themes.length})
           </button>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <label htmlFor="theme-export-format" className="text-xs font-medium text-muted-foreground">
-            {t('themes.exportFormatLabel')}
-          </label>
-          <InfoTip text={t('themes.exportHelp')} align="right" />
-          <select
-            id="theme-export-format"
-            value={exportFormat}
-            onChange={(event) => handleExportFormatChange(event.target.value as ThemeExportFormat)}
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
-          >
-            {THEME_EXPORT_FORMATS.map((format) => (
-              <option key={format} value={format}>
-                {t(`themes.exportFormats.${format}`)}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 

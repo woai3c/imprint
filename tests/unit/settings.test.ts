@@ -29,7 +29,6 @@ describe('settings persistence', () => {
     const settings = saveSettings({
       analysisDepth: 'deep',
       analysisPageCount: 0,
-      exportFormat: 'json',
       validationScenario: 'content-feed',
     })
     const persisted = JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf-8'))

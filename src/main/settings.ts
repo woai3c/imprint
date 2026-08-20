@@ -3,21 +3,16 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
-import { type AppSettings, THEME_EXPORT_FORMATS } from '../shared/ipc-contract.js'
+import type { AppSettings } from '../shared/ipc-contract.js'
 
 const defaults: AppSettings = {
   analysisDepth: 'standard',
-  exportFormat: 'markdown',
   proxyServer: '',
   language: '',
   colorMode: '',
   themePreference: '',
   validationScenario: '',
   analysisPageCount: 3,
-}
-
-function isExportFormat(value: unknown): value is AppSettings['exportFormat'] {
-  return THEME_EXPORT_FORMATS.includes(value as AppSettings['exportFormat'])
 }
 
 function getSettingsPath(): string {
@@ -28,7 +23,6 @@ function normalizeSettings(value: unknown): AppSettings {
   const saved = value && typeof value === 'object' && !Array.isArray(value) ? (value as Partial<AppSettings>) : {}
   return {
     analysisDepth: saved.analysisDepth === 'deep' ? 'deep' : 'standard',
-    exportFormat: isExportFormat(saved.exportFormat) ? saved.exportFormat : defaults.exportFormat,
     proxyServer: typeof saved.proxyServer === 'string' ? saved.proxyServer : '',
     language: typeof saved.language === 'string' ? saved.language : '',
     colorMode: typeof saved.colorMode === 'string' ? saved.colorMode : '',

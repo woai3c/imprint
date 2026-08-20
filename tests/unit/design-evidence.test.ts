@@ -317,7 +317,7 @@ describe('Design Evidence', () => {
     expect(document).toContain('| button-primary | 1 | 0.9 |')
     expect(document).toContain('semanticRole: primary-action')
     expect(document).toContain('observationCount: 1')
-    expect(document).toContain('provenanceArtifact: design-evidence.json')
+    expect(document).not.toContain('provenanceArtifact: design-evidence.json')
     expect(document).not.toContain('body > main > button:nth-of-type(1)')
   })
 
@@ -578,12 +578,55 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
-    expect(summary).toContain('示例站点 是一个已观察到的')
+    expect(summary).toContain('本次分析覆盖 示例站点 的当前捕获页面')
     expect(summary).not.toContain('is an observed')
     expect(summary).not.toContain('Implement the')
     expect(document).toContain('`高频间距：4px、8px、16px`')
     expect(document).toContain('`观察到以紧凑圆角为主的表面`')
     expect(document).toContain('`大量使用 CSS 变量`')
+  })
+
+  it('uses human-readable interaction and structure terms throughout the Chinese report', () => {
+    const evidence = buildFixtureEvidence()
+    const page = evidence.pages.find((candidate) => candidate.viewport === 'desktop')!
+    const section = evidence.sections.find((candidate) => candidate.pageId === page.id)!
+    const component = evidence.components.find((candidate) => candidate.pageId === page.id)!
+    evidence.layoutNodes.push({
+      id: 'layout-body-border',
+      pageId: page.id,
+      sectionId: section.id,
+      role: 'body',
+      rect: { x: 0, y: 0, width: 1, height: 1 },
+      tokenRefs: [],
+      observedStyles: { borderLeft: '4px solid rgb(209, 217, 224)' },
+      traits: [],
+    })
+    evidence.interactionObservations = [
+      {
+        id: 'interaction-disclosure',
+        pageId: page.id,
+        sectionId: section.id,
+        targetId: component.id,
+        driver: 'click',
+        safety: 'safe-active',
+        trigger: { kind: 'button' },
+        before: { ariaExpanded: 'false', controlledVisibility: 'hidden', controlledOpacity: '0' },
+        after: { ariaExpanded: 'true', controlledVisibility: 'visible', controlledOpacity: '1' },
+        changedProperties: ['ariaExpanded', 'controlledVisibility', 'controlledOpacity'],
+        evidenceRefs: [page.images[0].id],
+      },
+    ]
+
+    const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
+    const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
+
+    expect(summary).toContain('页面主体 左边框: 4px solid rgb(209, 217, 224)')
+    expect(summary).toContain('按钮 点击: 展开状态 否 → 是, 受控内容可见性 隐藏 → 可见')
+    expect(summary).not.toMatch(/ariaExpanded|controlledVisibility|body border-left/)
+    expect(brief).toContain('已执行变化属性: 展开状态 ×1, 受控内容可见性 ×1, 受控内容透明度 ×1')
+    expect(brief).toContain('展开状态: 否 → 是; 受控内容可见性: 隐藏 → 可见; 受控内容透明度: 0 → 1')
+    expect(brief).not.toMatch(/ariaExpanded|controlledVisibility|controlledOpacity/)
   })
 
   it('labels cross-page reconstruction facts with their source route', () => {
@@ -596,7 +639,8 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
     const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
 
-    expect(summary).toContain('**Site thesis:**')
+    expect(summary).toContain('**Site scope:**')
+    expect(summary).toContain('This analysis covers 2 observed pages from')
     expect(summary).toContain('**Entry-page section hierarchy:**')
     expect(summary).toContain('`[/creator] navigation max-width: 413px`')
   })
@@ -622,9 +666,13 @@ describe('Design Evidence', () => {
     ]
 
     const brief = generateDesignEvidenceBrief(evidence)
+    const chineseBrief = generateDesignEvidenceBrief(evidence, 'zh-CN')
 
-    expect(brief).toContain('reorder (order)')
-    expect(brief).not.toContain('reflow (order)')
+    expect(brief).toContain('order change (order)')
+    expect(brief).not.toContain('layout reflow (order)')
+    expect(chineseBrief).toContain('桌面端 → 移动端，顺序调整（顺序）')
+    expect(chineseBrief).not.toContain('reorder')
+    expect(chineseBrief).not.toContain('order')
   })
 
   it('uses human-readable role and duration labels in DESIGN.md', () => {
@@ -1577,8 +1625,15 @@ describe('Design Evidence', () => {
     expect(observedLineHeightBrief).toContain('`1.5`')
     expect(designDoc).not.toContain('## Design Principles')
     expect(designDoc).not.toContain('matches the visual style')
+    expect(designDoc).not.toContain('Evidence-backed Deterministic Claims')
+    expect(designDoc).toContain('representative structural dimensions and responsive changes remain in this document')
+    expect(designDoc).not.toContain('remain available in Design Evidence')
     expect(designDoc).not.toContain('AI')
     expect(chineseDoc).not.toContain('AI')
+    expect(chineseDoc).not.toContain('基于证据的确定性主张')
+    expect(chineseDoc).not.toContain('跨页面 canonical')
+    expect(chineseDoc).not.toContain('一次 canonical 捕获')
+    expect(chineseDoc).toContain('实例数按每个页面的一次代表性捕获统计；优先使用桌面端')
     expect(chineseDoc).toContain('观察到区块级复合圆角处理')
     expect(chineseDoc).not.toContain('section-level compound-radius treatments observed')
     expect(designFrontMatter['x-imprint'][0]).toMatchObject({ analysis: { mode: 'deterministic' } })

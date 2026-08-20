@@ -13,7 +13,7 @@
 import * as readline from 'node:readline'
 
 import { compareDesigns } from '../core/analyzer/design-compare.js'
-import { analyze } from '../core/analyzer/index.js'
+import { AnalysisActiveTimeoutError, analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
@@ -358,12 +358,18 @@ async function handleRequest(request: JsonRpcRequest & { id: string | number }) 
         } catch (error) {
           if (controller.signal.aborted) return
           if (error instanceof ProtocolError) throw error
+          const message =
+            error instanceof AnalysisActiveTimeoutError
+              ? mcpT('errors.activeTimeout', { seconds: Math.round(error.timeoutMs / 1000) })
+              : error instanceof Error
+                ? error.message
+                : String(error)
           result = {
             content: [
               {
                 type: 'text',
                 text: mcpT('errors.toolExecution', {
-                  message: error instanceof Error ? error.message : String(error),
+                  message,
                 }),
               },
             ],

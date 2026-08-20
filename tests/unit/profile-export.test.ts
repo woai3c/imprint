@@ -27,24 +27,49 @@ const tokens: DesignToken = {
   transitions: [],
 }
 
-function claim(statement: string, confidence: DesignClaim['confidence'] = 'medium'): DesignClaim {
+function claim(
+  statement: string,
+  confidence: DesignClaim['confidence'] = 'medium',
+  evidenceId = 'section-main',
+): DesignClaim {
   return {
     statement,
     implementation: `Implement ${statement.toLowerCase()}.`,
     confidence,
-    evidence: [{ evidenceId: 'section-main', note: 'Observed section evidence.' }],
+    evidence: [{ evidenceId, note: 'Observed evidence.' }],
     source: 'deterministic-catalog',
   }
 }
 
 function createProfile(): DesignProfile {
+  const executedInteraction = claim(
+    'Clicking the disclosure reveals its controlled content',
+    'high',
+    'interaction-main',
+  )
+  executedInteraction.assertions = [
+    {
+      kind: 'interaction',
+      target: 'click',
+      predicate: 'executed',
+      scope: 'page',
+      evidenceIds: ['interaction-main'],
+    },
+  ]
   return {
     schemaVersion: '2',
     language: 'en',
     claimSource: 'deterministic-catalog',
     catalogVersion: '1',
     thesis: claim('A compact left-aligned interface', 'high'),
-    signatureMoves: [],
+    signatureMoves: [
+      {
+        ...claim('Outlined primary actions use compact rounded corners', 'high', 'component-main'),
+        id: 'signature-primary-action',
+        name: 'Primary action',
+        distinctiveness: 'Repeated across the observed pages.',
+      },
+    ],
     composition: {
       containerStrategy: claim('A bounded content container', 'high'),
       alignmentStrategy: claim('Left-aligned content'),
@@ -63,14 +88,32 @@ function createProfile(): DesignProfile {
       shape: claim('Small corner radii'),
       surfaces: claim('Flat surfaces'),
     },
-    sectionGrammar: [],
+    sectionGrammar: [
+      {
+        role: 'content',
+        composition: [claim('Content sections use flow layout', 'high')],
+        contentRhythm: [],
+        transitionToNext: [],
+      },
+    ],
     interactionLanguage: {
-      primaryDrivers: [],
+      primaryDrivers: [executedInteraction, claim('Hover changes the background color', 'medium', 'interaction-main')],
       feedbackStyle: claim('Immediate state feedback'),
       stateChangeAmplitude: claim('Small state changes'),
       continuityRules: [],
     },
-    componentGrammar: [],
+    componentGrammar: [
+      {
+        component: 'button',
+        role: 'primary-action',
+        rules: [
+          {
+            ...claim('Primary buttons use a rounded outlined treatment', 'high', 'component-main'),
+            tokenRefs: ['color.primary', 'radius.1'],
+          },
+        ],
+      },
+    ],
     transferRules: {
       preserve: [claim('Preserve the compact rhythm', 'high')],
       adapt: [],
@@ -106,9 +149,9 @@ const evidence = {
       evidenceRefs: ['image-main'],
     },
   ],
-  components: [],
+  components: [{ id: 'component-main', pageId: 'page-main' }],
   layoutNodes: [],
-  interactionObservations: [],
+  interactionObservations: [{ id: 'interaction-main', pageId: 'page-main' }],
   mediaLayers: [],
   topology: { globalLayers: [] },
 } as unknown as DesignEvidence
@@ -117,11 +160,94 @@ describe('deterministic profile export', () => {
   it('identifies the deterministic boundary and never exposes local screenshot paths', () => {
     const markdown = generateDesignProfileMarkdown(createProfile(), tokens, new Map(), evidence)
 
-    expect(markdown).toContain('## Deterministic Design Claims')
-    expect(markdown).toContain('Program rules generate and rank every exported statement')
-    expect(markdown).toContain('section-main')
+    expect(markdown).toContain('## Key Observations')
+    expect(markdown).toContain('This document is self-contained for design reconstruction')
+    expect(markdown).toContain(
+      'A bounded content container _(high confidence · evidence refs: 1 · scope: example.com/ · desktop)_',
+    )
+    expect(markdown).toContain('Primary buttons use a rounded outlined treatment')
+    expect(markdown).toContain('Related tokens: `color.primary` (#2563eb), `radius.1` (8px)')
+    expect(markdown).toContain('Content sections use normal document flow layout')
+    expect(markdown).toContain('Clicking the disclosure reveals its controlled content')
+    expect(markdown).not.toContain('design-evidence.json')
+    expect(markdown).not.toContain('section-main')
+    expect(markdown).not.toContain('component-main')
+    expect(markdown).not.toContain('interaction-main')
+    expect(markdown).not.toContain('Cited Evidence Index')
+    expect(markdown).not.toContain('Validated assertions')
+    expect(markdown).not.toContain('Token refs')
     expect(markdown).not.toContain('C:\\private')
     expect(markdown).not.toMatch(/AI-authored|provider|model/i)
+  })
+
+  it('keeps high-value facts without restoring the full claim catalog', () => {
+    const markdown = generateDesignProfileMarkdown(createProfile())
+
+    expect(markdown).toContain('Outlined primary actions use compact rounded corners')
+    expect(markdown).toContain('A bounded content container')
+    expect(markdown).toContain('Primary buttons use a rounded outlined treatment')
+    expect(markdown).toContain('Clicking the disclosure reveals its controlled content')
+    expect(markdown).toContain('Flat surfaces')
+    expect(markdown).not.toContain('A restrained blue palette')
+    expect(markdown).toContain('Primary actions use the primary color')
+    expect(markdown).not.toContain('Hover changes the background color')
+    expect(markdown).not.toContain('Immediate state feedback')
+    expect(markdown).toContain('Preserve the compact rhythm')
+  })
+
+  it('deduplicates one catalog fact rendered through multiple profile placements', () => {
+    const profile = createProfile()
+    profile.signatureMoves[0].catalogId = 'shared-primary-action'
+    profile.componentGrammar[0].rules[0].catalogId = 'shared-primary-action'
+
+    const markdown = generateDesignProfileMarkdown(profile)
+
+    expect(markdown).toContain('Outlined primary actions use compact rounded corners')
+    expect(markdown).not.toContain('Primary buttons use a rounded outlined treatment')
+  })
+
+  it('merges equivalent visible claims in the same category and scope without dropping evidence', () => {
+    const profile = createProfile()
+    const statement = 'The feature group changes section order from desktop to mobile'
+    profile.transferRules.adapt = [
+      { ...claim(statement, 'medium', 'section-main'), catalogId: 'responsive-feature-first' },
+      { ...claim(statement, 'medium', 'image-main'), catalogId: 'responsive-feature-second' },
+    ]
+
+    const markdown = generateDesignProfileMarkdown(profile, tokens, new Map(), evidence)
+
+    expect(markdown.match(new RegExp(statement, 'g'))).toHaveLength(1)
+    expect(markdown).toContain('evidence refs: 2 · scope: example.com/ · desktop')
+  })
+
+  it('renders localized technical terms and privacy-safe human-readable scope', () => {
+    const profile = createProfile()
+    profile.language = 'zh-CN'
+    profile.interactionLanguage.primaryDrivers[0].statement =
+      '1 个已观察的 safe-active click 状态会改变这些属性：ariaExpanded。'
+    profile.visualLanguage.surfaces = claim(
+      'desktop -> mobile reflow：childGridTemplateColumns、sequenceIndex、node.heading.fontSize。',
+      'high',
+    )
+    const localizedEvidence = {
+      ...evidence,
+      pages: evidence.pages.map((page) => ({
+        ...page,
+        url: 'https://user:private@example.com/private?token=secret#panel',
+      })),
+    } as DesignEvidence
+
+    const markdown = generateDesignProfileMarkdown(profile, tokens, new Map(), localizedEvidence)
+
+    expect(markdown).toContain('实际执行点击状态')
+    expect(markdown).toContain('桌面端 → 移动端布局重排：子级网格列、区块顺序、标题字号。')
+    expect(markdown).toContain('范围：example.com/private · 桌面端')
+    expect(markdown).not.toContain('safe-active')
+    expect(markdown).not.toContain('childGridTemplateColumns')
+    expect(markdown).not.toContain('sequenceIndex')
+    expect(markdown).not.toContain('node.heading.fontSize')
+    expect(markdown).not.toContain('private@example.com')
+    expect(markdown).not.toContain('token=secret')
   })
 
   it('omits low-confidence claims from the visible report', () => {

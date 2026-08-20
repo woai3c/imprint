@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
+import { buildDeterministicClaimCatalog } from '../../src/core/design-context/claim-catalog.js'
 import { createDeterministicDesignContext } from '../../src/core/design-context/deterministic-context.js'
+import { generateDesignProfileMarkdown } from '../../src/core/design-context/profile-export.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 
 const tokens: DesignToken = {
@@ -158,5 +160,65 @@ describe('deterministic design context', () => {
       for (const reference of claim.evidence) expect(knownIds.has(reference.evidenceId)).toBe(true)
     }
     expect(serialized).not.toContain('C:\\\\')
+  })
+
+  it('does not combine different page-local section positions into one claim', () => {
+    const evidence = createEvidence()
+    evidence.pages = [
+      evidence.pages[0],
+      {
+        ...structuredClone(evidence.pages[0]),
+        id: 'page-secondary',
+        url: 'https://example.com/secondary',
+        images: [
+          {
+            ...structuredClone(evidence.pages[0].images[0]),
+            id: 'image-secondary',
+            path: 'secondary.png',
+          },
+        ],
+      },
+    ]
+    evidence.sections = [
+      { ...structuredClone(evidence.sections[0]), id: 'section-primary', order: 0 },
+      {
+        ...structuredClone(evidence.sections[0]),
+        id: 'section-secondary',
+        pageId: 'page-secondary',
+        order: 3,
+        evidenceRefs: ['image-secondary'],
+      },
+    ]
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en')
+
+    expect(catalog.claims.some((entry) => entry.id === 'section-hero-rhythm')).toBe(false)
+  })
+
+  it('renders component observations as natural prose without internal classification wording', () => {
+    const cardEvidence = createEvidence()
+    cardEvidence.components[0] = {
+      ...cardEvidence.components[0],
+      type: 'card',
+      role: 'card',
+    }
+    const cardProfile = createDeterministicDesignContext(cardEvidence, tokens, 'zh-CN').profile
+    const cardMarkdown = generateDesignProfileMarkdown(cardProfile, tokens, new Map(), cardEvidence)
+
+    expect(cardMarkdown).toContain('观察到 1 个卡片组件，外形为常规圆角。')
+    expect(cardMarkdown).not.toMatch(/角色为|圆角分类|变体未分类/)
+
+    const actionEvidence = createEvidence()
+    actionEvidence.components[0] = {
+      ...actionEvidence.components[0],
+      role: 'primary-action',
+    }
+    const actionProfile = createDeterministicDesignContext(actionEvidence, tokens, 'zh-CN').profile
+    const actionMarkdown = generateDesignProfileMarkdown(actionProfile, tokens, new Map(), actionEvidence)
+    const englishProfile = createDeterministicDesignContext(cardEvidence, tokens, 'en').profile
+    const englishMarkdown = generateDesignProfileMarkdown(englishProfile, tokens, new Map(), cardEvidence)
+
+    expect(actionMarkdown).toContain('观察到 1 个用于主要操作的按钮组件，外形为常规圆角')
+    expect(englishMarkdown).toContain('Observed 1 card component with rounded corners.')
   })
 })

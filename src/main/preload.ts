@@ -19,7 +19,7 @@ const api = {
     ipcRenderer.invoke('themes:save', analysisId, overwriteThemeId),
   renameTheme: (id: string, name: string) => ipcRenderer.invoke('themes:rename', id, name),
   deleteTheme: (id: string) => ipcRenderer.invoke('themes:delete', id),
-  exportTheme: (id: string, format: string) => ipcRenderer.invoke('themes:export', id, format),
+  exportTheme: (id: string) => ipcRenderer.invoke('themes:export', id),
 
   // Analysis
   analyzeUrl: (url: string, options?: AnalyzeOptions) => ipcRenderer.invoke('analyze:url', url, options),

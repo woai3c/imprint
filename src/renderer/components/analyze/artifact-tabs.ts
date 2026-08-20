@@ -1,12 +1,5 @@
-export type ExportTab = 'overview' | 'preview' | 'markdown' | 'reconstruction' | 'tailwind' | 'css'
+export type ExportTab = 'overview' | 'preview' | 'markdown'
 
-export function artifactTabIds(hasReconstructionBrief: boolean): ExportTab[] {
-  return [
-    'overview',
-    'preview',
-    'markdown',
-    ...(hasReconstructionBrief ? (['reconstruction'] as const) : []),
-    'tailwind',
-    'css',
-  ]
+export function artifactTabIds(): ExportTab[] {
+  return ['overview', 'preview', 'markdown']
 }

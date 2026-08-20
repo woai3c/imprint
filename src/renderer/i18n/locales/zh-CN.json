@@ -46,22 +46,17 @@
     "cancelledTip": "已取消分析。",
     "preparing": "准备中...",
     "error": "分析异常",
+    "activeTimeout": "分析在实际运行 2 分钟后停止。目标页面或浏览器操作未能完成，请重试。",
     "emptyTitle": "输入网站 URL 开始分析",
-    "emptyDescription": "支持任意公开网页。若要让 AI 修改已有 UI，分析后优先导出 DESIGN.md，并同时提供当前页面截图或源代码。",
+    "emptyDescription": "支持任意公开网页。分析完成后只需导出一份 DESIGN.md；让 AI 修改已有 UI 时，再同时提供当前页面截图或源代码。",
     "analysisHint": "分析完全由确定性程序在本地完成，不需要配置外部服务。",
     "tabOverview": "概览",
     "tabPreview": "可视预览",
     "tabMarkdown": "DESIGN.md",
-    "tabReconstruction": "页面重构简报",
-    "tabTailwind": "Tailwind v4",
-    "tabCss": "CSS 变量",
     "copyCurrent": "复制 {{format}}",
     "exportCurrent": "导出 {{format}}",
     "artifacts": {
-      "markdown": "DESIGN.md",
-      "reconstruction": "页面重构简报",
-      "tailwind": "Tailwind v4",
-      "css": "CSS 变量"
+      "markdown": "DESIGN.md"
     },
     "designDoc": {
       "frontmatterTitle": "机器可读元数据（YAML）",
@@ -348,10 +343,8 @@
     "extracted": "网站主题",
     "apply": "应用",
     "current": "当前",
-    "export": "导出",
-    "exportTheme": "以当前格式导出“{{theme}}”",
-    "exportFormatLabel": "导出格式",
-    "exportHelp": "给 AI 修改已有 UI 时优先导出 DESIGN.md，并同时提供截图或源代码；CSS 变量与 Tailwind 用于直接实现；Tokens JSON 用于工具和自动化。主题导出包含可复用的设计规则与令牌，不包含 Imprint 应用专用的背景图片、纹理和外壳样式。",
+    "export": "导出 DESIGN.md",
+    "exportTheme": "导出“{{theme}}”的 DESIGN.md",
     "loading": "正在加载已保存主题...",
     "loadFailed": "无法加载网站主题",
     "noExtracted": "还没有保存网站主题",
@@ -364,12 +357,6 @@
     "deleteTitle": "删除网站主题",
     "deleteDescription": "从主题库删除“{{theme}}”？它的来源分析仍会保留在历史记录中。",
     "extractedRoleSummary": "{{observed}} 个直接观察语义角色 · {{adapted}} 个预览角色经安全补全",
-    "exportFormats": {
-      "markdown": "DESIGN.md（推荐给 AI）",
-      "css": "CSS 变量（推荐通用 Web）",
-      "tailwind": "Tailwind @theme（推荐 Tailwind v4）",
-      "json": "Tokens JSON（推荐工具与 Agent）"
-    },
     "categories": {
       "foundation": {
         "title": "基础主题",
@@ -560,7 +547,7 @@
         "hero": {
           "title": "把任何网站的设计系统",
           "highlight": "变成你的令牌",
-          "description": "输入 URL，提取颜色、字体、间距与圆角，导出为 CSS 变量、Tailwind @theme 或 Tokens JSON。",
+          "description": "输入 URL，提取颜色、字体、间距、圆角与设计规则，汇总为一份可独立使用的 DESIGN.md。",
           "primaryAction": "免费开始",
           "secondaryAction": "查看演示"
         },
@@ -571,8 +558,8 @@
             "description": "输入 URL 即可提取完整设计系统"
           },
           "export": {
-            "title": "多格式导出",
-            "description": "CSS 变量、Tailwind、JSON 令牌"
+            "title": "单一设计文档",
+            "description": "令牌、规则、证据与局限集中在 DESIGN.md"
           },
           "preview": {
             "title": "实时预览",

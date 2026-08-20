@@ -1,10 +1,11 @@
 import type { DesignToken } from '../analyzer/types.js'
+import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
-// Token refs in claims follow the evidence-package scheme: `color.<name>` plus 1-based array
-// paths like `spacing.2` or `typography.font-stack.1` (see buildTokenIndex in design-evidence).
+// Claim token refs use the evidence-package scheme: named colors plus 1-based
+// array paths such as `spacing.2` and `typography.font-stack.1`.
 function resolveTokenRefValue(tokens: DesignToken, ref: string): string | null {
   const colorName = /^color\.(.+)$/.exec(ref)?.[1]
   if (colorName) return tokens.colors[colorName] ?? null
@@ -33,12 +34,6 @@ export function generateDesignProfileJson(profile: DesignProfile): string {
   return JSON.stringify(profile, null, 2)
 }
 
-interface LowConfidenceEntry {
-  section: string
-  label?: string
-  claim: DesignClaim
-}
-
 function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainties'] {
   const seen = new Set<string>()
   let hasOverflowUncertainty = false
@@ -56,323 +51,259 @@ function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainti
   })
 }
 
-function profileClaims(profile: DesignProfile): DesignClaim[] {
+function claimEvidenceIds(claim: DesignClaim): string[] {
   return [
-    profile.thesis,
-    ...profile.signatureMoves,
-    ...Object.values(profile.composition),
-    profile.attention.entryPoint,
-    ...profile.attention.visualSequence,
-    profile.attention.actionHierarchy,
-    profile.attention.contrastStrategy,
-    ...Object.values(profile.visualLanguage).filter((claim): claim is DesignClaim => Boolean(claim)),
-    ...profile.sectionGrammar.flatMap((grammar) => [
-      ...grammar.composition,
-      ...grammar.contentRhythm,
-      ...grammar.transitionToNext,
+    ...new Set([
+      ...claim.evidence.map((reference) => reference.evidenceId),
+      ...(claim.assertions?.flatMap((assertion) => assertion.evidenceIds) || []),
     ]),
-    ...profile.interactionLanguage.primaryDrivers,
-    profile.interactionLanguage.feedbackStyle,
-    profile.interactionLanguage.stateChangeAmplitude,
-    ...(profile.interactionLanguage.scrollNarrative ? [profile.interactionLanguage.scrollNarrative] : []),
-    ...profile.interactionLanguage.continuityRules,
-    ...profile.componentGrammar.flatMap((grammar) => grammar.rules),
-    ...(profile.patterns || []).flatMap((pattern) => [
-      ...pattern.structureRules,
-      ...pattern.visualRules,
-      ...pattern.interactionRules,
-      ...pattern.responsiveRules,
-    ]),
-    ...profile.transferRules.preserve,
-    ...profile.transferRules.adapt,
-    ...profile.transferRules.avoid,
   ]
 }
 
-function evidenceFieldValue(value: unknown): string {
-  const serialized =
-    typeof value === 'string'
-      ? value
-      : typeof value === 'number' || typeof value === 'boolean'
-        ? String(value)
-        : JSON.stringify(value)
-  const compact = (serialized || '-').replace(/\s+/g, ' ').replace(/`/g, "'").trim()
-  return `\`${compact.length > 160 ? `${compact.slice(0, 159)}…` : compact}\``
+function claimEvidenceCount(claim: DesignClaim): number {
+  return claimEvidenceIds(claim).length
 }
 
-function evidenceFields(entries: Array<[string, unknown]>): string {
-  const parts = entries
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => `${key}=${evidenceFieldValue(value)}`)
-  const visible: string[] = []
-  let length = 0
-  for (const part of parts) {
-    const addedLength = part.length + (visible.length > 0 ? 2 : 0)
-    if (visible.length > 0 && length + addedLength > 640) break
-    visible.push(part)
-    length += addedLength
+function scopeUrl(url: string): string {
+  const sanitized = sanitizeUrlForPersistence(url)
+  try {
+    const parsed = new URL(sanitized)
+    const pathname = parsed.pathname.replace(/\/+$/, '') || '/'
+    return `${parsed.host}${pathname}`
+  } catch {
+    return sanitized
   }
-  return visible.join('; ')
 }
 
-function evidenceReferenceLines(
-  profile: DesignProfile,
+function buildClaimScopeFormatter(
   evidence: DesignEvidence | undefined,
   t: ReturnType<typeof coreTranslator>,
-): string[] {
-  if (!evidence) return []
-  const citedIds = [
-    ...new Set(
-      profileClaims(profile)
-        .filter((claim) => claim.confidence !== 'low')
-        .flatMap((claim) => [
-          ...claim.evidence.map((reference) => reference.evidenceId),
-          ...(claim.assertions?.flatMap((assertion) => assertion.evidenceIds) || []),
-        ]),
-    ),
-  ]
-  if (citedIds.length === 0) return []
+): (claim: DesignClaim) => string | null {
+  if (!evidence) return () => null
 
   const pages = new Map(evidence.pages.map((page) => [page.id, page]))
-  const sections = new Map(evidence.sections.map((section) => [section.id, section]))
-  const components = new Map(evidence.components.map((component) => [component.id, component]))
-  const layoutNodes = new Map(evidence.layoutNodes.map((node) => [node.id, node]))
-  const pseudoElements = new Map((evidence.pseudoElements || []).map((pseudo) => [pseudo.id, pseudo]))
-  const interactions = new Map(evidence.interactionObservations.map((observation) => [observation.id, observation]))
-  const responsive = new Map(evidence.responsiveObservations.map((observation) => [observation.id, observation]))
-  const media = new Map(evidence.mediaLayers.map((layer) => [layer.id, layer]))
-  const topologyLayers = new Map(evidence.topology.globalLayers.map((layer) => [layer.id, layer]))
-  const images = new Map(
-    evidence.pages.flatMap((page) => page.images.map((item) => [item.id, { item, page }] as const)),
+  const pageIds = new Map<string, string>()
+  const add = (evidenceId: string, pageId: string): void => {
+    pageIds.set(evidenceId, pageId)
+  }
+  for (const page of evidence.pages) {
+    add(page.id, page.id)
+    page.images.forEach((image) => add(image.id, page.id))
+  }
+  evidence.sections.forEach((section) => add(section.id, section.pageId))
+  evidence.components.forEach((component) => add(component.id, component.pageId))
+  evidence.layoutNodes.forEach((node) => add(node.id, node.pageId))
+  evidence.pseudoElements?.forEach((pseudo) => add(pseudo.id, pseudo.pageId))
+  evidence.interactionObservations.forEach((observation) => add(observation.id, observation.pageId))
+  evidence.mediaLayers.forEach((layer) => add(layer.id, layer.pageId))
+  evidence.topology.globalLayers.forEach((layer) => add(layer.id, layer.pageId))
+  const sectionPageIds = new Map(evidence.sections.map((section) => [section.id, section.pageId]))
+  evidence.responsiveObservations.forEach((observation) => {
+    const pageId = sectionPageIds.get(observation.sectionId)
+    if (pageId) add(observation.id, pageId)
+  })
+
+  return (claim) => {
+    const viewportsByUrl = new Map<string, Set<string>>()
+    for (const evidenceId of claimEvidenceIds(claim)) {
+      const page = pages.get(pageIds.get(evidenceId) || '')
+      if (!page) continue
+      const url = scopeUrl(page.url)
+      const viewports = viewportsByUrl.get(url) || new Set<string>()
+      viewports.add(page.viewport)
+      viewportsByUrl.set(url, viewports)
+    }
+    const scopes = [...viewportsByUrl.entries()]
+      .sort(([first], [second]) => first.localeCompare(second))
+      .map(
+        ([url, viewports]) =>
+          `${url} · ${[...viewports]
+            .sort()
+            .map((viewport) => translatedTerm(viewport, t))
+            .join('/')}`,
+      )
+    if (scopes.length === 0) return null
+    const visible = scopes.slice(0, 2)
+    if (scopes.length > visible.length) {
+      visible.push(t('scopeMore', { count: scopes.length - visible.length }))
+    }
+    return visible.join(t('scopeSeparator'))
+  }
+}
+
+function isExecutedInteractionClaim(claim: DesignClaim): boolean {
+  return Boolean(
+    claim.assertions?.some((assertion) => assertion.kind === 'interaction' && assertion.predicate === 'executed'),
   )
-  const pageContext = (pageId: string): Array<[string, unknown]> => {
-    const page = pages.get(pageId)
-    return [
-      ['pageId', pageId],
-      ['viewport', page?.viewport],
-      ['url', page?.url],
-    ]
+}
+
+function hasClassifiedImagery(claim: DesignClaim): boolean {
+  const roles =
+    claim.assertions
+      ?.filter((assertion) => assertion.target === 'imagery')
+      .flatMap((assertion) => (Array.isArray(assertion.value) ? [assertion.value[1]] : [])) || []
+  return roles.length === 0 || roles.some((role) => role !== 'unknown')
+}
+
+function translatedTerm(value: string, t: ReturnType<typeof coreTranslator>): string {
+  const aliases: Record<string, string> = {
+    'node.heading.fontSize': 'headingFontSize',
   }
-  const describe = (id: string): { kind: string; details: string } => {
-    const page = pages.get(id)
-    if (page) {
-      return {
-        kind: t('evidenceIndex.kinds.page'),
-        details: evidenceFields([
-          ['viewport', page.viewport],
-          ['role', page.role],
-          ['url', page.url],
-          ['viewportSize', [page.viewportWidth, page.viewportHeight]],
-          ['contentSize', [page.contentWidth, page.contentHeight]],
-          ['horizontalOverflow', page.horizontalOverflow],
-        ]),
-      }
-    }
-    const image = images.get(id)
-    if (image) {
-      return {
-        kind: t('evidenceIndex.kinds.image'),
-        details: evidenceFields([
-          ['kind', image.item.kind],
-          ['size', [image.item.width, image.item.height]],
-          ...pageContext(image.page.id),
-        ]),
-      }
-    }
-    const section = sections.get(id)
-    if (section) {
-      return {
-        kind: t('evidenceIndex.kinds.section'),
-        details: evidenceFields([
-          ['role', section.role],
-          ['order', section.order],
-          ['layoutMode', section.layoutMode],
-          ['rect', section.rect],
-          ['observedStyles', section.observedStyles],
-          ['tokenRefs', section.tokenRefs],
-          ...pageContext(section.pageId),
-        ]),
-      }
-    }
-    const component = components.get(id)
-    if (component) {
-      return {
-        kind: t('evidenceIndex.kinds.component'),
-        details: evidenceFields([
-          ['type', component.type],
-          ['role', component.role],
-          ['elementKind', component.elementKind],
-          ['sectionId', component.sectionId],
-          ['styles', component.styles],
-          ['tokenRefs', component.tokenRefs],
-          ...pageContext(component.pageId),
-        ]),
-      }
-    }
-    const layoutNode = layoutNodes.get(id)
-    if (layoutNode) {
-      return {
-        kind: t('evidenceIndex.kinds.layoutNode'),
-        details: evidenceFields([
-          ['role', layoutNode.role],
-          ['textRole', layoutNode.textRole],
-          ['sectionId', layoutNode.sectionId],
-          ['rect', layoutNode.rect],
-          ['observedTypography', layoutNode.observedTypography],
-          ['observedStyles', layoutNode.observedStyles],
-          ...pageContext(layoutNode.pageId),
-        ]),
-      }
-    }
-    const pseudo = pseudoElements.get(id)
-    if (pseudo) {
-      return {
-        kind: t('evidenceIndex.kinds.pseudoElement'),
-        details: evidenceFields([
-          ['kind', pseudo.kind],
-          ['target', pseudo.target],
-          ['sectionId', pseudo.sectionId],
-          ['styles', pseudo.styles],
-          ...pageContext(pseudo.pageId),
-        ]),
-      }
-    }
-    const interaction = interactions.get(id)
-    if (interaction) {
-      return {
-        kind: t('evidenceIndex.kinds.interaction'),
-        details: evidenceFields([
-          ['driver', interaction.driver],
-          ['safety', interaction.safety],
-          ['sectionId', interaction.sectionId],
-          ['changedProperties', interaction.changedProperties],
-          ['before', interaction.before],
-          ['after', interaction.after],
-          ...pageContext(interaction.pageId),
-        ]),
-      }
-    }
-    const responsiveObservation = responsive.get(id)
-    if (responsiveObservation) {
-      const section = sections.get(responsiveObservation.sectionId)
-      return {
-        kind: t('evidenceIndex.kinds.responsive'),
-        details: evidenceFields([
-          ['sectionId', responsiveObservation.sectionId],
-          ['fromViewport', responsiveObservation.fromViewport],
-          ['toViewport', responsiveObservation.toViewport],
-          ['changeType', responsiveObservation.changeType],
-          ['changedProperties', responsiveObservation.changedProperties],
-          ['changes', responsiveObservation.changes],
-          ['summary', responsiveObservation.summary],
-          ...(section ? pageContext(section.pageId) : []),
-        ]),
-      }
-    }
-    const mediaLayer = media.get(id)
-    if (mediaLayer) {
-      return {
-        kind: t('evidenceIndex.kinds.media'),
-        details: evidenceFields([
-          ['kind', mediaLayer.kind],
-          ['role', mediaLayer.role],
-          ['importance', mediaLayer.importance],
-          ['sectionId', mediaLayer.sectionId],
-          ['rect', mediaLayer.rect],
-          ...pageContext(mediaLayer.pageId),
-        ]),
-      }
-    }
-    const topologyLayer = topologyLayers.get(id)
-    if (topologyLayer) {
-      return {
-        kind: t('evidenceIndex.kinds.topologyLayer'),
-        details: evidenceFields([
-          ['role', topologyLayer.role],
-          ['layoutMode', topologyLayer.layoutMode],
-          ...pageContext(topologyLayer.pageId),
-        ]),
-      }
-    }
-    return { kind: t('evidenceIndex.kinds.unknown'), details: evidenceFields([['evidenceId', id]]) }
-  }
-  return [
-    `### ${t('evidenceIndex.heading')}`,
-    '',
-    t('evidenceIndex.notice'),
-    '',
-    ...citedIds.map((id) => {
-      const description = describe(id)
-      return `- \`${id}\` — ${description.kind}: ${description.details}`
-    }),
-    '',
+  return t(`terms.${aliases[value] || value}`, { defaultValue: value })
+}
+
+function formatClaimText(
+  text: string,
+  aliasRefs: ReadonlyMap<string, string>,
+  t: ReturnType<typeof coreTranslator>,
+): string {
+  let formatted = [...aliasRefs.entries()].reduce((value, [source, target]) => {
+    const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
+  }, text)
+  const terms = [
+    'childGridTemplateColumns',
+    'gridTemplateColumns',
+    'controlledVisibility',
+    'controlledOpacity',
+    'sequenceIndex',
+    'ariaExpanded',
+    'ariaSelected',
+    'node.heading.fontSize',
+    'layoutMode',
+    'lineHeight',
+    'fontSize',
+    'primary-action',
+    'feature-group',
+    'safe-active',
+    'decorative',
+    'navigation',
+    'combobox',
+    'secondary',
+    'rounded',
+    'primary',
+    'button',
+    'desktop',
+    'mobile',
+    'header',
+    'content',
+    'footer',
+    'table',
+    'input',
+    'action',
+    'aside',
+    'media',
+    'hero',
+    'sharp',
+    'pill',
+    'flow',
+    'right',
+    'full',
+    'grid',
+    'list',
+    'card',
+    'text',
+    'icon',
+    'image',
+    'click',
+    'tab',
+    'reflow',
+    'reorder',
+    'visibility',
+    'interaction',
+    'mixed',
+    'scale',
+    'height',
+    'position',
+    'order',
+    'display',
   ]
+  for (const term of terms) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    formatted = formatted.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), translatedTerm(term, t))
+  }
+  formatted = formatted.replaceAll(', ', t('listSeparator')).replaceAll(' -> ', t('sequenceArrow'))
+  let compact = formatted
+  do {
+    formatted = compact
+    compact = formatted.replace(/([\p{Script=Han}])\s+([\p{Script=Han}])/gu, '$1$2')
+  } while (compact !== formatted)
+  return compact
+}
+
+type LabeledClaim = DesignClaim & { label?: string }
+
+function mergeClaims(first: LabeledClaim, second: LabeledClaim): LabeledClaim {
+  const evidence = [
+    ...new Map([...first.evidence, ...second.evidence].map((reference) => [reference.evidenceId, reference])).values(),
+  ]
+  const assertions = [...(first.assertions || []), ...(second.assertions || [])]
+  const uniqueAssertions = [...new Map(assertions.map((assertion) => [JSON.stringify(assertion), assertion])).values()]
+  const confidenceRank: Record<DesignClaim['confidence'], number> = { low: 0, medium: 1, high: 2 }
+  return {
+    ...first,
+    confidence:
+      confidenceRank[first.confidence] <= confidenceRank[second.confidence] ? first.confidence : second.confidence,
+    evidence,
+    ...(first.tokenRefs || second.tokenRefs
+      ? { tokenRefs: [...new Set([...(first.tokenRefs || []), ...(second.tokenRefs || [])])] }
+      : {}),
+    ...(uniqueAssertions.length > 0 ? { assertions: uniqueAssertions } : {}),
+  }
 }
 
 function claimLines(
   title: string,
-  claims: Array<DesignClaim & { label?: string }>,
-  labels: { confidence: string; evidence: string; tokens: string; assertions: string },
-  lowBucket: LowConfidenceEntry[],
+  claims: LabeledClaim[],
+  t: ReturnType<typeof coreTranslator>,
   options: {
-    keepLow?: boolean
-    formatRef?: (ref: string) => string
-    formatText?: (text: string) => string
-    renderedCatalogIds?: Set<string>
-  } = {},
-) {
-  const candidates = options.keepLow ? claims : claims.filter((claim) => claim.confidence !== 'low')
-  if (!options.keepLow) {
-    for (const claim of claims) {
-      if (claim.confidence === 'low') lowBucket.push({ section: title, label: claim.label, claim })
-    }
+    formatText: (text: string) => string
+    formatTokenRefs: (claim: DesignClaim) => string | null
+    renderedClaimKeys: Set<string>
+    scopeForClaim: (claim: DesignClaim) => string | null
+  },
+): string[] {
+  const uniqueClaims = new Map<string, LabeledClaim>()
+  for (const claim of claims) {
+    if (claim.confidence === 'low') continue
+    const key = claim.catalogId ? `catalog:${claim.catalogId}` : `statement:${claim.statement}`
+    if (options.renderedClaimKeys.has(key)) continue
+    const existing = uniqueClaims.get(key)
+    uniqueClaims.set(key, existing ? mergeClaims(existing, claim) : claim)
   }
-  const main = candidates.filter((claim) => {
-    if (!claim.catalogId || !options.renderedCatalogIds) return true
-    if (options.renderedCatalogIds.has(claim.catalogId)) return false
-    options.renderedCatalogIds.add(claim.catalogId)
-    return true
-  })
-  if (main.length === 0) return []
+  uniqueClaims.forEach((_claim, key) => options.renderedClaimKeys.add(key))
+
+  const visibleByPresentation = new Map<string, LabeledClaim>()
+  for (const claim of uniqueClaims.values()) {
+    const key = JSON.stringify([
+      claim.label || '',
+      options.formatText(claim.statement),
+      options.scopeForClaim(claim) || '',
+    ])
+    const existing = visibleByPresentation.get(key)
+    visibleByPresentation.set(key, existing ? mergeClaims(existing, claim) : claim)
+  }
+  const visible = [...visibleByPresentation.values()]
+  if (visible.length === 0) return []
+
   return [
     `### ${title}`,
     '',
-    ...main.flatMap((claim) => [
-      `- ${claim.label ? `**${claim.label}:** ` : ''}${options.formatText?.(claim.statement) ?? claim.statement}`,
-      `  - ${labels.confidence}: ${claim.confidence}`,
-      `  - ${labels.evidence}: ${claim.evidence.map((reference) => `\`${reference.evidenceId}\``).join(', ')}`,
-      ...(claim.assertions && claim.assertions.length > 0
-        ? (() => {
-            const counts = new Map<string, number>()
-            claim.assertions.forEach((assertion) => {
-              const property = assertion.property ? `/${assertion.property}` : ''
-              const value = assertion.value === undefined ? '' : `=${JSON.stringify(assertion.value)}`
-              const text = `${assertion.kind}:${assertion.target}:${assertion.predicate}${property}${value}@${assertion.scope}`
-              counts.set(text, (counts.get(text) || 0) + 1)
-            })
-            return [
-              `  - ${labels.assertions}: ${[...counts.entries()]
-                .map(([text, count]) => `\`${text}\`${count > 1 ? ` ×${count}` : ''}`)
-                .join(', ')}`,
-            ]
-          })()
-        : []),
-      ...(claim.tokenRefs && claim.tokenRefs.length > 0
-        ? [
-            `  - ${labels.tokens}: ${claim.tokenRefs.map((reference) => options.formatRef?.(reference) ?? `\`${reference}\``).join(', ')}`,
-          ]
-        : []),
-    ]),
+    ...visible.map((claim) => {
+      const confidence = t(`confidence.${claim.confidence}`)
+      const scope = options.scopeForClaim(claim)
+      const metadata = scope
+        ? t('factMetadataWithScope', { confidence, count: claimEvidenceCount(claim), scope })
+        : t('factMetadata', { confidence, count: claimEvidenceCount(claim) })
+      const statement = options.formatText(claim.statement)
+      const tokenRefs = options.formatTokenRefs(claim)
+      return [
+        `- ${claim.label ? `**${claim.label}${t('labelSeparator')}** ` : ''}${statement} _(${metadata})_`,
+        ...(tokenRefs ? [`  - ${t('relatedTokens')}${t('labelValueSeparator')}${tokenRefs}`] : []),
+      ].join('\n')
+    }),
     '',
   ]
-}
-
-function numberedVisibleClaims(claims: DesignClaim[], prefix: string): Array<DesignClaim & { label: string }> {
-  let visibleIndex = 0
-  return claims.map((claim) => ({
-    ...claim,
-    label: `${prefix}.${claim.confidence === 'low' ? 0 : ++visibleIndex}`,
-  }))
 }
 
 export function generateDesignProfileMarkdown(
@@ -382,29 +313,12 @@ export function generateDesignProfileMarkdown(
   evidence?: DesignEvidence,
 ): string {
   const t = coreTranslator(profile.language, 'profileExport')
-  const labels = {
-    confidence: t('labels.confidence'),
-    evidence: t('labels.evidence'),
-    tokens: t('labels.tokens'),
-    assertions: t('labels.assertions'),
-  }
-  const deterministicSectionKeys: Record<string, string> = {
-    thesis: 'catalogThesis',
-    signatureMoves: 'selectedHighlights',
-    attention: 'catalogAttention',
-    interactionLanguage: 'catalogInteraction',
-    preserve: 'catalogPreserve',
-    avoid: 'catalogAvoid',
-  }
-  const section = (key: string): string => t(`sections.${deterministicSectionKeys[key] || key}`)
-  const lowBucket: LowConfidenceEntry[] = []
-  // Map internal palette names to stable public names and append resolved values so references
-  // remain checkable within the document.
   const aliasRefs = new Map<string, string>()
   for (const [sourceName, publicName] of publicColorNames) {
     aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
   }
-  const formatRef = (ref: string): string => {
+  const formatText = (text: string): string => formatClaimText(text, aliasRefs, t)
+  const formatTokenRef = (ref: string): string => {
     const mapped = aliasRefs.get(ref) ?? ref
     const directlyResolved = tokens ? resolveTokenRefValue(tokens, ref) : null
     const sourceRef = [...aliasRefs.entries()].find(
@@ -414,156 +328,82 @@ export function generateDesignProfileMarkdown(
     const value = directlyResolved || (tokens && sourceRef ? resolveTokenRefValue(tokens, sourceRef) : null)
     return value ? `\`${mapped}\` (${value})` : `\`${mapped}\``
   }
-  const formatText = (text: string): string =>
-    [...aliasRefs.entries()].reduce((value, [source, target]) => {
-      const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
-    }, text)
   const claimOptions = {
-    formatRef,
     formatText,
-    renderedCatalogIds: new Set<string>(),
+    formatTokenRefs: (claim: DesignClaim): string | null =>
+      claim.tokenRefs?.length ? claim.tokenRefs.map(formatTokenRef).join(t('listSeparator')) : null,
+    renderedClaimKeys: new Set<string>(),
+    scopeForClaim: buildClaimScopeFormatter(evidence, t),
   }
+  const compositionClaims = Object.entries(profile.composition).map(([label, claim]) => ({
+    ...claim,
+    label: t(`claimLabels.${label}`),
+  }))
+  const componentClaims = profile.componentGrammar.flatMap((grammar) =>
+    grammar.rules.map((claim) => ({
+      ...claim,
+      label: [translatedTerm(grammar.component, t), translatedTerm(grammar.role, t)]
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .join(' · '),
+    })),
+  )
+  const attentionClaims = [
+    { ...profile.attention.entryPoint, label: t('claimLabels.entryPoint') },
+    ...profile.attention.visualSequence.map((claim) => ({ ...claim, label: t('claimLabels.visualSequence') })),
+    { ...profile.attention.actionHierarchy, label: t('claimLabels.actionHierarchy') },
+    { ...profile.attention.contrastStrategy, label: t('claimLabels.contrastStrategy') },
+  ]
+  const sectionClaims = profile.sectionGrammar.flatMap((grammar) =>
+    [...grammar.composition, ...grammar.contentRhythm, ...grammar.transitionToNext].map((claim) => ({
+      ...claim,
+      label: translatedTerm(grammar.role, t),
+    })),
+  )
+  const executedInteractionClaims = profile.interactionLanguage.primaryDrivers.filter(isExecutedInteractionClaim)
+  const additionalPatternClaims = [
+    { ...profile.visualLanguage.surfaces, label: t('claimLabels.surfaces') },
+    ...(profile.visualLanguage.imagery && hasClassifiedImagery(profile.visualLanguage.imagery)
+      ? [{ ...profile.visualLanguage.imagery, label: t('claimLabels.imagery') }]
+      : []),
+    ...(profile.visualLanguage.motion ? [{ ...profile.visualLanguage.motion, label: t('claimLabels.motion') }] : []),
+  ]
   const uncertainties = uniqueUncertainties(profile)
+  const patternClaims = (profile.patterns || []).flatMap((pattern) =>
+    [...pattern.structureRules, ...pattern.visualRules, ...pattern.interactionRules, ...pattern.responsiveRules].map(
+      (claim) => ({ ...claim, label: pattern.name }),
+    ),
+  )
+  const transferClaims = [
+    ...profile.transferRules.preserve.map((claim) => ({ ...claim, label: t('claimLabels.preserve') })),
+    ...profile.transferRules.adapt.map((claim) => ({ ...claim, label: t('claimLabels.adapt') })),
+    ...profile.transferRules.avoid.map((claim) => ({ ...claim, label: t('claimLabels.avoid') })),
+  ]
   const uncertaintyLines =
     uncertainties.length > 0
       ? [
-          `### ${section('uncertainties')}`,
+          `### ${t('sections.uncertainties')}`,
           '',
-          ...uncertainties.map((item) => `- ${formatText(item.topic)}: ${formatText(item.reason)}`),
+          ...uncertainties.map(
+            (item) => `- ${formatText(item.topic)}${t('labelValueSeparator')}${formatText(item.reason)}`,
+          ),
           '',
         ]
       : []
-  const citedEvidenceLines = evidenceReferenceLines(profile, evidence, t)
-  const componentGroups = new Map<string, Array<(typeof profile.componentGrammar)[number]>>()
-  for (const component of profile.componentGrammar) {
-    const group = componentGroups.get(component.component) || []
-    group.push(component)
-    componentGroups.set(component.component, group)
-  }
+
   return [
     t('catalogHeading'),
     '',
     t('catalogLayerNotice'),
     '',
-    t('catalogBoundaryNotice'),
-    '',
-    ...claimLines(section('thesis'), [profile.thesis], labels, lowBucket, claimOptions),
-    ...claimLines(
-      section('signatureMoves'),
-      profile.signatureMoves.map((move) => ({
-        ...move,
-        label: move.name,
-      })),
-      labels,
-      lowBucket,
-      claimOptions,
-    ),
-    ...claimLines(
-      section('composition'),
-      Object.entries(profile.composition).map(([label, claim]) => ({
-        ...claim,
-        label,
-      })),
-      labels,
-      lowBucket,
-      claimOptions,
-    ),
-    ...claimLines(
-      section('attention'),
-      [
-        { ...profile.attention.entryPoint, label: 'entryPoint' },
-        ...numberedVisibleClaims(profile.attention.visualSequence, 'visualSequence'),
-        { ...profile.attention.actionHierarchy, label: 'actionHierarchy' },
-        { ...profile.attention.contrastStrategy, label: 'contrastStrategy' },
-      ],
-      labels,
-      lowBucket,
-      claimOptions,
-    ),
-    ...claimLines(
-      section('visualLanguage'),
-      Object.entries(profile.visualLanguage).flatMap(([label, claim]) =>
-        claim
-          ? [
-              {
-                ...claim,
-                label,
-              },
-            ]
-          : [],
-      ),
-      labels,
-      lowBucket,
-      claimOptions,
-    ),
-    ...claimLines(
-      section('interactionLanguage'),
-      [
-        ...numberedVisibleClaims(profile.interactionLanguage.primaryDrivers, 'primaryDriver'),
-        { ...profile.interactionLanguage.feedbackStyle, label: 'feedbackStyle' },
-        { ...profile.interactionLanguage.stateChangeAmplitude, label: 'stateChangeAmplitude' },
-        ...(profile.interactionLanguage.scrollNarrative
-          ? [{ ...profile.interactionLanguage.scrollNarrative, label: 'scrollNarrative' }]
-          : []),
-        ...numberedVisibleClaims(profile.interactionLanguage.continuityRules, 'continuity'),
-      ],
-      labels,
-      lowBucket,
-      claimOptions,
-    ),
-    ...profile.sectionGrammar.flatMap((section) =>
-      claimLines(
-        `${t('sections.sectionGrammar')} · ${section.role}`,
-        [
-          ...section.composition.map((claim) => ({ ...claim, label: 'composition' })),
-          ...section.contentRhythm.map((claim) => ({ ...claim, label: 'contentRhythm' })),
-          ...section.transitionToNext.map((claim) => ({ ...claim, label: 'transitionToNext' })),
-        ],
-        labels,
-        lowBucket,
-        claimOptions,
-      ),
-    ),
-    ...[...componentGroups.entries()].flatMap(([componentType, components]) =>
-      claimLines(
-        `${section('componentGrammar')} · ${componentType}`,
-        components.flatMap((component) =>
-          (() => {
-            const visibleCount = component.rules.filter((claim) => claim.confidence !== 'low').length
-            let visibleIndex = 0
-            return component.rules.map((claim) => ({
-              ...claim,
-              label:
-                visibleCount > 1
-                  ? `${component.role}.${claim.confidence === 'low' ? 0 : ++visibleIndex}`
-                  : component.role,
-            }))
-          })(),
-        ),
-        labels,
-        lowBucket,
-        claimOptions,
-      ),
-    ),
-    ...(profile.patterns || []).flatMap((pattern) =>
-      claimLines(
-        `${section('transferablePattern')} · ${pattern.name}`,
-        [
-          ...pattern.structureRules.map((claim) => ({ ...claim, label: 'structure' })),
-          ...pattern.visualRules.map((claim) => ({ ...claim, label: 'visual' })),
-          ...pattern.interactionRules.map((claim) => ({ ...claim, label: 'interaction' })),
-          ...pattern.responsiveRules.map((claim) => ({ ...claim, label: 'responsive' })),
-        ],
-        labels,
-        lowBucket,
-        claimOptions,
-      ),
-    ),
-    ...claimLines(section('preserve'), profile.transferRules.preserve, labels, lowBucket, claimOptions),
-    ...claimLines(section('adapt'), profile.transferRules.adapt, labels, lowBucket, claimOptions),
-    ...claimLines(section('avoid'), profile.transferRules.avoid, labels, lowBucket, claimOptions),
-    ...citedEvidenceLines,
+    ...claimLines(t('sections.selectedHighlights'), profile.signatureMoves, t, claimOptions),
+    ...claimLines(t('sections.composition'), compositionClaims, t, claimOptions),
+    ...claimLines(t('sections.attention'), attentionClaims, t, claimOptions),
+    ...claimLines(t('sections.sectionSemantics'), sectionClaims, t, claimOptions),
+    ...claimLines(t('sections.componentSemantics'), componentClaims, t, claimOptions),
+    ...claimLines(t('sections.executedInteractions'), executedInteractionClaims, t, claimOptions),
+    ...claimLines(t('sections.additionalPatterns'), additionalPatternClaims, t, claimOptions),
+    ...claimLines(t('sections.reusablePatterns'), patternClaims, t, claimOptions),
+    ...claimLines(t('sections.transferBoundaries'), transferClaims, t, claimOptions),
     ...uncertaintyLines,
   ].join('\n')
 }

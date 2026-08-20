@@ -528,26 +528,29 @@ function buildSectionClaims(
       title: t('sectionTitle', { role }),
       distinctiveness: t('sectionDistinctiveness', { role, count: samples.length }),
     })
-    builder.add(`section-${role}-rhythm`, [{ kind: 'section', role, bucket: 'contentRhythm' }], {
-      statement: t('sectionRhythmStatement', {
-        role,
-        positions: stableList(samples.map((section) => String(section.order))).join(', '),
-      }),
-      implementation: t('boundedImplementation'),
-      confidence: confidenceFor(evidenceIds, evidence),
-      evidenceIds,
-      assertions: [
-        {
-          kind: 'evidence',
-          target: 'composition',
-          predicate: 'supports',
-          scope: assertionScope(evidenceIds, evidence),
-          evidenceIds,
-          property: 'sequence-index',
-          value: stableList(samples.map((section) => String(section.order))),
-        },
-      ],
-    })
+    const stablePositions = stableList(samples.map((section) => String(section.order + 1)))
+    if (stablePositions.length === 1) {
+      builder.add(`section-${role}-rhythm`, [{ kind: 'section', role, bucket: 'contentRhythm' }], {
+        statement: t('sectionRhythmStatement', {
+          role,
+          position: stablePositions[0],
+        }),
+        implementation: t('boundedImplementation'),
+        confidence: confidenceFor(evidenceIds, evidence),
+        evidenceIds,
+        assertions: [
+          {
+            kind: 'evidence',
+            target: 'composition',
+            predicate: 'supports',
+            scope: assertionScope(evidenceIds, evidence),
+            evidenceIds,
+            property: 'sequence-index',
+            value: stablePositions,
+          },
+        ],
+      })
+    }
     const transitions = items.flatMap((section) => {
       const next = sections
         .filter((candidate) => candidate.pageId === section.pageId)
@@ -556,24 +559,27 @@ function buildSectionClaims(
     })
     if (transitions.length > 0) {
       const samplesWithNext = transitions.slice(0, 4)
-      const transitionEvidenceIds = samplesWithNext.flatMap(({ section, next }) => [section.id, next.id])
-      builder.add(`section-${role}-transition`, [{ kind: 'section', role, bucket: 'transitionToNext' }], {
-        statement: t('sectionTransitionStatement', {
-          role,
-          next: stableList(samplesWithNext.map(({ next }) => next.role)).join(', '),
-        }),
-        implementation: t('boundedImplementation'),
-        confidence: confidenceFor(transitionEvidenceIds, evidence),
-        evidenceIds: transitionEvidenceIds,
-        assertions: samplesWithNext.map(({ section, next }) => ({
-          kind: 'section',
-          target: section.role,
-          predicate: 'ordered-before',
-          scope: assertionScope([section.id, next.id], evidence),
-          evidenceIds: [section.id, next.id],
-          value: next.role,
-        })),
-      })
+      const stableNextRoles = stableList(samplesWithNext.map(({ next }) => next.role))
+      if (stableNextRoles.length === 1) {
+        const transitionEvidenceIds = samplesWithNext.flatMap(({ section, next }) => [section.id, next.id])
+        builder.add(`section-${role}-transition`, [{ kind: 'section', role, bucket: 'transitionToNext' }], {
+          statement: t('sectionTransitionStatement', {
+            role,
+            next: stableNextRoles[0],
+          }),
+          implementation: t('boundedImplementation'),
+          confidence: confidenceFor(transitionEvidenceIds, evidence),
+          evidenceIds: transitionEvidenceIds,
+          assertions: samplesWithNext.map(({ section, next }) => ({
+            kind: 'section',
+            target: section.role,
+            predicate: 'ordered-before',
+            scope: assertionScope([section.id, next.id], evidence),
+            evidenceIds: [section.id, next.id],
+            value: next.role,
+          })),
+        })
+      }
     }
   }
 }
@@ -648,13 +654,16 @@ function buildComponentClaims(
     if (urls.size >= 2) placements.push({ kind: 'signature' })
     const isPrimary = variants.includes('primary')
     if (isPrimary) placements.push({ kind: 'singleton', slot: 'attention.action' })
+    const variantClause = variants.length
+      ? t('componentVariantClause', { count: variants.length, variants: variants.join(', ') })
+      : ''
     builder.add(`component-${type}-${role}`, placements, {
-      statement: t('componentStatement', {
+      statement: t(type === role ? 'componentStatementSameRole' : 'componentStatementWithRole', {
         count: samples.length,
         type,
         role,
         shapes: shapes.join(', '),
-        variants: variants.length > 0 ? variants.join(', ') : t('notClassified'),
+        variantClause,
       }),
       implementation: t('componentImplementation'),
       confidence: confidenceFor(evidenceIds, evidence),

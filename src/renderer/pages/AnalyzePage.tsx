@@ -117,7 +117,10 @@ export function AnalyzePage() {
       }
       if (response.error) {
         current.setFailure({
-          message: response.message?.trim() || t('analyze.error'),
+          message:
+            response.errorCode === 'ANALYSIS_ACTIVE_TIMEOUT'
+              ? t('analyze.activeTimeout')
+              : response.message?.trim() || t('analyze.error'),
           url: targetUrl,
           authMode: 'auto',
           stage: response.stage,
@@ -193,7 +196,10 @@ export function AnalyzePage() {
       }
       if (res.error) {
         store.setFailure({
-          message: res.message?.trim() || t('analyze.error'),
+          message:
+            res.errorCode === 'ANALYSIS_ACTIVE_TIMEOUT'
+              ? t('analyze.activeTimeout')
+              : res.message?.trim() || t('analyze.error'),
           url: targetUrl,
           authMode,
           stage: res.stage,

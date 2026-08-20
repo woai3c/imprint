@@ -41,7 +41,7 @@
   "expectedReconstructionSummaryStrings": [
     "header: sticky",
     "44px high",
-    "tab click: ariaSelected false → true",
+    "tab click: selected state no → yes",
     "tab",
     "status-positive",
     "status-warning",

@@ -29,8 +29,9 @@ clustered values, semantic tokens, and export formats through progressive disclo
 
 ### Portability
 
-Every useful result should move cleanly between the desktop app, CLI, MCP server, CSS variables, Tailwind, JSON, and
-Markdown. Prefer semantic, implementation-neutral concepts over app-specific decoration.
+Every useful result should move cleanly between the desktop app, CLI, and MCP server. The desktop app gives users one
+self-contained `DESIGN.md`; specialized CSS, Tailwind, and JSON representations remain available to CLI/MCP automation.
+Prefer semantic, implementation-neutral concepts over app-specific decoration.
 
 ### Content first
 
@@ -196,7 +197,12 @@ runs out, the tab strip scrolls horizontally instead.
   that resolve to the same explanation are shown once. Internal diagnostics such as page-health details, extraction
   issue payloads, and per-candidate skip records remain in evidence or logs and never become duplicate generic UI rows.
 - Deterministic claims are part of every core result. Identical captured evidence produces an identical Design Profile,
-  reconstruction brief, validation recipe, and DESIGN.md claim body.
+  reconstruction brief, validation recipe, and compact DESIGN.md observation summary. DESIGN.md keeps only selected
+  medium/high-confidence statements that add composition, component semantics, safely executed interaction, or other
+  high-value facts not already expressed clearly by its token and evidence tables. Each visible claim keeps a compact,
+  human-readable route and viewport scope when the supporting page can be resolved. Relevant token references and their
+  resolved values appear with the claim. Raw claim IDs, assertions, and the complete internal evidence record are not
+  repeated as a human-facing appendix.
 - Analysis status describes capture and evidence quality only. A usable deterministic analysis cannot become `partial`
   or `failed` because an unrelated external tool is unavailable.
 - Imprint does not contain a model-provider, API-key, local-model, or Agent CLI execution path. The user's external coding
@@ -206,11 +212,15 @@ runs out, the tab strip scrolls horizontally instead.
   fabricated highlight.
 - Responsive evidence compares adjacent viewport pairs (desktop to tablet, tablet to mobile) rather than only the
   widest capture against the rest, so three-viewport analyses describe each transition separately.
-- The Overview groups the program-owned representative topology, observed highlights, composition, order and action
-  evidence, visual language, transfer rules, and uncertainties. Profile JSON remains a separate versioned artifact.
-- The app never asks users to compose generic prompts for an external agent. Deterministic reconstruction facts may be
-  exported as a separate, one-click copyable and downloadable `RECONSTRUCTION.md`. Target-aware adaptation belongs to
-  the user's external coding agent and requires both Imprint's artifacts and the target UI's source or screenshot.
+- Human-facing DESIGN.md prose localizes analyzer terms such as responsive change types and observed property names;
+  raw internal field names remain in structured metadata only. Repeated section-position and next-section statements
+  appear only when the sampled pages agree on one value, rather than combining unrelated page-local positions.
+- The Overview leads with the observed page scope, key structure, canonical components, responsive facts, and explicit
+  preserve/avoid guidance. Multi-page captures report their actual page count instead of applying one entry-page role to
+  the entire site. Profile JSON remains the complete separate versioned claim artifact.
+- The app never asks users to compose generic prompts for an external agent. Deterministic reconstruction facts are
+  included in DESIGN.md instead of requiring a second desktop export. Target-aware adaptation belongs to the user's
+  external coding agent and requires both DESIGN.md and the target UI's source or screenshot.
 - Validation scenarios use an allowlisted renderer. Report token-scale, rule-reference, state, contrast, overflow, and
   reduced-motion checks independently, including capture, rule-construction, or rendering failure layers; never collapse
   them into a single opaque quality score.
@@ -361,6 +371,12 @@ runs out, the tab strip scrolls horizontally instead.
   pages. DESIGN.md summarizes confidence and calls out low-confidence values for review.
 - Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
   in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
+- Full-page evidence must retain the measured document height even when a page has horizontal overflow. Capture only the
+  intended viewport width so accidental off-canvas content does not widen or truncate the saved overview.
+- Bound one analysis to 120 seconds of active work so a stalled browser operation cannot leave the desktop app running
+  indefinitely. Time spent waiting for the user to finish a managed sign-in is excluded. Page, browser-context, and
+  browser shutdown are independently bounded because completed extraction must not be lost to a hanging cleanup call;
+  desktop logs record stage transitions and the last active stage for diagnosis.
 - Screenshot evidence opens in an in-context lightbox. Wheel and explicit controls zoom the image; zoomed images support
   pointer and touch dragging, and returning to the fitted scale resets the image to the center.
 - When analysis produced multiple screenshots, the lightbox offers previous/next edge controls (mirrored by the arrow
@@ -371,11 +387,15 @@ runs out, the tab strip scrolls horizontally instead.
 
 ## Analysis history
 
-- Every completed analysis persists its full text result (tokens, CSS variables, Tailwind theme, DESIGN.md) along
-  with page screenshot paths in the local SQLite database. Text payloads are small; screenshots already live on disk
-  and are never duplicated into the database.
+- Every completed analysis persists its complete shared result data and DESIGN.md along with page screenshot paths in
+  the local SQLite database. Text payloads are small; screenshots already live on disk and are never duplicated into
+  the database. The desktop export surface exposes only DESIGN.md.
+- Opening a history record that has complete saved tokens, evidence, and a current deterministic profile re-renders its
+  DESIGN.md with the current document exporter without revisiting the website. The captured facts remain unchanged;
+  legacy records without enough structured data retain their originally saved document.
 - History rows act as work entries, not a log: selecting a record opens the complete result in a dialog where the
-  user can review every artifact, copy the design document, export files, or save the result to the Theme Library.
+  user can review the overview, visual preview, and DESIGN.md; copy or export DESIGN.md; or save the result to the Theme
+  Library.
 - Each history row shows the first captured page screenshot as a compact, top-aligned thumbnail; records whose
   screenshot is unavailable retain the same layout with an explicit placeholder. Show the record's localized creation
   date and time together so analyses from the same day remain distinguishable. Chinese uses `YYYY-MM-DD HH:MM:SS`;
@@ -402,33 +422,34 @@ runs out, the tab strip scrolls horizontally instead.
   dismissed informational notices survive a full app restart.
 - Keep transient work state out of localStorage: submitted URLs, analysis results and failures, search input, progress,
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.
-- Main-process settings contain only analyzer defaults, Theme Library export format, display preferences, and network
-  proxy configuration; they never store model-provider credentials or agent command selections.
+- Main-process settings contain only analyzer defaults, display preferences, and network proxy configuration; they
+  never store model-provider credentials or agent command selections.
 - The settings page exposes network and local-data controls only. Product operation never requires an external account,
   model configuration, secret, or command-line agent.
 
 ## Export semantics
 
-Export choices describe different jobs and must never be presented as interchangeable:
+The desktop app has one export artifact: **DESIGN.md**. It explains design intent, rules, observed evidence, reusable
+values, coverage, and limitations. Users provide it together with the current UI screenshot or source code when asking
+an external coding agent to revise an existing interface.
 
-- **DESIGN.md** is the recommended single artifact for an AI that must revise an existing UI. It explains design intent,
-  rules, evidence, and reusable values. Users should provide it together with the current UI screenshot or source code.
-  Generated documents are built as a typed document model and rendered with the Google Labs DESIGN.md alpha token schema
-  and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact
-  `x-imprint` extension retains source, coverage and analysis summaries, responsive metadata, and token groups not covered
-  by the alpha schema; full token provenance and component evidence belong in Tokens JSON, `design-evidence.json`, and
-  `component-specs.json` instead of being duplicated into the front matter. In the result preview, render the front matter
-  as collapsed machine-readable YAML and the remaining document as Markdown; copy and export always preserve the original
-  document byte content.
-- **CSS variables** are recommended for framework-agnostic web and CSS projects.
-- **Tailwind v4 `@theme`** is recommended when the target project already uses Tailwind v4.
-- **Tokens JSON** is recommended for design-token tooling, automation, and agents that need machine-readable values.
-- **Reconstruction Brief** is a deterministic, evidence-gated execution artifact for carrying the observed design context
-  into a new UI. It remains separate from DESIGN.md and is exported as `RECONSTRUCTION.md`.
+Generated documents are built as a typed document model and rendered with the Google Labs DESIGN.md alpha token schema
+and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact
+`x-imprint` extension retains source, coverage and analysis summaries, responsive metadata, and token groups not covered
+by the alpha schema. The Markdown body includes high-value observations, uncertainty notes, representative route and
+viewport scope, relevant section/component semantics, implementation boundaries, and resolved token values. The file
+does not require a second artifact to understand or apply the report, and it does not repeat a raw internal evidence-ID
+index.
 
-Every export action must name the artifact it will create. Theme-library preferences apply only to theme-card exports;
-the analysis result page exports the artifact represented by its active tab. Built-in-theme exports include reusable
-design intent and tokens, but not Imprint-specific background images, textures, or desktop-shell component styles.
+The result page keeps Overview and Visual Preview as in-app inspection surfaces, not export formats. Its copy and export
+actions always produce the same complete DESIGN.md, and the Theme Library does the same without a format selector.
+Built-in-theme exports contain reusable design intent and tokens but omit Imprint-specific background images, textures,
+and desktop-shell component styles. In the document preview, render front matter as collapsed machine-readable YAML and
+the remaining body as Markdown; copy and export preserve the original document byte content.
+
+CLI and MCP integrations may continue to request CSS variables, Tailwind v4 `@theme`, Tokens JSON, Design Evidence, or
+the reconstruction brief for machine workflows. Those compatibility formats are not separate choices in the desktop
+experience and DESIGN.md never depends on them.
 
 The Preview tab renders deterministic token and component test surfaces only; it never executes generated markup or
 scripts. Validation work belongs in the dedicated Theme Library scenarios and uses allowlisted components with explicit

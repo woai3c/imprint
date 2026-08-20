@@ -46,22 +46,17 @@
     "cancelledTip": "Analysis cancelled.",
     "preparing": "Preparing...",
     "error": "Analysis error",
+    "activeTimeout": "Analysis stopped after 2 minutes of active work. The target page or browser operation did not finish; try again.",
     "emptyTitle": "Enter a URL to start analyzing",
-    "emptyDescription": "Supports any public webpage. To have AI revise an existing UI, export DESIGN.md first and provide the current screenshot or source code with it.",
+    "emptyDescription": "Supports any public webpage. After analysis, export one self-contained DESIGN.md. When asking AI to revise an existing UI, also provide the current screenshot or source code.",
     "analysisHint": "Analysis is deterministic, runs locally, and requires no external service configuration.",
     "tabOverview": "Overview",
     "tabPreview": "Visual Preview",
     "tabMarkdown": "DESIGN.md",
-    "tabReconstruction": "Reconstruction Brief",
-    "tabTailwind": "Tailwind v4",
-    "tabCss": "CSS Variables",
     "copyCurrent": "Copy {{format}}",
     "exportCurrent": "Export {{format}}",
     "artifacts": {
-      "markdown": "DESIGN.md",
-      "reconstruction": "Reconstruction Brief",
-      "tailwind": "Tailwind v4",
-      "css": "CSS variables"
+      "markdown": "DESIGN.md"
     },
     "designDoc": {
       "frontmatterTitle": "Machine-readable metadata (YAML)",
@@ -349,10 +344,8 @@
     "extracted": "Website Themes",
     "apply": "Apply",
     "current": "Current",
-    "export": "Export",
-    "exportTheme": "Export “{{theme}}” in the selected format",
-    "exportFormatLabel": "Export format",
-    "exportHelp": "For AI revisions to an existing UI, export DESIGN.md first and include screenshots or source code. CSS variables and Tailwind are for direct implementation; Tokens JSON is for tools and automation. Theme exports include reusable rules and tokens, but not Imprint-specific background images, textures, or shell styles.",
+    "export": "Export DESIGN.md",
+    "exportTheme": "Export the DESIGN.md for “{{theme}}”",
     "loading": "Loading saved themes...",
     "loadFailed": "Website themes could not be loaded",
     "noExtracted": "No website themes saved yet",
@@ -365,12 +358,6 @@
     "deleteTitle": "Delete website theme",
     "deleteDescription": "Delete “{{theme}}” from the Theme Library? Its source analysis remains in History.",
     "extractedRoleSummary": "{{observed}} observed semantic roles · {{adapted}} preview roles safely adapted",
-    "exportFormats": {
-      "markdown": "DESIGN.md (recommended for AI)",
-      "css": "CSS variables (general web)",
-      "tailwind": "Tailwind @theme (Tailwind v4)",
-      "json": "Tokens JSON (tools and agents)"
-    },
     "categories": {
       "foundation": {
         "title": "Foundation",
@@ -590,7 +577,7 @@
         "hero": {
           "title": "Turn any website's design system",
           "highlight": "into your tokens",
-          "description": "Enter a URL to extract colors, typography, spacing, and radii — then export CSS variables, Tailwind @theme, or Tokens JSON.",
+          "description": "Enter a URL to extract colors, typography, spacing, radii, and design rules into one self-contained DESIGN.md.",
           "primaryAction": "Start for free",
           "secondaryAction": "View demo"
         },
@@ -601,8 +588,8 @@
             "description": "Enter a URL to extract a complete design system"
           },
           "export": {
-            "title": "Multiple formats",
-            "description": "CSS variables, Tailwind, and JSON tokens"
+            "title": "One design document",
+            "description": "Tokens, rules, evidence, and limitations in DESIGN.md"
           },
           "preview": {
             "title": "Live preview",

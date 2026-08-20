@@ -15,11 +15,11 @@ describe('core i18n', () => {
   })
 
   test('interpolates export copy without leaking message keys', () => {
-    expect(coreT('en', 'export.reconstruction.thesis', { title: 'Example', role: 'landing' })).toBe(
-      'Example is an observed landing page.',
+    expect(coreT('en', 'export.reconstruction.siteScope', { title: 'Example', pageCount: 3 })).toBe(
+      'This analysis covers 3 observed pages from Example.',
     )
-    expect(coreT('zh-CN', 'export.reconstruction.thesis', { title: '示例', role: '落地' })).toBe(
-      '示例 是一个已观察到的落地页面。',
+    expect(coreT('zh-CN', 'export.reconstruction.siteScope', { title: '示例', pageCount: 3 })).toBe(
+      '本次分析覆盖 示例 的 3 个已观察页面。',
     )
   })
 })

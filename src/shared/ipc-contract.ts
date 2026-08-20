@@ -27,11 +27,8 @@ export type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 export type { ReferenceComparisonResult } from '../core/analyzer/reference-compare.js'
 export type { AgentContextBundle, DesignProfile, ValidationReport } from '../core/design-context/types.js'
 
-export const THEME_EXPORT_FORMATS = ['markdown', 'css', 'tailwind', 'json'] as const
-export type ThemeExportFormat = (typeof THEME_EXPORT_FORMATS)[number]
 export interface AppSettings {
   analysisDepth: 'standard' | 'deep'
-  exportFormat: ThemeExportFormat
   proxyServer: string
   language: string
   colorMode: string
@@ -228,6 +225,7 @@ export type AnalysisComparisonResponse =
 
 export interface AnalyzeResponse extends Partial<AnalysisResultData> {
   error?: boolean
+  errorCode?: 'ANALYSIS_ACTIVE_TIMEOUT'
   message?: string
   stage?: string
   authRequired?: boolean
@@ -283,7 +281,7 @@ export interface ElectronAPI {
   saveTheme: (analysisId: string, overwriteThemeId?: string) => Promise<ThemeSaveResponse>
   renameTheme: (id: string, name: string) => Promise<ThemeSummaryRecord>
   deleteTheme: (id: string) => Promise<{ success: boolean }>
-  exportTheme: (id: string, format: ThemeExportFormat) => Promise<FileOperationResult>
+  exportTheme: (id: string) => Promise<FileOperationResult>
   analyzeUrl: (url: string, options?: AnalyzeOptions) => Promise<AnalyzeResponse>
   recoverAnalysis: () => Promise<AnalysisRecoveryResponse>
   acknowledgeAnalysis: () => Promise<{ success: boolean }>

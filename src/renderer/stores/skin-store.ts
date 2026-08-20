@@ -6,8 +6,6 @@ import inkLandscapeBgUrl from '../assets/ink-landscape-bg.jpg'
 import enCopy from '../i18n/locales/en.json'
 import { getColorModePreference, setColorModePreference } from '../lib/preferences'
 
-export type { ThemeExportFormat } from '../../shared/ipc-contract'
-
 export type ColorMode = 'light' | 'dark'
 
 export interface ThemeColors {

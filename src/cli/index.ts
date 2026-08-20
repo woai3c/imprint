@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
+import { AnalysisActiveTimeoutError, BrowserExecutableError, analyze } from '../core/analyzer/index.js'
 import { sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
@@ -296,6 +296,8 @@ main()
     } else if (isCancellationError(error)) {
       exitCode = CLI_EXIT_CODES.cancelled
       message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
+    } else if (error instanceof AnalysisActiveTimeoutError) {
+      message = cliT('errors.activeTimeout', { seconds: Math.round(error.timeoutMs / 1000) })
     } else {
       message = cliT('errors.runtime', { message: error instanceof Error ? error.message : String(error) })
     }

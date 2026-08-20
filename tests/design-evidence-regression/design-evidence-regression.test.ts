@@ -564,6 +564,32 @@ describe('Design Evidence browser regression corpus', () => {
   }
 
   it.skipIf(!browserAvailable)(
+    'preserves the measured height of an adaptive mobile capture with horizontal overflow',
+    { timeout: 240_000 },
+    async () => {
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-adaptive-overflow-'))
+      const result = await analyze(`${baseUrl}/adaptive-overflow-entry.html`, {
+        viewports: ['desktop'],
+        maxPages: 2,
+        useSession: false,
+        dataDir,
+        pageDiscovery: 'links',
+      })
+      const mobile = result.pageScreenshots.find(
+        (screenshot) => screenshot.viewport === 'mobile' && screenshot.url.includes('/resilience-long-page.html'),
+      )
+
+      expect(mobile).toBeDefined()
+      expect(mobile?.valid).toBe(true)
+      expect(mobile?.width).toBe(375)
+      expect(mobile?.height).toBeGreaterThan(812)
+      expect(result.extractionIssues.some((issue) => issue.stage.includes('mobile-adaptive:screenshot:overview'))).toBe(
+        false,
+      )
+    },
+  )
+
+  it.skipIf(!browserAvailable)(
     'keeps reliable structural subsets comparable when repeated sections remain ambiguous',
     { timeout: 240_000 },
     async () => {

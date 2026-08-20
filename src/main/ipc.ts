@@ -11,6 +11,7 @@ import {
   removeManagedSession,
 } from '../core/analyzer/browser-session.js'
 import {
+  AnalysisActiveTimeoutError,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
   CORE_ANALYSIS_REQUEST_DEFAULTS,
@@ -46,7 +47,6 @@ import {
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
-  generateDtcgJson,
   generateTailwindTheme,
   restoreDarkModeExportData,
 } from '../core/export/index.js'
@@ -57,7 +57,6 @@ import {
   type AppSettings,
   type PageScreenshotData,
   type RendererPerformanceSample,
-  type ThemeExportFormat,
   type ThemeRecord,
   type ThemeSaveResponse,
   type ThemeSummaryRecord,
@@ -402,16 +401,12 @@ function restoreDeterministicStoredContext(
       designDoc: (record.design_doc as string) || '',
     }
   }
-  if (currentProfile && currentValidationReport) {
-    return {
-      profile: currentProfile,
-      validationReport: currentValidationReport,
-      designDoc: (record.design_doc as string) || '',
-    }
-  }
-
-  const language = evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
-  const context = createDeterministicDesignContext(evidence, tokens, language)
+  const language =
+    currentProfile?.language || (evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en')
+  const context =
+    currentProfile && currentValidationReport
+      ? { profile: currentProfile, validationReport: currentValidationReport }
+      : createDeterministicDesignContext(evidence, tokens, language)
   const darkMode = readDarkModeExportData(
     record.dark_tokens_json,
     tokens,
@@ -431,13 +426,15 @@ function restoreDeterministicStoredContext(
     context.profile,
   )
 
-  getDb()
-    .prepare(
-      `UPDATE analyses
-       SET design_profile_json = ?, validation_report_json = ?, design_doc = ?
-       WHERE id = ?`,
-    )
-    .run(JSON.stringify(context.profile), JSON.stringify(context.validationReport), designDoc, record.id)
+  if (!currentProfile || !currentValidationReport || designDoc !== record.design_doc) {
+    getDb()
+      .prepare(
+        `UPDATE analyses
+         SET design_profile_json = ?, validation_report_json = ?, design_doc = ?
+         WHERE id = ?`,
+      )
+      .run(JSON.stringify(context.profile), JSON.stringify(context.validationReport), designDoc, record.id)
+  }
 
   return {
     profile: context.profile,
@@ -709,45 +706,54 @@ export function registerIpcHandlers() {
     return { success: result.changes > 0 }
   })
 
-  ipcMain.handle('themes:export', async (_event, id: string, format: ThemeExportFormat) => {
+  ipcMain.handle('themes:export', async (_event, id: string) => {
     const db = getDb()
     const theme = db.prepare('SELECT * FROM themes WHERE id = ?').get(id) as ThemeRecord | undefined
     if (!theme) return { error: true, message: 'Theme not found' }
 
-    const tokens = JSON.parse(theme.tokens_json) as DesignToken
-    const darkMode = readDarkModeExportData(
-      theme.dark_tokens_json,
-      tokens,
-      theme.dark_mode_method,
-      theme.dark_mode_selector,
-    )
-    const artifacts: Record<ThemeExportFormat, { content: string; defaultName: string; extension: string }> = {
-      markdown: { content: theme.design_doc, defaultName: 'DESIGN.md', extension: 'md' },
-      css: { content: theme.css_variables, defaultName: 'theme-variables.css', extension: 'css' },
-      tailwind: { content: theme.tailwind_theme, defaultName: 'tailwind-theme.css', extension: 'css' },
-      json: {
-        content: generateDtcgJson(tokens, darkMode),
-        defaultName: 'design-tokens.json',
-        extension: 'json',
-      },
+    let designDoc = theme.design_doc
+    try {
+      const tokens = JSON.parse(theme.tokens_json) as DesignToken
+      const evidence = theme.design_evidence_json ? (JSON.parse(theme.design_evidence_json) as DesignEvidence) : null
+      const profile = theme.design_profile_json ? (JSON.parse(theme.design_profile_json) as DesignProfile) : null
+      if (evidence && profile?.schemaVersion === '2' && profile.claimSource === 'deterministic-catalog') {
+        const darkMode = readDarkModeExportData(
+          theme.dark_tokens_json,
+          tokens,
+          theme.dark_mode_method,
+          theme.dark_mode_selector,
+        )
+        designDoc = generateDesignDoc(
+          tokens,
+          theme.source_url || evidence.source.requestedUrl,
+          evidence.featureTags,
+          darkMode,
+          undefined,
+          [],
+          profile.language,
+          evidence,
+          profile,
+        )
+      }
+    } catch {
+      // Legacy snapshots without complete structured data retain their original document.
     }
-    const artifact = artifacts[format]
-    if (!artifact) return { error: true, message: `Unknown format: ${format}` }
-    const result = await saveTextFile(artifact.content, {
-      defaultName: artifact.defaultName,
-      extension: artifact.extension,
-      filterName: `${artifact.extension.toUpperCase()} Files`,
+
+    const result = await saveTextFile(designDoc, {
+      defaultName: 'DESIGN.md',
+      extension: 'md',
+      filterName: 'MD Files',
     })
     if (!result.success) return result
 
     db.prepare('INSERT INTO exports (id, theme_id, format, file_path, created_at) VALUES (?, ?, ?, ?, ?)').run(
       randomUUID(),
       id,
-      format,
+      'markdown',
       result.filePath,
       new Date().toISOString(),
     )
-    log.info('theme', `exported: themeId=${id} format=${format} path=${result.filePath}`)
+    log.info('theme', `exported: themeId=${id} format=markdown path=${result.filePath}`)
     return result
   })
 
@@ -986,6 +992,7 @@ export function registerIpcHandlers() {
       const senderId = event.sender.id
       const analysisController = new AbortController()
       const displayUrl = sanitizeUrlForPersistence(url)
+      const analysisStartedAt = Date.now()
       const recoverableRun = analysisRecoveryRegistry.start(senderId, displayUrl)
       const completeRun = (response: AnalyzeResponse): AnalyzeResponse => {
         return analysisRecoveryRegistry.complete(senderId, recoverableRun, response)
@@ -1026,6 +1033,12 @@ export function registerIpcHandlers() {
           request.url,
           effectiveOptions,
           (step, percent) => {
+            if (analysisStage !== step) {
+              log.info(
+                'analysis',
+                `stage: url=${displayUrl} step=${step} percent=${percent} elapsedMs=${Date.now() - analysisStartedAt}`,
+              )
+            }
             analysisStage = step
             analysisRecoveryRegistry.updateProgress(senderId, recoverableRun, step, percent)
             win?.webContents.send('analysis:progress', { step, percent })
@@ -1169,6 +1182,10 @@ export function registerIpcHandlers() {
         if (err instanceof AuthenticationCancelledError) {
           log.info('analysis', `cancelled at login decision: url=${displayUrl}`)
           return completeRun({ cancelled: true })
+        }
+        if (err instanceof AnalysisActiveTimeoutError) {
+          log.error('analysis', `timed out during ${analysisStage}: url=${displayUrl} activeLimitMs=${err.timeoutMs}`)
+          return completeRun({ error: true, errorCode: err.code, stage: analysisStage })
         }
         const message = redactUrlsInText(err instanceof Error ? err.message : String(err))
         log.error('analysis', `failed during ${analysisStage}: url=${displayUrl} error=${message}`)

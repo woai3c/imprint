@@ -11,6 +11,7 @@ import {
   extractPageEvidence,
   observeSafeInteractions,
 } from '../design-evidence/index.js'
+import { ActiveAnalysisDeadline, closeContextWithin, closePageWithin, settleWithin } from './analysis-lifecycle.js'
 import { createAnalysisRequest } from './analysis-request.js'
 import { detectAuthWall } from './auth-wall.js'
 import { resolveBrowserExecutables } from './browser-finder.js'
@@ -86,6 +87,7 @@ export {
   AnalysisRequestError,
   createAnalysisRequest,
 } from './analysis-request.js'
+export { AnalysisActiveTimeoutError } from './analysis-lifecycle.js'
 export type {
   AnalysisDepth,
   AnalysisRequest,
@@ -288,25 +290,24 @@ async function readRuntimeBrowserEnvironment(context: BrowserContext) {
   try {
     return await readBrowserEnvironment(page)
   } finally {
-    await page.close()
+    await closePageWithin(page)
   }
 }
 
 async function closeRuntime(runtime: BrowserRuntime | null): Promise<void> {
   if (!runtime) return
-  const closeWithin = async (operation: Promise<unknown>, timeout: number) => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined
-    await Promise.race([
-      operation.catch(() => {}),
-      new Promise<void>((resolve) => {
-        timeoutId = setTimeout(resolve, timeout)
-      }),
-    ])
-    if (timeoutId) clearTimeout(timeoutId)
+  if (!(await closeContextWithin(runtime.context))) {
+    console.error('[imprint] browser context close timed out')
   }
+  if (runtime.browser && !(await settleWithin(runtime.browser.close(), 5_000))) {
+    console.error('[imprint] browser close timed out')
+  }
+}
 
-  await closeWithin(runtime.context.close(), 5000)
-  if (runtime.browser) await closeWithin(runtime.browser.close(), 5000)
+async function closeAnalysisPage(page: Page, stage: string): Promise<void> {
+  if (!(await closePageWithin(page))) {
+    console.error(`[imprint] page close timed out: ${stage}`)
+  }
 }
 
 function throwIfAnalysisAborted(signal?: AbortSignal): void {
@@ -458,21 +459,57 @@ function screenshotDimensionsMatch(
   return Math.abs(actual.width - expectedWidth) <= 4 && Math.abs(actual.height - expectedHeight) <= 8 ? actual : null
 }
 
+async function captureBeyondViewportClip(
+  page: Page,
+  filePath: string,
+  width: number,
+  height: number,
+): Promise<boolean> {
+  let session: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined
+  try {
+    session = await page.context().newCDPSession(page)
+    const result = (await session.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      captureBeyondViewport: true,
+      clip: { x: 0, y: 0, width, height, scale: 1 },
+    })) as { data?: string }
+    if (!result.data) return false
+    fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'))
+    return true
+  } catch {
+    return false
+  } finally {
+    await session?.detach().catch(() => {})
+  }
+}
+
 async function captureValidatedOverview(
   page: Page,
   filePath: string,
   expectedWidth: number,
   expectedHeight: number,
   timeout?: number,
+  preferExactClip = false,
 ): Promise<{ dimensions: { width: number; height: number } | null; valid: boolean }> {
+  if (preferExactClip && (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight))) {
+    const dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+    if (dimensions) return { dimensions, valid: true }
+  }
+
   await page.screenshot({ path: filePath, fullPage: true, ...(timeout ? { timeout } : {}) })
   let dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
   if (dimensions) return { dimensions, valid: true }
   const initialDimensions = inspectPngDimensions(filePath)
 
-  // Dynamic pages can occasionally make Chromium return only the viewport for a
-  // full-page request. A fixed document-space clip is deterministic and Playwright
-  // captures it beyond the current viewport.
+  // Dynamic or horizontally overflowing pages can make a nominal full-page request return the viewport or the full
+  // overflow width. Chromium's document-space capture keeps the requested visible width without changing page layout.
+  if (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight)) {
+    dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+    if (dimensions) return { dimensions, valid: true }
+  }
+
+  // Keep Playwright's clip as a final compatibility fallback for Chromium builds where CDP capture is unavailable.
   try {
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.waitForTimeout(100)
@@ -543,8 +580,15 @@ export async function analyze(
   const url = request.url
   const startTime = Date.now()
   const capturedAt = new Date(startTime).toISOString()
+  const activeDeadline = new ActiveAnalysisDeadline()
+  const analysisAbortController = new AbortController()
+  const abortFromExternalSignal = () => analysisAbortController.abort(options.signal?.reason)
+  const abortFromActiveDeadline = () => analysisAbortController.abort(activeDeadline.signal.reason)
+  options.signal?.addEventListener('abort', abortFromExternalSignal, { once: true })
+  activeDeadline.signal.addEventListener('abort', abortFromActiveDeadline, { once: true })
+  const analysisSignal = analysisAbortController.signal
   let userWaitMs = 0
-  const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
+  const activeElapsedMs = () => activeDeadline.activeElapsedMs()
   const timing: AnalysisTiming = {
     browserMs: 0,
     preparationMs: 0,
@@ -560,18 +604,18 @@ export async function analyze(
     key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs',
     run: () => Promise<T>,
   ) => {
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
     const startedAt = Date.now()
     try {
       const result = await run()
-      throwIfAnalysisAborted(options.signal)
+      throwIfAnalysisAborted(analysisSignal)
       return result
     } finally {
       timing[key] = (timing[key] || 0) + (Date.now() - startedAt)
     }
   }
   const guardExtractionStage = <T>(issues: ExtractionIssue[], stage: string, fallback: T, run: () => Promise<T>) =>
-    guardAnalysisExtractionStage(issues, stage, fallback, run, options.signal)
+    guardAnalysisExtractionStage(issues, stage, fallback, run, analysisSignal)
   const analysisId = randomUUID()
   const viewportNames = request.viewports
   const pageLimit = request.maxPages
@@ -601,7 +645,7 @@ export async function analyze(
     if (runtime) void closeRuntime(runtime)
     if (pendingRuntime && pendingRuntime !== runtime) void closeRuntime(pendingRuntime)
   }
-  options.signal?.addEventListener('abort', closeActiveRuntime, { once: true })
+  analysisSignal.addEventListener('abort', closeActiveRuntime, { once: true })
 
   try {
     const initialExecutablePath =
@@ -609,7 +653,7 @@ export async function analyze(
         ? interactiveExecutablePath
         : headlessExecutablePath
     runtime = await launchRuntime(initialExecutablePath, accessMode, options.dataDir, url, true, options.proxyServer)
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
     await configurePageViewport(initialPage, viewportNames[0], initialViewport)
 
@@ -639,7 +683,7 @@ export async function analyze(
           options.proxyServer,
         )
         pendingRuntime = managedRuntime
-        throwIfAnalysisAborted(options.signal)
+        throwIfAnalysisAborted(analysisSignal)
         const managedPage = managedRuntime.context.pages()[0] || (await managedRuntime.context.newPage())
         await configurePageViewport(managedPage, viewportNames[0], initialViewport)
         const managedResponseStatus = await navigatePage(managedPage, url)
@@ -657,7 +701,7 @@ export async function analyze(
           await closeRuntime(visitorRuntime)
         }
       } catch {
-        throwIfAnalysisAborted(options.signal)
+        throwIfAnalysisAborted(analysisSignal)
         // A locked or unusable saved profile falls back to the already-loaded visitor page.
       } finally {
         if (managedRuntime) await closeRuntime(managedRuntime)
@@ -690,28 +734,30 @@ export async function analyze(
         false,
         options.proxyServer,
       )
-      throwIfAnalysisAborted(options.signal)
+      throwIfAnalysisAborted(analysisSignal)
       let loginPage = runtime.context.pages()[0] || (await runtime.context.newPage())
       await configurePageViewport(loginPage, viewportNames[0], initialViewport)
       responseStatus = await navigatePage(loginPage, url)
       authDetection = await detectAuthWall(loginPage, responseStatus)
 
       const loginAbortController = new AbortController()
-      const abortLoginWait = () => loginAbortController.abort(options.signal?.reason)
+      const abortLoginWait = () => loginAbortController.abort(analysisSignal.reason)
       runtime.context.once('close', () => loginAbortController.abort())
-      options.signal?.addEventListener('abort', abortLoginWait, { once: true })
+      analysisSignal.addEventListener('abort', abortLoginWait, { once: true })
       let retry = false
       let continueAnonymously = false
 
       while (authDetection.detected) {
-        throwIfAnalysisAborted(options.signal)
+        throwIfAnalysisAborted(analysisSignal)
         onProgress?.(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
         const waitStartedAt = Date.now()
         let decision: LoginDecision
+        activeDeadline.pause()
         try {
           decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
         } finally {
           userWaitMs += Date.now() - waitStartedAt
+          activeDeadline.resume()
         }
         if (loginAbortController.signal.aborted) {
           throw new AuthenticationBrowserClosedError()
@@ -733,7 +779,7 @@ export async function analyze(
         authDetection = await detectAuthWall(loginPage, responseStatus)
         retry = true
       }
-      options.signal?.removeEventListener('abort', abortLoginWait)
+      analysisSignal.removeEventListener('abort', abortLoginWait)
 
       if (continueAnonymously) {
         await closeRuntime(runtime)
@@ -745,7 +791,7 @@ export async function analyze(
           true,
           options.proxyServer,
         )
-        throwIfAnalysisAborted(options.signal)
+        throwIfAnalysisAborted(analysisSignal)
         accessMode = 'anonymous'
         initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
         await configurePageViewport(initialPage, viewportNames[0], initialViewport)
@@ -770,7 +816,7 @@ export async function analyze(
         viewportNames[0],
         initialViewport,
         options.proxyServer,
-        options.signal,
+        analysisSignal,
       )
       runtime = switchedRuntime.runtime
       initialPage = switchedRuntime.page
@@ -812,7 +858,7 @@ export async function analyze(
     let adaptiveMobilePlanned = false
 
     for (let i = 0; i < viewportNames.length; i++) {
-      throwIfAnalysisAborted(options.signal)
+      throwIfAnalysisAborted(analysisSignal)
       const vpName = viewportNames[i]
       const viewport = VIEWPORTS[vpName] || VIEWPORTS.desktop
       const progress = 10 + (i / viewportNames.length) * 70
@@ -846,7 +892,7 @@ export async function analyze(
         (issue) => issue.code === 'auth-wall' || issue.code === 'captcha',
       )
       if (health.status === 'unusable' && !explicitlyAnalyzableAccessSurface) {
-        if (page !== initialPage) await page.close()
+        if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:health-excluded`)
         continue
       }
 
@@ -919,7 +965,7 @@ export async function analyze(
           darkModeResult = null
           techStack = undefined
         }
-        if (page !== initialPage) await page.close()
+        if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:capture-health-excluded`)
         continue
       }
       if (health.recovered) {
@@ -1065,7 +1111,7 @@ export async function analyze(
               sectionKey: section.key,
             })
           } catch {
-            throwIfAnalysisAborted(options.signal)
+            throwIfAnalysisAborted(analysisSignal)
             // Full-page evidence remains available when a dynamic region cannot be clipped reliably.
           }
         }
@@ -1109,7 +1155,7 @@ export async function analyze(
         supplementalImages,
       })
 
-      if (page !== initialPage) await page.close()
+      if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:complete`)
     }
 
     // Multi-page analysis: discover and visit sub-pages for richer token extraction
@@ -1141,11 +1187,11 @@ export async function analyze(
           reason: issue.reason,
         })),
       )
-      if (!canReuseInitialPage) await discoveryPage.close()
+      if (!canReuseInitialPage) await closeAnalysisPage(discoveryPage, 'page-discovery:complete')
 
       let successfulSubPageCount = 0
       for (let i = 0; i < discoveredPages.length; i++) {
-        throwIfAnalysisAborted(options.signal)
+        throwIfAnalysisAborted(analysisSignal)
         if (successfulSubPageCount >= subPageLimit) break
         if (i >= subPageLimit && Date.now() - startTime >= 100_000) break
         const discoveredPage = discoveredPages[i]
@@ -1459,17 +1505,17 @@ export async function analyze(
               const mobileOverviewWidth = mobileSnapshot.horizontalOverflow
                 ? Math.min(VIEWPORTS.mobile.width, mobileSnapshot.width)
                 : mobileSnapshot.width
-              await measure('screenshotCaptureMs', () =>
-                runWithinDeadline(adaptiveDeadline, () => {
-                  const timeout = Math.max(1, adaptiveDeadline - Date.now())
-                  return mobileSnapshot.horizontalOverflow
-                    ? subPage.screenshot({
-                        path: mobileOverviewPath,
-                        clip: { x: 0, y: 0, width: mobileOverviewWidth, height: mobileSnapshot.height },
-                        timeout,
-                      })
-                    : subPage.screenshot({ path: mobileOverviewPath, fullPage: true, timeout })
-                }),
+              const mobileOverviewCapture = await measure('screenshotCaptureMs', () =>
+                runWithinDeadline(adaptiveDeadline, () =>
+                  captureValidatedOverview(
+                    subPage,
+                    mobileOverviewPath,
+                    mobileOverviewWidth,
+                    mobileSnapshot.height,
+                    Math.max(1, adaptiveDeadline - Date.now()),
+                    mobileSnapshot.horizontalOverflow,
+                  ),
+                ),
               )
               const mobileViewportValid = recordScreenshotDimensionIssue(
                 extractionIssues,
@@ -1478,20 +1524,22 @@ export async function analyze(
                 VIEWPORTS.mobile.width,
                 VIEWPORTS.mobile.height,
               )
-              const mobileOverviewValid = recordScreenshotDimensionIssue(
-                extractionIssues,
-                `${mobileStagePrefix}:screenshot:overview`,
-                mobileOverviewPath,
-                mobileOverviewWidth,
-                mobileSnapshot.height,
-              )
+              if (!mobileOverviewCapture.valid) {
+                recordScreenshotDimensionIssue(
+                  extractionIssues,
+                  `${mobileStagePrefix}:screenshot:overview`,
+                  mobileOverviewPath,
+                  mobileOverviewWidth,
+                  mobileSnapshot.height,
+                )
+              }
               const screenshotDimensions = inspectPngDimensions(mobileOverviewPath)
               const mobilePageScreenshot = {
                 url: subPage.url(),
                 path: mobileOverviewPath,
                 viewport: 'mobile',
                 ...(screenshotDimensions || {}),
-                valid: mobileOverviewValid,
+                valid: mobileOverviewCapture.valid,
               }
               screenshots.push(mobileOverviewPath)
               pageScreenshots.push(mobilePageScreenshot)
@@ -1538,7 +1586,7 @@ export async function analyze(
                     evidenceEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
                   }
                 } catch {
-                  throwIfAnalysisAborted(options.signal)
+                  throwIfAnalysisAborted(analysisSignal)
                   // Desktop styles already cover this URL. Keep the committed mobile evidence when this optional
                   // viewport-specific pass is too slow or fails independently.
                 } finally {
@@ -1550,7 +1598,7 @@ export async function analyze(
             analysisLimitations.push('adaptive-mobile-skipped-budget')
           }
         } catch (error) {
-          throwIfAnalysisAborted(options.signal)
+          throwIfAnalysisAborted(analysisSignal)
           // Sub-page failed to load, skip it
           const reason = extractionReason(error)
           if (adaptiveHealthIssueStartIndex !== undefined) {
@@ -1569,12 +1617,12 @@ export async function analyze(
           }
         } finally {
           if (adaptiveAbortTimer) clearTimeout(adaptiveAbortTimer)
-          await subPage.close()
+          await closeAnalysisPage(subPage, `page-${i + 2}:${mainViewportName}:complete`)
         }
       }
     }
 
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
     onProgress?.('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const mergedStyles = mergeStyles(allStyles)
@@ -1661,13 +1709,13 @@ export async function analyze(
     if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
     if (timing.totalMs > 120_000) timing.budgetExceeded?.push('program-analysis')
 
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
     onProgress?.('progress.done', 100)
 
     if (accessMode === 'managed') {
       await saveManagedStorageState(runtime.context, options.dataDir, url).catch(() => {})
     }
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
 
     const pageCoverage = {
       requested: pageLimit,
@@ -1743,10 +1791,13 @@ export async function analyze(
       captureManifest,
     }
   } catch (error) {
-    throwIfAnalysisAborted(options.signal)
+    throwIfAnalysisAborted(analysisSignal)
     throw error
   } finally {
-    options.signal?.removeEventListener('abort', closeActiveRuntime)
+    activeDeadline.dispose()
+    options.signal?.removeEventListener('abort', abortFromExternalSignal)
+    activeDeadline.signal.removeEventListener('abort', abortFromActiveDeadline)
+    analysisSignal.removeEventListener('abort', closeActiveRuntime)
     await closeRuntime(runtime)
   }
 }

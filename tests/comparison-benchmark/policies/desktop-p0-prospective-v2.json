@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1",
+  "id": "desktop-p0-prospective-v2",
+  "frozenAt": "2026-08-20",
+  "frozenAgainstCommit": "d49606b7022334864f7782cd75ab8f0d66c97276",
+  "requirements": {
+    "corpusIds": ["prospective-v2"],
+    "corpusSha256": "ff2107402b96103f13c1072a6305e97ffb950a25ff417dbb76de2fb0c9eeae82",
+    "fixtureSha256": "73cefbe61b46d0512bc72f0a526c520a6bd1b36586353b55ac4d8bbe214b23fb",
+    "implementationPaths": ["src/core/analyzer", "src/core/design-evidence", "src/core/governance"],
+    "allowedRoles": ["prospective-holdout"],
+    "allowObservationOnly": false,
+    "requiredStatuses": ["changed", "unchanged", "inconclusive"],
+    "requiredChangedCategories": [
+      "colors",
+      "typography",
+      "spacing",
+      "radii",
+      "layout",
+      "interaction-states",
+      "responsive"
+    ],
+    "maximumTotals": {
+      "failedPairs": 0,
+      "missedChanges": 0,
+      "expectedChangeInconclusive": 0,
+      "unexpectedChanges": 0,
+      "unexpectedInconclusive": 0,
+      "failClosedViolations": 0,
+      "evidenceReferenceFailures": 0,
+      "executionFailures": 0
+    }
+  },
+  "runtime": {
+    "mode": "observe-only",
+    "reason": "A single development machine does not justify a portable runtime threshold. Reports retain per-pair durations for later calibration."
+  },
+  "claimBoundary": "Passing applies only to the committed deterministic loopback corpus and declared comparison categories. It is not a live-site accuracy, user-value, pixel-fidelity, defect, or compliance claim."
+}

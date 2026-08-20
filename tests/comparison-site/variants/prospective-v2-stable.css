@@ -1,0 +1,21 @@
+/* Equivalent computed values expressed differently from the reference declarations. */
+:root {
+  --primary: rgb(36 87 214);
+  --space: 1rem;
+  --radius: 0.5rem;
+  --title-size: 2.5rem;
+}
+
+.review-panel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.action:hover {
+  transform: matrix(1, 0, 0, 1, 0, -2);
+}
+
+@media (max-width: 640px) {
+  .review-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

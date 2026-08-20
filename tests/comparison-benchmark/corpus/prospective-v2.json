@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1",
+  "id": "prospective-v2",
+  "request": {
+    "viewports": ["desktop", "mobile"],
+    "maxPages": 3,
+    "depth": "standard",
+    "pageDiscovery": "auto",
+    "extractDarkMode": false
+  },
+  "scenarios": [
+    {
+      "id": "prospective-v2-equivalent-computed-styles",
+      "role": "prospective-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "prospective-v2-stable"
+      },
+      "expectation": {
+        "status": "unchanged",
+        "changedCategories": []
+      }
+    },
+    {
+      "id": "prospective-v2-all-supported-categories",
+      "role": "prospective-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "prospective-v2-all-categories"
+      },
+      "expectation": {
+        "status": "changed",
+        "changedCategories": ["colors", "typography", "spacing", "radii", "layout", "interaction-states", "responsive"]
+      }
+    },
+    {
+      "id": "prospective-v2-depth-mismatch-fail-closed",
+      "role": "prospective-holdout",
+      "repetitions": 1,
+      "source": {
+        "kind": "comparison-site",
+        "referenceVariant": "reference",
+        "targetVariant": "prospective-v2-stable"
+      },
+      "targetRequest": {
+        "depth": "deep"
+      },
+      "expectation": {
+        "status": "inconclusive",
+        "changedCategories": [],
+        "comparabilityReasons": ["capture-settings-mismatch"]
+      }
+    }
+  ]
+}

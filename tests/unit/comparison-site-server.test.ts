@@ -37,6 +37,8 @@ describe('manual comparison site', () => {
       'layout-responsive',
       'prospective-all-categories',
       'prospective-stable',
+      'prospective-v2-all-categories',
+      'prospective-v2-stable',
       'radii',
       'reference',
       'spacing',

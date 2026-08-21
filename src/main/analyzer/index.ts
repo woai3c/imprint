@@ -6,6 +6,7 @@ import { app } from 'electron'
 
 import type { AnalysisDepth, AnalysisViewport } from '../../core/analyzer/analysis-request.js'
 import {
+  type AnalysisProgress,
   type AnalysisResult,
   type AuthMode,
   type LoginRequest,
@@ -24,12 +25,13 @@ export interface ElectronAnalysisOptions {
   browserPath?: string
   proxyServer?: string
   signal?: AbortSignal
+  finishSignal?: AbortSignal
 }
 
 export async function analyzeUrl(
   url: string,
   options: ElectronAnalysisOptions = {},
-  onProgress?: (step: string, percent: number) => void,
+  onProgress?: (progress: AnalysisProgress) => void,
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<'continue' | 'anonymous' | 'cancel'>,
 ): Promise<AnalysisResult> {
   return analyze(

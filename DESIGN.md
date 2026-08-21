@@ -100,7 +100,8 @@ clear confirmation before execution.
 
 - the interface acknowledges an action visually within 100ms, even if the operation continues asynchronously;
 - every long-running operation exposes progress or a busy state and prevents accidental duplicate submission;
-- website analysis exposes a compact, accessible stop action beside its progress without shifting the URL controls;
+- website analysis exposes cancellation throughout the run and, after one page is complete, a separate visible action
+  that keeps completed work and opens the current result;
 - every icon-only or color-only control has a visible or accessible name and an unambiguous selected state;
 - success, failure, disabled, selected, hover, keyboard-focus, and reduced-motion states are verified;
 - reversible actions happen directly; destructive or irreversible actions request confirmation;
@@ -231,20 +232,20 @@ runs out, the tab strip scrolls horizontally instead.
   defaults to the two latest eligible records, and offers only later records for the same normalized route. Users may
   choose any earlier and later pair for that route; comparison does not create or mutate a pinned reference. Repeated
   row-level comparison buttons and per-record reference actions are avoided.
-- The comparison checks the recorded page and viewport set, access mode, language, coverage, and page-health eligibility
+- The comparison checks the recorded page and viewport set, page-analysis mode, access mode, language, coverage, and page-health eligibility
   before reporting supported token changes. Missing or incompatible evidence produces `inconclusive`, never “no
-  change.” The requested page count is an upper bound: coverage is complete when every page selected from successful
-  discovery and every planned viewport capture succeeds, even if the site exposes fewer pages than the limit. A selected
-  page or planned viewport that fails remains incomplete. Selecting two records does not mutate either record.
-- Each new analysis stores a versioned Capture Manifest with requested viewports and page limits, access mode, locale,
+  change.” The selected page count is an upper bound. Analysis records every discovered and completed page;
+  coverage remains partial when the user stops the run before selected pages finish. A selected page or
+  planned viewport that fails also remains incomplete. Selecting two records does not mutate either record.
+- Each new analysis stores a versioned Capture Manifest with requested viewports and the bounded page limit, access mode, locale,
   timezone, color scheme, reduced-motion preference, the runtime browser identity, each captured viewport's effective
   DPR/user agent/emulation profile, browser and tool versions, actual animation-freeze coverage, font readiness,
   page-health coverage, and explicit limitations. Missing legacy manifests or differences in conditions that can affect
   token extraction produce `inconclusive`; browser, platform, or tool-version differences remain visible
   limitations for the currently exact token comparison.
 - Before browser work begins, every entry point must normalize its inputs through versioned Analysis Request schema
-  `1`: an HTTP(S) URL, an ordered deduplicated subset of desktop/tablet/mobile viewports, an integer page count from 1
-  to 5, access mode, dark-mode extraction choice, depth, and page-discovery mode. Entry points may declare different
+  `2`: an HTTP(S) URL, an ordered deduplicated subset of desktop/tablet/mobile viewports, a positive integer page bound
+  with no product-level maximum, access mode, dark-mode extraction choice, depth, and page-discovery mode. Entry points may declare different
   defaults, but they must pass the resulting explicit request to the same core analyzer. Invalid values are rejected
   instead of silently falling back to another viewport or page count. The request schema version is recorded in the
   Capture Manifest; a recorded-version mismatch, including a new capture compared with a legacy capture that lacks
@@ -349,13 +350,12 @@ runs out, the tab strip scrolls horizontally instead.
 
 ## Multi-page analysis evidence
 
-- Place a compact, clearly labeled Pages to analyze control below the URL-and-action row. Let its help text use the full
-  width beneath both the URL field and Analyze button instead of wrapping at the input's narrower boundary. Its control
-  sets a maximum from 1 to 5 and defaults to 3; never place this secondary option between the URL field and primary
-  action.
-- Keep this configuration visually quiet: use a label, compact select, and adjacent help text without a decorative icon
-  or full-width card surface. Explain that the entered URL counts as the first page, discovered same-site URLs fill the
-  remaining slots, and analysis finishes with fewer pages when the website exposes fewer usable routes. Automatic
+- Desktop analysis automatically follows usable same-site pages up to a user-visible page limit. The default is 8 pages;
+  users may enter any positive integer with no product-level maximum. Treat this value as a maximum rather than a
+  promise that every site exposes that many representative pages. Place the compact numeric input and short explanation
+  below the URL-and-action row; never put this secondary control between the URL field and primary action. CLI and MCP
+  use the same positive-integer contract and the same default of 8 when omitted.
+- The entered URL is the first page. Automatic
   discovery combines rendered navigation links with same-origin sitemap entries, excludes authentication, legal, and
   asset URLs, and favors a diverse set of product, pricing, documentation, company, support, and content pages instead
   of filling the run with several near-identical routes. Links inside the primary content or top navigation outrank
@@ -363,19 +363,23 @@ runs out, the tab strip scrolls horizontally instead.
   page quota. For a non-root entry URL, discovered descendant routes keep the entered path's context; when at least one
   usable descendant exists, automatic selection stays within that context instead of mixing in unrelated global routes.
   When no such descendant exists, normal same-origin diversity scoring remains the fallback. If a selected route fails
-  navigation or the page-health gate, analysis may try at most two additional ranked candidates while the overall
-  analysis budget allows; fallback candidates never increase the requested page count.
+  navigation or the page-health gate, analysis continues with other ranked candidates until the requested page bound,
+  candidate exhaustion, cancellation, or an explicit early finish. Newly completed pages can contribute more same-origin links to the queue; identity normalization prevents
+  query, fragment, and repeated-route loops.
 - The entry page remains authoritative for canvas, surface, and foreground roles. Additional pages may strengthen or
   add action colors, components, breakpoints, motion, and other tokens. Token JSON and DTCG exports carry deterministic
   per-token confidence, observation counts, source pages, and provenance; repeated viewports are captures, not distinct
   pages. DESIGN.md summarizes confidence and calls out low-confidence values for review.
 - Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
-  in the result panel and report the actual page and screenshot counts when a site exposes fewer pages than requested.
+  in the result panel and report the actual page and screenshot counts.
 - Full-page evidence must retain the measured document height even when a page has horizontal overflow. Capture only the
   intended viewport width so accidental off-canvas content does not widen or truncate the saved overview.
-- Bound one analysis to 120 seconds of active work so a stalled browser operation cannot leave the desktop app running
-  indefinitely. Time spent waiting for the user to finish a managed sign-in is excluded. Page, browser-context, and
-  browser shutdown are independently bounded because completed extraction must not be lost to a hanging cleanup call;
+- Analysis has no global elapsed-time cutoff. Once at least one page is complete, progress states the
+  completed/discovered counts and offers **Finish and view current result**; this keeps completed work, while Cancel
+  continues to discard the run. Persist whether the run completed normally or was finished by the user, and show an
+  early-finish reason in Desktop results and history. Completion metadata is operational context and must never be
+  written into DESIGN.md. Individual page navigation, adaptive capture, browser-context, and browser shutdown operations
+  remain independently bounded so one stalled browser operation cannot hang the run or discard completed extraction;
   desktop logs record stage transitions and the last active stage for diagnosis.
 - Screenshot evidence opens in an in-context lightbox. Wheel and explicit controls zoom the image; zoomed images support
   pointer and touch dragging, and returning to the fitted scale resets the image to the center.
@@ -418,7 +422,7 @@ runs out, the tab strip scrolls horizontally instead.
 
 - Persist renderer-only user preferences in namespaced localStorage keys and validate every value before use. Migrate
   legacy language keys so existing choices survive upgrades.
-- Language, color mode, current app theme, default analysis page limit, last validation scenario, and explicitly
+- Language, color mode, current app theme, last validation scenario, and explicitly
   dismissed informational notices survive a full app restart.
 - Keep transient work state out of localStorage: submitted URLs, analysis results and failures, search input, progress,
   open dialogs, and pending authentication decisions remain in memory or their existing durable stores.

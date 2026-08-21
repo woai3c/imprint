@@ -25,6 +25,7 @@ const api = {
   analyzeUrl: (url: string, options?: AnalyzeOptions) => ipcRenderer.invoke('analyze:url', url, options),
   recoverAnalysis: () => ipcRenderer.invoke('analysis:recover'),
   acknowledgeAnalysis: () => ipcRenderer.invoke('analysis:acknowledge'),
+  finishAnalysis: () => ipcRenderer.invoke('analysis:finish'),
   cancelAnalysis: () => ipcRenderer.invoke('analysis:cancel'),
   generateValidation: (analysisId: string, scenario: 'workflow' | 'content' | 'states') =>
     ipcRenderer.invoke('validation:start', analysisId, scenario),
@@ -61,8 +62,8 @@ const api = {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
   // Progress events
-  onAnalysisProgress: (callback: (progress: { step: string; percent: number }) => void) => {
-    const handler = (_event: unknown, progress: { step: string; percent: number }) => callback(progress)
+  onAnalysisProgress: (callback: Parameters<ElectronAPI['onAnalysisProgress']>[0]) => {
+    const handler = (_event: unknown, progress: Parameters<typeof callback>[0]) => callback(progress)
     ipcRenderer.on('analysis:progress', handler)
     return () => ipcRenderer.removeListener('analysis:progress', handler)
   },

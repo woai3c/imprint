@@ -1,9 +1,9 @@
-import type { AnalysisRecoveryResponse, AnalyzeResponse } from '../shared/ipc-contract.js'
+import type { AnalysisProgress, AnalysisRecoveryResponse, AnalyzeResponse } from '../shared/ipc-contract.js'
 
 export interface RecoverableAnalysisRun {
   url: string
   status: 'running' | 'complete'
-  progress?: { step: string; percent: number }
+  progress?: AnalysisProgress
   response?: AnalyzeResponse
 }
 
@@ -16,9 +16,9 @@ export class AnalysisRecoveryRegistry {
     return run
   }
 
-  updateProgress(ownerId: number, run: RecoverableAnalysisRun, step: string, percent: number): void {
+  updateProgress(ownerId: number, run: RecoverableAnalysisRun, progress: AnalysisProgress): void {
     if (this.runs.get(ownerId) !== run || run.status !== 'running') return
-    run.progress = { step, percent }
+    run.progress = progress
   }
 
   complete(ownerId: number, run: RecoverableAnalysisRun, response: AnalyzeResponse): AnalyzeResponse {

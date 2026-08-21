@@ -178,6 +178,7 @@ function collectManifestComparability(
 
   compare('request.schemaVersion', reference.request.schemaVersion, target.request.schemaVersion, 'inconclusive')
   compare('request.viewports', reference.request.viewports, target.request.viewports, 'inconclusive')
+  compare('request.pageMode', reference.request.pageMode, target.request.pageMode, 'inconclusive')
   compare('request.maxPages', reference.request.maxPages, target.request.maxPages, 'inconclusive')
   compare('request.pageDiscovery', reference.request.pageDiscovery, target.request.pageDiscovery, 'inconclusive')
   compare('request.depth', reference.request.depth, target.request.depth, 'inconclusive')

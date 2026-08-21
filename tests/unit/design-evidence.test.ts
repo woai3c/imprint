@@ -625,8 +625,9 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
-    expect(summary).toContain('主按钮（小尺寸、圆角、描边） ×1')
-    expect(summary).toContain('主按钮（大尺寸、圆角、实色填充） ×1')
+    expect(summary).toContain('主按钮（小尺寸） ×1')
+    expect(summary).toContain('主按钮（大尺寸） ×1')
+    expect(summary).not.toContain('主按钮（小尺寸、圆角、描边）')
     expect(summary).toContain('正向变化值 ×1')
     expect(summary).toContain('状态提示（警告） ×1')
     expect(summary).not.toContain('button-primary-')
@@ -675,8 +676,12 @@ describe('Design Evidence', () => {
     expect(brief).not.toMatch(/ariaExpanded|controlledVisibility|controlledOpacity/)
   })
 
-  it('labels cross-page reconstruction facts with their source route', () => {
+  it('keeps one-page geometry out of a multi-page reconstruction summary', () => {
     const evidence = buildFixtureEvidence()
+    evidence.sections.forEach((section) => {
+      section.layoutMode = 'flow'
+      section.observedStyles = {}
+    })
     const secondPage = evidence.pages.find((page) => page.viewport === 'mobile')!
     secondPage.url = 'https://example.com/creator'
     const secondSection = evidence.sections.find((section) => section.pageId === secondPage.id)!
@@ -688,7 +693,43 @@ describe('Design Evidence', () => {
     expect(summary).toContain('**Site scope:**')
     expect(summary).toContain('This analysis covers 2 observed pages from')
     expect(summary).toContain('**Entry-page section hierarchy:**')
-    expect(summary).toContain('`[/creator] navigation max-width: 413px`')
+    expect(summary).not.toContain('[/creator] navigation max-width: 413px')
+    expect(document).toContain('### Structural Facts')
+    expect(document).toContain('`max-width: 413px`')
+  })
+
+  it('uses recurring structure instead of one-page geometry when a multi-page pattern exists', () => {
+    const evidence = buildFixtureEvidence()
+    const basePage = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const baseSection = evidence.sections.find((section) => section.pageId === basePage.id)!
+    baseSection.layoutMode = 'sticky'
+    baseSection.observedStyles = { layout: { top: '72px', height: '80px' } }
+
+    for (let index = 1; index <= 3; index += 1) {
+      const pageId = `page-recurring-${index}`
+      evidence.pages.push({
+        ...structuredClone(basePage),
+        id: pageId,
+        url: `https://example.com/area-${index}`,
+        images: [],
+      })
+      evidence.sections.push({
+        ...structuredClone(baseSection),
+        id: `section-recurring-${index}`,
+        pageId,
+        layoutMode: 'flow',
+        observedStyles: { borderRadius: '12px' },
+        evidenceRefs: [],
+      })
+    }
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
+    const summary = document.slice(document.indexOf('### Reconstruction Summary'), document.indexOf('## Colors'))
+    const recurring = 'Observed across 3 pages: navigation radius: 12px'
+    const onePage = '[entry] navigation: sticky, top 72px, 80px high'
+
+    expect(summary).toContain(recurring)
+    expect(summary).not.toContain(onePage)
   })
 
   it('labels human-facing order-only responsive evidence as reorder', () => {
@@ -855,6 +896,20 @@ describe('Design Evidence', () => {
     expect(frontMatter.name).toBe('Bubblebox')
   })
 
+  it('uses a generic title segment only to recover a concise site name', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.source.title = '首页 - 知乎'
+    delete evidence.source.siteName
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
+    const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
+    const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
+
+    expect(frontMatter.name).toBe('知乎')
+    expect(summary).toContain('本次分析覆盖 知乎 的当前捕获页面')
+    expect(summary).not.toContain('本次分析覆盖 首页 - 知乎')
+  })
+
   it('keeps old schema v1 JSON without optional identity fields compatible', () => {
     const legacyEvidence = JSON.parse(generateDesignEvidenceJson(buildFixtureEvidence()))
     delete legacyEvidence.source.title
@@ -985,7 +1040,7 @@ describe('Design Evidence', () => {
     expect(brief).not.toContain('`target-')
     expect(brief).not.toContain('unknown →')
     expect(brief).not.toContain('rect.width')
-    expect(brief).toContain('Coverage: URLs 1/1; page×viewport captures 2/2 (complete)')
+    expect(brief).toContain('Coverage: 1/1 selected URLs observed; page×viewport captures 2/2 (complete)')
   })
 
   it('reports URL coverage separately from missing page×viewport captures', () => {

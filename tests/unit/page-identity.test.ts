@@ -32,6 +32,9 @@ describe('page identity', () => {
 
   test.each([
     'Home',
+    'Homepage',
+    '首页',
+    '主页',
     'Login',
     'Sign in',
     '403 Forbidden',
@@ -45,6 +48,17 @@ describe('page identity', () => {
     expect(pageIdentityFromMetadata({ title })).toEqual({})
   })
 
+  test('derives a site name only when a separated title has one generic page label', () => {
+    expect(pageIdentityFromMetadata({ title: '首页 - 知乎' })).toEqual({ siteName: '知乎', title: '首页 - 知乎' })
+    expect(pageIdentityFromMetadata({ title: 'Home — Example' })).toEqual({
+      siteName: 'Example',
+      title: 'Home — Example',
+    })
+    expect(pageIdentityFromMetadata({ title: 'Bubblebox — Snacks that pop' })).toEqual({
+      title: 'Bubblebox — Snacks that pop',
+    })
+  })
+
   test('uses safe entry metadata before hostname and fallback', () => {
     expect(
       resolveDesignSystemName({
@@ -52,20 +66,24 @@ describe('page identity', () => {
         title: 'Bubblebox — Snacks that pop',
       }),
     ).toBe('Bubblebox — Snacks that pop')
+    expect(resolveDesignSystemName({ url: 'https://www.zhihu.com/', title: '首页 - 知乎' })).toBe('知乎')
     expect(resolveDesignSystemName({ url: 'https://www.example.com/path' })).toBe('example.com Design System')
     expect(resolveDesignSystemName({})).toBe('Extracted Design System')
   })
 
   test.each([
-    ['(1 条消息) 首页 - 知乎', '首页 - 知乎'],
-    ['（23条新消息）知乎', '知乎'],
-    ['[2 new messages] Product Console', 'Product Console'],
-    ['(7) Example Dashboard', 'Example Dashboard'],
-    ['【未读】创作中心', '创作中心'],
-    ['(7) [2 new messages] Home - Example', 'Home - Example'],
-  ])('removes volatile notification prefixes from %s', (title, expected) => {
+    ['(1 条消息) 首页 - 知乎', '首页 - 知乎', '知乎'],
+    ['（23条新消息）知乎', '知乎', undefined],
+    ['[2 new messages] Product Console', 'Product Console', undefined],
+    ['(7) Example Dashboard', 'Example Dashboard', undefined],
+    ['【未读】创作中心', '创作中心', undefined],
+    ['(7) [2 new messages] Home - Example', 'Home - Example', 'Example'],
+  ])('removes volatile notification prefixes from %s', (title, expected, expectedSiteName) => {
     expect(sanitizePageIdentity(title)).toBe(expected)
-    expect(pageIdentityFromMetadata({ title })).toEqual({ title: expected })
+    expect(pageIdentityFromMetadata({ title })).toEqual({
+      ...(expectedSiteName ? { siteName: expectedSiteName } : {}),
+      title: expected,
+    })
   })
 
   test('rejects entry metadata from unusable or blocked page health', () => {

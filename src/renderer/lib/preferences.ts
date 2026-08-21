@@ -40,12 +40,11 @@ export function setLanguagePreference(language: string): void {
 
 export function getAnalysisPageCountPreference(): number {
   const stored = Number(readCached('analysisPageCount'))
-  if (!Number.isFinite(stored) || stored === 0) return 3
-  return Math.min(5, Math.max(1, Math.floor(stored)))
+  return Number.isSafeInteger(stored) && stored >= 1 ? stored : 8
 }
 
 export function setAnalysisPageCountPreference(pageCount: number): number {
-  const normalized = Math.min(5, Math.max(1, Math.floor(pageCount)))
+  const normalized = Number.isSafeInteger(pageCount) && pageCount >= 1 ? pageCount : 8
   writeSetting({ analysisPageCount: normalized })
   return normalized
 }

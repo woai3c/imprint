@@ -3,6 +3,8 @@ import type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 import type { PageDiscoveryMode } from '../core/analyzer/page-discovery.js'
 import type { ReferenceComparisonResult } from '../core/analyzer/reference-compare.js'
 import type {
+  AnalysisCompletion,
+  AnalysisProgress,
   AnalysisTiming,
   AuthMode,
   CaptureManifest,
@@ -16,6 +18,8 @@ import type { DesignEvidence } from '../core/design-evidence/types.js'
 export type { AuthWallDetection } from '../core/analyzer/auth-wall.js'
 export type { AnalysisDepth, AnalysisRequest, AnalysisViewport } from '../core/analyzer/analysis-request.js'
 export type {
+  AnalysisCompletion,
+  AnalysisProgress,
   AnalysisTiming,
   AuthMode,
   CaptureManifest,
@@ -172,6 +176,7 @@ export interface AnalysisResultData {
   reconstructionBrief?: string | null
   agentContext?: AgentContextBundle | null
   validationReport?: ValidationReport | null
+  completion?: AnalysisCompletion
 }
 
 export interface AnalysisDetailData {
@@ -200,6 +205,7 @@ export interface AnalysisDetailData {
   agentContext: AgentContextBundle | null
   validationReport: ValidationReport | null
   captureManifest: CaptureManifest | null
+  completion?: AnalysisCompletion
 }
 
 export interface AnalyzeOptions {
@@ -225,7 +231,6 @@ export type AnalysisComparisonResponse =
 
 export interface AnalyzeResponse extends Partial<AnalysisResultData> {
   error?: boolean
-  errorCode?: 'ANALYSIS_ACTIVE_TIMEOUT'
   message?: string
   stage?: string
   authRequired?: boolean
@@ -235,7 +240,7 @@ export interface AnalyzeResponse extends Partial<AnalysisResultData> {
 
 export type AnalysisRecoveryResponse =
   | { status: 'idle' }
-  | { status: 'running'; url: string; progress?: { step: string; percent: number } }
+  | { status: 'running'; url: string; progress?: AnalysisProgress }
   | { status: 'complete'; url: string; response: AnalyzeResponse }
 
 export interface DesignContextResponse extends Partial<AnalysisResultData> {
@@ -285,6 +290,7 @@ export interface ElectronAPI {
   analyzeUrl: (url: string, options?: AnalyzeOptions) => Promise<AnalyzeResponse>
   recoverAnalysis: () => Promise<AnalysisRecoveryResponse>
   acknowledgeAnalysis: () => Promise<{ success: boolean }>
+  finishAnalysis: () => Promise<{ success: boolean }>
   cancelAnalysis: () => Promise<{ success: boolean }>
   generateValidation: (
     analysisId: string,
@@ -313,6 +319,6 @@ export interface ElectronAPI {
   deleteAnalysis: (id: string) => Promise<{ success: boolean }>
   deleteAnalyses: (ids: string[]) => Promise<{ success: boolean }>
   openExternal: (url: string) => Promise<void>
-  onAnalysisProgress: (callback: (progress: { step: string; percent: number }) => void) => () => void
+  onAnalysisProgress: (callback: (progress: AnalysisProgress) => void) => () => void
   onLoginRequired: (callback: (request: LoginRequiredEvent) => void) => () => void
 }

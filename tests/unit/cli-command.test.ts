@@ -50,6 +50,17 @@ describe('CLI command contract', () => {
     })
   })
 
+  it('uses the default eight-page bound when --pages is omitted', () => {
+    const command = parseCliCommand(['extract', 'https://example.test'])
+    expect(command).toMatchObject({ kind: 'extract', options: { pageDiscovery: 'auto' } })
+    if (command.kind === 'extract') expect(command.options.maxPages).toBe(8)
+  })
+
+  it('accepts a page bound above the former product maximum', () => {
+    const command = parseCliCommand(['extract', 'https://example.test', '--pages', '250'])
+    expect(command).toMatchObject({ kind: 'extract', options: { maxPages: 250 } })
+  })
+
   it.each([
     { args: ['extract', 'https://example.test', '--pages', '2x'], code: 'invalid-page-count' },
     { args: ['extract', 'file:///tmp/page.html'], code: 'invalid-url' },

@@ -1,9 +1,10 @@
 import { AlertTriangle, Info, Loader2, Square } from 'lucide-react'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type {
+  AnalysisProgress,
   AnalyzeResponse,
   AuthMode,
   AuthWallDetection,
@@ -44,6 +45,8 @@ export function AnalyzePage() {
   const [showBrowserSessions, setShowBrowserSessions] = useState(false)
   const [analysisDepth, setAnalysisDepth] = useState<'standard' | 'deep'>('standard')
   const [cancelling, setCancelling] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [pageCountInput, setPageCountInput] = useState(() => String(useAnalysisStore.getState().pageCount))
 
   useEffect(() => {
     const refresh = () => {
@@ -62,10 +65,29 @@ export function AnalyzePage() {
   const failure = store.failure
   const url = store.lastUrl
   const pageCount = store.pageCount
+  const parsedPageCount = Number(pageCountInput)
+  const pageCountInputValid =
+    /^\d+$/.test(pageCountInput) && Number.isSafeInteger(parsedPageCount) && parsedPageCount >= 1
   const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
+  const notifyAnalysisReady = useCallback(
+    (data: AnalysisResultData) => {
+      if (data.completion?.reason && data.completion.reason !== 'complete') {
+        notify(
+          t('analyze.partialCompleteTip', {
+            pages:
+              data.pageCoverage?.analyzed || new Set(data.pageScreenshots?.map((screenshot) => screenshot.url)).size,
+          }),
+          'success',
+        )
+        return
+      }
+      notify(t('analyze.completeTip'), 'success')
+    },
+    [notify, t],
+  )
 
   useEffect(() => {
-    const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: { step: string; percent: number }) => {
+    const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: AnalysisProgress) => {
       const current = useAnalysisStore.getState()
       if (current.analyzing) current.setProgress(p)
     })
@@ -102,6 +124,7 @@ export function AnalyzePage() {
 
     const applyRecoveredResponse = async (targetUrl: string, response: AnalyzeResponse) => {
       const current = useAnalysisStore.getState()
+      setFinishing(false)
       if (response.authRequired && response.detection) {
         current.setProgress(null)
         current.setAnalyzing(true)
@@ -117,10 +140,7 @@ export function AnalyzePage() {
       }
       if (response.error) {
         current.setFailure({
-          message:
-            response.errorCode === 'ANALYSIS_ACTIVE_TIMEOUT'
-              ? t('analyze.activeTimeout')
-              : response.message?.trim() || t('analyze.error'),
+          message: response.message?.trim() || t('analyze.error'),
           url: targetUrl,
           authMode: 'auto',
           stage: response.stage,
@@ -135,7 +155,7 @@ export function AnalyzePage() {
       const data = response as AnalysisResultData
       current.setResult(data, targetUrl)
       setAuthPrompt(null)
-      notify(t('analyze.completeTip'), 'success')
+      notifyAnalysisReady(data)
     }
 
     const recover = async () => {
@@ -147,7 +167,16 @@ export function AnalyzePage() {
           if (!current.analyzing) current.clearResult()
           current.setUrl(recovery.url)
           current.setAnalyzing(true)
-          current.setProgress(recovery.progress || { step: 'progress.launchingBrowser', percent: 0 })
+          current.setProgress(
+            recovery.progress || {
+              step: 'progress.launchingBrowser',
+              percent: 0,
+              analyzedPages: 0,
+              discoveredPages: 1,
+              resultReady: false,
+              activeElapsedMs: 0,
+            },
+          )
           pollTimer = window.setTimeout(recover, ANALYSIS_RECOVERY_POLL_MS)
           return
         }
@@ -169,7 +198,7 @@ export function AnalyzePage() {
       disposed = true
       if (pollTimer !== undefined) window.clearTimeout(pollTimer)
     }
-  }, [i18n.language, notify, t])
+  }, [i18n.language, notify, notifyAnalysisReady, t])
 
   const runAnalysis = async (targetUrl: string, authMode: AuthMode): Promise<AnalysisOutcome> => {
     try {
@@ -196,10 +225,7 @@ export function AnalyzePage() {
       }
       if (res.error) {
         store.setFailure({
-          message:
-            res.errorCode === 'ANALYSIS_ACTIVE_TIMEOUT'
-              ? t('analyze.activeTimeout')
-              : res.message?.trim() || t('analyze.error'),
+          message: res.message?.trim() || t('analyze.error'),
           url: targetUrl,
           authMode,
           stage: res.stage,
@@ -210,7 +236,7 @@ export function AnalyzePage() {
       const data = res as AnalysisResultData
       store.setResult(data, targetUrl)
       setAuthPrompt(null)
-      notify(t('analyze.completeTip'), 'success')
+      notifyAnalysisReady(data)
       return 'complete'
     } catch (err) {
       console.error('Analysis failed:', err)
@@ -233,18 +259,31 @@ export function AnalyzePage() {
     store.clearResult()
     store.setAnalyzing(true)
     setCancelling(false)
+    setFinishing(false)
     store.setUrl(targetUrl)
     setAuthPrompt(null)
-    store.setProgress({ step: t('analyze.preparing'), percent: 0 })
+    store.setProgress({
+      step: 'progress.launchingBrowser',
+      percent: 0,
+      analyzedPages: 0,
+      discoveredPages: 1,
+      resultReady: false,
+      activeElapsedMs: 0,
+    })
 
     const outcome = await runAnalysis(targetUrl, authMode)
     if (outcome !== 'auth-required') store.setAnalyzing(false)
     setCancelling(false)
+    setFinishing(false)
   }
 
   const handleAnalyze = async () => {
     const trimmed = url.trim()
     if (!trimmed) return
+    if (!pageCountInputValid) {
+      notify(t('analyze.pageCount.invalid'), 'error')
+      return
+    }
 
     let targetUrl: string
     try {
@@ -271,6 +310,7 @@ export function AnalyzePage() {
     store.setProgress(null)
     store.setAnalyzing(false)
     setCancelling(false)
+    setFinishing(false)
   }
 
   const handleCancelAnalysis = async () => {
@@ -281,6 +321,18 @@ export function AnalyzePage() {
       if (!response.success) setCancelling(false)
     } catch {
       setCancelling(false)
+      notify(t('feedback.actionFailed'), 'error')
+    }
+  }
+
+  const handleFinishAnalysis = async () => {
+    if (!analyzing || !progress?.resultReady || finishing) return
+    setFinishing(true)
+    try {
+      const response = await window.electronAPI.finishAnalysis()
+      if (!response.success) setFinishing(false)
+    } catch {
+      setFinishing(false)
       notify(t('feedback.actionFailed'), 'error')
     }
   }
@@ -342,7 +394,7 @@ export function AnalyzePage() {
           <button
             data-testid="analyze-submit"
             onClick={handleAnalyze}
-            disabled={analyzing || !url.trim()}
+            disabled={analyzing || !url.trim() || !pageCountInputValid}
             className="h-12 px-6 rounded-lg bg-primary text-primary-foreground font-medium
                        hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed
                        flex items-center gap-2 cursor-pointer"
@@ -364,23 +416,37 @@ export function AnalyzePage() {
           <label htmlFor="analysis-page-count" className="shrink-0 font-medium text-foreground">
             {t('analyze.pageCount.label')}
           </label>
-          <select
+          <input
             id="analysis-page-count"
             data-testid="analysis-page-count"
-            value={pageCount}
-            onChange={(event) => store.setPageCount(Number(event.target.value))}
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            value={pageCountInput}
+            onChange={(event) => {
+              const value = event.target.value
+              const parsed = Number(value)
+              setPageCountInput(value)
+              if (/^\d+$/.test(value) && Number.isSafeInteger(parsed) && parsed >= 1) store.setPageCount(parsed)
+            }}
+            onBlur={() => {
+              if (!pageCountInputValid) setPageCountInput(String(pageCount))
+              else setPageCountInput(String(parsedPageCount))
+            }}
             disabled={analyzing}
             aria-describedby="analysis-page-count-help"
-            className="h-7 shrink-0 cursor-pointer rounded-md border border-input bg-background px-2 font-medium text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-invalid={!pageCountInputValid}
+            className={`h-7 w-20 shrink-0 rounded-md border bg-background px-2 font-medium text-foreground outline-none transition-colors focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 ${
+              pageCountInputValid ? 'border-input focus:border-ring' : 'border-destructive focus:border-destructive'
+            }`}
+          />
+          <span className="shrink-0 text-muted-foreground">{t('analyze.pageCount.unit')}</span>
+          <span
+            id="analysis-page-count-help"
+            className={`min-w-64 flex-1 leading-5 ${pageCountInputValid ? 'text-muted-foreground' : 'text-destructive'}`}
           >
-            {[1, 2, 3, 4, 5].map((count) => (
-              <option key={count} value={count}>
-                {t('analyze.pageCount.option', { count })}
-              </option>
-            ))}
-          </select>
-          <span id="analysis-page-count-help" className="min-w-64 flex-1 leading-5 text-muted-foreground">
-            {t('analyze.pageCount.help')}
+            {t(pageCountInputValid ? 'analyze.pageCount.help' : 'analyze.pageCount.invalid')}
           </span>
           <div className="group/depth relative ml-auto flex shrink-0 items-center gap-2">
             <label htmlFor="analysis-depth" className="shrink-0 font-medium text-foreground">
@@ -457,6 +523,25 @@ export function AnalyzePage() {
                 style={{ width: `${progress.percent}%` }}
               />
             </div>
+            {progress.resultReady && (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  {t('analyze.progressReady', {
+                    analyzed: progress.analyzedPages,
+                    discovered: progress.discoveredPages,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  data-testid="analysis-finish"
+                  onClick={handleFinishAnalysis}
+                  disabled={finishing || cancelling}
+                  className="min-h-8 rounded-lg border border-primary/30 bg-primary/10 px-3 font-medium text-primary transition-colors hover:bg-primary/15 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {finishing ? t('analyze.finishing') : t('analyze.finishNow')}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -311,7 +311,7 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(actionGroup || '').not.toContain('`--color-brand`')
   })
 
-  test('surfaces text-component contrast risks without duplicating the primary-action warning', () => {
+  test('surfaces observed-background contrast risks without guessing a transparent control surface', () => {
     const designDoc = generateDesignDoc(
       { ...tokens, colors: { ...tokens.colors, surface: '#ffffff', 'palette-5': '#8491a5' } },
       'https://example.com/',
@@ -331,11 +331,8 @@ describe('Google DESIGN.md alpha compatibility', () => {
       'en',
     )
 
-    expect(designDoc).toContain('### Component Contrast Notes')
-    expect(designDoc).toContain('`button-text`')
-    expect(designDoc).toContain('3.19:1')
-    expect(designDoc).toContain('below the 4.5:1 target for this text control')
-    expect(designDoc).toContain('inferred surface')
+    expect(designDoc).not.toContain('### Component Contrast Notes')
+    expect(designDoc).not.toContain('3.19:1')
 
     const explicitBackgroundDoc = generateDesignDoc(
       { ...tokens, colors: { ...tokens.colors, surface: '#ffffff', 'palette-5': '#8491a5' } },
@@ -357,6 +354,7 @@ describe('Google DESIGN.md alpha compatibility', () => {
     )
 
     expect(explicitBackgroundDoc).toContain('observed background `#ffffff`')
+    expect(explicitBackgroundDoc).toContain('3.19:1')
     expect(explicitBackgroundDoc).not.toContain('shared-surface assumption')
 
     const iconDoc = generateDesignDoc(

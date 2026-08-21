@@ -144,8 +144,13 @@ test('switches themes in the current validation scenario', async () => {
 test('extracts and persists a deterministic local design system', { timeout: 300_000 }, async (t) => {
   try {
     const submittedFixtureUrl = `${fixtureUrl}?access_token=private-value#private-panel`
-    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '3')
-    assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /choose 1–5.*if fewer exist/i)
+    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '8')
+    assert.equal(await page.getByTestId('analysis-page-count').getAttribute('min'), '1')
+    assert.equal(await page.getByTestId('analysis-page-count').getAttribute('max'), null)
+    assert.match(
+      (await page.getByTestId('analysis-page-scope').textContent()) || '',
+      /default 8.*any positive integer/i,
+    )
 
     await page.locator('a[href="#/settings"]').click()
     await page.getByTestId('proxy-server').waitFor({ state: 'visible' })
@@ -156,7 +161,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
 
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 5)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 6)
     assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 2)
     await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
     assert.match(
@@ -189,9 +194,6 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'detached' })
     await page.getByTestId('agent-export-info').hover()
     await page.getByRole('tooltip').waitFor({ state: 'visible' })
-    await page.getByTestId('analysis-page-count').selectOption('1')
-    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
-
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
 
@@ -315,6 +317,9 @@ test('extracts and persists a deterministic local design system', { timeout: 300
         fullRecordsContainSubmittedSecrets: JSON.stringify(fullRecords).includes('private-value'),
         captureManifestSchema: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.schemaVersion,
         captureRequestSchema: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.schemaVersion,
+        capturePageMode: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.pageMode,
+        captureMaxPages: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.maxPages,
+        completionReason: JSON.parse(fullRecords[0]?.completion_json || 'null')?.reason,
       }
     })
     assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
@@ -327,7 +332,10 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(analysisListPayloads.fullRecordHasTokens, true)
     assert.equal(analysisListPayloads.fullRecordsContainSubmittedSecrets, false)
     assert.equal(analysisListPayloads.captureManifestSchema, '1')
-    assert.equal(analysisListPayloads.captureRequestSchema, '1')
+    assert.equal(analysisListPayloads.captureRequestSchema, '2')
+    assert.equal(analysisListPayloads.capturePageMode, 'bounded')
+    assert.equal(analysisListPayloads.captureMaxPages, 8)
+    assert.equal(analysisListPayloads.completionReason, 'complete')
     const siteNameSearch = await page.evaluate(() =>
       window.electronAPI.getAnalysisSummariesPage({ page: 1, pageSize: 10, search: 'Imprint Fixture' }),
     )
@@ -347,10 +355,10 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('comparison-picker-submit').click()
     await comparisonPicker.waitFor({ state: 'detached' })
     await page.getByTestId('reference-comparison-dialog').waitFor({ state: 'visible' })
-    assert.equal(await page.getByTestId('reference-comparison-status').textContent(), 'Inconclusive')
+    assert.equal(await page.getByTestId('reference-comparison-status').textContent(), 'No supported changes')
     assert.match(
       (await page.getByTestId('reference-comparison-dialog').textContent()) || '',
-      /page and viewport sets do not match/i,
+      /no changes in comparable evidence/i,
     )
     await page.getByTestId('reference-comparison-dialog').getByRole('button', { name: 'Close' }).click()
     await page.getByTestId('reference-comparison-dialog').waitFor({ state: 'detached' })
@@ -393,7 +401,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(await page.getByTestId('validation-scenario-pricing').getAttribute('aria-pressed'), 'true')
 
     await page.locator('a[href="#/"]').click()
-    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '1')
+    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '8')
     const privateUrl = `${fixtureUrl}private`
     await page.getByTestId('analyze-url').fill(privateUrl)
     await page.getByTestId('analyze-submit').click()
@@ -405,7 +413,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page
       .locator(`[data-testid="analysis-result"][data-source-url="${privateUrl}"][data-access-mode="managed"]`)
       .waitFor({ state: 'visible', timeout: 90_000 })
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 2)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 6)
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'detached', timeout: 30_000 })
 
     const originalSavedTheme = await page.evaluate(async () => {
@@ -511,7 +519,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(await page.getByTestId('analyze-url').inputValue(), failureUrl)
     await page.getByTestId('analysis-error-retry').waitFor({ state: 'visible' })
 
-    await page.getByTestId('analysis-page-count').selectOption('4')
+    await page.getByTestId('analysis-page-count').fill('250')
     await page.getByRole('button', { name: 'Switch to dark mode' }).click()
     await page.locator('a[href="#/themes"]').click()
     await page.locator('.theme-card-preview-blueprint').locator('..').click()
@@ -529,7 +537,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
 
     await page.getByRole('link', { name: 'Analyze' }).waitFor()
     assert.equal(await page.evaluate(async () => (await window.electronAPI.getSettings()).language), 'en')
-    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '4')
+    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '250')
     assert.equal(await page.locator('html').getAttribute('data-app-theme'), 'blueprint')
     assert.equal(await page.locator('html').evaluate((element) => element.classList.contains('dark')), true)
 
@@ -683,3 +691,27 @@ test(
     await dialog.getByRole('button', { name: 'Close' }).click()
   },
 )
+
+test('finishes from Desktop progress and keeps the current result', { timeout: 120_000 }, async () => {
+  await page.locator('a[href="#/"]').click()
+  const targetUrl = `${fixtureUrl}finish-current`
+  await page.getByTestId('analyze-url').fill(targetUrl)
+  await page.getByTestId('analyze-submit').click()
+
+  const finishButton = page.getByTestId('analysis-finish')
+  await finishButton.waitFor({ state: 'visible', timeout: 90_000 })
+  assert.match((await finishButton.locator('..').textContent()) || '', /captured pages:\s*1/i)
+  await finishButton.click()
+
+  await page.getByTestId('analysis-completion-reason').waitFor({ state: 'visible', timeout: 90_000 })
+  assert.match((await page.getByTestId('analysis-completion-reason').textContent()) || '', /current result/i)
+  const persisted = await page.evaluate(async () => {
+    const [record] = await window.electronAPI.getAnalyses()
+    return {
+      completion: JSON.parse(record?.completion_json || 'null'),
+      pagesAnalyzed: record?.pages_analyzed,
+    }
+  })
+  assert.equal(persisted.completion?.reason, 'user-finished')
+  assert.equal(persisted.pagesAnalyzed, 1)
+})

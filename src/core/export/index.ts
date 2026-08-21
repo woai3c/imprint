@@ -435,6 +435,9 @@ function resolveDesignDocComponents(
           styles: component.styles,
           tokenRefs: component.tokenRefs,
           primaryColor: tokens.colors.primary,
+          surfaceColors: [tokens.colors.background, tokens.colors.surface, tokens.colors.secondary].filter(
+            (color): color is string => Boolean(color),
+          ),
           role: component.role,
           elementKind: component.elementKind,
           ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
@@ -1118,6 +1121,8 @@ interface ReconstructionFact {
   fact: string
   guidance: string
   priority: number
+  pageCount?: number
+  kind?: 'structure' | 'interaction'
 }
 
 function reconstructionPageContext(evidence: DesignEvidence, pageId: string | undefined): string {
@@ -1134,6 +1139,44 @@ function reconstructionPageContext(evidence: DesignEvidence, pageId: string | un
 
 function scopedReconstructionFact(pageContext: string, fact: string): string {
   return pageContext ? `[${pageContext}] ${fact}` : fact
+}
+
+function splitReconstructionFactScope(fact: string): { scope?: string; body: string } {
+  const match = fact.match(/^\[([^\]]+)]\s+(.+)$/s)
+  return match ? { scope: match[1], body: match[2] } : { body: fact }
+}
+
+function rankReconstructionFacts(facts: readonly ReconstructionFact[]): ReconstructionFact[] {
+  const exactFacts = [
+    ...new Map(
+      [...facts].sort((first, second) => first.priority - second.priority).map((fact) => [fact.fact, fact]),
+    ).values(),
+  ]
+  const groups = new Map<string, ReconstructionFact[]>()
+  for (const fact of exactFacts) {
+    const { body } = splitReconstructionFactScope(fact.fact)
+    const group = groups.get(body) || []
+    group.push(fact)
+    groups.set(body, group)
+  }
+
+  return [...groups.entries()]
+    .map(([body, group]) => {
+      const representative = [...group].sort((first, second) => first.priority - second.priority)[0]
+      const pageScopes = new Set(
+        group
+          .map((fact) => splitReconstructionFactScope(fact.fact).scope)
+          .filter((scope): scope is string => Boolean(scope)),
+      )
+      return pageScopes.size > 1 ? { ...representative, fact: body, pageCount: pageScopes.size } : representative
+    })
+    .sort(
+      (first, second) =>
+        Number(second.pageCount !== undefined) - Number(first.pageCount !== undefined) ||
+        (second.pageCount || 0) - (first.pageCount || 0) ||
+        first.priority - second.priority ||
+        first.fact.localeCompare(second.fact),
+    )
 }
 
 function scopedReconstructionGuidance(pageContext: string): string {
@@ -1280,6 +1323,9 @@ function componentContrastWarnings(
     if (!foreground) continue
     const rawBackground = component.styles.backgroundColor
     const inferred = !rawBackground || isContextDependentColor(rawBackground)
+    // A transparent control inherits an ancestor surface that is not captured by this component pattern.
+    // Do not turn a generic page-surface assumption into a precise accessibility warning.
+    if (inferred) continue
     const background = inferred ? normalizeColorValue(surface) : normalizeColorValue(rawBackground)
     if (!background) continue
     const target = component.variant === 'icon' ? 3 : 4.5
@@ -1395,7 +1441,7 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
         priority: 3,
       })
     }
-    if (styles.layout?.maxWidth) {
+    if (styles.layout?.maxWidth && !/^100(?:\.0+)?%$/.test(styles.layout.maxWidth.trim())) {
       facts.push({
         fact: scopedReconstructionFact(pageContext, `${sectionRole} max-width: ${styles.layout.maxWidth}`),
         guidance: `Constrain the ${sectionRole}${guidanceContext} to its observed ${styles.layout.maxWidth} max-width.`,
@@ -1423,7 +1469,7 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
       layoutBorderFacts.set(`${pageContext}|${node.role}|${borderLabel}|${value}`, {
         fact: scopedReconstructionFact(pageContext, label),
         guidance: `Preserve the ${node.role}${scopedReconstructionGuidance(pageContext)} ${borderLabel} treatment at ${value}.`,
-        priority: /^3px\s/.test(value) ? 0 : 2,
+        priority: 2,
       })
     }
   }
@@ -1532,15 +1578,12 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
       fact,
       guidance: `Implement the observed ${target} ${observation.driver} transition: ${changes.join(', ')}.`,
       priority: observation.changedProperties.includes('ariaSelected') ? 0 : observation.driver === 'hover' ? 1 : 5,
+      kind: 'interaction',
     })
   }
   facts.push(...interactionFacts.values())
 
-  return [
-    ...new Map(
-      facts.sort((first, second) => first.priority - second.priority).map((fact) => [fact.fact, fact]),
-    ).values(),
-  ]
+  return rankReconstructionFacts(facts)
 }
 
 function reconstructionResponsiveFacts(evidence: DesignEvidence): ReconstructionFact[] {
@@ -1626,18 +1669,23 @@ function reconstructionSummary(
 ): string[] {
   const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop') || evidence.pages[0]
   const multiPage = new Set(evidence.pages.map((page) => page.url)).size > 1
+  const observedTitle = evidence.source.title || desktopPage?.title
   const pageTitle =
     evidence.source.siteName ||
-    evidence.source.title ||
-    desktopPage?.title ||
-    new URL(evidence.source.finalUrl).hostname
+    (observedTitle
+      ? resolveDesignSystemName({ url: evidence.source.finalUrl, title: observedTitle })
+      : new URL(evidence.source.finalUrl).hostname)
   const canonicalTopology = evidence.topology.pages.find((page) => page.pageId === desktopPage?.id)
   const sectionRoles = compactRoleSequence(
     canonicalTopology?.sectionIds
       .map((id) => evidence.sections.find((section) => section.id === id)?.role)
       .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown') || [],
   )
-  const signatureFacts = reconstructionSignatureFacts(evidence).slice(0, 8)
+  const allSignatureFacts = reconstructionSignatureFacts(evidence)
+  const recurringStructureFacts = allSignatureFacts.filter(
+    (fact) => fact.pageCount !== undefined && fact.kind !== 'interaction',
+  )
+  const signatureFacts = (multiPage ? recurringStructureFacts : allSignatureFacts).slice(0, 8)
   const responsiveFacts = reconstructionResponsiveFacts(evidence).slice(0, 6)
   const variants = components
     .slice(0, 12)
@@ -1647,9 +1695,15 @@ function reconstructionSummary(
     title: pageTitle,
     pageCount: new Set(evidence.pages.map((page) => page.url)).size,
   })
+  const readableFact = (fact: ReconstructionFact): string => {
+    const localized = localizeReconstructionFact(fact.fact, language)
+    return fact.pageCount
+      ? coreT(language, 'export.reconstruction.recurringFact', { count: fact.pageCount, fact: localized })
+      : localized
+  }
   const preserve = [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
     coreT(language, 'export.reconstruction.preserveFact', {
-      fact: localizeReconstructionFact(fact.fact, language),
+      fact: readableFact(fact),
     }),
   )
   const avoid = [
@@ -1667,7 +1721,7 @@ function reconstructionSummary(
       ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionRoles.map((role) => localizeReconstructionFact(role, language)).join(' → ')}`
       : '',
     signatureFacts.length
-      ? `- **${label('keyStructure')}:** ${signatureFacts.map(({ fact }) => `\`${localizeReconstructionFact(fact, language)}\``).join(' · ')}`
+      ? `- **${label('keyStructure')}:** ${signatureFacts.map((fact) => `\`${readableFact(fact)}\``).join(' · ')}`
       : '',
     variants.length ? `- **${label(multiPage ? 'siteVariants' : 'pageVariants')}:** ${variants.join(', ')}` : '',
     responsiveFacts.length

@@ -1,7 +1,8 @@
 const MAX_IDENTITY_CODE_POINTS = 120
 
 const GENERIC_IDENTITY_PATTERNS = [
-  /^home$/i,
+  /^(?:home|homepage)$/i,
+  /^(?:首页|主页)$/u,
   /^(?:log\s*in|sign\s*in)$/i,
   /^403(?:\s+forbidden)?$/i,
   /^access denied$/i,
@@ -22,6 +23,8 @@ const LEADING_NOTIFICATION_PATTERNS = [
   /^(?:\(|（|\[|【)\s*(?:\d+\s*(?:条)?(?:新)?消息|(?:\d+\s+)?new\s+messages?|未读|unread)\s*(?:\)|）|\]|】)\s*/iu,
   /^\(\s*\d+\s*\)\s+(?=\S)/u,
 ]
+
+const TITLE_SEGMENT_SEPARATOR = /\s+(?:[-–—|·•])\s+/u
 
 export interface PageIdentityMetadata {
   applicationName?: string
@@ -60,6 +63,17 @@ function healthAllowsIdentity(pageHealth: PageIdentityMetadata['pageHealth']): b
   return !(pageHealth.issueCodes || []).some((code) => BLOCKED_HEALTH_ISSUES.has(code))
 }
 
+function siteNameFromGenericTitle(title: string | undefined): string | undefined {
+  if (!title) return undefined
+  const segments = title
+    .split(TITLE_SEGMENT_SEPARATOR)
+    .map((segment) => sanitizePageIdentity(segment))
+    .filter((segment): segment is string => Boolean(segment))
+  if (segments.length < 2) return undefined
+  const meaningful = segments.filter((segment) => isMeaningfulPageIdentity(segment))
+  return meaningful.length === 1 && meaningful.length < segments.length ? meaningful[0] : undefined
+}
+
 export function pageIdentityFromMetadata(metadata: PageIdentityMetadata): { siteName?: string; title?: string } {
   if (!healthAllowsIdentity(metadata.pageHealth)) return {}
   const applicationName = sanitizePageIdentity(metadata.applicationName)
@@ -69,7 +83,7 @@ export function pageIdentityFromMetadata(metadata: PageIdentityMetadata): { site
     ? applicationName
     : isMeaningfulPageIdentity(openGraphSiteName)
       ? openGraphSiteName
-      : undefined
+      : siteNameFromGenericTitle(title)
   return {
     ...(siteName ? { siteName } : {}),
     ...(isMeaningfulPageIdentity(title) ? { title } : {}),
@@ -80,6 +94,8 @@ export function resolveDesignSystemName(input: { url?: string; siteName?: string
   const siteName = sanitizePageIdentity(input.siteName)
   if (isMeaningfulPageIdentity(siteName)) return siteName
   const title = sanitizePageIdentity(input.title)
+  const titleSiteName = siteNameFromGenericTitle(title)
+  if (titleSiteName) return titleSiteName
   if (isMeaningfulPageIdentity(title)) return title
   if (input.url) {
     try {

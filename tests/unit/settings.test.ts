@@ -26,15 +26,23 @@ afterEach(() => {
 
 describe('settings persistence', () => {
   it('normalizes and persists supported settings only', () => {
+    fs.writeFileSync(
+      path.join(settingsDir, 'settings.json'),
+      JSON.stringify({ analysisDepth: 'standard', analysisPageCount: 4 }),
+    )
     const settings = saveSettings({
       analysisDepth: 'deep',
-      analysisPageCount: 0,
       validationScenario: 'content-feed',
     })
     const persisted = JSON.parse(fs.readFileSync(path.join(settingsDir, 'settings.json'), 'utf-8'))
 
-    expect(settings.analysisPageCount).toBe(3)
+    expect(settings.analysisPageCount).toBe(4)
     expect(settings.validationScenario).toBe('content-feed')
     expect(persisted).toEqual(settings)
+  })
+
+  it('keeps any positive integer page limit', () => {
+    expect(saveSettings({ analysisPageCount: 250 }).analysisPageCount).toBe(250)
+    expect(saveSettings({ analysisPageCount: 0 }).analysisPageCount).toBe(8)
   })
 })

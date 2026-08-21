@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import http from 'node:http'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -30,7 +31,52 @@ test('official MCP client initializes the stdio server and lists tools', { timeo
     result.tools.map((tool) => tool.name),
     ['imprint_extract', 'imprint_compare'],
   )
+  const extractTool = result.tools.find((tool) => tool.name === 'imprint_extract')
+  const maxPagesSchema = extractTool?.inputSchema?.properties?.maxPages
+  assert.equal(maxPagesSchema?.minimum, 1)
+  assert.equal('maximum' in (maxPagesSchema || {}), false)
 })
+
+test(
+  'MCP extraction reports operational completion outside the generated design artifact',
+  { timeout: 90_000 },
+  async (t) => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(`<!doctype html><style>
+      body{margin:0;background:#f8fafc;color:#172033;font:16px/1.5 system-ui}main{max-width:720px;margin:48px auto;padding:24px}
+    </style><main><h1>MCP fixture</h1><p>Deterministic local content.</p></main>`)
+    })
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    t.after(() => new Promise((resolve) => server.close(resolve)))
+    const address = server.address()
+    assert.ok(address && typeof address === 'object')
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [serverPath],
+      cwd: process.cwd(),
+      stderr: 'pipe',
+    })
+    const client = new Client({ name: 'imprint-extraction-test', version: '1.0.0' })
+    t.after(async () => {
+      await client.close().catch(() => {})
+    })
+
+    await client.connect(transport)
+    const result = await client.callTool({
+      name: 'imprint_extract',
+      arguments: { url: `http://127.0.0.1:${address.port}`, useSession: false, maxPages: 1 },
+    })
+    const content = result.content
+    assert.ok(Array.isArray(content) && content[0]?.type === 'text')
+    const payload = JSON.parse(content[0].text)
+    assert.deepEqual(payload.completion, { reason: 'complete' })
+  },
+)
 
 test(
   'stdio uses one JSON-RPC message per line and returns standard protocol errors',

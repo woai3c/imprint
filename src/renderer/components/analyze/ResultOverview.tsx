@@ -36,6 +36,27 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
   return (
     <div className="flex min-h-0 w-80 shrink-0 flex-col">
       <div className="scrollbar-hidden flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
+        {result.completion?.reason && result.completion.reason !== 'complete' && (
+          <div
+            data-testid="analysis-completion-reason"
+            className={`rounded-xl border p-4 ${
+              result.completion.reason === 'time-limit'
+                ? 'border-warning/30 bg-warning/10 text-warning-strong'
+                : 'border-primary/25 bg-primary/10 text-foreground'
+            }`}
+          >
+            <p className="text-sm font-semibold">{t(`analyze.completion.${result.completion.reason}.title`)}</p>
+            <p className="mt-1 text-xs leading-5">
+              {t(`analyze.completion.${result.completion.reason}.description`, {
+                pages: analyzedPageCount,
+                minutes: result.completion.activeLimitMs
+                  ? Math.round(result.completion.activeLimitMs / 60_000)
+                  : undefined,
+              })}
+            </p>
+          </div>
+        )}
+
         {result.authWallDetected && result.accessMode === 'anonymous' && (
           <div data-testid="anonymous-auth-warning" className="rounded-xl border border-warning/30 bg-warning/10 p-4">
             <div className="flex items-start gap-2">

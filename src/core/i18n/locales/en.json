@@ -26,7 +26,7 @@
       "unexpectedArgument": "Unexpected argument: {{value}}",
       "invalidUrl": "Provide exactly one valid HTTP(S) URL.",
       "invalidViewport": "Viewport must be desktop, tablet, mobile, or all: {{value}}",
-      "invalidPageCount": "--pages must be an integer from 1 to 5: {{value}}",
+      "invalidPageCount": "--pages must be a positive integer: {{value}}",
       "invalidAuthMode": "The access mode is invalid.",
       "invalidDarkMode": "The dark-mode setting is invalid.",
       "invalidDepth": "The analysis depth is invalid.",
@@ -34,8 +34,10 @@
       "browserNotFound": "No supported Chrome, Edge, or Chromium installation was found. Run `imprint doctor` or provide --browser-path.",
       "invalidBrowserPath": "--browser-path is not an accessible executable file: {{path}}",
       "cancelled": "Analysis cancelled.",
-      "activeTimeout": "Analysis stopped after {{seconds}} seconds of active work because a target-page or browser operation did not finish.",
       "runtime": "Analysis failed: {{message}}"
+    },
+    "completion": {
+      "userFinished": "Finished with the current result and kept {{pages}} completed pages."
     },
     "doctor": {
       "heading": "Imprint environment diagnostics",
@@ -69,7 +71,6 @@
       "unknownTool": "Unknown tool: {{name}}",
       "methodNotFound": "Method not found: {{method}}",
       "toolExecution": "Tool execution failed: {{message}}",
-      "activeTimeout": "Analysis stopped after {{seconds}} seconds of active work because a target-page or browser operation did not finish.",
       "internal": "Internal server error"
     }
   },
@@ -158,9 +159,16 @@
   },
   "designEvidence": {
     "coverage": {
-      "assetLine": "Screenshot assets: {{valid}}/{{expected}} dimension-valid ({{status}}; {{issues}} issues)"
+      "assetLine": "Screenshot assets: {{valid}}/{{expected}} dimension-valid ({{status}}; {{issues}} issues)",
+      "scopeLine": "Coverage: {{capturedUrls}}/{{selectedUrls}} selected URLs observed; page×viewport captures {{capturedCaptures}}/{{expectedCaptures}} ({{captureStatus}}); {{sections}} section observations and {{components}} component observations across captures (not page instance counts)",
+      "status": {
+        "complete": "complete",
+        "partial": "partial"
+      }
     },
     "limitations": {
+      "selectedPagesIncomplete": "Some automatically selected pages could not be captured; conclusions cover completed pages only.",
+      "plannedCapturesIncomplete": "At least one planned page×viewport capture is missing; cross-viewport coverage is partial.",
       "adaptiveMobileBudgetExceeded": "The supplemental mobile capture exceeded its reserved time budget and was not retained.",
       "adaptiveMobileSkippedBudget": "A later supplemental mobile capture was skipped because the analysis time budget had been exhausted.",
       "adaptiveMobileHorizontalOverflow": "Page {{page}} supplemental mobile capture overflowed horizontally ({{viewport}}px viewport, {{content}}px content width).",
@@ -482,6 +490,7 @@
       },
       "siteScope": "This analysis covers {{pageCount}} observed pages from {{title}}.",
       "pageScope": "This analysis covers the captured page from {{title}}.",
+      "recurringFact": "Observed across {{count}} pages: {{fact}}",
       "preserveFact": "Preserve the observed fact: {{fact}}.",
       "avoidActionSubstitution": "Do not substitute decorative, status, or border colors for the observed action role.",
       "avoidInventedPrimary": "Do not invent a primary action color; none was stably observed.",

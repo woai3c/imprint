@@ -338,20 +338,25 @@ export function generateDesignProfileMarkdown(
     aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
   }
   const formatText = (text: string): string => formatClaimText(text, aliasRefs, t)
-  const formatTokenRef = (ref: string): string => {
+  const formatTokenRef = (ref: string): string | null => {
     const mapped = aliasRefs.get(ref) ?? ref
-    const directlyResolved = tokens ? resolveTokenRefValue(tokens, ref) : null
+    if (!tokens) return `\`${mapped}\``
+    const directlyResolved = resolveTokenRefValue(tokens, ref)
     const sourceRef = [...aliasRefs.entries()].find(
-      ([candidate, publicRef]) =>
-        publicRef === mapped && tokens?.colors[candidate.slice('color.'.length)] !== undefined,
+      ([candidate, publicRef]) => publicRef === mapped && tokens.colors[candidate.slice('color.'.length)] !== undefined,
     )?.[0]
-    const value = directlyResolved || (tokens && sourceRef ? resolveTokenRefValue(tokens, sourceRef) : null)
-    return value ? `\`${mapped}\` (${value})` : `\`${mapped}\``
+    const value = directlyResolved || (sourceRef ? resolveTokenRefValue(tokens, sourceRef) : null)
+    return value ? `\`${mapped}\` (${value})` : null
   }
   const claimOptions = {
     formatText,
-    formatTokenRefs: (claim: DesignClaim): string | null =>
-      claim.tokenRefs?.length ? claim.tokenRefs.map(formatTokenRef).join(t('listSeparator')) : null,
+    formatTokenRefs: (claim: DesignClaim): string | null => {
+      const refs = claim.tokenRefs?.flatMap((ref) => {
+        const formatted = formatTokenRef(ref)
+        return formatted ? [formatted] : []
+      })
+      return refs?.length ? refs.join(t('listSeparator')) : null
+    },
     renderedClaimKeys: new Set<string>(),
     scopeForClaim: buildClaimScopeFormatter(evidence, t),
   }

@@ -180,6 +180,16 @@ describe('deterministic profile export', () => {
     expect(markdown).not.toMatch(/AI-authored|provider|model/i)
   })
 
+  it('omits related token references that are absent from the exported token set', () => {
+    const profile = createProfile()
+    profile.componentGrammar[0].rules[0].tokenRefs?.push('color.palette-11')
+
+    const markdown = generateDesignProfileMarkdown(profile, tokens, new Map(), evidence)
+
+    expect(markdown).toContain('Related tokens: `color.primary` (#2563eb), `radius.1` (8px)')
+    expect(markdown).not.toContain('color.palette-11')
+  })
+
   it('keeps high-value facts without restoring the full claim catalog', () => {
     const markdown = generateDesignProfileMarkdown(createProfile())
 

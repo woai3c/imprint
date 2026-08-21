@@ -131,6 +131,23 @@ before(async () => {
       </script>`)
       return
     }
+    if (
+      request.url === '/automatic-entry' ||
+      /^\/automatic-entry\/(?:one|two|three|four|five|six)$/.test(request.url || '')
+    ) {
+      const links =
+        request.url === '/automatic-entry'
+          ? ['one', 'two', 'three', 'four', 'five', 'six']
+              .map((name) => `<a href="/automatic-entry/${name}">Product surface ${name}</a>`)
+              .join('')
+          : '<a href="/automatic-entry">Automatic entry</a>'
+      response.end(`<!doctype html><style>
+        body{margin:0;font-family:system-ui;color:#172033}header,main,footer{max-width:960px;margin:auto;padding:24px}
+        section{padding:24px;background:#f3f6fa;border-radius:16px}nav{display:flex;gap:16px;flex-wrap:wrap}
+      </style><header><nav>${links}</nav></header><main><h1>Automatic analysis fixture</h1>
+      <section><p>Stable design evidence for ${request.url}.</p></section></main><footer>Fixture footer</footer>`)
+      return
+    }
     response.end(`<!doctype html><nav><a href="/pricing">Pricing</a></nav>
       <main><a href="/question/123/answer/456">Representative content</a></main>
       <a href="/blog/post-one">Post one</a>
@@ -171,6 +188,20 @@ test('combines DOM and sitemap discovery while preserving route diversity', asyn
   assert.equal(result.issues.length, 0)
 })
 
+test('keeps the automatic discovery prefix diverse when every candidate is returned', async () => {
+  const result = await discoverPages(page, origin)
+
+  assert.ok(result.pages.length > 3)
+  assert.deepEqual(
+    result.pages.slice(0, 3).map(({ url, kind }) => ({ path: new URL(url).pathname, kind })),
+    [
+      { path: '/pricing', kind: 'pricing' },
+      { path: '/features', kind: 'product' },
+      { path: '/about', kind: 'about' },
+    ],
+  )
+})
+
 test('prefers representative content over footer-only utility routes', async () => {
   const result = await discoverPages(page, origin, 5, 'auto')
   const paths = result.pages.map(({ url }) => new URL(url).pathname)
@@ -203,6 +234,65 @@ test('keeps non-root discovery in context when primary content exposes descendan
   )
   await scopedPage.close()
 })
+
+test('the default analysis bound can complete more than the former five-page limit', { timeout: 180_000 }, async () => {
+  const result = await analyze(`${origin}/automatic-entry`, {
+    viewports: ['desktop'],
+    useSession: false,
+    pageDiscovery: 'links',
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-automatic-pages-e2e-')),
+  })
+
+  assert.equal(result.captureManifest.request.pageMode, 'bounded')
+  assert.equal(result.captureManifest.request.maxPages, 8)
+  assert.equal(result.pageCoverage.analyzed, 7)
+  assert.equal(result.completion.reason, 'complete')
+})
+
+test('finishing early keeps every page that was already completed', { timeout: 120_000 }, async () => {
+  const finishController = new AbortController()
+  const result = await analyze(
+    `${origin}/automatic-entry`,
+    {
+      viewports: ['desktop'],
+      useSession: false,
+      pageDiscovery: 'links',
+      finishSignal: finishController.signal,
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-finish-current-e2e-')),
+    },
+    (progress) => {
+      if (progress.analyzedPages >= 2) finishController.abort('test-finish')
+    },
+  )
+
+  assert.equal(result.completion.reason, 'user-finished')
+  assert.equal(result.pageCoverage.analyzed, 2)
+  assert.ok(result.designEvidence.pages.length >= 2)
+})
+
+test(
+  'does not relabel a completed capture when Finish is requested during result generation',
+  { timeout: 120_000 },
+  async () => {
+    const finishController = new AbortController()
+    const result = await analyze(
+      origin,
+      {
+        viewports: ['desktop'],
+        maxPages: 1,
+        useSession: false,
+        pageDiscovery: 'links',
+        finishSignal: finishController.signal,
+        dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-finish-after-capture-e2e-')),
+      },
+      (progress) => {
+        if (progress.step === 'progress.analyzingPatterns') finishController.abort('too-late-to-finish')
+      },
+    )
+
+    assert.equal(result.completion.reason, 'complete')
+  },
+)
 
 test('tries a bounded ranked fallback when the selected sub-page is unavailable', { timeout: 120_000 }, async () => {
   const result = await analyze(`${origin}/fallback-entry`, {

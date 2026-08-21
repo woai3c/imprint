@@ -26,7 +26,7 @@
       "unexpectedArgument": "非预期参数：{{value}}",
       "invalidUrl": "请提供且仅提供一个有效的 HTTP(S) URL。",
       "invalidViewport": "视口必须是 desktop、tablet、mobile 或 all：{{value}}",
-      "invalidPageCount": "--pages 必须是 1 到 5 之间的整数：{{value}}",
+      "invalidPageCount": "--pages 必须是正整数：{{value}}",
       "invalidAuthMode": "访问模式无效。",
       "invalidDarkMode": "深色模式设置无效。",
       "invalidDepth": "分析深度无效。",
@@ -34,8 +34,10 @@
       "browserNotFound": "未找到受支持的 Chrome、Edge 或 Chromium。请运行 `imprint doctor` 或提供 --browser-path。",
       "invalidBrowserPath": "--browser-path 不是可访问的可执行文件：{{path}}",
       "cancelled": "分析已取消。",
-      "activeTimeout": "分析在实际运行 {{seconds}} 秒后停止，因为目标页面或浏览器操作未能完成。",
       "runtime": "分析失败：{{message}}"
+    },
+    "completion": {
+      "userFinished": "已使用当前结果结束，并保留 {{pages}} 个已完成页面。"
     },
     "doctor": {
       "heading": "Imprint 环境诊断",
@@ -69,7 +71,6 @@
       "unknownTool": "未知工具：{{name}}",
       "methodNotFound": "未找到方法：{{method}}",
       "toolExecution": "工具执行失败：{{message}}",
-      "activeTimeout": "分析在实际运行 {{seconds}} 秒后停止，因为目标页面或浏览器操作未能完成。",
       "internal": "服务器内部错误"
     }
   },
@@ -158,9 +159,16 @@
   },
   "designEvidence": {
     "coverage": {
-      "assetLine": "截图资源：{{valid}}/{{expected}} 个尺寸有效（{{status}}；{{issues}} 个问题）"
+      "assetLine": "截图资源：{{valid}}/{{expected}} 个尺寸有效（{{status}}；{{issues}} 个问题）",
+      "scopeLine": "覆盖：已观察 {{capturedUrls}}/{{selectedUrls}} 个自动选定页面；页面×视口捕获 {{capturedCaptures}}/{{expectedCaptures}}（{{captureStatus}}）；{{sections}} 个区块观察、{{components}} 个跨捕获组件观察（不是页面实例数）",
+      "status": {
+        "complete": "完整",
+        "partial": "部分"
+      }
     },
     "limitations": {
+      "selectedPagesIncomplete": "部分自动选定页面未能完成捕获；本文结论仅覆盖已完成页面。",
+      "plannedCapturesIncomplete": "至少缺少一个计划中的页面×视口捕获；跨视口覆盖不完整。",
       "adaptiveMobileBudgetExceeded": "移动端补充捕获超出预留时间预算，因此未被保留。",
       "adaptiveMobileSkippedBudget": "分析时间预算已耗尽，后续移动端补充捕获被跳过。",
       "adaptiveMobileHorizontalOverflow": "第 {{page}} 个页面的移动端补充捕获出现横向溢出（视口 {{viewport}}px，内容宽度 {{content}}px）。",
@@ -482,6 +490,7 @@
       },
       "siteScope": "本次分析覆盖 {{title}} 的 {{pageCount}} 个已观察页面。",
       "pageScope": "本次分析覆盖 {{title}} 的当前捕获页面。",
+      "recurringFact": "在 {{count}} 个页面中重复观察到：{{fact}}",
       "preserveFact": "保留已观察事实：{{fact}}。",
       "avoidActionSubstitution": "不要用装饰色、状态色或边框色替代已观察到的操作角色。",
       "avoidInventedPrimary": "不要虚构主操作色；当前没有稳定观察到该角色。",

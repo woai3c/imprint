@@ -71,6 +71,7 @@ test('migrates and redacts a populated legacy Desktop database idempotently', { 
   assert.equal(migrated.duration_ms, 987)
   assert.equal(migrated.capture_manifest_json, null)
   assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'capture_manifest_json'))
+  assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'completion_json'))
   assert.equal(
     secondSnapshot.analysisColumns.some((column) => column.name === 'is_reference'),
     false,

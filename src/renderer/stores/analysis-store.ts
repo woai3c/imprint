@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { AnalysisResultData } from '../../shared/ipc-contract'
+import type { AnalysisProgress, AnalysisResultData } from '../../shared/ipc-contract'
 import { invalidateComparisonRecords } from '../lib/comparison-records-cache.js'
 import { getAnalysisPageCountPreference, setAnalysisPageCountPreference } from '../lib/preferences'
 
@@ -19,12 +19,12 @@ interface AnalysisStore {
   pageCount: number
   failure: AnalysisFailure | null
   analyzing: boolean
-  progress: { step: string; percent: number } | null
+  progress: AnalysisProgress | null
   setResult: (result: AnalysisResultData, url: string) => void
   mergeResult: (result: Partial<AnalysisResultData>) => void
   setFailure: (failure: AnalysisFailure | null) => void
   setAnalyzing: (v: boolean) => void
-  setProgress: (p: { step: string; percent: number } | null) => void
+  setProgress: (p: AnalysisProgress | null) => void
   setUrl: (url: string) => void
   setPageCount: (pageCount: number) => void
   clearResult: () => void

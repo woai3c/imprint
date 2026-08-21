@@ -7,11 +7,19 @@ describe('AnalysisRecoveryRegistry', () => {
     const registry = new AnalysisRecoveryRegistry()
     const run = registry.start(7, 'https://example.com/')
 
-    registry.updateProgress(7, run, 'progress.analyzingPage', 62)
+    const progress = {
+      step: 'progress.analyzingPage',
+      percent: 62,
+      analyzedPages: 2,
+      discoveredPages: 4,
+      resultReady: true,
+      activeElapsedMs: 10_000,
+    }
+    registry.updateProgress(7, run, progress)
     expect(registry.recover(7)).toEqual({
       status: 'running',
       url: 'https://example.com/',
-      progress: { step: 'progress.analyzingPage', percent: 62 },
+      progress,
     })
 
     registry.complete(7, run, {
@@ -37,7 +45,14 @@ describe('AnalysisRecoveryRegistry', () => {
     const oldRun = registry.start(7, 'https://old.example/')
     const currentRun = registry.start(7, 'https://current.example/')
 
-    registry.updateProgress(7, oldRun, 'progress.done', 100)
+    registry.updateProgress(7, oldRun, {
+      step: 'progress.done',
+      percent: 100,
+      analyzedPages: 1,
+      discoveredPages: 1,
+      resultReady: true,
+      activeElapsedMs: 1_000,
+    })
     registry.complete(7, oldRun, { cancelled: true })
 
     expect(registry.recover(7)).toEqual({ status: 'running', url: 'https://current.example/' })

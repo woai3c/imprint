@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { AnalysisActiveTimeoutError, BrowserExecutableError, analyze } from '../core/analyzer/index.js'
+import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
 import { sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
@@ -97,8 +97,8 @@ async function main(): Promise<number> {
         dataDir,
         signal: analysisController.signal,
       },
-      (step, percent) => {
-        log(`  [${percent}%] ${step}`, options.quiet)
+      (progress) => {
+        log(`  [${progress.percent}%] ${progress.step}`, options.quiet)
       },
     )
   } finally {
@@ -229,6 +229,9 @@ async function main(): Promise<number> {
   }
 
   log(`\n  Done in ${(result.duration / 1000).toFixed(1)}s\n`, options.quiet)
+  if (result.completion.reason === 'user-finished') {
+    log(`  ${cliT('completion.userFinished', { pages: result.pageCoverage.analyzed })}`, options.quiet)
+  }
   log(
     `  Timing: total=${finalTiming.totalMs}ms browser=${finalTiming.browserMs || 0}ms preparation=${finalTiming.preparationMs || 0}ms health=${finalTiming.healthGateMs || 0}ms extraction=${finalTiming.extractionMs || 0}ms images=${finalTiming.imageCount}`,
     options.quiet,
@@ -249,7 +252,7 @@ function printUsage() {
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
-    --pages <count>     Analyze 1–5 pages (default: 3)
+    --pages <count>     Stop after this many pages; any positive integer (default: 8)
     --discovery <mode>  Page discovery: auto | links | sitemap (default: auto)
     ${cliT('usage.browserPath')}
     --no-session        Don't reuse Imprint's saved browser session
@@ -296,8 +299,6 @@ main()
     } else if (isCancellationError(error)) {
       exitCode = CLI_EXIT_CODES.cancelled
       message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
-    } else if (error instanceof AnalysisActiveTimeoutError) {
-      message = cliT('errors.activeTimeout', { seconds: Math.round(error.timeoutMs / 1000) })
     } else {
       message = cliT('errors.runtime', { message: error instanceof Error ? error.message : String(error) })
     }

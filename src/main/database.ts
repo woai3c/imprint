@@ -101,6 +101,7 @@ export function runDatabaseMigrations(database: Database.Database) {
     ['validation_report_json', `TEXT`],
     ['analysis_timing_json', `TEXT`],
     ['capture_manifest_json', `TEXT`],
+    ['completion_json', `TEXT`],
     ['route_identity', `TEXT`],
   ]
   for (const [name, definition] of analysisResultColumns) {

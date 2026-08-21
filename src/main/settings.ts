@@ -12,7 +12,12 @@ const defaults: AppSettings = {
   colorMode: '',
   themePreference: '',
   validationScenario: '',
-  analysisPageCount: 3,
+  analysisPageCount: 8,
+}
+
+function normalizeAnalysisPageCount(value: unknown): number {
+  const pageCount = Number(value)
+  return Number.isSafeInteger(pageCount) && pageCount >= 1 ? pageCount : 8
 }
 
 function getSettingsPath(): string {
@@ -28,7 +33,7 @@ function normalizeSettings(value: unknown): AppSettings {
     colorMode: typeof saved.colorMode === 'string' ? saved.colorMode : '',
     themePreference: typeof saved.themePreference === 'string' ? saved.themePreference : '',
     validationScenario: typeof saved.validationScenario === 'string' ? saved.validationScenario : '',
-    analysisPageCount: Math.min(5, Math.max(1, Math.floor(Number(saved.analysisPageCount) || 3))),
+    analysisPageCount: normalizeAnalysisPageCount(saved.analysisPageCount),
   }
 }
 

@@ -46,7 +46,6 @@
     "cancelledTip": "Analysis cancelled.",
     "preparing": "Preparing...",
     "error": "Analysis error",
-    "activeTimeout": "Analysis stopped after 2 minutes of active work. The target page or browser operation did not finish; try again.",
     "emptyTitle": "Enter a URL to start analyzing",
     "emptyDescription": "Supports any public webpage. After analysis, export one self-contained DESIGN.md. When asking AI to revise an existing UI, also provide the current screenshot or source code.",
     "analysisHint": "Analysis is deterministic, runs locally, and requires no external service configuration.",
@@ -67,6 +66,7 @@
       "summary": "Copy DESIGN.md and paste it into your AI agent (Cursor, Claude, etc.) to apply this design system to your project."
     },
     "completeTip": "Analysis complete! Copy DESIGN.md and give it to your AI coding agent.",
+    "partialCompleteTip": "Current result is ready. Completed pages: {{pages}}.",
     "invalidUrl": "Please enter a valid URL (e.g. https://example.com)",
     "saveToLibrary": "Save to Theme Library",
     "saved": "Saved",
@@ -75,9 +75,23 @@
     "replaceThemeConfirm": "Replace theme",
     "validateInScenarios": "Validate in representative scenarios",
     "pageCount": {
-      "label": "Pages to analyze",
-      "option": "Up to {{count}} pages",
-      "help": "Default: 3 (choose 1–5). Includes this URL and same-site pages; if fewer exist, only those are analyzed."
+      "label": "Page limit",
+      "unit": "pages",
+      "help": "Default 8. Enter any positive integer; the actual count depends on representative same-site pages found.",
+      "invalid": "Enter an integer greater than or equal to 1."
+    },
+    "progressReady": "Captured pages: {{analyzed}} · Discovered pages: {{discovered}}. The current result is ready to use.",
+    "finishNow": "Finish and view current result",
+    "finishing": "Preparing current result...",
+    "completion": {
+      "time-limit": {
+        "title": "Finished at the time limit",
+        "description": "After {{minutes}} minutes, Imprint stopped analyzing later pages. Completed pages kept: {{pages}}."
+      },
+      "user-finished": {
+        "title": "Finished with the current result",
+        "description": "Imprint kept the pages completed when you chose to finish. Completed pages kept: {{pages}}."
+      }
     },
     "depth": {
       "label": "Analysis depth",
@@ -274,7 +288,7 @@
         "unknown": "Unknown"
       },
       "limitations": {
-        "fewerPages": "The site had fewer analyzable pages than requested ({{pages}} captured).",
+        "fewerPages": "Some automatically selected pages were not captured; this result covers {{pages}} completed pages.",
         "singleViewport": "Only one screen size was captured, so layout changes across sizes could not be compared.",
         "horizontalOverflow": "At least one viewport has horizontal overflow; off-screen content may be clipped instead of responsively reflowed.",
         "noSections": "No clear page sections could be identified.",
@@ -928,7 +942,7 @@
       "loadFailed": "Analysis records could not be loaded. Close this dialog and try again.",
       "emptyTitle": "No before-and-after pair is available",
       "emptyDescription": "Analyze the same website route at least twice. Only a later record for that route can be selected as the later analysis.",
-      "comparabilityNote": "Only later records for the same route are offered here. Both analyses should still use the same page count, screen sizes, access mode, and capture settings; otherwise the result explains why no comparison verdict is possible. Repeating an unchanged page checks capture stability, not change detection.",
+      "comparabilityNote": "Only later records for the same route are offered here. A direct verdict also requires matching captured page and screen-size sets, access mode, and capture settings; otherwise the result explains why comparison is limited. Repeating an unchanged page checks capture stability, not change detection.",
       "earlierLabel": "Earlier analysis",
       "laterLabel": "Later analysis",
       "captureMeta_one": "{{count}} page · {{viewports}}",

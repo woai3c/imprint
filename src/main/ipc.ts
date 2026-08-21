@@ -11,7 +11,6 @@ import {
   removeManagedSession,
 } from '../core/analyzer/browser-session.js'
 import {
-  AnalysisActiveTimeoutError,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
   CORE_ANALYSIS_REQUEST_DEFAULTS,
@@ -24,7 +23,7 @@ import {
   compareReferenceCaptures,
   routeIdentityFromUrl,
 } from '../core/analyzer/reference-compare.js'
-import type { AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
+import type { AnalysisCompletion, AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
 import {
   redactUrlsInText,
   sanitizeAuthWallDetectionForDisplay,
@@ -77,6 +76,7 @@ interface SaveTextFileOptions {
 }
 
 const analysisControllers = new Map<number, AbortController>()
+const analysisFinishControllers = new Map<number, AbortController>()
 const analysisRecoveryRegistry = new AnalysisRecoveryRegistry()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
@@ -353,6 +353,25 @@ function readCaptureManifest(serialized: unknown): CaptureManifest | null {
   }
 }
 
+function readAnalysisCompletion(serialized: unknown): AnalysisCompletion | undefined {
+  if (typeof serialized !== 'string') return undefined
+  try {
+    const completion = JSON.parse(serialized) as unknown
+    if (!isRecord(completion) || !['complete', 'time-limit', 'user-finished'].includes(String(completion.reason))) {
+      return undefined
+    }
+    const activeLimitValid =
+      typeof completion.activeLimitMs === 'number' &&
+      Number.isFinite(completion.activeLimitMs) &&
+      completion.activeLimitMs > 0
+    if (completion.reason === 'time-limit' && !activeLimitValid) return undefined
+    if (completion.activeLimitMs !== undefined && !activeLimitValid) return undefined
+    return completion as unknown as AnalysisCompletion
+  } catch {
+    return undefined
+  }
+}
+
 function readDarkModeExportData(
   serialized: unknown,
   baseTokens: DesignToken,
@@ -461,6 +480,7 @@ function buildStoredAnalysisResult(
     duration: Number(record.duration_ms) || 0,
     analysisTiming: readAnalysisTiming(record.analysis_timing_json),
     url: record.url,
+    completion: readAnalysisCompletion(record.completion_json),
   }
 }
 
@@ -912,6 +932,7 @@ export function registerIpcHandlers() {
       agentContext,
       validationReport: storedContext.validationReport,
       captureManifest: readCaptureManifest(record.capture_manifest_json),
+      completion: readAnalysisCompletion(record.completion_json),
     }
   })
 
@@ -972,6 +993,13 @@ export function registerIpcHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('analysis:finish', (event) => {
+    const controller = analysisFinishControllers.get(event.sender.id)
+    if (!controller || controller.signal.aborted) return { success: false }
+    controller.abort('user-finished')
+    return { success: true }
+  })
+
   ipcMain.handle('analysis:recover', (event): AnalysisRecoveryResponse => {
     return analysisRecoveryRegistry.recover(event.sender.id)
   })
@@ -991,6 +1019,7 @@ export function registerIpcHandlers() {
       const win = BrowserWindow.fromWebContents(event.sender)
       const senderId = event.sender.id
       const analysisController = new AbortController()
+      const finishController = new AbortController()
       const displayUrl = sanitizeUrlForPersistence(url)
       const analysisStartedAt = Date.now()
       const recoverableRun = analysisRecoveryRegistry.start(senderId, displayUrl)
@@ -1002,7 +1031,9 @@ export function registerIpcHandlers() {
         analysisRecoveryRegistry.remove(senderId, recoverableRun)
       }
       analysisControllers.get(senderId)?.abort()
+      analysisFinishControllers.get(senderId)?.abort('superseded')
       analysisControllers.set(senderId, analysisController)
+      analysisFinishControllers.set(senderId, finishController)
       event.sender.once('destroyed', abortWhenRendererCloses)
       let analysisStage = 'progress.launchingBrowser'
 
@@ -1017,7 +1048,7 @@ export function registerIpcHandlers() {
         )
         log.info(
           'analysis',
-          `start: url=${displayUrl} viewports=${request.viewports.join(',')} maxPages=${request.maxPages} authMode=${request.authMode} requestSchema=${request.schemaVersion}`,
+          `start: url=${displayUrl} viewports=${request.viewports.join(',')} pageMode=${request.pageMode} maxPages=${request.maxPages ?? 'auto'} authMode=${request.authMode} requestSchema=${request.schemaVersion}`,
         )
         const effectiveOptions = {
           viewports: request.viewports,
@@ -1028,20 +1059,21 @@ export function registerIpcHandlers() {
           pageDiscovery: request.pageDiscovery,
           proxyServer: currentSettings.proxyServer || undefined,
           signal: analysisController.signal,
+          finishSignal: finishController.signal,
         }
         const result = await analyzeUrl(
           request.url,
           effectiveOptions,
-          (step, percent) => {
-            if (analysisStage !== step) {
+          (progress) => {
+            if (analysisStage !== progress.step) {
               log.info(
                 'analysis',
-                `stage: url=${displayUrl} step=${step} percent=${percent} elapsedMs=${Date.now() - analysisStartedAt}`,
+                `stage: url=${displayUrl} step=${progress.step} percent=${progress.percent} analyzedPages=${progress.analyzedPages} discoveredPages=${progress.discoveredPages} elapsedMs=${Date.now() - analysisStartedAt}`,
               )
             }
-            analysisStage = step
-            analysisRecoveryRegistry.updateProgress(senderId, recoverableRun, step, percent)
-            win?.webContents.send('analysis:progress', { step, percent })
+            analysisStage = progress.step
+            analysisRecoveryRegistry.updateProgress(senderId, recoverableRun, progress)
+            win?.webContents.send('analysis:progress', progress)
           },
           (request, signal) => waitForLoginDecision(win, request, signal),
         )
@@ -1089,8 +1121,8 @@ export function registerIpcHandlers() {
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
              feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url, route_identity,
              design_evidence_json, design_profile_json, evidence_coverage_json,
-             validation_report_json, analysis_timing_json, capture_manifest_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             validation_report_json, analysis_timing_json, capture_manifest_json, completion_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           displayUrl,
@@ -1118,11 +1150,12 @@ export function registerIpcHandlers() {
           JSON.stringify(deterministicContext.validationReport),
           JSON.stringify(result.timing),
           JSON.stringify(result.captureManifest),
+          JSON.stringify(result.completion),
         )
 
         log.info(
           'analysis',
-          `done: url=${displayUrl} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${displayedIssues.length}`,
+          `done: url=${displayUrl} id=${analysisId} pages=${pagesAnalyzed} durationMs=${result.duration} completion=${result.completion.reason} darkMode=${result.darkMode?.hasDarkMode ? 'yes' : 'no'} degraded=${displayedIssues.length}`,
         )
         log.info(
           'analysis',
@@ -1166,6 +1199,7 @@ export function registerIpcHandlers() {
           reconstructionBrief: deterministicContext.reconstructionBrief,
           agentContext: deterministicContext.agentContext,
           validationReport: deterministicContext.validationReport,
+          completion: result.completion,
         })
       } catch (err: unknown) {
         if (analysisController.signal.aborted) {
@@ -1183,10 +1217,6 @@ export function registerIpcHandlers() {
           log.info('analysis', `cancelled at login decision: url=${displayUrl}`)
           return completeRun({ cancelled: true })
         }
-        if (err instanceof AnalysisActiveTimeoutError) {
-          log.error('analysis', `timed out during ${analysisStage}: url=${displayUrl} activeLimitMs=${err.timeoutMs}`)
-          return completeRun({ error: true, errorCode: err.code, stage: analysisStage })
-        }
         const message = redactUrlsInText(err instanceof Error ? err.message : String(err))
         log.error('analysis', `failed during ${analysisStage}: url=${displayUrl} error=${message}`)
         console.error(`[imprint] analysis failed during ${analysisStage}: ${message}`)
@@ -1194,6 +1224,7 @@ export function registerIpcHandlers() {
       } finally {
         event.sender.removeListener('destroyed', abortWhenRendererCloses)
         if (analysisControllers.get(senderId) === analysisController) analysisControllers.delete(senderId)
+        if (analysisFinishControllers.get(senderId) === finishController) analysisFinishControllers.delete(senderId)
       }
     },
   )

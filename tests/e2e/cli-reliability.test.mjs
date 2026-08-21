@@ -62,7 +62,7 @@ test('CLI rejects malformed integer options with the usage exit code', () => {
   })
 
   assert.equal(result.status, 2)
-  assert.match(result.stderr, /--pages must be an integer from 1 to 5/)
+  assert.match(result.stderr, /--pages must be a positive integer/)
 })
 
 test('CLI keeps JSON stdout parseable during a real extraction', { skip: !browserPath, timeout: 90_000 }, async (t) => {

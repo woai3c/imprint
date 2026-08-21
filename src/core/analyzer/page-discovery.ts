@@ -34,6 +34,7 @@ const EXCLUDED_PATHS = [
 
 const TRACKING_PARAMETERS = /^(?:fbclid|gclid|mc_cid|mc_eid|ref|source|utm_.+)$/i
 const MIN_REPRESENTATIVE_SCORE = 90
+const DIVERSE_PRIORITY_PREFIX = 32
 
 function normalizedUrl(candidate: string, baseUrl: string): URL | null {
   try {
@@ -197,33 +198,54 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
     .sort((first, second) => second.score - first.score || first.url.localeCompare(second.url))
   const contextual = ranked.filter((candidate) => candidate.contextualDescendant)
   const selectionPool = contextual.length > 0 ? contextual : ranked
+  const selectionLimit = Math.min(maximum, selectionPool.length)
+  const diversityLimit = Math.min(selectionLimit, DIVERSE_PRIORITY_PREFIX)
   const selected: PageCandidate[] = []
-  while (selected.length < maximum && selected.length < selectionPool.length) {
-    const candidatesLeft = selectionPool.filter(
-      (candidate) => !selected.some((selectedPage) => selectedPage.url === candidate.url),
-    )
-    const rankedForDiversity = candidatesLeft
-      .map((candidate) => {
-        const sameKindCount = selected.filter((selectedPage) => selectedPage.kind === candidate.kind).length
-        const firstSegment = new URL(candidate.url).pathname.split('/').filter(Boolean)[0] || ''
-        const sameFamilyCount = selected.filter((selectedPage) => {
-          const selectedSegment = new URL(selectedPage.url).pathname.split('/').filter(Boolean)[0] || ''
-          return firstSegment !== '' && selectedSegment === firstSegment
-        }).length
-        return {
-          candidate,
-          adjustedScore: candidate.score - sameKindCount * 12 - sameFamilyCount * 4,
-        }
-      })
-      .sort(
-        (first, second) =>
-          second.adjustedScore - first.adjustedScore ||
-          second.candidate.score - first.candidate.score ||
-          first.candidate.url.localeCompare(second.candidate.url),
-      )
-    const next = rankedForDiversity[0]?.candidate
+  const selectedUrls = new Set<string>()
+  const selectedKinds = new Map<PageKind, number>()
+  const selectedFamilies = new Map<string, number>()
+  const familyByUrl = new Map(
+    selectionPool.map((candidate) => [
+      candidate.url,
+      new URL(candidate.url).pathname.split('/').filter(Boolean)[0] || '',
+    ]),
+  )
+  while (selected.length < diversityLimit) {
+    let next: PageCandidate | undefined
+    let nextAdjustedScore = Number.NEGATIVE_INFINITY
+    for (const candidate of selectionPool) {
+      if (selectedUrls.has(candidate.url)) continue
+      const family = familyByUrl.get(candidate.url) || ''
+      const adjustedScore =
+        candidate.score -
+        (selectedKinds.get(candidate.kind) || 0) * 12 -
+        (family ? selectedFamilies.get(family) || 0 : 0) * 4
+      if (
+        !next ||
+        adjustedScore > nextAdjustedScore ||
+        (adjustedScore === nextAdjustedScore &&
+          (candidate.score > next.score ||
+            (candidate.score === next.score && candidate.url.localeCompare(next.url) < 0)))
+      ) {
+        next = candidate
+        nextAdjustedScore = adjustedScore
+      }
+    }
     if (!next) break
     selected.push(next)
+    selectedUrls.add(next.url)
+    selectedKinds.set(next.kind, (selectedKinds.get(next.kind) || 0) + 1)
+    const family = familyByUrl.get(next.url) || ''
+    if (family) selectedFamilies.set(family, (selectedFamilies.get(family) || 0) + 1)
+  }
+
+  // Automatic discovery may expose thousands of URLs. Preserve a diverse, high-value prefix, then append every
+  // remaining candidate in deterministic rank order without an expensive all-candidate diversity loop.
+  for (const candidate of selectionPool) {
+    if (selected.length >= selectionLimit) break
+    if (selectedUrls.has(candidate.url)) continue
+    selected.push(candidate)
+    selectedUrls.add(candidate.url)
   }
 
   return selected.map(({ locationScore: _locationScore, contextualDescendant: _contextualDescendant, ...page }) => page)
@@ -232,7 +254,7 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
 export async function discoverPages(
   page: Page,
   baseUrl: string,
-  max: number,
+  max = Number.MAX_SAFE_INTEGER,
   mode: PageDiscoveryMode = 'auto',
 ): Promise<PageDiscoveryResult> {
   if (max <= 0) return { pages: [], candidateCount: 0, issues: [] }

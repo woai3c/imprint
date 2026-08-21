@@ -62,6 +62,7 @@ export function AnalysisDetailDialog({ analysisId, initialEvidenceId, onClose }:
           reconstructionBrief: data.reconstructionBrief,
           agentContext: data.agentContext,
           validationReport: data.validationReport,
+          completion: data.completion,
         })
       })
       .catch(() => setError(true))

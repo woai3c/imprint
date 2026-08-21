@@ -46,7 +46,6 @@
     "cancelledTip": "已取消分析。",
     "preparing": "准备中...",
     "error": "分析异常",
-    "activeTimeout": "分析在实际运行 2 分钟后停止。目标页面或浏览器操作未能完成，请重试。",
     "emptyTitle": "输入网站 URL 开始分析",
     "emptyDescription": "支持任意公开网页。分析完成后只需导出一份 DESIGN.md；让 AI 修改已有 UI 时，再同时提供当前页面截图或源代码。",
     "analysisHint": "分析完全由确定性程序在本地完成，不需要配置外部服务。",
@@ -67,6 +66,7 @@
       "summary": "复制 DESIGN.md 粘贴给你的 AI 编程助手（Cursor、Claude 等），即可将该设计系统应用到你的项目中。"
     },
     "completeTip": "分析完成！复制 DESIGN.md 交给你的 AI 编程助手。",
+    "partialCompleteTip": "当前结果已可用，共完成 {{pages}} 个页面。",
     "invalidUrl": "请输入有效的 URL（例如 https://example.com）",
     "saveToLibrary": "保存到主题库",
     "saved": "已保存",
@@ -75,9 +75,23 @@
     "replaceThemeConfirm": "覆盖主题",
     "validateInScenarios": "在典型场景中验证",
     "pageCount": {
-      "label": "分析页面",
-      "option": "最多 {{count}} 页",
-      "help": "默认 3 页（可选 1–5 页），包含输入 URL 和同站页面；页面不足时按实际数量完成。"
+      "label": "页面上限",
+      "unit": "页",
+      "help": "默认 8 页；可输入任意正整数，实际数量取决于发现的代表性同站页面。",
+      "invalid": "请输入大于或等于 1 的整数。"
+    },
+    "progressReady": "已完成 {{analyzed}} 个页面 · 已发现 {{discovered}} 个页面，当前结果已经可以使用。",
+    "finishNow": "结束并查看当前结果",
+    "finishing": "正在整理当前结果…",
+    "completion": {
+      "time-limit": {
+        "title": "已在时间上限结束",
+        "description": "实际分析满 {{minutes}} 分钟后停止继续分析，并保留了已完成的 {{pages}} 个页面。"
+      },
+      "user-finished": {
+        "title": "已使用当前结果结束",
+        "description": "保留了你点击结束时已经完成的 {{pages}} 个页面。"
+      }
     },
     "depth": {
       "label": "分析深度",
@@ -274,7 +288,7 @@
         "unknown": "未知"
       },
       "limitations": {
-        "fewerPages": "目标网站可分析的页面少于所选数量（实际分析 {{pages}} 页）。",
+        "fewerPages": "部分自动选定页面未能完成捕获；当前结果覆盖 {{pages}} 个已完成页面。",
         "singleViewport": "本次只截取了一种屏幕尺寸，无法比较不同尺寸下的布局变化。",
         "horizontalOverflow": "至少一个视口存在横向溢出；视口外内容可能只是被裁切，并非已完成响应式重排。",
         "noSections": "没有识别出明确的页面区块。",
@@ -882,7 +896,7 @@
       "loadFailed": "无法读取分析记录，请关闭后重试。",
       "emptyTitle": "没有可组成前后关系的分析记录",
       "emptyDescription": "请先分析同一网站的同一路由至少两次。只有时间更晚的同路由记录才能作为后期记录。",
-      "comparabilityNote": "这里只提供同一路由且时间更晚的记录。两次分析仍应使用相同页面数量、屏幕尺寸、访问方式和捕获设置；不一致时结果会说明为什么无法比较。连续分析未变化的页面只能验证捕获稳定性，不能验证变化检出。",
+      "comparabilityNote": "这里只提供同一路由且时间更晚的记录。要直接给出结论，两次捕获的页面和屏幕尺寸集合、访问方式与捕获设置也需要一致；不一致时结果会说明比较为什么受限。连续分析未变化的页面只能验证捕获稳定性，不能验证变化检出。",
       "earlierLabel": "较早记录",
       "laterLabel": "较晚记录",
       "captureMeta": "{{count}} 个页面 · {{viewports}}",

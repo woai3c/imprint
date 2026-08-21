@@ -1,11 +1,13 @@
 import type { PageDiscoveryMode } from './page-discovery.js'
 import type { AuthMode } from './types.js'
 
-export const ANALYSIS_REQUEST_SCHEMA_VERSION = '1' as const
+export const ANALYSIS_REQUEST_SCHEMA_VERSION = '2' as const
 export const ANALYSIS_VIEWPORTS = ['desktop', 'tablet', 'mobile'] as const
+export const DEFAULT_ANALYSIS_PAGE_COUNT = 8
 
 export type AnalysisViewport = (typeof ANALYSIS_VIEWPORTS)[number]
 export type AnalysisDepth = 'standard' | 'deep'
+export type PageAnalysisMode = 'auto' | 'bounded'
 
 export interface AnalysisRequestInput {
   url: string
@@ -22,6 +24,7 @@ export interface AnalysisRequest {
   schemaVersion: typeof ANALYSIS_REQUEST_SCHEMA_VERSION
   url: string
   viewports: AnalysisViewport[]
+  pageMode: PageAnalysisMode
   maxPages: number
   authMode: AuthMode
   extractDarkMode: boolean
@@ -31,7 +34,7 @@ export interface AnalysisRequest {
 
 export interface AnalysisRequestDefaults {
   viewports: readonly AnalysisViewport[]
-  maxPages: number
+  maxPages?: number
   authMode: AuthMode
   extractDarkMode: boolean
   depth: AnalysisDepth
@@ -56,7 +59,7 @@ export class AnalysisRequestError extends Error {
 
 export const CORE_ANALYSIS_REQUEST_DEFAULTS: AnalysisRequestDefaults = {
   viewports: ['desktop', 'mobile'],
-  maxPages: 3,
+  maxPages: DEFAULT_ANALYSIS_PAGE_COUNT,
   authMode: 'managed',
   extractDarkMode: true,
   depth: 'standard',
@@ -90,8 +93,8 @@ export function createAnalysisRequest(
   }
   const viewports = [...new Set(requestedViewports)] as AnalysisViewport[]
 
-  const maxPages = input.maxPages ?? defaults.maxPages
-  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 5) {
+  const maxPages = input.maxPages ?? defaults.maxPages ?? DEFAULT_ANALYSIS_PAGE_COUNT
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1) {
     throw new AnalysisRequestError('invalid-page-count')
   }
 
@@ -113,6 +116,7 @@ export function createAnalysisRequest(
     schemaVersion: ANALYSIS_REQUEST_SCHEMA_VERSION,
     url,
     viewports,
+    pageMode: 'bounded',
     maxPages,
     authMode,
     extractDarkMode: input.extractDarkMode ?? defaults.extractDarkMode,

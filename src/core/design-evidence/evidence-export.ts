@@ -254,9 +254,15 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
       : `- Access: ${evidence.source.accessMode === 'managed' ? 'managed Imprint session' : 'anonymous visitor'}`,
   )
   lines.push(
-    zh
-      ? `- 覆盖：URL ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}；页面×视口 ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected}（${captureCoverage.status === 'complete' ? '完整' : '部分'}）` : evidence.pages.length}；${evidence.sections.length} 个区块观察、${evidence.components.length} 个跨捕获组件观察（不是页面实例数）`
-      : `- Coverage: URLs ${urlCoverage ? `${urlCoverage.captured}/${urlCoverage.requested}` : pageCount}; page×viewport captures ${captureCoverage ? `${captureCoverage.captured}/${captureCoverage.expected} (${captureCoverage.status})` : evidence.pages.length}; ${evidence.sections.length} section observations and ${evidence.components.length} component observations across captures (not page instance counts)`,
+    `- ${coverageT('scopeLine', {
+      capturedUrls: urlCoverage?.captured ?? pageCount,
+      selectedUrls: urlCoverage?.requested ?? pageCount,
+      capturedCaptures: captureCoverage?.captured ?? evidence.pages.length,
+      expectedCaptures: captureCoverage?.expected ?? evidence.pages.length,
+      captureStatus: coverageT(`status.${captureCoverage?.status || 'complete'}`),
+      sections: evidence.sections.length,
+      components: evidence.components.length,
+    })}`,
   )
   if (assetCoverage) {
     lines.push(
@@ -562,12 +568,12 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
 
 const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
   'fewer-pages-than-requested': {
-    en: 'Fewer pages were analyzed than requested',
-    zh: '实际分析页面数少于请求数',
+    en: 'Some automatically selected pages could not be captured; conclusions cover completed pages only',
+    zh: '部分自动选定页面未能完成捕获；本文结论仅覆盖已完成页面',
   },
   'fewer-page-viewports-than-requested': {
-    en: 'At least one requested page×viewport capture is missing; cross-viewport coverage is partial',
-    zh: '至少缺少一个请求的页面×视口捕获；跨视口覆盖不完整',
+    en: 'At least one planned page×viewport capture is missing; cross-viewport coverage is partial',
+    zh: '至少缺少一个计划中的页面×视口捕获；跨视口覆盖不完整',
   },
   'single-viewport': {
     en: 'Only a single viewport size was captured',
@@ -630,6 +636,8 @@ function humanizeLimitation(key: string, zh: boolean): string | null {
   }
   if (key === 'adaptive-mobile-budget-exceeded') return t('adaptiveMobileBudgetExceeded')
   if (key === 'adaptive-mobile-skipped-budget') return t('adaptiveMobileSkippedBudget')
+  if (key === 'fewer-pages-than-requested') return t('selectedPagesIncomplete')
+  if (key === 'fewer-page-viewports-than-requested') return t('plannedCapturesIncomplete')
   if (key === 'responsive-section-identity-mismatch') return t('responsiveSectionIdentityMismatch')
   const label = LIMITATION_LABELS[key]
   if (label) return zh ? label.zh : label.en

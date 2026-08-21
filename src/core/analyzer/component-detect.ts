@@ -28,6 +28,7 @@ export type ComponentVariant = 'primary' | 'secondary' | 'destructive' | 'text' 
 export interface ComponentVariantContext {
   tokenRefs?: readonly string[]
   primaryColor?: string
+  surfaceColors?: readonly string[]
   role?: string
   widthPx?: number
   heightPx?: number
@@ -52,6 +53,8 @@ const COMPONENT_ORDER: ComponentType[] = [
   'modal',
   'list',
 ]
+
+const MIN_MEANINGFUL_TINT_ALPHA = 0.03
 
 const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
   button: ['button', 'input[type="submit"]', '[role="button"]'],
@@ -101,6 +104,14 @@ export function isContextDependentColor(value: string | undefined): boolean {
 
 function borderColor(value: string): string | undefined {
   return value.match(/(transparent|(?:rgba?|hsla?|oklch|oklab|hsl|lab|lch)\([^)]+\)|#[\da-f]{3,8})\s*$/i)?.[1]
+}
+
+function colorsEqual(first: string | undefined, second: string | undefined): boolean {
+  if (!first || !second) return false
+  const normalizedFirst = normalizeColorValue(first)
+  const normalizedSecond = normalizeColorValue(second)
+  if (normalizedFirst && normalizedSecond) return normalizedFirst === normalizedSecond
+  return first.trim().toLowerCase() === second.trim().toLowerCase()
 }
 
 export function hasVisibleBorder(value: string | undefined): boolean {
@@ -179,13 +190,25 @@ function classifyButtonStyleFamily(candidate: ComponentVariantCandidate): string
       ? 'rounded'
       : 'sharp'
   const background = candidate.styles.backgroundColor
-  const surface = hasVisibleBorder(candidate.styles.border)
-    ? 'outlined'
-    : background && isContextDependentColor(background) && !isTransparentColor(background)
-      ? 'tinted'
-      : background && !isTransparentColor(background)
-        ? 'filled'
+  const backgroundAlpha = colorAlpha(background)
+  const visibleBorder = hasVisibleBorder(candidate.styles.border)
+  const observedBorderColor = candidate.styles.border ? borderColor(candidate.styles.border) : undefined
+  const matchesKnownSurface = candidate.surfaceColors?.some((color) => colorsEqual(background, color)) ?? false
+  const borderMatchesFill = colorsEqual(background, observedBorderColor)
+  const surface =
+    !background || isTransparentColor(background)
+      ? visibleBorder
+        ? 'outlined'
         : 'flat'
+      : backgroundAlpha !== undefined && backgroundAlpha < MIN_MEANINGFUL_TINT_ALPHA
+        ? visibleBorder
+          ? 'outlined'
+          : 'flat'
+        : backgroundAlpha !== undefined && backgroundAlpha < 0.5
+          ? 'tinted'
+          : visibleBorder && matchesKnownSurface && !borderMatchesFill
+            ? 'outlined'
+            : 'filled'
   return `${corner}-${surface}${hasVisibleShadow(candidate.styles.boxShadow) ? '-shadowed' : ''}`
 }
 
@@ -336,6 +359,15 @@ const COMPONENT_VARIANT_ORDER: ReadonlyArray<ComponentVariant | undefined> = [
 ]
 
 export function summarizeComponentVariants(candidates: ComponentVariantCandidate[]): ComponentVariantPattern[] {
+  // Tiny semantic elements are retained in raw evidence, but they are not useful as reusable controls in DESIGN.md.
+  // Filtering by rendered geometry avoids promoting decorative dots or nested hit-area fragments as icon buttons.
+  const reusableCandidates = candidates.filter(
+    (candidate) =>
+      candidate.type !== 'button' ||
+      candidate.widthPx === undefined ||
+      candidate.heightPx === undefined ||
+      (candidate.widthPx >= 12 && candidate.heightPx >= 12),
+  )
   const groups = new Map<
     string,
     {
@@ -349,11 +381,13 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
     }
   >()
   const cardStyles = new Set(
-    candidates.filter((candidate) => candidate.type === 'card').map((candidate) => classifyCardStyle(candidate.styles)),
+    reusableCandidates
+      .filter((candidate) => candidate.type === 'card')
+      .map((candidate) => classifyCardStyle(candidate.styles)),
   )
   const sizeVariants = new Map<string, Set<string>>()
   const buttonStyles = new Map<string, Set<string>>()
-  for (const candidate of candidates) {
+  for (const candidate of reusableCandidates) {
     if (candidate.type !== 'button') continue
     const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
     const key = `${candidate.type}|${variant || ''}`
@@ -367,7 +401,7 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       sizeVariants.set(key, sizes)
     }
   }
-  for (const candidate of candidates) {
+  for (const candidate of reusableCandidates) {
     const variant = classifyComponentVariant(candidate.type, candidate.styles, candidate)
     const measuredSize =
       candidate.type === 'button' && candidate.heightPx

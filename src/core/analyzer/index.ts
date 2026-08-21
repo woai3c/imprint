@@ -11,7 +11,7 @@ import {
   extractPageEvidence,
   observeSafeInteractions,
 } from '../design-evidence/index.js'
-import { ActiveAnalysisDeadline, closeContextWithin, closePageWithin, settleWithin } from './analysis-lifecycle.js'
+import { closeContextWithin, closePageWithin, settleWithin } from './analysis-lifecycle.js'
 import { createAnalysisRequest } from './analysis-request.js'
 import { detectAuthWall } from './auth-wall.js'
 import { resolveBrowserExecutables } from './browser-finder.js'
@@ -55,6 +55,7 @@ import { buildDesignTokens, normalizeDesignTokenUsageCount } from './token-build
 import { type TokenEvidenceCapture, buildTokenEvidence } from './token-evidence.js'
 import type {
   AnalysisOptions,
+  AnalysisProgress,
   AnalysisResult,
   AnalysisTiming,
   CaptureViewportEnvironment,
@@ -88,7 +89,6 @@ export {
   AnalysisRequestError,
   createAnalysisRequest,
 } from './analysis-request.js'
-export { AnalysisActiveTimeoutError } from './analysis-lifecycle.js'
 export type {
   AnalysisDepth,
   AnalysisRequest,
@@ -96,6 +96,7 @@ export type {
   AnalysisRequestErrorCode,
   AnalysisRequestInput,
   AnalysisViewport,
+  PageAnalysisMode,
 } from './analysis-request.js'
 export {
   AuthenticationBrowserClosedError,
@@ -103,7 +104,10 @@ export {
   AuthenticationRequiredError,
 } from './errors.js'
 export type {
+  AnalysisCompletion,
+  AnalysisCompletionReason,
   AnalysisOptions,
+  AnalysisProgress,
   AnalysisResult,
   AnalysisTiming,
   AuthMode,
@@ -575,7 +579,7 @@ async function guardAnalysisExtractionStage<T>(
 export async function analyze(
   inputUrl: string,
   options: AnalysisOptions,
-  onProgress?: (step: string, percent: number) => void,
+  onProgress?: (progress: AnalysisProgress) => void,
 ): Promise<AnalysisResult> {
   throwIfAnalysisAborted(options.signal)
   const request = createAnalysisRequest({
@@ -591,15 +595,41 @@ export async function analyze(
   const url = request.url
   const startTime = Date.now()
   const capturedAt = new Date(startTime).toISOString()
-  const activeDeadline = new ActiveAnalysisDeadline()
   const analysisAbortController = new AbortController()
   const abortFromExternalSignal = () => analysisAbortController.abort(options.signal?.reason)
-  const abortFromActiveDeadline = () => analysisAbortController.abort(activeDeadline.signal.reason)
   options.signal?.addEventListener('abort', abortFromExternalSignal, { once: true })
-  activeDeadline.signal.addEventListener('abort', abortFromActiveDeadline, { once: true })
   const analysisSignal = analysisAbortController.signal
+  let acceptingPartialFinish = true
+  let completionReason: 'user-finished' | null = null
+  const finishForUser = () => {
+    if (acceptingPartialFinish) completionReason ??= 'user-finished'
+  }
+  options.finishSignal?.addEventListener('abort', finishForUser, { once: true })
+  if (options.finishSignal?.aborted) finishForUser()
   let userWaitMs = 0
-  const activeElapsedMs = () => activeDeadline.activeElapsedMs()
+  const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
+  let progressAnalyzedPages = 0
+  let progressDiscoveredPages = 1
+  const progressCompletedUrls = new Set<string>()
+  let progressStep = 'progress.launchingBrowser'
+  let progressPercent = 0
+  const reportProgress = (step = progressStep, percent = progressPercent) => {
+    progressStep = step
+    progressPercent = percent
+    onProgress?.({
+      step,
+      percent,
+      analyzedPages: progressAnalyzedPages,
+      discoveredPages: Math.max(progressAnalyzedPages, progressDiscoveredPages),
+      resultReady: acceptingPartialFinish && progressAnalyzedPages > 0,
+      activeElapsedMs: activeElapsedMs(),
+    })
+  }
+  const markPageReady = (pageUrl: string) => {
+    progressCompletedUrls.add(pageIdentityUrl(pageUrl))
+    progressAnalyzedPages = progressCompletedUrls.size
+    reportProgress()
+  }
   const timing: AnalysisTiming = {
     browserMs: 0,
     preparationMs: 0,
@@ -635,7 +665,7 @@ export async function analyze(
     fs.mkdirSync(screenshotDir, { recursive: true })
   }
 
-  onProgress?.('progress.launchingBrowser', 5)
+  reportProgress('progress.launchingBrowser', 5)
 
   const resolvedBrowsers = resolveBrowserExecutables(options.browserPath, options.browserResourcesDir)
   const interactiveExecutablePath = resolvedBrowsers.interactive
@@ -668,7 +698,7 @@ export async function analyze(
     initialPage = runtime.context.pages()[0] || (await runtime.context.newPage())
     await configurePageViewport(initialPage, viewportNames[0], initialViewport)
 
-    onProgress?.('progress.checkingAccess', 7)
+    reportProgress('progress.checkingAccess', 7)
     let responseStatus = await navigatePage(initialPage, url)
     let authDetection = await detectAuthWall(initialPage, responseStatus)
     authWallDetected = authDetection.detected
@@ -680,7 +710,7 @@ export async function analyze(
       const visitorDetection = authDetection
       let managedRuntime: BrowserRuntime | null = null
 
-      onProgress?.('progress.preparingAuthenticatedAnalysis', 8)
+      reportProgress('progress.preparingAuthenticatedAnalysis', 8)
       try {
         const managedExecutablePath = hasManagedStorageState(options.dataDir, url)
           ? headlessExecutablePath
@@ -736,7 +766,7 @@ export async function analyze(
       runtime = null
       initialPage = null
 
-      onProgress?.('progress.openingLoginBrowser', 7)
+      reportProgress('progress.openingLoginBrowser', 7)
       runtime = await launchRuntime(
         interactiveExecutablePath,
         'managed',
@@ -760,15 +790,13 @@ export async function analyze(
 
       while (authDetection.detected) {
         throwIfAnalysisAborted(analysisSignal)
-        onProgress?.(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
+        reportProgress(retry ? 'progress.loginIncomplete' : 'progress.waitingForLogin', 8)
         const waitStartedAt = Date.now()
         let decision: LoginDecision
-        activeDeadline.pause()
         try {
           decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
         } finally {
           userWaitMs += Date.now() - waitStartedAt
-          activeDeadline.resume()
         }
         if (loginAbortController.signal.aborted) {
           throw new AuthenticationBrowserClosedError()
@@ -781,7 +809,7 @@ export async function analyze(
           break
         }
 
-        onProgress?.('progress.verifyingLogin', 9)
+        reportProgress('progress.verifyingLogin', 9)
         if (loginPage.isClosed()) {
           const openPages = runtime.context.pages()
           loginPage = openPages[openPages.length - 1] || (await runtime.context.newPage())
@@ -870,11 +898,12 @@ export async function analyze(
 
     for (let i = 0; i < viewportNames.length; i++) {
       throwIfAnalysisAborted(analysisSignal)
+      if (i > 0 && completionReason && capturedPageEvidence.length > 0) break
       const vpName = viewportNames[i]
       const viewport = VIEWPORTS[vpName] || VIEWPORTS.desktop
       const progress = 10 + (i / viewportNames.length) * 70
 
-      onProgress?.(`progress.analyzingViewport::${vpName}`, Math.round(progress))
+      reportProgress(`progress.analyzingViewport::${vpName}`, Math.round(progress))
 
       const page: Page =
         i === 0 && initialPage && !initialPage.isClosed() ? initialPage : await runtime.context.newPage()
@@ -1165,33 +1194,52 @@ export async function analyze(
         health,
         supplementalImages,
       })
+      markPageReady(page.url())
 
       if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:complete`)
     }
 
-    // Multi-page analysis: discover and visit sub-pages for richer token extraction
-    const subPageLimit = pageLimit - 1
-    if (subPageLimit > 0 && !authDetection.detected) {
+    // Multi-page analysis follows representative same-origin links until the configured page bound, the available
+    // queue, or a caller-requested finish is reached.
+    const subPageLimit = Math.max(0, pageLimit - 1)
+    if (subPageLimit > 0 && !authDetection.detected && !completionReason) {
       const mainViewport = VIEWPORTS[viewportNames[0]] || VIEWPORTS.desktop
       const mainViewportName = viewportNames[0] || 'desktop'
-      const canReuseInitialPage = initialPage && !initialPage.isClosed()
+      const discoveryRootUrl = finalUrl || url
+      const canReuseInitialPage =
+        initialPage &&
+        !initialPage.isClosed() &&
+        pageIdentityUrl(initialPage.url()) === pageIdentityUrl(discoveryRootUrl)
       const discoveryPage = canReuseInitialPage ? initialPage : await runtime.context.newPage()
       if (!canReuseInitialPage) {
         await configurePageViewport(discoveryPage, mainViewportName, mainViewport)
-        await navigatePage(discoveryPage, url)
+        await navigatePage(discoveryPage, discoveryRootUrl)
       }
-      onProgress?.('progress.discoveringPages', 75)
+      reportProgress('progress.discoveringPages', 75)
 
-      const candidateLimit = Math.min(6, subPageLimit + 2)
-      const discovery = await discoverPages(
-        discoveryPage,
-        discoveryPage.url() || finalUrl,
-        candidateLimit,
-        request.pageDiscovery,
-      )
-      const discoveredPages = discovery.pages
-      discoveredPageCount = discovery.candidateCount
-      selectedPageCount = Math.min(subPageLimit, discoveredPages.length)
+      const discoveryQueueLimit = Math.min(Number.MAX_SAFE_INTEGER, subPageLimit + 8)
+      const discovery = await discoverPages(discoveryPage, discoveryRootUrl, discoveryQueueLimit, request.pageDiscovery)
+      const pendingPages: DiscoveredPage[] = []
+      const discoveredCandidateUrls = new Set<string>()
+      const queuedPageUrls = new Set<string>()
+      const entryPageUrl = pageIdentityUrl(discoveryRootUrl)
+      const enqueuePages = (pages: DiscoveredPage[]) => {
+        for (const page of pages) {
+          const identity = pageIdentityUrl(page.url)
+          if (identity === entryPageUrl) continue
+          discoveredCandidateUrls.add(identity)
+          if (queuedPageUrls.has(identity) || analyzedPages.has(identity)) continue
+          queuedPageUrls.add(identity)
+          pendingPages.push(page)
+        }
+        // discoverPages already returns a deterministic diversity-first order. Preserve it so the page bound is not
+        // consumed by several high-scoring routes of the same kind.
+        discoveredPageCount = discoveredCandidateUrls.size
+        selectedPageCount = Math.min(subPageLimit, discoveredCandidateUrls.size)
+        progressDiscoveredPages = 1 + discoveredCandidateUrls.size
+        reportProgress()
+      }
+      enqueuePages(discovery.pages)
       extractionIssues.push(
         ...discovery.issues.map((issue) => ({
           stage: `page-discovery:${issue.stage}`,
@@ -1201,15 +1249,19 @@ export async function analyze(
       if (!canReuseInitialPage) await closeAnalysisPage(discoveryPage, 'page-discovery:complete')
 
       let successfulSubPageCount = 0
-      for (let i = 0; i < discoveredPages.length; i++) {
+      let attemptedSubPageCount = 0
+      while (pendingPages.length > 0) {
         throwIfAnalysisAborted(analysisSignal)
+        if (completionReason) break
         if (successfulSubPageCount >= subPageLimit) break
-        if (i >= subPageLimit && Date.now() - startTime >= 100_000) break
-        const discoveredPage = discoveredPages[i]
+        const discoveredPage = pendingPages.shift()
+        if (!discoveredPage) break
+        attemptedSubPageCount += 1
+        const i = attemptedSubPageCount - 1
         const subUrl = discoveredPage.url
-        onProgress?.(
-          `progress.analyzingPage::${i + 2}::${discoveredPages.length + 1}`,
-          Math.round(76 + ((i + 1) / Math.max(discoveredPages.length, 1)) * 8),
+        reportProgress(
+          `progress.analyzingPage::${progressAnalyzedPages + 1}::${progressDiscoveredPages}`,
+          Math.min(84, 76 + progressAnalyzedPages),
         )
 
         const subPage = await runtime.context.newPage()
@@ -1325,6 +1377,22 @@ export async function analyze(
               () => detectBreakpoints(subPage),
             )
           }
+          const nestedPagesNeeded = Math.max(0, subPageLimit - (successfulSubPageCount + 1) - pendingPages.length)
+          if (!completionReason && nestedPagesNeeded > 0) {
+            const nestedDiscovery = await discoverPages(
+              subPage,
+              discoveryRootUrl,
+              Math.min(Number.MAX_SAFE_INTEGER, nestedPagesNeeded + 4),
+              'links',
+            )
+            enqueuePages(nestedDiscovery.pages)
+            extractionIssues.push(
+              ...nestedDiscovery.issues.map((issue) => ({
+                stage: `page-discovery:${issue.stage}`,
+                reason: issue.reason,
+              })),
+            )
+          }
           mergeInteractionStyles(allInteractions, pageInteractionStyles)
           motion = mergeMotionTokens([motion, subPageMotion])
           components = mergeComponentPatterns([components, subPageComponents])
@@ -1405,6 +1473,7 @@ export async function analyze(
             ],
           })
           successfulSubPageCount += 1
+          markPageReady(subPage.url())
 
           const entryRole = capturedPageEvidence[0]?.snapshot.role
           const hasNovelBreakpoints = subPageBreakpoints.some(
@@ -1426,12 +1495,12 @@ export async function analyze(
             !adaptiveMobileCaptured &&
             mainViewportName !== 'mobile' &&
             adaptiveSignals.some(Boolean) &&
-            Date.now() - startTime < 120_000
+            !completionReason
 
           if (shouldCaptureMobile) {
             adaptiveHealthIssueStartIndex = extractionIssues.length
             const adaptiveStartedAt = Date.now()
-            const adaptiveDeadline = Math.min(startTime + 120_000, adaptiveStartedAt + 20_000)
+            const adaptiveDeadline = adaptiveStartedAt + 20_000
             const adaptiveController = new AbortController()
             adaptiveAbortTimer = setTimeout(
               () => adaptiveController.abort(new Error('adaptive-mobile-budget-exceeded')),
@@ -1605,8 +1674,6 @@ export async function analyze(
                 }
               }
             }
-          } else if (!adaptiveMobileCaptured && mainViewportName !== 'mobile' && adaptiveSignals.some(Boolean)) {
-            analysisLimitations.push('adaptive-mobile-skipped-budget')
           }
         } catch (error) {
           throwIfAnalysisAborted(analysisSignal)
@@ -1633,8 +1700,13 @@ export async function analyze(
       }
     }
 
+    // The Finish action governs page collection only. Once collection has ended, token generation is required to make
+    // the captured pages usable and must not retroactively change a naturally completed run into a partial one.
+    acceptingPartialFinish = false
+    options.finishSignal?.removeEventListener('abort', finishForUser)
+
     throwIfAnalysisAborted(analysisSignal)
-    onProgress?.('progress.analyzingPatterns', 85)
+    reportProgress('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const mergedStyles = mergeStyles(allStyles)
     const tokenSelectionStyles = mergeStylesWithNormalizedUsage(
@@ -1642,7 +1714,7 @@ export async function analyze(
       styleCaptures.map((capture) => pageIdentityUrl(capture.url)),
     )
 
-    onProgress?.('progress.clusteringColors', 90)
+    reportProgress('progress.clusteringColors', 90)
     const primaryPageStyles = allStyles[0] || mergedStyles
     const clusteredColors = clusterColors(
       tokenSelectionStyles.colors,
@@ -1651,7 +1723,7 @@ export async function analyze(
       tokenSelectionStyles.usageCount,
     )
 
-    onProgress?.('progress.generatingTokens', 95)
+    reportProgress('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
     tokens.usageCount = normalizeDesignTokenUsageCount(mergedStyles.usageCount)
     tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
@@ -1718,10 +1790,8 @@ export async function analyze(
     if ((timing.preparationMs || 0) > 100_000) timing.budgetExceeded?.push('preparation')
     if ((timing.healthGateMs || 0) > 20_000) timing.budgetExceeded?.push('health-gate')
     if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
-    if (timing.totalMs > 120_000) timing.budgetExceeded?.push('program-analysis')
-
     throwIfAnalysisAborted(analysisSignal)
-    onProgress?.('progress.done', 100)
+    reportProgress('progress.done', 100)
 
     if (accessMode === 'managed') {
       await saveManagedStorageState(runtime.context, options.dataDir, url).catch(() => {})
@@ -1766,6 +1836,7 @@ export async function analyze(
       requestSchemaVersion: request.schemaVersion,
       toolVersion: options.toolVersion,
       viewports: requestedViewports,
+      pageMode: request.pageMode,
       maxPages: pageLimit,
       pageDiscovery: request.pageDiscovery,
       depth: request.depth,
@@ -1800,14 +1871,16 @@ export async function analyze(
       extractionIssues,
       pageCoverage,
       captureManifest,
+      completion: {
+        reason: completionReason || 'complete',
+      },
     }
   } catch (error) {
     throwIfAnalysisAborted(analysisSignal)
     throw error
   } finally {
-    activeDeadline.dispose()
     options.signal?.removeEventListener('abort', abortFromExternalSignal)
-    activeDeadline.signal.removeEventListener('abort', abortFromActiveDeadline)
+    options.finishSignal?.removeEventListener('abort', finishForUser)
     analysisSignal.removeEventListener('abort', closeActiveRuntime)
     await closeRuntime(runtime)
   }

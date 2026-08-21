@@ -5,10 +5,11 @@ import { AnalysisRequestError, createAnalysisRequest } from '../../src/core/anal
 describe('versioned analysis request', () => {
   it('normalizes the core defaults into an explicit request', () => {
     expect(createAnalysisRequest({ url: ' https://example.test/catalog?view=full#details ' })).toEqual({
-      schemaVersion: '1',
+      schemaVersion: '2',
       url: 'https://example.test/catalog?view=full#details',
       viewports: ['desktop', 'mobile'],
-      maxPages: 3,
+      pageMode: 'bounded',
+      maxPages: 8,
       authMode: 'managed',
       extractDarkMode: true,
       depth: 'standard',
@@ -30,8 +31,9 @@ describe('versioned analysis request', () => {
     )
 
     expect(request).toMatchObject({
-      schemaVersion: '1',
+      schemaVersion: '2',
       viewports: ['desktop', 'tablet', 'mobile'],
+      pageMode: 'bounded',
       maxPages: 2,
       authMode: 'auto',
       extractDarkMode: false,
@@ -42,6 +44,13 @@ describe('versioned analysis request', () => {
 
   it('maps the legacy no-session option to anonymous access', () => {
     expect(createAnalysisRequest({ url: 'https://example.test', useSession: false }).authMode).toBe('anonymous')
+  })
+
+  it('accepts any positive safe-integer page bound', () => {
+    expect(createAnalysisRequest({ url: 'https://example.test', maxPages: 250 })).toMatchObject({
+      pageMode: 'bounded',
+      maxPages: 250,
+    })
   })
 
   it('deduplicates valid viewports while preserving requested order', () => {
@@ -55,7 +64,8 @@ describe('versioned analysis request', () => {
     { input: { url: 'https://example.test', viewports: [] }, code: 'invalid-viewports' },
     { input: { url: 'https://example.test', viewports: ['wide'] }, code: 'invalid-viewports' },
     { input: { url: 'https://example.test', maxPages: 1.5 }, code: 'invalid-page-count' },
-    { input: { url: 'https://example.test', maxPages: 6 }, code: 'invalid-page-count' },
+    { input: { url: 'https://example.test', maxPages: 0 }, code: 'invalid-page-count' },
+    { input: { url: 'https://example.test', maxPages: Number.MAX_SAFE_INTEGER + 1 }, code: 'invalid-page-count' },
     { input: { url: 'https://example.test', authMode: 'prompt' }, code: 'invalid-auth-mode' },
     { input: { url: 'https://example.test', extractDarkMode: 'yes' }, code: 'invalid-dark-mode' },
     { input: { url: 'https://example.test', depth: 'exhaustive' }, code: 'invalid-depth' },

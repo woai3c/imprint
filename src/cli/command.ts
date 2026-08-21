@@ -135,9 +135,9 @@ export function parseCliCommand(args: string[]): CliCommand {
   }
   const viewports = (viewport === 'all' ? ['desktop', 'tablet', 'mobile'] : [viewport]) as AnalysisViewport[]
 
-  const pagesText = scanned.values.get('--pages') || '3'
-  if (!/^\d+$/.test(pagesText)) throw new CliUsageError('invalid-page-count', pagesText)
-  const maxPages = Number(pagesText)
+  const pagesText = scanned.values.get('--pages')
+  if (pagesText !== undefined && !/^\d+$/.test(pagesText)) throw new CliUsageError('invalid-page-count', pagesText)
+  const maxPages = pagesText === undefined ? undefined : Number(pagesText)
   const pageDiscovery = scanned.values.get('--discovery') || 'auto'
   if (!['auto', 'links', 'sitemap'].includes(pageDiscovery)) {
     throw new CliUsageError('invalid-page-discovery', pageDiscovery)

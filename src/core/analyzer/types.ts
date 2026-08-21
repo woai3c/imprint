@@ -26,6 +26,7 @@ export interface AnalysisOptions {
   proxyServer?: string
   toolVersion?: string
   signal?: AbortSignal
+  finishSignal?: AbortSignal
   onLoginRequired?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginDecision>
 }
 
@@ -51,9 +52,10 @@ export interface CaptureManifest {
     version: string | null
   }
   request: {
-    schemaVersion?: '1'
+    schemaVersion?: '1' | '2'
     viewports: CaptureViewportManifest[]
-    maxPages: number
+    pageMode?: 'auto' | 'bounded'
+    maxPages: number | null
     pageDiscovery: PageDiscoveryMode
     depth: 'standard' | 'deep'
     accessMode: 'anonymous' | 'managed'
@@ -91,7 +93,7 @@ export interface CaptureManifest {
   capture: {
     pageKeys: string[]
     pages: {
-      requested: number
+      requested: number | null
       discovered: number
       selected: number
       analyzed: number
@@ -192,7 +194,7 @@ export interface TokenEvidence {
 }
 
 export interface PageCoverage {
-  requested: number
+  requested: number | null
   discovered: number
   selected: number
   analyzed: number
@@ -201,6 +203,23 @@ export interface PageCoverage {
     source: 'requested' | 'dom' | 'sitemap'
     kind: PageKind | 'entry'
   }>
+}
+
+export type AnalysisCompletionReason = 'complete' | 'time-limit' | 'user-finished'
+
+export interface AnalysisCompletion {
+  reason: AnalysisCompletionReason
+  /** Present only on legacy records that ended at the former global time limit. */
+  activeLimitMs?: number
+}
+
+export interface AnalysisProgress {
+  step: string
+  percent: number
+  analyzedPages: number
+  discoveredPages: number
+  resultReady: boolean
+  activeElapsedMs: number
 }
 
 export interface DarkModeResult {
@@ -289,4 +308,5 @@ export interface AnalysisResult {
   extractionIssues: ExtractionIssue[]
   pageCoverage: PageCoverage
   captureManifest: CaptureManifest
+  completion: AnalysisCompletion
 }

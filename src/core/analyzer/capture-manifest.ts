@@ -24,7 +24,8 @@ export interface CaptureManifestInput {
   requestSchemaVersion?: CaptureManifest['request']['schemaVersion']
   toolVersion?: string
   viewports: CaptureViewportManifest[]
-  maxPages: number
+  pageMode: CaptureManifest['request']['pageMode']
+  maxPages: number | null
   pageDiscovery?: CaptureManifest['request']['pageDiscovery']
   depth?: CaptureManifest['request']['depth']
   accessMode: CaptureManifest['request']['accessMode']
@@ -98,8 +99,9 @@ export function buildCaptureManifest(input: CaptureManifestInput): CaptureManife
     capturedAt: input.capturedAt,
     tool: { name: 'imprint', version: input.toolVersion || null },
     request: {
-      schemaVersion: input.requestSchemaVersion || '1',
+      schemaVersion: input.requestSchemaVersion || '2',
       viewports: input.viewports,
+      pageMode: input.pageMode,
       maxPages: input.maxPages,
       pageDiscovery: input.pageDiscovery || 'auto',
       depth: input.depth || 'standard',

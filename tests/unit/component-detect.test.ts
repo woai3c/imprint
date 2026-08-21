@@ -160,6 +160,7 @@ describe('component candidate summarization', () => {
       confidence: 0.98,
       evidence: ['native-element'],
       primaryColor: '#2563eb',
+      surfaceColors: ['#ffffff', '#f8fafc'],
     }
     const candidates: ComponentVariantCandidate[] = [
       {
@@ -289,6 +290,186 @@ describe('component candidate summarization', () => {
       'button-secondary-rounded-tinted',
     ])
     expect(variants.map((variant) => variant.count)).toEqual([1, 1])
+  })
+
+  test('treats nearly transparent paint as unpainted instead of a tinted surface', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        primaryColor: '#1f883d',
+        widthPx: 96,
+        heightPx: 32,
+        styles: {
+          backgroundColor: 'rgba(0, 0, 0, 0.01)',
+          color: '#ffffff',
+          border: '1px solid #262c28',
+          borderRadius: '6px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        primaryColor: '#1f883d',
+        widthPx: 96,
+        heightPx: 32,
+        styles: {
+          backgroundColor: 'rgba(0, 0, 0, 0.01)',
+          color: '#ffffff',
+          border: 'none',
+          borderRadius: '6px',
+        },
+      },
+    ]
+
+    expect(summarizeComponentVariants(candidates).map((variant) => variant.name)).toEqual([
+      'button-secondary-rounded-flat',
+      'button-secondary-rounded-outlined',
+    ])
+  })
+
+  test('describes opaque primary controls with decorative borders as filled rather than outlined', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        primaryColor: '#2563eb',
+        tokenRefs: ['color.primary'],
+        widthPx: 96,
+        heightPx: 34,
+        styles: {
+          backgroundColor: '#2563eb',
+          border: '1px solid #2563eb',
+          borderRadius: '4px',
+          padding: '0 16px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        primaryColor: '#2563eb',
+        tokenRefs: ['color.primary'],
+        widthPx: 96,
+        heightPx: 34,
+        styles: {
+          backgroundColor: '#2563eb',
+          border: '1px solid rgba(0, 0, 0, 0.15)',
+          borderRadius: '999px',
+          padding: '0 16px',
+        },
+      },
+    ]
+
+    expect(summarizeComponentVariants(candidates).map((variant) => variant.name)).toEqual([
+      'button-primary-pill-filled',
+      'button-primary-rounded-filled',
+    ])
+  })
+
+  test('classifies button surfaces from observed paint instead of semantic button type', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        role: 'primary-action',
+        primaryColor: '#1f883d',
+        surfaceColors: ['#ffffff', '#f6f8fa'],
+        widthPx: 747,
+        heightPx: 34,
+        styles: {
+          backgroundColor: '#ffffff',
+          color: '#0969da',
+          border: '1px solid #d1d9e0',
+          borderRadius: '6px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        role: 'primary-action',
+        primaryColor: '#1f883d',
+        surfaceColors: ['#ffffff', '#f6f8fa'],
+        widthPx: 108,
+        heightPx: 34,
+        styles: {
+          backgroundColor: '#1f883d',
+          color: '#ffffff',
+          border: '1px solid rgba(31, 35, 40, 0.15)',
+          borderRadius: '6px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        role: 'primary-action',
+        primaryColor: '#1772f6',
+        surfaceColors: ['#ffffff', '#f7f7f8'],
+        widthPx: 34,
+        heightPx: 34,
+        styles: {
+          backgroundColor: '#1772f6',
+          color: '#ffffff',
+          border: '1px solid #1772f6',
+          borderRadius: '9999px',
+        },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        primaryColor: '#1772f6',
+        surfaceColors: ['#ffffff', '#f7f7f8'],
+        widthPx: 34,
+        heightPx: 34,
+        styles: {
+          backgroundColor: 'rgba(0, 0, 0, 0)',
+          color: '#1772f6',
+          border: '1px solid #1772f6',
+          borderRadius: '9999px',
+        },
+      },
+    ]
+
+    expect(summarizeComponentVariants(candidates).map((variant) => variant.name)).toEqual([
+      'button-primary-rounded-filled',
+      'button-primary-rounded-outlined',
+      'button-icon-pill-filled',
+      'button-icon-pill-outlined',
+    ])
+  })
+
+  test('keeps tiny semantic controls in raw evidence but excludes them from reusable variants', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['aria-role'],
+        elementKind: 'role-button',
+        widthPx: 5,
+        heightPx: 5,
+        styles: { backgroundColor: '#16b89b', borderRadius: '999px' },
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['native-element'],
+        elementKind: 'button',
+        widthPx: 32,
+        heightPx: 32,
+        styles: { backgroundColor: '#16b89b', borderRadius: '999px' },
+      },
+    ]
+
+    expect(summarizeComponentVariants(candidates)).toMatchObject([
+      { name: 'button-icon', count: 1, sampleSize: { width: 32, height: 32 } },
+    ])
   })
 
   test('keeps distinct card surface and radius families separate', () => {

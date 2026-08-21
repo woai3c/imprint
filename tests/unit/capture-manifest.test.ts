@@ -28,6 +28,7 @@ describe('capture manifest', () => {
       capturedAt: '2026-08-17T00:00:00.000Z',
       toolVersion: '0.0.3',
       viewports: [{ name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 2, mobile: false }],
+      pageMode: 'bounded',
       maxPages: 1,
       accessMode: 'anonymous',
       executablePath: '/Applications/chrome-headless-shell',
@@ -73,7 +74,8 @@ describe('capture manifest', () => {
       version: '128.0.0.0',
       userAgent: runtimeUserAgent,
     })
-    expect(manifest.request.schemaVersion).toBe('1')
+    expect(manifest.request.schemaVersion).toBe('2')
+    expect(manifest.request.pageMode).toBe('bounded')
     expect(manifest.environment.viewports[1]).toMatchObject({
       name: 'mobile',
       source: 'adaptive',
@@ -95,6 +97,7 @@ describe('capture manifest', () => {
     const manifest = buildCaptureManifest({
       capturedAt: '2026-08-17T00:00:00.000Z',
       viewports: [{ name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }],
+      pageMode: 'bounded',
       maxPages: 1,
       accessMode: 'anonymous',
       executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',

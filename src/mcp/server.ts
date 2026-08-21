@@ -13,7 +13,7 @@
 import * as readline from 'node:readline'
 
 import { compareDesigns } from '../core/analyzer/design-compare.js'
-import { AnalysisActiveTimeoutError, analyze } from '../core/analyzer/index.js'
+import { analyze } from '../core/analyzer/index.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
@@ -81,7 +81,11 @@ const TOOLS = [
           description: 'Viewport size (default: desktop)',
         },
         useSession: { type: 'boolean', description: "Reuse Imprint's saved browser session (default: true)" },
-        maxPages: { type: 'integer', minimum: 1, maximum: 5, description: 'Pages to analyze (default: 3)' },
+        maxPages: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Page limit; any positive integer (default: 8)',
+        },
         discovery: {
           type: 'string',
           enum: ['auto', 'links', 'sitemap'],
@@ -116,7 +120,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
     const format = (params.format as string) || 'tokens'
     const viewport = (params.viewport as string) || 'desktop'
     const useSession = params.useSession !== false
-    const maxPages = Math.min(5, Math.max(1, Number(params.maxPages) || 3))
+    const maxPages = params.maxPages === undefined ? undefined : Number(params.maxPages)
     const pageDiscovery = ['links', 'sitemap'].includes(String(params.discovery))
       ? (String(params.discovery) as 'links' | 'sitemap')
       : 'auto'
@@ -126,7 +130,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
       useSession,
       extractDarkMode: true,
       dataDir,
-      maxPages,
+      ...(maxPages === undefined ? {} : { maxPages }),
       pageDiscovery,
       signal,
     })
@@ -179,6 +183,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
                   darkMode,
                   featureTags,
                   pageCoverage: result.pageCoverage,
+                  completion: result.completion,
                   extractionIssues: result.extractionIssues,
                   analysisTiming: result.timing,
                   designProfile: designContext.profile,
@@ -218,6 +223,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
                   darkMode,
                   featureTags,
                   pageCoverage: result.pageCoverage,
+                  completion: result.completion,
                   extractionIssues: result.extractionIssues,
                   analysisTiming: result.timing,
                 },
@@ -358,12 +364,7 @@ async function handleRequest(request: JsonRpcRequest & { id: string | number }) 
         } catch (error) {
           if (controller.signal.aborted) return
           if (error instanceof ProtocolError) throw error
-          const message =
-            error instanceof AnalysisActiveTimeoutError
-              ? mcpT('errors.activeTimeout', { seconds: Math.round(error.timeoutMs / 1000) })
-              : error instanceof Error
-                ? error.message
-                : String(error)
+          const message = error instanceof Error ? error.message : String(error)
           result = {
             content: [
               {

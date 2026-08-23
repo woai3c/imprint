@@ -111,7 +111,6 @@ pnpm build:cli
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --format profile
-imprint extract https://example.com --format reconstruction
 ```
 
 MCP 服务器提供确定性的 `imprint_extract` 与 `imprint_compare` 工具，不需要任何厂商凭据。`imprint_compare` 可以接收

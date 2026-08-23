@@ -228,8 +228,8 @@
       "p0Heading": "#### P0 · 核心设计语言",
       "p0Empty": "- 当前没有基础规则同时达到跨页面和高置信度要求。精确令牌仍可作为观察值使用，但不能当作全局迁移规则。",
       "implementation": "实施方式",
-      "coordinateHeading": "#### 有限风格坐标",
-      "coordinateIntro": "下面六个有限维度只标明它们已达到可复用的 P0，还是只能作为局部 P2 证据保留。",
+      "coordinateHeading": "#### 跨页面基础规则覆盖",
+      "coordinateIntro": "下面只评估六个维度是否形成跨页面基础规则。同一维度即使标为 P2，上方仍可能存在适用于特定重复结构的 P0 规则，下方也可能保留局部 P2 事实。",
       "coordinateLine": "- **{{dimension}}：** {{priority}}",
       "categories": {
         "color": "色彩",
@@ -845,6 +845,22 @@
       "scopeBoundaryStatement": "证据覆盖 {{urls}} 个 URL 组和这些视口：{{viewports}}；范围外行为未被观察。",
       "scopeBoundaryImplementation": "不要把声明泛化到未采集的 URL、视口、状态或内容变体。",
       "mediaStatement": "观察到 {{count}} 个主要媒体区域，类型包括 {{kinds}}，用途包括 {{roles}}。",
+      "listSeparator": "、",
+      "mediaKinds": {
+        "image": "图片",
+        "video": "视频",
+        "svg": "SVG",
+        "canvas": "画布",
+        "css-background": "CSS 背景"
+      },
+      "mediaRoles": {
+        "ambient": "氛围",
+        "narrative": "叙事",
+        "product": "产品展示",
+        "decorative": "装饰性",
+        "icon": "图标",
+        "unknown": "未分类"
+      },
       "dimensions": {
         "color": "颜色"
       },

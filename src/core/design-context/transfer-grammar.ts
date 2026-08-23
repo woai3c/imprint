@@ -1,15 +1,12 @@
-import {
-  hasVisibleBorder,
-  hasVisibleShadow,
-  isPillRadius,
-  summarizeComponentVariants,
-} from '../analyzer/component-detect.js'
+import { isPillRadius, summarizeComponentVariants } from '../analyzer/component-detect.js'
 import type { ComponentType } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { ComponentEvidence, DesignEvidence, InteractionObservation } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
 import { canonicalCatalogPageIds } from './claim-catalog.js'
+import { isSurfaceEvidenceOwner, surfaceEvidenceStrategy, surfaceEvidenceTokenRefs } from './surface-evidence.js'
+import type { SurfaceEvidenceOwner } from './surface-evidence.js'
 import type {
   ComponentRecipe,
   ComponentRecipeRestriction,
@@ -80,30 +77,6 @@ function canonicalFoundationScope(evidence: DesignEvidence): CanonicalFoundation
   }
 }
 
-function surfaceStrategy(owner: EvidenceTokenOwner): 'border' | 'flat' | 'mixed' | 'shadow' {
-  const border =
-    'styles' in owner
-      ? hasVisibleBorder(owner.styles.border)
-      : Object.values(owner.observedStyles?.borders || {}).some(hasVisibleBorder)
-  const shadow =
-    'styles' in owner ? hasVisibleShadow(owner.styles.boxShadow) : hasVisibleShadow(owner.observedStyles?.boxShadow)
-  return border && shadow ? 'mixed' : border ? 'border' : shadow ? 'shadow' : 'flat'
-}
-
-function isSurfaceOwner(owner: EvidenceTokenOwner): boolean {
-  if ('styles' in owner) {
-    return Boolean(
-      owner.styles.backgroundColor || hasVisibleBorder(owner.styles.border) || hasVisibleShadow(owner.styles.boxShadow),
-    )
-  }
-  return Boolean(
-    owner.observedStyles?.backgroundColor ||
-    owner.observedStyles?.gradient ||
-    Object.values(owner.observedStyles?.borders || {}).some(hasVisibleBorder) ||
-    hasVisibleShadow(owner.observedStyles?.boxShadow),
-  )
-}
-
 function foundationOwners(
   dimension: Exclude<StyleCoordinate['dimension'], 'composition'>,
   scope: CanonicalFoundationScope,
@@ -116,7 +89,7 @@ function foundationOwners(
   }
   if (dimension === 'shape') return scope.components
   if (dimension === 'density') return scope.sections
-  return [...scope.sections, ...scope.components].filter(isSurfaceOwner)
+  return scope.sections.filter(isSurfaceEvidenceOwner)
 }
 
 function sharedFoundationTokenRefs(
@@ -131,7 +104,11 @@ function sharedFoundationTokenRefs(
     const pageUrl = scope.urlByPageId.get(owner.pageId)
     if (!pageUrl) continue
     const refs = pageRefs.get(pageUrl) || new Set<string>()
-    owner.tokenRefs.filter((ref) => prefixes.some((prefix) => ref.startsWith(prefix))).forEach((ref) => refs.add(ref))
+    const ownerRefs =
+      dimension === 'surface'
+        ? surfaceEvidenceTokenRefs(owner as SurfaceEvidenceOwner, evidence.tokens)
+        : owner.tokenRefs.filter((ref) => prefixes.some((prefix) => ref.startsWith(prefix)))
+    ownerRefs.forEach((ref) => refs.add(ref))
     pageRefs.set(pageUrl, refs)
   }
   const requiredPages = Math.ceil(scope.urls.length * 0.75)
@@ -146,6 +123,13 @@ function median(values: readonly number[]): number {
   const sorted = [...values].sort((first, second) => first - second)
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
+}
+
+function cssLengthSortValue(value: string): number {
+  const match = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)?$/i)
+  if (!match) return Number.POSITIVE_INFINITY
+  const amount = Number.parseFloat(match[1])
+  return ['rem', 'em'].includes((match[2] || '').toLowerCase()) ? amount * 16 : amount
 }
 
 function consistentContainerWidths(evidence: DesignEvidence): boolean {
@@ -173,7 +157,7 @@ function consistentSurfaceStrategy(evidence: DesignEvidence): boolean {
     const url = scope.urlByPageId.get(owner.pageId)
     if (!url) continue
     const strategies = strategiesByUrl.get(url) || new Map<string, number>()
-    const strategy = surfaceStrategy(owner)
+    const strategy = surfaceEvidenceStrategy(owner as SurfaceEvidenceOwner)
     strategies.set(strategy, (strategies.get(strategy) || 0) + 1)
     strategiesByUrl.set(url, strategies)
   }
@@ -364,6 +348,9 @@ function withFoundationGuidance(
     }
   }
   if (category === 'surface') {
+    if (foundationOwners('surface', canonicalFoundationScope(evidence)).length === 0) {
+      return structuredClone(source)
+    }
     const counts = source.assertions?.find((assertion) => assertion.property === 'observed-surface-counts')?.value
     const values = Array.isArray(counts) ? counts : []
     const parsed = Object.fromEntries(
@@ -398,7 +385,10 @@ function withFoundationGuidance(
         (first, second) => second.count - first.count || sourceRefs.indexOf(first.ref) - sourceRefs.indexOf(second.ref),
       )
       .slice(0, 6)
-      .sort((first, second) => sourceRefs.indexOf(first.ref) - sourceRefs.indexOf(second.ref))
+      .sort(
+        (first, second) =>
+          cssLengthSortValue(first.value) - cssLengthSortValue(second.value) || first.value.localeCompare(second.value),
+      )
     return {
       ...structuredClone(source),
       statement: t('densityStatement', { values: ranked.map((item) => item.value).join(', ') }),

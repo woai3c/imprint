@@ -189,7 +189,10 @@ runs out, the tab strip scrolls horizontally instead.
 - The browser-observed overview is a complete supported result, not an error or a setup advertisement. It states plainly
   that everything shown was directly observed by the browser, without displaying internal implementation labels.
 - Keep Design Evidence JSON separate from Tokens JSON. The former carries source, topology, geometry, component,
-  responsive, state, media, coverage, and limitation facts; the latter remains the portable token artifact.
+  responsive, state, media, coverage, and limitation facts, plus the token catalog that owns every positional
+  `tokenRefs` reference inside that evidence package. The latter remains the portable all-capture token artifact.
+  Deterministic profiles and DESIGN.md always resolve evidence claims against the evidence-owned catalog, validate all
+  references before persistence and export, and fail explicitly instead of silently resolving against another catalog.
 - Legacy history records without Design Evidence retain their saved artifacts and show a concise compatibility notice
   instead of fabricated topology.
 - Page structure is a compact ordered map, not a decorative site diagram. Use localized section roles and preserve the
@@ -204,6 +207,12 @@ runs out, the tab strip scrolls horizontally instead.
   human-readable route and viewport scope when the supporting page can be resolved. Relevant token references and their
   resolved values appear with the claim. Raw claim IDs, assertions, and the complete internal evidence record are not
   repeated as a human-facing appendix.
+- New analyses derive a bounded transfer guide from the same evidence. Overview presents reusable cross-page foundations
+  as P0, matching component-and-variant recipes as conditional P1, and local or insufficiently covered observations as
+  progressively disclosed P2/Unknown. The normal desktop view uses these human-readable groups instead of exposing
+  DesignProfile, claim catalog, assertion, or evidence-ID terminology. A human-readable **View evidence** action may
+  still open the supporting screenshot region without revealing the internal identifier. A P2 fact never becomes a
+  global rule merely because the user opens its details.
 - Analysis status describes capture and evidence quality only. A usable deterministic analysis cannot become `partial`
   or `failed` because an unrelated external tool is unavailable.
 - Imprint does not contain a model-provider, API-key, local-model, or Agent CLI execution path. The user's external coding
@@ -366,10 +375,11 @@ runs out, the tab strip scrolls horizontally instead.
   navigation or the page-health gate, analysis continues with other ranked candidates until the requested page bound,
   candidate exhaustion, cancellation, or an explicit early finish. Newly completed pages can contribute more same-origin links to the queue; identity normalization prevents
   query, fragment, and repeated-route loops.
-- The entry page remains authoritative for canvas, surface, and foreground roles. Additional pages may strengthen or
-  add action colors, components, breakpoints, motion, and other tokens. Token JSON and DTCG exports carry deterministic
-  per-token confidence, observation counts, source pages, and provenance; repeated viewports are captures, not distinct
-  pages. DESIGN.md summarizes confidence and calls out low-confidence values for review.
+- Canvas, surface, foreground, and action roles are ranked from per-page-normalized observations across the complete
+  evidence-eligible page set; capture order or one missing entry viewport must not silently relabel site-wide semantic
+  colors. Additional pages may strengthen components, breakpoints, motion, and other tokens. Token JSON and DTCG exports
+  carry deterministic per-token confidence, observation counts, source pages, and provenance; repeated viewports are
+  captures, not distinct pages. DESIGN.md summarizes confidence and calls out low-confidence values for review.
 - Every successfully analyzed URL produces screenshot evidence with its URL and viewport. Show all available evidence
   in the result panel and report the actual page and screenshot counts.
 - Full-page evidence must retain the measured document height even when a page has horizontal overflow. Capture only the
@@ -436,6 +446,13 @@ runs out, the tab strip scrolls horizontally instead.
 The desktop app has one export artifact: **DESIGN.md**. It explains design intent, rules, observed evidence, reusable
 values, coverage, and limitations. Users provide it together with the current UI screenshot or source code when asking
 an external coding agent to revise an existing interface.
+
+The document begins with a transfer contract: P0 foundations apply by default only within their declared scope; P1
+recipes apply only when the target contains the matching component and variant; P2 facts remain local and cannot
+override either. Six bounded coordinates summarize color, typography, shape, surface/elevation, density/rhythm, and
+composition without producing an opaque style score. Component recipes distinguish general Web usage guidance from observed source
+styles, include only observed states and responsive behavior, and state restrictions that prevent special shapes,
+overlay elevation, or local layout from being generalized.
 
 Generated documents are built as a typed document model and rendered with the Google Labs DESIGN.md alpha token schema
 and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact

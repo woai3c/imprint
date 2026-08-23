@@ -228,8 +228,8 @@
       "p0Heading": "#### P0 · Core design language",
       "p0Empty": "- No foundation met the cross-page, high-confidence requirement. Use exact tokens as observed values, not as global transfer rules.",
       "implementation": "Implementation",
-      "coordinateHeading": "#### Finite style coordinates",
-      "coordinateIntro": "The six bounded coordinates below show whether each dimension is supported as a reusable P0 rule or retained only as P2 local evidence.",
+      "coordinateHeading": "#### Cross-page foundation coverage",
+      "coordinateIntro": "These six lines grade only each dimension's cross-page foundation. A dimension shown as P2 can still have a narrower repeated P0 rule above or local P2 facts below.",
       "coordinateLine": "- **{{dimension}}:** {{priority}}",
       "categories": {
         "color": "Color",
@@ -845,6 +845,22 @@
       "scopeBoundaryStatement": "The evidence covers {{urls}} URL groups at these captured viewports: {{viewports}}; behavior outside that scope was not observed.",
       "scopeBoundaryImplementation": "Do not generalize claims to uncaptured URLs, viewports, states, or content variants.",
       "mediaStatement": "Observed {{count}} major media regions with these types: {{kinds}}; their roles include {{roles}}.",
+      "listSeparator": ", ",
+      "mediaKinds": {
+        "image": "image",
+        "video": "video",
+        "svg": "SVG",
+        "canvas": "canvas",
+        "css-background": "CSS background"
+      },
+      "mediaRoles": {
+        "ambient": "ambient",
+        "narrative": "narrative",
+        "product": "product",
+        "decorative": "decorative",
+        "icon": "icon",
+        "unknown": "unclassified"
+      },
       "dimensions": {
         "color": "color"
       },

@@ -361,7 +361,7 @@ describe('deterministic design context', () => {
     expect(statements).toEqual(expect.arrayContaining([expect.stringContaining('Visible transitions were observed')]))
     expect(profile.transferGrammar!.localRules.map((item) => item.category)).toContain('responsive')
     expect(generateTransferOverviewMarkdown(profile, tokens, new Map(), evidence)).toContain(
-      'The six bounded coordinates below',
+      "These six lines grade only each dimension's cross-page foundation",
     )
   })
 
@@ -531,6 +531,9 @@ describe('deterministic design context', () => {
 
   it('keeps sampled surface guidance bounded and prints repeated P2 scope guidance once', () => {
     const evidence = createEvidence()
+    evidence.sections.forEach((section) => {
+      section.observedStyles = { backgroundColor: '#ffffff' }
+    })
     const profile = createDeterministicDesignContext(evidence, 'en').profile
     const surface = profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')
     const markdown = generateTransferBoundariesMarkdown(profile, tokens, new Map(), evidence)
@@ -539,6 +542,116 @@ describe('deterministic design context', () => {
     expect(surface?.claim.implementation).not.toContain('keep flat content groups free of invented borders')
     expect(markdown.match(/Each fact below applies only to its cited capture scope/g)).toHaveLength(1)
     expect(markdown).not.toContain('Implementation: Apply this fact only within the cited capture scope')
+  })
+
+  it('requires visible base-surface evidence and a matching surface token before promotion to P0', () => {
+    const evidence = createEvidence()
+    evidence.pages[1].url = 'https://example.com/secondary'
+    evidence.pages[1].id = 'page-secondary'
+    evidence.pages[1].images[0].id = 'image-secondary'
+    evidence.sections[1].pageId = 'page-secondary'
+    evidence.sections[1].id = 'section-secondary'
+    evidence.sections[1].evidenceRefs = ['image-secondary']
+    evidence.components.push({
+      ...structuredClone(evidence.components[0]),
+      id: 'component-secondary',
+      pageId: 'page-secondary',
+      sectionId: 'section-secondary',
+      evidenceRefs: ['section-secondary', 'image-secondary'],
+    })
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = ['color.background', 'spacing.1']
+      section.observedStyles = { backgroundColor: 'rgba(0, 0, 0, 0)' }
+    })
+
+    const transparentSurface = createDeterministicDesignContext(
+      evidence,
+      'en',
+    ).profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')
+
+    expect(transparentSurface?.priority).toBe('P2')
+
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = ['color.foreground', 'spacing.1']
+      section.observedStyles = { backgroundColor: '#ffffff' }
+    })
+    const unrelatedColorSurface = createDeterministicDesignContext(
+      evidence,
+      'en',
+    ).profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')
+
+    expect(unrelatedColorSurface).toMatchObject({ priority: 'P2', claim: { tokenRefs: [] } })
+
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = ['color.background', 'spacing.1']
+    })
+    const supportedSurface = createDeterministicDesignContext(
+      evidence,
+      'en',
+    ).profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')
+
+    expect(supportedSurface).toMatchObject({ priority: 'P0', claim: { tokenRefs: ['color.background'] } })
+  })
+
+  it('orders the selected spacing rhythm by size after ranking values by observed frequency', () => {
+    const evidence = createEvidence()
+    evidence.tokens = {
+      ...structuredClone(tokens),
+      spacing: ['16px', '32px', '8px'],
+      usageCount: {
+        'spacing:16px': 90,
+        'spacing:32px': 70,
+        'spacing:8px': 50,
+      },
+    }
+    evidence.pages[1].url = 'https://example.com/secondary'
+    evidence.pages[1].id = 'page-secondary'
+    evidence.pages[1].images[0].id = 'image-secondary'
+    evidence.sections[1].pageId = 'page-secondary'
+    evidence.sections[1].id = 'section-secondary'
+    evidence.sections[1].evidenceRefs = ['image-secondary']
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = ['spacing.1', 'spacing.2', 'spacing.3']
+    })
+
+    const density = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.styleCoordinates.find(
+      (coordinate) => coordinate.dimension === 'density',
+    )
+
+    expect(density?.claim.statement).toContain('8px, 16px, 32px')
+    expect(density?.claim.tokenRefs).toEqual(['spacing.3', 'spacing.1', 'spacing.2'])
+  })
+
+  it('localizes media kinds and unclassified roles before claims reach the UI or export', () => {
+    const evidence = createEvidence()
+    evidence.mediaLayers = [
+      {
+        id: 'media-background',
+        pageId: 'page-desktop',
+        sectionId: 'section-desktop',
+        kind: 'css-background',
+        role: 'decorative',
+        importance: 'major',
+        rect: { x: 0, y: 0, width: 1, height: 0.4 },
+      },
+      {
+        id: 'media-video',
+        pageId: 'page-desktop',
+        sectionId: 'section-desktop',
+        kind: 'video',
+        role: 'unknown',
+        importance: 'major',
+        rect: { x: 0.1, y: 0.4, width: 0.8, height: 0.4 },
+      },
+    ]
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'zh-CN')
+    const imagery = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'visual' && placement.slot === 'imagery'),
+    )
+
+    expect(imagery?.claim.statement).toContain('类型包括 CSS 背景、视频，用途包括 装饰性、未分类')
+    expect(imagery?.claim.statement).not.toContain('unknown')
   })
 
   it('promotes foundations only after evidence spans independent URLs and exports all priority layers', () => {
@@ -551,6 +664,8 @@ describe('deterministic design context', () => {
     evidence.sections[1].evidenceRefs = ['image-secondary']
     evidence.sections[0].tokenRefs = ['color.background', 'spacing.1', 'spacing.2']
     evidence.sections[1].tokenRefs = ['color.background', 'spacing.1', 'spacing.2']
+    evidence.sections[0].observedStyles = { backgroundColor: '#ffffff' }
+    evidence.sections[1].observedStyles = { backgroundColor: '#ffffff' }
     evidence.components.push({
       ...structuredClone(evidence.components[0]),
       id: 'component-secondary',
@@ -724,7 +839,9 @@ describe('deterministic design context', () => {
       pageId: 'page-secondary',
       tokenRefs: ['color.background', 'spacing.2'],
       evidenceRefs: ['image-secondary'],
+      observedStyles: { backgroundColor: '#ffffff' },
     }
+    evidence.sections[0].observedStyles = { backgroundColor: '#ffffff' }
     const componentFor = (pageId: string, sectionId: string, index: number) => ({
       ...structuredClone(evidence.components[0]),
       id: `component-${pageId}-${index}`,

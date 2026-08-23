@@ -116,7 +116,6 @@ imprint doctor --browser-path "/path/to/chrome" --json
 imprint extract https://example.com --viewport all --format evidence
 imprint extract https://example.com --pages 5 --discovery auto --format json
 imprint extract https://example.com --viewport all --format profile
-imprint extract https://example.com --format reconstruction
 ```
 
 `imprint doctor` verifies Node.js, the operating system, browser executable access, and an actual headless launch without

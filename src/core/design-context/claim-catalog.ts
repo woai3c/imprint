@@ -1,11 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import {
-  classifyComponentVariant,
-  hasVisibleBorder,
-  hasVisibleShadow,
-  isPillRadius,
-} from '../analyzer/component-detect.js'
+import { classifyComponentVariant, isPillRadius } from '../analyzer/component-detect.js'
 import type { ComponentType } from '../analyzer/component-detect.js'
 import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
 import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
@@ -17,6 +12,8 @@ import {
 import type { ComponentEvidence, DesignEvidence, EvidencePage, SectionEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
 import { listEvidenceIds, listEvidenceTokenRefs } from './evidence-index.js'
+import { isSurfaceEvidenceOwner, surfaceEvidenceStrategy, surfaceEvidenceTokenRefs } from './surface-evidence.js'
+import type { SurfaceEvidenceOwner } from './surface-evidence.js'
 import { DESIGN_PROFILE_SCHEMA_VERSION } from './types.js'
 import type {
   Confidence,
@@ -616,45 +613,16 @@ function buildVisualClaims(
     })
   }
 
-  const surfaceOwners = owners.filter((owner) => {
-    if ('styles' in owner) {
-      return Boolean(
-        owner.styles.backgroundColor ||
-        hasVisibleBorder(owner.styles.border) ||
-        hasVisibleShadow(owner.styles.boxShadow),
-      )
-    }
-    const styles = owner.observedStyles
-    return Boolean(
-      styles?.backgroundColor ||
-      styles?.gradient ||
-      Object.values(styles?.borders || {}).some(hasVisibleBorder) ||
-      hasVisibleShadow(styles?.boxShadow),
-    )
-  })
+  const sectionSurfaceOwners = sections.filter(isSurfaceEvidenceOwner)
+  const surfaceOwners: SurfaceEvidenceOwner[] =
+    sectionSurfaceOwners.length > 0 ? sectionSurfaceOwners : components.filter(isSurfaceEvidenceOwner)
   if (surfaceOwners.length > 0) {
-    const samples = representativeOwnersAcrossUrls(surfaceOwners, pageById, (owner) => {
-      const border =
-        'styles' in owner
-          ? hasVisibleBorder(owner.styles.border)
-          : Object.values(owner.observedStyles?.borders || {}).some(hasVisibleBorder)
-      const shadow =
-        'styles' in owner ? hasVisibleShadow(owner.styles.boxShadow) : hasVisibleShadow(owner.observedStyles?.boxShadow)
-      return JSON.stringify([
-        border && shadow ? 'mixed' : border ? 'border' : shadow ? 'shadow' : 'flat',
-        stableList(owner.tokenRefs.filter((ref) => /^(?:border|color|shadow)\./.test(ref))),
-      ])
-    })
+    const samples = representativeOwnersAcrossUrls(surfaceOwners, pageById, (owner) =>
+      JSON.stringify([surfaceEvidenceStrategy(owner), surfaceEvidenceTokenRefs(owner, evidence.tokens)]),
+    )
     const evidenceIds = samples.map((owner) => owner.id)
-    const bordered = samples.filter((owner) =>
-      'styles' in owner
-        ? hasVisibleBorder(owner.styles.border)
-        : Object.values(owner.observedStyles?.borders || {}).some(hasVisibleBorder),
-    ).length
-    const shadowed = samples.filter((owner) => {
-      const shadow = 'styles' in owner ? owner.styles.boxShadow : owner.observedStyles?.boxShadow
-      return hasVisibleShadow(shadow)
-    }).length
+    const bordered = samples.filter((owner) => ['border', 'mixed'].includes(surfaceEvidenceStrategy(owner))).length
+    const shadowed = samples.filter((owner) => ['shadow', 'mixed'].includes(surfaceEvidenceStrategy(owner))).length
     builder.add('visual-surfaces', [{ kind: 'singleton', slot: 'visual.surfaces' }], {
       statement: t('surfaceStatement', { count: samples.length, bordered, shadowed }),
       implementation: t('boundedImplementation'),
@@ -672,7 +640,7 @@ function buildVisualClaims(
         },
       ],
       tokenRefs: stableList(
-        samples.flatMap((owner) => owner.tokenRefs),
+        samples.flatMap((owner) => surfaceEvidenceTokenRefs(owner, evidence.tokens)),
         8,
       ),
     })
@@ -1195,8 +1163,12 @@ function buildMediaClaim(
   builder.add('visual-imagery', [{ kind: 'visual', slot: 'imagery' }], {
     statement: t('mediaStatement', {
       count: media.length,
-      kinds: stableList(media.map((item) => item.kind)).join(', '),
-      roles: stableList(media.map((item) => item.role)).join(', '),
+      kinds: stableList(media.map((item) => item.kind))
+        .map((kind) => t(`mediaKinds.${kind}`))
+        .join(t('listSeparator')),
+      roles: stableList(media.map((item) => item.role))
+        .map((role) => t(`mediaRoles.${role}`))
+        .join(t('listSeparator')),
     }),
     implementation: t('boundedImplementation'),
     confidence: confidenceFor(evidenceIds, evidence),

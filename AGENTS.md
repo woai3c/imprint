@@ -17,6 +17,10 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - Avoid unnecessary questions; ask only when a key decision requires confirmation.
 - Use sub-agents judiciously and avoid unnecessary parallelism.
 - Keep code changes minimal and avoid unrelated refactoring.
+- Focus product work on Imprint's core job: accurately extract a website's observed design language and produce a useful,
+  truthful `DESIGN.md`. Do not add features, infrastructure, security hardening, or evaluation workflows unless they
+  directly improve that core user outcome or address a concrete risk appropriate to a local desktop application. Prefer
+  the simplest verifiable solution and remove speculative complexity that has no demonstrated user value.
 - Keep analyzer and extraction behavior site-agnostic. Do not branch on hostnames, brands, vendor-specific routes,
   CSS classes, test IDs, or other implementation details of a particular website to improve its result. Use web
   standards and general DOM/URL semantics, and validate general claims with neutral fixtures covering multiple site

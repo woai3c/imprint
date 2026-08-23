@@ -10,5 +10,6 @@
   "[markdown]": {
     "editor.formatOnSave": false,
     "editor.defaultFormatter": "vscode.markdown-language-features"
-  }
+  },
+  "liveServer.settings.port": 5501
 }

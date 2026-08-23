@@ -228,11 +228,6 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
     }
   }
 
-  // CSS variable usage
-  if (Object.keys(styles.cssVariables).length > 20) {
-    tags.push('extensive CSS variable usage')
-  }
-
   return tags
 }
 

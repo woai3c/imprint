@@ -931,7 +931,7 @@ export async function analyze(
       const explicitlyAnalyzableAccessSurface = health.issues.some(
         (issue) => issue.code === 'auth-wall' || issue.code === 'captcha',
       )
-      if (health.status === 'unusable' && !explicitlyAnalyzableAccessSurface) {
+      if (page.isClosed() || (health.status === 'unusable' && !explicitlyAnalyzableAccessSurface)) {
         if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:health-excluded`)
         continue
       }
@@ -993,7 +993,7 @@ export async function analyze(
       const captureExplicitlyAnalyzableAccessSurface = health.issues.some(
         (issue) => issue.code === 'auth-wall' || issue.code === 'captcha',
       )
-      if (health.status === 'unusable' && !captureExplicitlyAnalyzableAccessSurface) {
+      if (page.isClosed() || (health.status === 'unusable' && !captureExplicitlyAnalyzableAccessSurface)) {
         analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}`)
         allStyles.pop()
         styleCaptures.pop()
@@ -1715,13 +1715,7 @@ export async function analyze(
     )
 
     reportProgress('progress.clusteringColors', 90)
-    const primaryPageStyles = allStyles[0] || mergedStyles
-    const clusteredColors = clusterColors(
-      tokenSelectionStyles.colors,
-      tokenSelectionStyles.usageCount,
-      primaryPageStyles.usageCount,
-      tokenSelectionStyles.usageCount,
-    )
+    const clusteredColors = clusterColors(tokenSelectionStyles.colors, tokenSelectionStyles.usageCount)
 
     reportProgress('progress.generatingTokens', 95)
     const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
@@ -1735,13 +1729,7 @@ export async function analyze(
         evidenceEligibleStyles,
         evidenceEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
       )
-      const evidencePrimaryStyles = evidenceEligibleStyles[0] || evidenceMergedStyles
-      const evidenceColors = clusterColors(
-        evidenceSelectionStyles.colors,
-        evidenceSelectionStyles.usageCount,
-        evidencePrimaryStyles.usageCount,
-        evidenceSelectionStyles.usageCount,
-      )
+      const evidenceColors = clusterColors(evidenceSelectionStyles.colors, evidenceSelectionStyles.usageCount)
       evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
       evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
       evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, evidenceEligibleStyleCaptures)

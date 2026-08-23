@@ -5,6 +5,7 @@ import {
   redactUrlsInText,
   sanitizeDesignEvidenceForPersistence,
   sanitizeDesignTokensForPersistence,
+  sanitizeDiagnosticTextForDisplay,
   sanitizeUrlForPersistence,
 } from '../../src/core/analyzer/url-privacy.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
@@ -23,6 +24,29 @@ describe('URL privacy', () => {
     expect(redactUrlsInText('Proxy socks5://user:secret@127.0.0.1:1080?token=secret')).toBe(
       'Proxy socks5://127.0.0.1:1080',
     )
+    expect(redactUrlsInText('来源 https://example.com/path?token=secret：检测到横向溢出')).toBe(
+      '来源 https://example.com/path：检测到横向溢出',
+    )
+  })
+
+  it('removes terminal formatting from diagnostic text', () => {
+    const escape = String.fromCharCode(27)
+    expect(
+      sanitizeDiagnosticTextForDisplay(
+        `page.goto: Timeout 20000ms exceeded.\n${escape}[2m - waiting for https://example.test/path?token=secret${escape}[22m`,
+      ),
+    ).toBe('page.goto: Timeout 20000ms exceeded.\n - waiting for https://example.test/path')
+  })
+
+  it('redacts a complete diagnostic URL when its path contains a legal apostrophe', () => {
+    const requestUrl = "http://demo:secret@127.0.0.1:9/foo'bar?token=synthetic#fragment"
+    const diagnostic = `connect failed at ${requestUrl}`
+
+    expect(sanitizeDiagnosticTextForDisplay(diagnostic, [requestUrl])).toBe(
+      "connect failed at http://127.0.0.1:9/foo'bar",
+    )
+    expect(sanitizeDiagnosticTextForDisplay(diagnostic)).not.toContain('synthetic')
+    expect(sanitizeDiagnosticTextForDisplay(diagnostic)).not.toContain('fragment')
   })
 
   it('redacts token provenance page URLs', () => {

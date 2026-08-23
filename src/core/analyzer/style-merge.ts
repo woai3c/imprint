@@ -132,5 +132,10 @@ export function mergeStylesWithNormalizedUsage(
     }
   }
 
-  return { ...merged, usageCount: normalizedUsage }
+  return {
+    ...merged,
+    usageCount: Object.fromEntries(
+      Object.entries(normalizedUsage).sort(([first], [second]) => first.localeCompare(second)),
+    ),
+  }
 }

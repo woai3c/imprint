@@ -15,12 +15,36 @@ export function sanitizeUrlForPersistence(value: string): string {
   }
 }
 
-export function redactUrlsInText(value: string): string {
-  return value.replace(/[a-z][a-z\d+.-]*:\/\/[^\s<>"'`]+/gi, (matched) => {
+function knownUrlForms(values: readonly string[]): string[] {
+  const forms = new Set<string>()
+  for (const value of values) {
+    if (!value) continue
+    forms.add(value)
+    try {
+      forms.add(new URL(value).href)
+    } catch {
+      // The generic scanner remains the fallback for malformed URL-like input.
+    }
+  }
+  return [...forms].sort((left, right) => right.length - left.length || left.localeCompare(right))
+}
+
+export function redactUrlsInText(value: string, knownUrls: readonly string[] = []): string {
+  let redacted = value
+  for (const knownUrl of knownUrlForms(knownUrls)) {
+    redacted = redacted.split(knownUrl).join(sanitizeUrlForPersistence(knownUrl))
+  }
+  return redacted.replace(/[a-z][a-z\d+.-]*:\/\/[^\s<>"`：；，。！？、（）【】《》]+/gi, (matched) => {
     const trailing = /[),.;\]}]+$/.exec(matched)?.[0] || ''
     const url = trailing ? matched.slice(0, -trailing.length) : matched
     return `${sanitizeUrlForPersistence(url)}${trailing}`
   })
+}
+
+export function sanitizeDiagnosticTextForDisplay(value: string, knownUrls: readonly string[] = []): string {
+  const escape = String.fromCharCode(27)
+  const ansiControlSequence = new RegExp(`${escape}(?:\\[[0-?]*[ -/]*[@-~]|[@-_])`, 'g')
+  return redactUrlsInText(value, knownUrls).replace(ansiControlSequence, '')
 }
 
 export function sanitizeDesignTokensForPersistence(tokens: DesignToken): DesignToken {
@@ -120,7 +144,7 @@ export function sanitizePageCoverageForPersistence(coverage: PageCoverage): Page
 }
 
 export function sanitizeExtractionIssuesForDisplay(issues: ExtractionIssue[]): ExtractionIssue[] {
-  return issues.map((issue) => ({ ...issue, reason: redactUrlsInText(issue.reason) }))
+  return issues.map((issue) => ({ ...issue, reason: sanitizeDiagnosticTextForDisplay(issue.reason) }))
 }
 
 export function sanitizeAuthWallDetectionForDisplay(detection: AuthWallDetection): AuthWallDetection {

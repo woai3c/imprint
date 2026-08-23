@@ -42,6 +42,9 @@ interface PageHealthOptions {
   responseStatus?: number
 }
 
+const HEALTH_RECOVERY_TIMEOUT_MS = 14_000
+const EMPTY_CONTENT_RELOAD_TIMEOUT_MS = 6_000
+
 function sameOrigin(first: string, second: string): boolean {
   try {
     return new URL(first).origin === new URL(second).origin
@@ -254,32 +257,73 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
   if (!initial.issues.some((issue) => issue.recoverable)) return initial
 
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(new Error('page health recovery exceeded 8000ms')), 8_000)
+  let forcedPageClose: Promise<void> | undefined
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`page health recovery exceeded ${HEALTH_RECOVERY_TIMEOUT_MS}ms`))
+    // Playwright reload/evaluate calls do not consume our AbortSignal. Closing this capture page is the only
+    // reliable way to cancel those operations and prevents them from changing state after this function returns.
+    forcedPageClose = (async () => {
+      if (page.isClosed()) return
+      try {
+        await page.close({ runBeforeUnload: false })
+      } catch {
+        // A concurrent browser/context shutdown has already made the page unusable.
+      }
+    })()
+  }, HEALTH_RECOVERY_TIMEOUT_MS)
   try {
     const recovery = (async () => {
       await preparePageForExtraction(page, { recovery: true, signal: controller.signal })
       if (controller.signal.aborted) throw controller.signal.reason
-      return inspectPageHealth(page, options)
+      let recovered = await inspectPageHealth(page, options)
+      let attempts = 2
+      // A committed document can still be an empty transient shell. One ordinary reload is a bounded, site-agnostic
+      // recovery for that state; access walls, HTTP errors, and unexpected navigation are never reloaded here.
+      if (recovered.issues.some((issue) => issue.code === 'main-content-empty')) {
+        const response = await page.reload({ waitUntil: 'commit', timeout: EMPTY_CONTENT_RELOAD_TIMEOUT_MS })
+        await page
+          .waitForFunction(
+            () =>
+              (document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml') &&
+              Boolean(document.body?.childElementCount),
+            undefined,
+            { timeout: EMPTY_CONTENT_RELOAD_TIMEOUT_MS },
+          )
+          .catch(() => {})
+        if (controller.signal.aborted) throw controller.signal.reason
+        await preparePageForExtraction(page, { recovery: true, signal: controller.signal })
+        if (controller.signal.aborted) throw controller.signal.reason
+        recovered = await inspectPageHealth(page, {
+          ...options,
+          responseStatus: response?.status() ?? options.responseStatus,
+        })
+        attempts = 3
+      }
+      return { ...recovered, attempts }
     })()
-    const recovered = await Promise.race([
-      recovery,
-      new Promise<never>((_resolve, reject) =>
-        controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }),
-      ),
-    ])
-    return { ...recovered, recovered: recovered.issues.length < initial.issues.length, attempts: 2 }
+    // Do not race the recovery promise. On timeout the page is closed above; awaiting the promise guarantees that
+    // reload/prepare work has settled before the caller can continue with another capture.
+    const recovered = await recovery
+    return { ...recovered, recovered: recovered.issues.length < initial.issues.length }
   } catch (error) {
     const timedOut = controller.signal.aborted
+    if (forcedPageClose) await forcedPageClose
     const issues: PageHealthIssue[] = [
       ...initial.issues,
       {
         code: timedOut ? 'health-recovery-timeout' : 'health-recovery-failed',
         severity: 'warning',
         recoverable: false,
-        detail: timedOut ? '8000ms' : error instanceof Error ? error.message : String(error),
+        detail: timedOut ? `${HEALTH_RECOVERY_TIMEOUT_MS}ms` : error instanceof Error ? error.message : String(error),
       },
     ]
-    return { ...initial, evidenceEligible: false, attempts: 2, issues }
+    return {
+      ...initial,
+      ...(timedOut ? { status: 'unusable' as const } : {}),
+      evidenceEligible: false,
+      attempts: 2,
+      issues,
+    }
   } finally {
     clearTimeout(timeout)
   }

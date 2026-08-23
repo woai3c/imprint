@@ -89,6 +89,11 @@ function relativeChroma(color: ColorRGB): number {
   return chroma(color) / Math.max(1, color.r, color.g, color.b)
 }
 
+function stableColorKey(color: ColorRGB | string): string {
+  const value = typeof color === 'string' ? color : color.original
+  return `${normalizeColorValue(value) || value.trim().toLowerCase()}\u0000${value.trim().toLowerCase()}`
+}
+
 function categoryFrequency(usageCount: Readonly<Record<string, number>>, category: string): Map<string, number> {
   const frequency = new Map<string, number>()
   const prefix = `${category}:`
@@ -143,6 +148,9 @@ function clusterFrequency(
     color.count = count
     parsed.push(color)
   }
+  parsed.sort(
+    (first, second) => second.count - first.count || stableColorKey(first).localeCompare(stableColorKey(second)),
+  )
 
   const clusters: ColorRGB[][] = []
   for (const color of parsed) {
@@ -152,10 +160,19 @@ function clusterFrequency(
   }
 
   return clusters
-    .sort((a, b) => b.reduce((sum, color) => sum + color.count, 0) - a.reduce((sum, color) => sum + color.count, 0))
+    .sort((first, second) => {
+      const countDifference =
+        second.reduce((sum, color) => sum + color.count, 0) - first.reduce((sum, color) => sum + color.count, 0)
+      if (countDifference !== 0) return countDifference
+      const firstKey = first.map(stableColorKey).sort().join('|')
+      const secondKey = second.map(stableColorKey).sort().join('|')
+      return firstKey.localeCompare(secondKey)
+    })
     .slice(0, limit)
     .map((cluster) => {
-      const representative = [...cluster].sort((a, b) => b.count - a.count)[0]
+      const representative = [...cluster].sort(
+        (first, second) => second.count - first.count || stableColorKey(first).localeCompare(stableColorKey(second)),
+      )[0]
       return {
         hex: normalizeColorValue(representative.original) || representative.original,
         count: cluster.reduce((sum, color) => sum + color.count, 0),
@@ -185,7 +202,10 @@ function prioritizeRelatedRoleColors(colors: string[]): string[] {
       const firstColor = parseColor(first)
       const secondColor = parseColor(second)
       if (!firstColor || !secondColor) return 0
-      return colorDistance(parsedBase, firstColor) - colorDistance(parsedBase, secondColor)
+      return (
+        colorDistance(parsedBase, firstColor) - colorDistance(parsedBase, secondColor) ||
+        stableColorKey(first).localeCompare(stableColorKey(second))
+      )
     }),
   ]
 }
@@ -201,11 +221,11 @@ function prioritizeMutedTextColors(colors: string[]): string[] {
       const firstColor = parseColor(first)
       const secondColor = parseColor(second)
       if (!firstColor || !secondColor) return 0
-      return (
+      const priorityDifference =
         colorDistance(parsedForeground, firstColor) +
         relativeChroma(firstColor) * 250 -
         (colorDistance(parsedForeground, secondColor) + relativeChroma(secondColor) * 250)
-      )
+      return priorityDifference || stableColorKey(first).localeCompare(stableColorKey(second))
     }),
   ]
 }
@@ -230,8 +250,7 @@ function appendDistinctColors(target: string[], colors: string[]): void {
 export function clusterColors(
   rawColors: string[],
   usageCount: Readonly<Record<string, number>> = {},
-  roleUsageCount: Readonly<Record<string, number>> = usageCount,
-  accentUsageCount: Readonly<Record<string, number>> = roleUsageCount,
+  accentUsageCount: Readonly<Record<string, number>> = usageCount,
 ): ClusteredColors {
   const freq = colorFrequency(rawColors, usageCount)
 
@@ -242,8 +261,8 @@ export function clusterColors(
   // and light text is still text. Area-weighted background observations win when the extractor provides them.
   // Keep subtle but intentional surface layers separate. The general palette threshold would merge common pairs such as
   // a #f4f6f9 page canvas and #ffffff cards, erasing the site's actual surface hierarchy.
-  const backgrounds = prioritizeRelatedRoleColors(roleColors(roleUsageCount, 'bgArea', 'bgColor', 12))
-  const texts = prioritizeMutedTextColors(roleColors(roleUsageCount, 'textColor'))
+  const backgrounds = prioritizeRelatedRoleColors(roleColors(usageCount, 'bgArea', 'bgColor', 12))
+  const texts = prioritizeMutedTextColors(roleColors(usageCount, 'textColor'))
 
   // Explicit semantic evidence is ordered before raw DOM frequency. Otherwise a decorative color repeated across many
   // nodes can outrank a site's declared brand token even though the repetition is an implementation detail.

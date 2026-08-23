@@ -23,26 +23,36 @@ describe('color clustering', () => {
     expect(result.palette.find((item) => item.hex === '#f59e0b')?.count).toBe(3)
   })
 
+  test('uses a stable value tie-breaker when semantic color evidence has equal weight', () => {
+    const red = 'rgb(255, 0, 0)'
+    const blue = 'rgb(0, 0, 255)'
+    const first = clusterColors([red, blue], {
+      [`bgArea:${red}`]: 1,
+      [`bgArea:${blue}`]: 1,
+    })
+    const reversed = clusterColors([blue, red], {
+      [`bgArea:${blue}`]: 1,
+      [`bgArea:${red}`]: 1,
+    })
+
+    expect(reversed.backgrounds).toEqual(first.backgrounds)
+    expect(reversed.palette).toEqual(first.palette)
+  })
+
   test('preserves observed roles for dark surfaces and light text', () => {
     const dark = 'rgb(22, 23, 29)'
     const white = 'rgb(255, 255, 255)'
     const purple = 'rgb(111, 66, 193)'
 
-    const result = clusterColors(
-      [dark, white, purple],
-      {
-        [`bgColor:${white}`]: 120,
-        [`textColor:${dark}`]: 180,
-        [`bgColor:${dark}`]: 20,
-        [`textColor:${white}`]: 30,
-        [`textColor:${purple}`]: 8,
-      },
-      {
-        [`bgArea:${dark}`]: 1,
-        [`textColor:${white}`]: 30,
-        [`accentColor:${purple}`]: 4,
-      },
-    )
+    const result = clusterColors([dark, white, purple], {
+      [`bgColor:${white}`]: 120,
+      [`textColor:${dark}`]: 30,
+      [`bgColor:${dark}`]: 20,
+      [`textColor:${white}`]: 180,
+      [`textColor:${purple}`]: 8,
+      [`bgArea:${dark}`]: 1,
+      [`accentColor:${purple}`]: 4,
+    })
 
     expect(result.backgrounds[0]).toBe('#16171d')
     expect(result.texts[0]).toBe('#ffffff')
@@ -90,15 +100,12 @@ describe('color clustering', () => {
     expect(result.accents[0]).toBe('#1772f6')
   })
 
-  test('keeps entry-page surfaces while accepting cross-page action evidence', () => {
+  test('uses cross-page surface and action evidence from the same normalized catalog', () => {
     const result = clusterColors(
       ['rgb(255, 255, 255)', 'rgb(17, 24, 39)', 'rgb(23, 114, 246)'],
       {
         'bgColor:rgb(255, 255, 255)': 2,
-        'textColor:rgb(17, 24, 39)': 2,
         'actionColor:rgb(23, 114, 246)': 1,
-      },
-      {
         'bgArea:rgb(255, 255, 255)': 1,
         'textColor:rgb(17, 24, 39)': 3,
       },
@@ -113,7 +120,6 @@ describe('color clustering', () => {
     const result = clusterColors(
       ['rgb(23, 114, 246)', 'rgb(124, 58, 237)'],
       {},
-      {},
       {
         'primaryActionColor:rgb(23, 114, 246)': 1,
         'actionColor:rgb(124, 58, 237)': 20,
@@ -126,7 +132,6 @@ describe('color clustering', () => {
   test('uses paired action backgrounds without promoting their foreground text', () => {
     const result = clusterColors(
       ['rgb(234, 88, 12)', 'rgb(251, 191, 36)', 'rgb(255, 255, 255)', 'rgb(67, 20, 7)'],
-      {},
       {},
       {
         'actionBackgroundColor:rgb(234, 88, 12)': 2,
@@ -145,7 +150,6 @@ describe('color clustering', () => {
     const result = clusterColors(
       ['rgb(21, 94, 239)', 'rgb(6, 118, 71)', 'rgb(180, 35, 24)', 'rgb(181, 71, 8)'],
       {},
-      {},
       {
         'actionBackgroundColor:rgb(21, 94, 239)': 1,
         'statusForegroundColor:rgb(6, 118, 71)': 4,
@@ -162,7 +166,6 @@ describe('color clustering', () => {
     const result = clusterColors(
       ['rgb(255, 255, 255)', 'rgb(17, 24, 39)', 'rgb(220, 38, 38)'],
       {},
-      {},
       { 'bgColor:rgb(220, 38, 38)': 8, 'statusColor:rgb(220, 38, 38)': 8 },
     )
 
@@ -174,23 +177,33 @@ describe('color clustering', () => {
     const surface = 'rgb(255, 255, 255)'
     const disabled = 'rgb(196, 199, 206)'
     const primary = 'rgb(23, 114, 246)'
-    const result = clusterColors(
-      [canvas, surface, disabled, primary],
-      {
-        [`bgColor:${surface}`]: 192,
-        [`bgColor:${canvas}`]: 4,
-        [`bgColor:${disabled}`]: 4,
-        [`bgColor:${primary}`]: 8,
-      },
-      {
-        [`bgArea:${canvas}`]: 4,
-        [`bgArea:${surface}`]: 3.5988,
-        [`bgArea:${disabled}`]: 0.000035,
-        [`actionColor:${primary}`]: 8,
-      },
-    )
+    const result = clusterColors([canvas, surface, disabled, primary], {
+      [`bgColor:${surface}`]: 192,
+      [`bgColor:${canvas}`]: 4,
+      [`bgColor:${disabled}`]: 4,
+      [`bgColor:${primary}`]: 8,
+      [`bgArea:${canvas}`]: 4,
+      [`bgArea:${surface}`]: 3.5988,
+      [`bgArea:${disabled}`]: 0.000035,
+      [`actionColor:${primary}`]: 8,
+    })
 
     expect(result.backgrounds.slice(0, 2)).toEqual(['#f4f6f9', '#ffffff'])
     expect(result.accents[0]).toBe('#1772f6')
+  })
+
+  test('keeps semantic text ordering stable across the normalized page set', () => {
+    const foreground = 'rgb(31, 35, 40)'
+    const muted = 'rgb(89, 99, 110)'
+    const link = 'rgb(9, 105, 218)'
+    const result = clusterColors([link, muted, foreground], {
+      [`textColor:${foreground}`]: 40,
+      [`textColor:${muted}`]: 20,
+      [`textColor:${link}`]: 4,
+      [`linkColor:${link}`]: 4,
+    })
+
+    expect(result.texts.slice(0, 2)).toEqual(['#1f2328', '#59636e'])
+    expect(result.accents[0]).toBe('#0969da')
   })
 })

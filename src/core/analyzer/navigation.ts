@@ -33,15 +33,21 @@ function isHttpDocumentUrl(value: string): boolean {
 async function hasCommittedUsableDocument(page: Page, graceMs: number): Promise<boolean> {
   if (page.isClosed()) return false
 
-  await page.waitForLoadState('domcontentloaded', { timeout: graceMs }).catch(() => {})
-  if (page.isClosed() || !isHttpDocumentUrl(page.url())) return false
+  const inspect = async () => {
+    if (page.isClosed() || !isHttpDocumentUrl(page.url())) return false
+    return page
+      .evaluate(() => {
+        const htmlDocument = document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml'
+        // DOMContentLoaded can remain blocked by a slow subresource after the document body is already usable.
+        // Page preparation and health checks below navigation still decide whether the content is complete enough.
+        return htmlDocument && Boolean(document.body?.childElementCount)
+      })
+      .catch(() => false)
+  }
 
-  return page
-    .evaluate(() => {
-      const htmlDocument = document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml'
-      return htmlDocument && document.readyState !== 'loading' && Boolean(document.body?.childElementCount)
-    })
-    .catch(() => false)
+  if (await inspect()) return true
+  await page.waitForLoadState('domcontentloaded', { timeout: graceMs }).catch(() => {})
+  return inspect()
 }
 
 /**
@@ -58,7 +64,20 @@ export async function navigateWithRecovery(
   const retryTimeoutMs = options.retryTimeoutMs ?? Math.min(Math.max(1, timeoutMs), NAVIGATION_RETRY_TIMEOUT_CAP_MS)
   const recoveryGraceMs = options.recoveryGraceMs ?? NAVIGATION_RECOVERY_GRACE_MS
 
-  const navigate = (timeout: number) => page.goto(url, { waitUntil: 'domcontentloaded' as const, timeout })
+  const navigate = async (timeout: number) => {
+    const startedAt = Date.now()
+    const response = await page.goto(url, { waitUntil: 'commit' as const, timeout })
+    const remainingMs = Math.max(1, timeout - (Date.now() - startedAt))
+    await page.waitForFunction(
+      () => {
+        const htmlDocument = document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml'
+        return htmlDocument && Boolean(document.body?.childElementCount)
+      },
+      undefined,
+      { timeout: remainingMs },
+    )
+    return response
+  }
 
   try {
     const response = await navigate(timeoutMs)

@@ -27,11 +27,26 @@ const MIME: Record<string, string> = {
 
 let server: http.Server | undefined
 let baseUrl = ''
+let healthRecoveryRequests = 0
 const browserAvailable = Boolean(findBrowser())
 
 beforeAll(async () => {
   server = http.createServer((request, response) => {
     const name = decodeURIComponent((request.url || '/').replace(/^\//, '').split('?')[0])
+    if (name === 'health-recovery.html') {
+      healthRecoveryRequests += 1
+      const body =
+        healthRecoveryRequests === 1
+          ? '<!doctype html><html><body><main><div></div></main></body></html>'
+          : '<!doctype html><html><body><main><h1>Recovered neutral fixture</h1><p>Stable content is now available for evidence extraction.</p></main></body></html>'
+      response.writeHead(200, {
+        'cache-control': 'no-store',
+        'content-length': Buffer.byteLength(body),
+        'content-type': MIME['.html'],
+      })
+      response.end(body)
+      return
+    }
     const filePath = path.join(fixturesDir, name)
     if (!filePath.startsWith(fixturesDir) || !fs.existsSync(filePath)) {
       response.writeHead(404)
@@ -83,6 +98,26 @@ async function analyzeKnownChangeFixture(
 }
 
 describe('Design Evidence browser regression corpus', () => {
+  it.skipIf(!browserAvailable)(
+    'recovers one committed empty document before excluding the entry capture',
+    { timeout: 60_000 },
+    async () => {
+      healthRecoveryRequests = 0
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-health-recovery-'))
+      const result = await analyze(`${baseUrl}/health-recovery.html`, {
+        viewports: ['desktop'],
+        maxPages: 1,
+        useSession: false,
+        dataDir,
+      })
+
+      expect(healthRecoveryRequests).toBe(2)
+      expect(result.designEvidence.pages).toHaveLength(1)
+      expect(result.designEvidence.coverage.pageCoverage).toBe('complete')
+      expect(result.designEvidence.pages[0].health?.status).toBe('healthy')
+    },
+  )
+
   it.skipIf(!browserAvailable)('serves every fixture and annotation pair', () => {
     expect(annotations).toHaveLength(15)
     for (const annotation of annotations) {

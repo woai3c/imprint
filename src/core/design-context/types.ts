@@ -1,5 +1,5 @@
 export type Confidence = 'high' | 'medium' | 'low'
-export const DESIGN_PROFILE_SCHEMA_VERSION = '2' as const
+export const DESIGN_PROFILE_SCHEMA_VERSION = '3' as const
 export type DesignProfileSchemaVersion = typeof DESIGN_PROFILE_SCHEMA_VERSION
 export type DesignAssertionKind = 'evidence' | 'component' | 'section' | 'interaction' | 'responsive' | 'token'
 export type DesignAssertionScope = 'instance' | 'page' | 'cross-page'
@@ -10,7 +10,7 @@ export interface EvidenceRef {
 }
 
 /**
- * Machine-readable claim semantics. Prose is presentation only in schema v2;
+ * Machine-readable claim semantics. Prose is presentation only in schema v3;
  * deterministic validation operates exclusively on these fields and evidence IDs.
  */
 export interface DesignClaimAssertion {
@@ -52,6 +52,71 @@ export interface PatternSpec {
   evidenceRefs: string[]
   sourceInstances: number
   confidence: Confidence
+}
+
+export type TransferPriority = 'P0' | 'P1' | 'P2'
+export type TransferRuleCategory =
+  'color' | 'typography' | 'shape' | 'surface' | 'density' | 'composition' | 'interaction' | 'responsive'
+
+export type StyleCoordinateDimension = 'color' | 'typography' | 'shape' | 'surface' | 'density' | 'composition'
+
+export interface PrioritizedDesignRule {
+  priority: TransferPriority
+  category: TransferRuleCategory
+  claim: DesignClaim
+}
+
+export type ComponentRecipeUseWhen =
+  | 'primary-action'
+  | 'action'
+  | 'text-entry'
+  | 'search'
+  | 'content-group'
+  | 'navigation'
+  | 'tab-navigation'
+  | 'content-collection'
+  | 'structured-data'
+  | 'overlay-dialog'
+  | 'status-feedback'
+  | 'specialized'
+
+export type ComponentRecipeRestriction =
+  | 'keep-variant-scope'
+  | 'do-not-globalize-special-shape'
+  | 'do-not-promote-overlay-elevation'
+  | 'do-not-invent-unobserved-state'
+  | 'do-not-promote-local-layout'
+
+export interface StyleCoordinate {
+  dimension: StyleCoordinateDimension
+  priority: 'P0' | 'P2'
+  claim: DesignClaim
+}
+
+export interface ComponentRecipe {
+  component: string
+  variant: string
+  priority: 'P1' | 'P2'
+  useWhen: ComponentRecipeUseWhen
+  observed: DesignClaim
+  states: DesignClaim[]
+  responsive: DesignClaim[]
+  restrictions: ComponentRecipeRestriction[]
+  confidence: Confidence
+  sourceInstances: number
+}
+
+/**
+ * A bounded transfer grammar derived from the existing deterministic profile.
+ * P0 contains reusable foundations, P1 contains conditional recipes, and P2
+ * retains local facts without promoting them to global design rules.
+ */
+export interface DesignTransferGrammar {
+  schemaVersion: '1'
+  coreRules: PrioritizedDesignRule[]
+  styleCoordinates: StyleCoordinate[]
+  componentRecipes: ComponentRecipe[]
+  localRules: PrioritizedDesignRule[]
 }
 
 export interface DesignProfile {
@@ -110,6 +175,17 @@ export interface DesignProfile {
     neededEvidence?: string
   }>
   patterns?: PatternSpec[]
+  transferGrammar?: DesignTransferGrammar
+}
+
+export function isCurrentDesignProfile(value: unknown): value is DesignProfile {
+  if (!value || typeof value !== 'object') return false
+  const profile = value as Partial<DesignProfile>
+  return (
+    profile.schemaVersion === DESIGN_PROFILE_SCHEMA_VERSION &&
+    profile.claimSource === 'deterministic-catalog' &&
+    profile.transferGrammar?.schemaVersion === '1'
+  )
 }
 
 export type DesignClaimSingletonSlot =

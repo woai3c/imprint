@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
-import { comparePixelBuffers, generateComponentSpecsJson, generateLocalVisualQa } from '../../src/core/export/index.js'
+import {
+  comparePixelBuffers,
+  generateComponentSpecsJson,
+  generateLocalVisualQa,
+  generatePdfHtml,
+} from '../../src/core/export/index.js'
 
 const evidence = {
   schemaVersion: '1',
@@ -113,5 +118,27 @@ describe('optional deterministic exports', () => {
     expect(diff.sampledPixels).toBe(2)
     expect(diff.changedPixels).toBe(1)
     expect(diff.changedRatio).toBe(0.5)
+  })
+
+  it('sanitizes the source URL and escapes dynamic values in the HTML style guide', () => {
+    const privateUrl =
+      'https://user:password@example.com/private/%3Cimg%20onerror%3Dalert(1)%3E?access_token=secret-value#panel'
+    const tokens = structuredClone(evidence.tokens)
+    tokens.colors = {
+      'primary"><img onerror=alert(2)>':
+        'red; background-image: url(https://attacker.test)</code><img onerror=alert(5)>',
+    }
+    tokens.typography.fontFamilies = ['<img onerror=alert(3)>']
+
+    const html = generatePdfHtml(tokens, privateUrl, ['<img onerror=alert(4)>'])
+
+    expect(html).not.toContain('user:password')
+    expect(html).not.toContain('access_token')
+    expect(html).not.toContain('secret-value')
+    expect(html).not.toContain('<img')
+    expect(html).not.toMatch(/style="[^"]*attacker\.test/)
+    expect(html).toContain('background:transparent')
+    expect(html).toContain('https://example.com/private/%3Cimg%20onerror%3Dalert(1)%3E')
+    expect(html).toContain('&lt;img onerror=alert(4)&gt;')
   })
 })

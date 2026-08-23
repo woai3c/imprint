@@ -57,7 +57,7 @@ function createProfile(): DesignProfile {
     },
   ]
   return {
-    schemaVersion: '2',
+    schemaVersion: '3',
     language: 'en',
     claimSource: 'deterministic-catalog',
     catalogVersion: '1',

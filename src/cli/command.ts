@@ -19,6 +19,7 @@ export const CLI_EXIT_CODES = {
 export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES]
 export type CliUsageErrorCode =
   | 'invalid-url'
+  | 'invalid-format'
   | 'invalid-viewports'
   | 'invalid-page-count'
   | 'invalid-auth-mode'
@@ -74,6 +75,20 @@ const extractValueOptions = new Set(['--format', '--output', '--viewport', '--pa
 const extractSwitchOptions = new Set(['--no-session', '--dark-mode', '--quiet', '--json-stdout'])
 const doctorValueOptions = new Set(['--browser-path'])
 const doctorSwitchOptions = new Set(['--json'])
+const exportFormats = new Set([
+  'all',
+  'components',
+  'css',
+  'design.md',
+  'evidence',
+  'json',
+  'markdown',
+  'pdf',
+  'profile',
+  'scss',
+  'tailwind',
+  'visual-qa',
+])
 
 function scanArgs(args: string[], valueOptions: Set<string>, switchOptions: Set<string>): ScannedArgs {
   const values = new Map<string, string>()
@@ -138,6 +153,8 @@ export function parseCliCommand(args: string[]): CliCommand {
   const pagesText = scanned.values.get('--pages')
   if (pagesText !== undefined && !/^\d+$/.test(pagesText)) throw new CliUsageError('invalid-page-count', pagesText)
   const maxPages = pagesText === undefined ? undefined : Number(pagesText)
+  const format = scanned.values.get('--format') || 'all'
+  if (!exportFormats.has(format)) throw new CliUsageError('invalid-format', format)
   const pageDiscovery = scanned.values.get('--discovery') || 'auto'
   if (!['auto', 'links', 'sitemap'].includes(pageDiscovery)) {
     throw new CliUsageError('invalid-page-discovery', pageDiscovery)
@@ -156,7 +173,7 @@ export function parseCliCommand(args: string[]): CliCommand {
       kind: 'extract',
       url: request.url,
       options: {
-        format: scanned.values.get('--format') || 'all',
+        format,
         output: scanned.values.get('--output') || '.',
         viewports: request.viewports,
         useSession: request.authMode !== 'anonymous',

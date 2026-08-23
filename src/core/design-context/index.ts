@@ -10,9 +10,19 @@ export {
 export type { DesignClaimCatalogIntegrity } from './claim-catalog.js'
 export { createDeterministicDesignContext } from './deterministic-context.js'
 export type { DeterministicDesignContext } from './deterministic-context.js'
+export { displayedRecipeVariant, formatRecipeVariant } from './component-recipe-label.js'
 export { listEvidenceIds, listEvidenceTokenRefs } from './evidence-index.js'
-export { generateDesignProfileJson, generateDesignProfileMarkdown } from './profile-export.js'
+export {
+  generateDesignProfileJson,
+  generateDesignProfileMarkdown,
+  generateTransferBoundariesMarkdown,
+  generateTransferComponentsMarkdown,
+  generateTransferOverviewMarkdown,
+} from './profile-export.js'
 export { compareDesignProfiles } from './profile-compare.js'
+export { validateDesignProfileTokenReferences } from './profile-integrity.js'
+export type { DesignProfileTokenReferenceIntegrity } from './profile-integrity.js'
+export { buildDesignTransferGrammar } from './transfer-grammar.js'
 export type { DesignLanguageComparison } from './profile-compare.js'
 export {
   generateReconstructionBrief,

@@ -1,34 +1,11 @@
 import type { DesignToken } from '../analyzer/types.js'
 import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
+import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
+import { formatRecipeVariant } from './component-recipe-label.js'
 import type { DesignClaim, DesignProfile } from './types.js'
-
-// Claim token refs use the evidence-package scheme: named colors plus 1-based
-// array paths such as `spacing.2` and `typography.font-stack.1`.
-function resolveTokenRefValue(tokens: DesignToken, ref: string): string | null {
-  const colorName = /^color\.(.+)$/.exec(ref)?.[1]
-  if (colorName) return tokens.colors[colorName] ?? null
-  const dot = ref.lastIndexOf('.')
-  if (dot <= 0) return null
-  const index = Number.parseInt(ref.slice(dot + 1), 10)
-  if (!Number.isInteger(index) || index < 1) return null
-  const arrays: Record<string, readonly string[]> = {
-    'typography.font-family': tokens.typography.fontFamilies,
-    'typography.font-stack': tokens.typography.fontStacks,
-    'typography.font-size': tokens.typography.fontSizes,
-    'typography.font-weight': tokens.typography.fontWeights,
-    'typography.line-height': tokens.typography.lineHeights,
-    'typography.letter-spacing': tokens.typography.letterSpacings,
-    spacing: tokens.spacing,
-    radius: tokens.radii,
-    shadow: tokens.shadows,
-    border: tokens.borders,
-    'z-index': tokens.zIndices,
-    transition: tokens.transitions,
-  }
-  return arrays[ref.slice(0, dot)]?.[index - 1] ?? null
-}
+import type { ComponentRecipe, ComponentRecipeRestriction, PrioritizedDesignRule, StyleCoordinate } from './types.js'
 
 export function generateDesignProfileJson(profile: DesignProfile): string {
   return JSON.stringify(profile, null, 2)
@@ -168,6 +145,10 @@ function hasClassifiedImagery(claim: DesignClaim): boolean {
 function translatedTerm(value: string, t: ReturnType<typeof coreTranslator>): string {
   const aliases: Record<string, string> = {
     'node.heading.fontSize': 'headingFontSize',
+    'rect.height': 'height',
+    'rect.width': 'width',
+    'rect.x': 'horizontalPosition',
+    'rect.y': 'verticalPosition',
   }
   return t(`terms.${aliases[value] || value}`, { defaultValue: value })
 }
@@ -181,11 +162,31 @@ function formatClaimText(
     const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
   }, text)
+  formatted = formatted.replace(
+    /\bnode\.([a-z-]+)\.([a-zA-Z-]+)\b/g,
+    (match: string, owner: string, property: string) => {
+      const combined = translatedTerm(match, t)
+      if (combined !== match) return combined
+      return t('ownedProperty', {
+        owner: translatedTerm(owner, t),
+        property: translatedTerm(property, t),
+      })
+    },
+  )
   const terms = [
+    'rect.height',
+    'rect.width',
+    'rect.x',
+    'rect.y',
     'childGridTemplateColumns',
     'gridTemplateColumns',
     'controlledVisibility',
     'controlledOpacity',
+    'controlledDisplay',
+    'controlledHidden',
+    'borderColor',
+    'horizontalPosition',
+    'verticalPosition',
     'sequenceIndex',
     'ariaExpanded',
     'ariaSelected',
@@ -227,6 +228,22 @@ function formatClaimText(
     'image',
     'click',
     'tab',
+    'modal',
+    'status',
+    'alert',
+    'status-positive',
+    'status-warning',
+    'status-negative',
+    'status-neutral',
+    'delta-positive',
+    'delta-warning',
+    'delta-negative',
+    'delta-neutral',
+    'default',
+    'outlined',
+    'elevated',
+    'flat',
+    'search',
     'reflow',
     'reorder',
     'visibility',
@@ -234,6 +251,7 @@ function formatClaimText(
     'mixed',
     'scale',
     'height',
+    'width',
     'position',
     'order',
     'display',
@@ -243,6 +261,10 @@ function formatClaimText(
     formatted = formatted.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), translatedTerm(term, t))
   }
   formatted = formatted.replaceAll(', ', t('listSeparator')).replaceAll(' -> ', t('sequenceArrow'))
+  formatted = formatted.replace(
+    /\b(size change|visibility change|interaction change|order change)\s+changes?\b/gi,
+    '$1',
+  )
   let compact = formatted
   do {
     formatted = compact
@@ -326,13 +348,22 @@ function claimLines(
   ]
 }
 
-export function generateDesignProfileMarkdown(
+interface TransferExportContext {
+  t: ReturnType<typeof coreTranslator>
+  formatText: (text: string) => string
+  formatTokenRefs: (claim: DesignClaim) => string | null
+  scopeForClaim: (claim: DesignClaim) => string | null
+  boundedImplementation: string
+}
+
+function createTransferExportContext(
   profile: DesignProfile,
   tokens?: DesignToken,
   publicColorNames: ReadonlyMap<string, string> = new Map(),
   evidence?: DesignEvidence,
-): string {
+): TransferExportContext {
   const t = coreTranslator(profile.language, 'profileExport')
+  const referenceTokens = evidence?.tokens || tokens
   const aliasRefs = new Map<string, string>()
   for (const [sourceName, publicName] of publicColorNames) {
     aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
@@ -340,12 +371,240 @@ export function generateDesignProfileMarkdown(
   const formatText = (text: string): string => formatClaimText(text, aliasRefs, t)
   const formatTokenRef = (ref: string): string | null => {
     const mapped = aliasRefs.get(ref) ?? ref
-    if (!tokens) return `\`${mapped}\``
-    const directlyResolved = resolveTokenRefValue(tokens, ref)
+    if (!referenceTokens) return `\`${mapped}\``
+    const directlyResolved = resolveDesignTokenRef(referenceTokens, ref)
     const sourceRef = [...aliasRefs.entries()].find(
-      ([candidate, publicRef]) => publicRef === mapped && tokens.colors[candidate.slice('color.'.length)] !== undefined,
+      ([candidate, publicRef]) =>
+        publicRef === mapped && referenceTokens.colors[candidate.slice('color.'.length)] !== undefined,
     )?.[0]
-    const value = directlyResolved || (sourceRef ? resolveTokenRefValue(tokens, sourceRef) : null)
+    const value = directlyResolved || (sourceRef ? resolveDesignTokenRef(referenceTokens, sourceRef) : null)
+    return value ? `\`${mapped}\` (${value})` : null
+  }
+  return {
+    t,
+    formatText,
+    formatTokenRefs: (claim) => {
+      const refs = claim.tokenRefs?.flatMap((ref) => {
+        const formatted = formatTokenRef(ref)
+        return formatted ? [formatted] : []
+      })
+      return refs?.length ? refs.join(t('listSeparator')) : null
+    },
+    scopeForClaim: buildClaimScopeFormatter(evidence, t),
+    boundedImplementation: coreTranslator(profile.language, 'designContext.catalog')('boundedImplementation'),
+  }
+}
+
+function transferRuleLines(
+  rule: PrioritizedDesignRule,
+  context: TransferExportContext,
+  options: { omitImplementation?: boolean } = {},
+): string[] {
+  const category = context.t(`transfer.categories.${rule.category}`)
+  const scope = context.scopeForClaim(rule.claim)
+  const confidence = context.t(`confidence.${rule.claim.confidence}`)
+  const metadata = scope
+    ? context.t('factMetadataWithScope', { confidence, count: claimEvidenceCount(rule.claim), scope })
+    : context.t('factMetadata', { confidence, count: claimEvidenceCount(rule.claim) })
+  const tokens = context.formatTokenRefs(rule.claim)
+  return [
+    `- **${category}${context.t('labelSeparator')}** ${context.formatText(rule.claim.statement)} _(${metadata})_`,
+    ...(options.omitImplementation
+      ? []
+      : [
+          `  - **${context.t('transfer.implementation')}${context.t('labelSeparator')}** ${context.formatText(rule.claim.implementation)}`,
+        ]),
+    ...(tokens ? [`  - **${context.t('relatedTokens')}${context.t('labelSeparator')}** ${tokens}`] : []),
+  ]
+}
+
+function coordinateLine(coordinate: StyleCoordinate, context: TransferExportContext): string {
+  return context.t('transfer.coordinateLine', {
+    dimension: context.t(`transfer.categories.${coordinate.dimension}`),
+    priority: coordinate.priority,
+  })
+}
+
+function recipeLabel(recipe: ComponentRecipe, context: TransferExportContext): string {
+  return context.t('transfer.componentTitle', {
+    component: translatedTerm(recipe.component, context.t),
+    variant: formatRecipeVariant(recipe, {
+      translateKnown: (term) => context.t(`terms.${term}`, { defaultValue: '' }) || null,
+      translateFallback: (term) => translatedTerm(term, context.t),
+      formatRadius: (value) => context.t('transfer.radiusVariant', { value }),
+      separator: context.t('transfer.variantSeparator'),
+    }),
+  })
+}
+
+const COMMON_RECIPE_RESTRICTIONS = new Set<ComponentRecipeRestriction>([
+  'keep-variant-scope',
+  'do-not-invent-unobserved-state',
+])
+
+function recipeLines(recipe: ComponentRecipe, context: TransferExportContext): string[] {
+  const tokens = context.formatTokenRefs(recipe.observed)
+  const specificRestrictions = recipe.restrictions.filter((restriction) => !COMMON_RECIPE_RESTRICTIONS.has(restriction))
+  const result = [
+    `#### ${recipeLabel(recipe, context)}`,
+    '',
+    `_${context.t('transfer.sourceInstances', { count: recipe.sourceInstances })} · ${context.t(`confidence.${recipe.confidence}`)}_`,
+    '',
+    `- **${context.t('transfer.useWhen')}${context.t('labelSeparator')}** ${context.t(`transfer.useWhenValues.${recipe.useWhen}`)}`,
+    `- **${context.t('transfer.observedRecipe')}${context.t('labelSeparator')}** ${context.formatText(recipe.observed.statement)}`,
+    ...(tokens ? [`  - **${context.t('relatedTokens')}${context.t('labelSeparator')}** ${tokens}`] : []),
+  ]
+  if (recipe.states.length > 0) {
+    result.push(
+      `- **${context.t('transfer.states')}${context.t('labelSeparator')}**`,
+      ...recipe.states.map((claim) => `  - ${context.formatText(claim.statement)}`),
+    )
+  }
+  if (recipe.responsive.length > 0) {
+    result.push(
+      `- **${context.t('transfer.responsive')}${context.t('labelSeparator')}**`,
+      ...recipe.responsive.map((claim) => `  - ${context.formatText(claim.statement)}`),
+    )
+  }
+  if (specificRestrictions.length > 0) {
+    result.push(
+      `- **${context.t('transfer.restrictions')}${context.t('labelSeparator')}**`,
+      ...specificRestrictions.map((restriction) => `  - ${context.t(`transfer.restrictionValues.${restriction}`)}`),
+    )
+  }
+  result.push('')
+  return result
+}
+
+export function generateTransferOverviewMarkdown(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
+  evidence?: DesignEvidence,
+): string {
+  const grammar = profile.transferGrammar
+  if (!grammar) return ''
+  const context = createTransferExportContext(profile, tokens, publicColorNames, evidence)
+  const lines = [
+    context.t('transfer.overviewHeading'),
+    '',
+    context.t('transfer.intro'),
+    '',
+    ...(['p0', 'p1', 'p2', 'brand', 'accessibility'] as const).map(
+      (key) => `- ${context.t(`transfer.instructions.${key}`)}`,
+    ),
+    '',
+    context.t('transfer.p0Heading'),
+    '',
+  ]
+  if (grammar.coreRules.length === 0) lines.push(context.t('transfer.p0Empty'))
+  else grammar.coreRules.forEach((item) => lines.push(...transferRuleLines(item, context)))
+  lines.push(
+    '',
+    context.t('transfer.coordinateHeading'),
+    '',
+    context.t('transfer.coordinateIntro'),
+    '',
+    ...grammar.styleCoordinates.map((item) => coordinateLine(item, context)),
+  )
+  return lines.join('\n')
+}
+
+export function generateTransferComponentsMarkdown(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
+  evidence?: DesignEvidence,
+): string {
+  const grammar = profile.transferGrammar
+  if (!grammar) return ''
+  const context = createTransferExportContext(profile, tokens, publicColorNames, evidence)
+  const recipes = grammar.componentRecipes.filter((recipe) => recipe.priority === 'P1')
+  return [
+    context.t('transfer.componentsHeading'),
+    '',
+    context.t('transfer.componentsIntro'),
+    '',
+    ...(recipes.length > 0
+      ? recipes.flatMap((recipe) => recipeLines(recipe, context))
+      : [context.t('transfer.noP1Recipes')]),
+  ].join('\n')
+}
+
+export function generateTransferBoundariesMarkdown(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
+  evidence?: DesignEvidence,
+): string {
+  const grammar = profile.transferGrammar
+  if (!grammar) return ''
+  const context = createTransferExportContext(profile, tokens, publicColorNames, evidence)
+  const p2Recipes = grammar.componentRecipes.filter((recipe) => recipe.priority === 'P2')
+  const lines = [context.t('transfer.p2Heading'), '', context.t('transfer.p2Intro'), '']
+  lines.push(`#### ${context.t('transfer.localFacts')}`, '')
+  if (grammar.localRules.length === 0) lines.push(`- ${context.t('transfer.none')}`)
+  else {
+    const hasRepeatedScopeGuidance = grammar.localRules.some(
+      (item) => item.claim.implementation === context.boundedImplementation,
+    )
+    if (hasRepeatedScopeGuidance) lines.push(`> ${context.t('transfer.localFactsScopeNotice')}`, '')
+    grammar.localRules.forEach((item) =>
+      lines.push(
+        ...transferRuleLines(item, context, {
+          omitImplementation: item.claim.implementation === context.boundedImplementation,
+        }),
+      ),
+    )
+  }
+  lines.push('', `#### ${context.t('transfer.localRecipes')}`, '')
+  if (p2Recipes.length === 0) lines.push(`- ${context.t('transfer.none')}`)
+  else {
+    for (const recipe of p2Recipes) {
+      lines.push(
+        `- **${recipeLabel(recipe, context)}${context.t('labelSeparator')}** ${context.t(`transfer.useWhenValues.${recipe.useWhen}`)} _(${context.t('transfer.sourceInstances', { count: recipe.sourceInstances })})_`,
+      )
+    }
+  }
+  lines.push('', `#### ${context.t('transfer.unknowns')}`, '')
+  if (profile.uncertainties.length === 0) lines.push(`- ${context.t('transfer.none')}`)
+  else {
+    for (const item of uniqueUncertainties(profile)) {
+      lines.push(
+        `- **${context.formatText(item.topic)}${context.t('labelSeparator')}** ${context.formatText(item.reason)}`,
+      )
+      if (item.neededEvidence) {
+        lines.push(
+          `  - **${context.t('transfer.neededEvidence')}${context.t('labelSeparator')}** ${context.formatText(item.neededEvidence)}`,
+        )
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+export function generateDesignProfileMarkdown(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
+  evidence?: DesignEvidence,
+): string {
+  const t = coreTranslator(profile.language, 'profileExport')
+  const referenceTokens = evidence?.tokens || tokens
+  const aliasRefs = new Map<string, string>()
+  for (const [sourceName, publicName] of publicColorNames) {
+    aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
+  }
+  const formatText = (text: string): string => formatClaimText(text, aliasRefs, t)
+  const formatTokenRef = (ref: string): string | null => {
+    const mapped = aliasRefs.get(ref) ?? ref
+    if (!referenceTokens) return `\`${mapped}\``
+    const directlyResolved = resolveDesignTokenRef(referenceTokens, ref)
+    const sourceRef = [...aliasRefs.entries()].find(
+      ([candidate, publicRef]) =>
+        publicRef === mapped && referenceTokens.colors[candidate.slice('color.'.length)] !== undefined,
+    )?.[0]
+    const value = directlyResolved || (sourceRef ? resolveDesignTokenRef(referenceTokens, sourceRef) : null)
     return value ? `\`${mapped}\` (${value})` : null
   }
   const claimOptions = {

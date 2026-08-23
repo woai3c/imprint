@@ -4,6 +4,8 @@ export type { BuildDesignEvidenceInput, CapturedPageEvidence } from './evidence-
 export { generateDesignEvidenceBrief, generateDesignEvidenceJson } from './evidence-export.js'
 export { computeInteractionStateMetrics } from './interaction-metrics.js'
 export type { InteractionStateMetrics } from './interaction-metrics.js'
+export { resolveDesignTokenRef, validateEvidenceTokenReferences } from './token-reference.js'
+export type { EvidenceTokenReferenceIntegrity } from './token-reference.js'
 export { extractPageEvidence } from './page-extractor.js'
 export { observeSafeInteractions } from './interaction-observer.js'
 export type { InteractionObservationSnapshot } from './interaction-observer.js'

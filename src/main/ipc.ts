@@ -25,10 +25,10 @@ import {
 } from '../core/analyzer/reference-compare.js'
 import type { AnalysisCompletion, AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
 import {
-  redactUrlsInText,
   sanitizeAuthWallDetectionForDisplay,
   sanitizeDesignEvidenceForPersistence,
   sanitizeDesignTokensForPersistence,
+  sanitizeDiagnosticTextForDisplay,
   sanitizeExtractionIssuesForDisplay,
   sanitizePageCoverageForPersistence,
   sanitizePageScreenshotsForPersistence,
@@ -37,6 +37,7 @@ import {
 import { generateAgentContextBundle } from '../core/design-context/agent-context.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { generateReconstructionBrief } from '../core/design-context/reconstruction-brief.js'
+import { isCurrentDesignProfile } from '../core/design-context/types.js'
 import type { DesignProfile } from '../core/design-context/types.js'
 import { createValidationRecipe, validateRecipe } from '../core/design-context/validation-recipe.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
@@ -403,12 +404,7 @@ function restoreDeterministicStoredContext(
         typeof createDeterministicDesignContext
       >['validationReport'])
     : null
-  const currentProfile =
-    isRecord(storedProfile) &&
-    storedProfile.schemaVersion === '2' &&
-    storedProfile.claimSource === 'deterministic-catalog'
-      ? (storedProfile as unknown as DesignProfile)
-      : null
+  const currentProfile = isCurrentDesignProfile(storedProfile) ? storedProfile : null
   const currentValidationReport = isRecord(storedValidationReport)
     ? (storedValidationReport as ReturnType<typeof createDeterministicDesignContext>['validationReport'])
     : null
@@ -425,7 +421,7 @@ function restoreDeterministicStoredContext(
   const context =
     currentProfile && currentValidationReport
       ? { profile: currentProfile, validationReport: currentValidationReport }
-      : createDeterministicDesignContext(evidence, tokens, language)
+      : createDeterministicDesignContext(evidence, language)
   const darkMode = readDarkModeExportData(
     record.dark_tokens_json,
     tokens,
@@ -735,8 +731,14 @@ export function registerIpcHandlers() {
     try {
       const tokens = JSON.parse(theme.tokens_json) as DesignToken
       const evidence = theme.design_evidence_json ? (JSON.parse(theme.design_evidence_json) as DesignEvidence) : null
-      const profile = theme.design_profile_json ? (JSON.parse(theme.design_profile_json) as DesignProfile) : null
-      if (evidence && profile?.schemaVersion === '2' && profile.claimSource === 'deterministic-catalog') {
+      const storedProfile = theme.design_profile_json ? (JSON.parse(theme.design_profile_json) as DesignProfile) : null
+      if (evidence) {
+        const profile = isCurrentDesignProfile(storedProfile)
+          ? storedProfile
+          : createDeterministicDesignContext(
+              evidence,
+              evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en',
+            ).profile
         const darkMode = readDarkModeExportData(
           theme.dark_tokens_json,
           tokens,
@@ -891,7 +893,7 @@ export function registerIpcHandlers() {
     const storedContext = restoreDeterministicStoredContext(record, tokens, designEvidence)
     const designProfile = storedContext.profile
     const reconstructionBrief = designEvidence
-      ? generateReconstructionBrief(designProfile, designEvidence, tokens)
+      ? generateReconstructionBrief(designProfile, designEvidence, designEvidence.tokens)
       : null
     const agentContext =
       designEvidence && designProfile
@@ -1085,11 +1087,7 @@ export function registerIpcHandlers() {
         const persistedFinalUrl = sanitizeUrlForPersistence(result.finalUrl)
         const displayedIssues = sanitizeExtractionIssuesForDisplay(result.extractionIssues)
         const outputLanguage = options?.language?.startsWith('zh') ? ('zh-CN' as const) : ('en' as const)
-        const deterministicContext = createDeterministicDesignContext(
-          persistedEvidence,
-          persistedTokens,
-          outputLanguage,
-        )
+        const deterministicContext = createDeterministicDesignContext(persistedEvidence, outputLanguage)
         const rawDarkModeExport = buildDarkModeExportData(result.darkMode)
         const darkModeExport = rawDarkModeExport?.darkTokens
           ? {
@@ -1217,7 +1215,7 @@ export function registerIpcHandlers() {
           log.info('analysis', `cancelled at login decision: url=${displayUrl}`)
           return completeRun({ cancelled: true })
         }
-        const message = redactUrlsInText(err instanceof Error ? err.message : String(err))
+        const message = sanitizeDiagnosticTextForDisplay(err instanceof Error ? err.message : String(err))
         log.error('analysis', `failed during ${analysisStage}: url=${displayUrl} error=${message}`)
         console.error(`[imprint] analysis failed during ${analysisStage}: ${message}`)
         return completeRun({ error: true, message, stage: analysisStage })
@@ -1239,11 +1237,12 @@ export function registerIpcHandlers() {
       const evidence = readDesignEvidence(record.design_evidence_json)
       if (!evidence) return { error: true, message: 'Design evidence is required' }
       const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
+      const evidenceTokens = evidence.tokens
       const storedContext = restoreDeterministicStoredContext(record, tokens, evidence)
       if (!storedContext.profile) return { error: true, message: 'A deterministic DesignProfile is required' }
       const profile = storedContext.profile
-      const recipe = createValidationRecipe(scenario, profile, tokens)
-      const validationReport = validateRecipe(recipe, profile, tokens)
+      const recipe = createValidationRecipe(scenario, profile, evidenceTokens)
+      const validationReport = validateRecipe(recipe, profile, evidenceTokens)
       db.prepare('UPDATE analyses SET validation_report_json = ? WHERE id = ?').run(
         JSON.stringify(validationReport),
         analysisId,
@@ -1252,7 +1251,7 @@ export function registerIpcHandlers() {
         ...buildStoredAnalysisResult(record, tokens),
         designEvidence: evidence,
         designProfile: profile,
-        reconstructionBrief: generateReconstructionBrief(profile, evidence, tokens),
+        reconstructionBrief: generateReconstructionBrief(profile, evidence, evidenceTokens),
         agentContext: generateAgentContextBundle('Validate a new design scenario', evidence, profile),
         validationReport,
       }

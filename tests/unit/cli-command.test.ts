@@ -64,6 +64,7 @@ describe('CLI command contract', () => {
   it.each([
     { args: ['extract', 'https://example.test', '--pages', '2x'], code: 'invalid-page-count' },
     { args: ['extract', 'file:///tmp/page.html'], code: 'invalid-url' },
+    { args: ['extract', 'https://example.test', '--format', 'reconstruction'], code: 'invalid-format' },
     { args: ['extract', 'https://example.test', '--viewport', 'wide'], code: 'invalid-viewports' },
     { args: ['doctor', 'https://example.test'], code: 'unexpected-argument' },
     { args: ['doctor', '--quiet'], code: 'unknown-option' },

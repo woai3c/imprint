@@ -583,7 +583,7 @@ describe('Design Evidence', () => {
     expect(summary).not.toContain('Implement the')
     expect(document).toContain('`高频间距：4px、8px、16px`')
     expect(document).toContain('`观察到以紧凑圆角为主的表面`')
-    expect(document).toContain('`大量使用 CSS 变量`')
+    expect(document).not.toContain('`大量使用 CSS 变量`')
   })
 
   it('uses readable component names in the Chinese reconstruction summary', () => {
@@ -779,8 +779,8 @@ describe('Design Evidence', () => {
       evidence,
     )
 
-    expect(document).toContain('content · `section-')
-    expect(document).not.toContain('unknown · `section-')
+    expect(document).toContain('- content: `max-width: 960px` · `position: sticky`')
+    expect(document).not.toContain('section-')
     expect(document).toContain('- duration-6: `0.5s`')
     expect(document).not.toContain('- 5: `0.5s`')
     expect(document).toContain('**Key structure:**')
@@ -1237,7 +1237,8 @@ describe('Design Evidence', () => {
     expect(evidence.limitations).toContain('horizontal-overflow-observed')
     const brief = generateDesignEvidenceBrief(evidence)
     expect(brief).toContain('horizontal overflow observed (content 1032px > viewport 375px)')
-    expect(brief).toContain('section hero')
+    expect(brief).not.toContain('section hero')
+    expect(brief).not.toContain('section-')
   })
 
   it('uses the encoded screenshot dimensions instead of document geometry for image evidence', () => {
@@ -1695,7 +1696,7 @@ describe('Design Evidence', () => {
       components: Record<string, Record<string, string>>
       'x-imprint': Array<{
         schema: string
-        evidence: { analysisId: string }
+        evidence: { pageCount: number; captureCount: number }
         componentSummary: { source: string; patterns: number; instances: number }
       }>
     }
@@ -1711,7 +1712,7 @@ describe('Design Evidence', () => {
       'x-imprint': [
         {
           schema: 'imprint.design-system/2',
-          evidence: { analysisId: 'analysis-1' },
+          evidence: { pageCount: 1, captureCount: 2 },
           componentSummary: { source: 'design-evidence', patterns: 2, instances: 2 },
         },
       ],
@@ -1738,5 +1739,32 @@ describe('Design Evidence', () => {
     expect(chineseDoc).toContain('观察到区块级复合圆角处理')
     expect(chineseDoc).not.toContain('section-level compound-radius treatments observed')
     expect(designFrontMatter['x-imprint'][0]).toMatchObject({ analysis: { mode: 'deterministic' } })
+  })
+
+  it('uses a sanitized public projection for shared DESIGN.md and Evidence JSON exports', () => {
+    const evidence = buildFixtureEvidence()
+    const privateUrl =
+      'https://private-user:private-password@example.com/private?access_token=private-value#private-panel'
+    evidence.source.requestedUrl = privateUrl
+    evidence.source.finalUrl = privateUrl
+    evidence.pages.forEach((page) => {
+      page.url = privateUrl
+    })
+
+    const designDoc = generateDesignDoc(tokens, privateUrl, [], undefined, [], [], 'en', evidence)
+    const evidenceJson = generateDesignEvidenceJson(evidence)
+
+    for (const output of [designDoc, evidenceJson]) {
+      expect(output).toContain('https://example.com/private')
+      expect(output).not.toContain('private-user')
+      expect(output).not.toContain('private-password')
+      expect(output).not.toContain('access_token')
+      expect(output).not.toContain('private-value')
+      expect(output).not.toContain('private-panel')
+    }
+    expect(designDoc).not.toContain(evidence.analysisId)
+    expect(designDoc).not.toContain(evidence.sections[0].id)
+    expect(designDoc).not.toContain('body > main:nth-of-type(1)')
+    expect(designDoc).not.toContain('### Tech Stack')
   })
 })

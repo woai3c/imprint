@@ -15,7 +15,20 @@ import {
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
 import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
 import type { DarkModeResult, DesignToken } from '../analyzer/types.js'
-import { generateDesignProfileJson, generateDesignProfileMarkdown } from '../design-context/profile-export.js'
+import {
+  redactUrlsInText,
+  sanitizeDesignEvidenceForPersistence,
+  sanitizeDesignTokensForPersistence,
+  sanitizeUrlForPersistence,
+} from '../analyzer/url-privacy.js'
+import {
+  generateDesignProfileJson,
+  generateDesignProfileMarkdown,
+  generateTransferBoundariesMarkdown,
+  generateTransferComponentsMarkdown,
+  generateTransferOverviewMarkdown,
+} from '../design-context/profile-export.js'
+import { validateDesignProfileTokenReferences } from '../design-context/profile-integrity.js'
 import type { DesignProfile } from '../design-context/types.js'
 import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
 import { generateDesignEvidenceBrief, generateDesignEvidenceJson } from '../design-evidence/evidence-export.js'
@@ -25,6 +38,7 @@ import {
   topLevelGridColumnCount,
   usefulResponsiveChanges,
 } from '../design-evidence/responsive-reliability.js'
+import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreT } from '../i18n/index.js'
 import { designMdColorEntries } from './design-md-color-names.js'
@@ -692,11 +706,17 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           layer: evidence ? 'observed' : 'tokens',
           ...(evidence
             ? {
-                analysisId: evidence.analysisId,
                 pageCount,
                 captureCount: evidence.pages.length,
                 coverage: {
                   ...evidence.coverage,
+                  limitations: evidence.coverage.limitations.filter(
+                    (limitation) =>
+                      !limitation.startsWith('page-health:') &&
+                      !limitation.startsWith('skipped:') &&
+                      !limitation.startsWith('skipped-interaction:') &&
+                      !limitation.startsWith('extraction-issue:'),
+                  ),
                   assetCoverage: resolveScreenshotAssetCoverage(evidence),
                 },
               }
@@ -1733,19 +1753,42 @@ function reconstructionSummary(
 }
 
 export function generateDesignDoc(
-  tokens: DesignToken,
+  inputTokens: DesignToken,
   url?: string,
   featureTags?: string[],
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>,
   components: ComponentPattern[] = [],
   language: DocLanguage = 'en',
-  designEvidence?: DesignEvidence,
+  inputDesignEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
 ): string {
+  // Keep the complete portable token tables while resolving every evidence claim against its evidence-owned catalog.
+  // The two catalogs have different scopes, so positional references must never cross this boundary.
+  const tokens = sanitizeDesignTokensForPersistence(inputTokens)
+  const designEvidence = inputDesignEvidence ? sanitizeDesignEvidenceForPersistence(inputDesignEvidence) : undefined
+  const evidenceTokens = designEvidence?.tokens || tokens
+  if (designEvidence) {
+    const evidenceIntegrity = validateEvidenceTokenReferences(designEvidence)
+    if (!evidenceIntegrity.valid) {
+      throw new Error(
+        `Design Evidence token reference integrity failed: ${evidenceIntegrity.errors.slice(0, 8).join('; ')}`,
+      )
+    }
+  }
+  if (designProfile) {
+    const profileIntegrity = validateDesignProfileTokenReferences(designProfile, evidenceTokens, designEvidence)
+    if (!profileIntegrity.valid) {
+      throw new Error(
+        `Design Profile token reference integrity failed: ${profileIntegrity.errors.slice(0, 8).join('; ')}`,
+      )
+    }
+  }
   const zh = language === 'zh-CN'
-  const documentUrl = url || designEvidence?.source.requestedUrl
-  const documentFeatureTags = featureTags || designEvidence?.featureTags || []
+  const documentUrl = sanitizeUrlForPersistence(url || designEvidence?.source.requestedUrl || '') || undefined
+  const documentFeatureTags = (featureTags || designEvidence?.featureTags || []).filter(
+    (tag) => tag !== 'extensive CSS variable usage',
+  )
   const documentBreakpoints =
     breakpoints ||
     designEvidence?.breakpoints.map((breakpoint) => ({
@@ -1754,7 +1797,7 @@ export function generateDesignDoc(
       layoutChanges: breakpoint.layoutChanges,
     })) ||
     []
-  const documentComponents = resolveDesignDocComponents(components, tokens, designEvidence)
+  const documentComponents = resolveDesignDocComponents(components, evidenceTokens, designEvidence)
   const freeformEvidenceComponents = summarizeFreeformEvidenceComponents(designEvidence)
   const sections: Record<DesignMdSectionKey, string[]> = {
     overview: [],
@@ -1780,11 +1823,18 @@ export function generateDesignDoc(
     evidence: designEvidence,
     profile: designProfile,
   })
+  const publicColorEntries = designMdColorEntries(tokens)
+  const publicColorNames = new Map(publicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
+  const evidenceColorEntries = designMdColorEntries(evidenceTokens)
+  const evidenceColorNames = new Map(evidenceColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
+  if (designProfile?.transferGrammar) {
+    lines.push(generateTransferOverviewMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence), '')
+  }
   if (designEvidence)
     lines.push(
       ...reconstructionSummary(
         designEvidence,
-        tokens,
+        evidenceTokens,
         [...freeformEvidenceComponents, ...documentComponents],
         language,
       ),
@@ -1816,8 +1866,6 @@ export function generateDesignDoc(
 
   // Colors
   lines = sections.colors
-  const publicColorEntries = designMdColorEntries(tokens)
-  const publicColorNames = new Map(publicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
   const colorGroups = observedColorGroups(tokens, publicColorNames)
   if (colorGroups.length > 0) {
     lines.push(zh ? '### 主要观察用途颜色分组\n' : '### Dominant Observed Color Roles\n')
@@ -2016,9 +2064,9 @@ export function generateDesignDoc(
   ].slice(0, 8)
   if (sectionGradients.length > 0) {
     lines.push(zh ? '\n### 区块渐变处理\n' : '\n### Section Gradient Treatments\n')
-    for (const { section, gradient, role } of sectionGradients) {
+    for (const { gradient, role } of sectionGradients) {
       const structure = [gradient.type, gradient.direction, gradient.stops.join(' → ')].filter(Boolean).join(' · ')
-      lines.push(`- ${role} · \`${section.id}\`: \`${gradient.value}\` (${structure})`)
+      lines.push(`- ${role}: \`${gradient.value}\` (${structure})`)
     }
   }
 
@@ -2075,13 +2123,19 @@ export function generateDesignDoc(
   ].slice(0, 8)
   if (structuralRadii.length > 0) {
     lines.push(zh ? '\n### 结构圆角\n' : '\n### Structural Shapes\n')
-    for (const { section, borderRadius, role } of structuralRadii) {
-      lines.push(`- ${role} · \`${section.id}\`: \`${borderRadius}\``)
+    for (const { borderRadius, role } of structuralRadii) {
+      lines.push(`- ${role}: \`${borderRadius}\``)
     }
   }
 
   // Components
   lines = sections.components
+  if (designProfile?.transferGrammar) {
+    lines.push(
+      generateTransferComponentsMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence),
+      '',
+    )
+  }
   const proseComponents = [...documentComponents, ...freeformEvidenceComponents]
   if (proseComponents.length > 0) {
     if (designEvidence) {
@@ -2179,6 +2233,12 @@ export function generateDesignDoc(
       }),
     ),
   )
+  if (designProfile?.transferGrammar) {
+    lines.push(
+      '',
+      generateTransferBoundariesMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence),
+    )
+  }
 
   lines = appendixLines
 
@@ -2187,9 +2247,9 @@ export function generateDesignDoc(
     lines.push(generateDesignEvidenceBrief(designEvidence, language))
   }
 
-  if (designProfile) {
+  if (designProfile && !designProfile.transferGrammar) {
     lines.push('')
-    lines.push(generateDesignProfileMarkdown(designProfile, tokens, publicColorNames, designEvidence))
+    lines.push(generateDesignProfileMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence))
   }
 
   if (tokens.evidence && Object.keys(tokens.evidence).length > 0) {
@@ -2240,12 +2300,14 @@ export function generateDesignDoc(
     lines.push(generateAgentGuide(tokens, documentUrl, language))
   }
 
-  return renderDesignMdDocument({
-    frontMatter,
-    title: zh ? '设计系统' : 'Design System',
-    sections,
-    appendices: [appendixLines.join('\n')],
-  })
+  return redactUrlsInText(
+    renderDesignMdDocument({
+      frontMatter,
+      title: zh ? '设计系统' : 'Design System',
+      sections,
+      appendices: [appendixLines.join('\n')],
+    }),
+  )
 }
 
 function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
@@ -2461,22 +2523,45 @@ export function generatePdfHtml(
   featureTags?: string[],
   darkMode?: DarkModeExportData,
 ): string {
-  const colorSwatches = Object.entries(tokens.colors)
+  const escapeHtml = (value: unknown): string =>
+    String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+  const safeSwatchColor = (value: string): string => normalizeColorValue(value) || 'transparent'
+  const publicTokens = sanitizeDesignTokensForPersistence(tokens)
+  const publicDarkTokens = darkMode?.darkTokens ? sanitizeDesignTokensForPersistence(darkMode.darkTokens) : undefined
+  const publicUrl = url ? sanitizeUrlForPersistence(url) : undefined
+  const sourceLink = (() => {
+    if (!publicUrl) return ''
+    try {
+      const parsed = new URL(publicUrl)
+      const label = escapeHtml(publicUrl)
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+        ? `<p>Source: <a href="${escapeHtml(publicUrl)}">${label}</a></p>`
+        : `<p>Source: ${label}</p>`
+    } catch {
+      return `<p>Source: ${escapeHtml(publicUrl)}</p>`
+    }
+  })()
+  const colorSwatches = Object.entries(publicTokens.colors)
     .map(
       ([name, value]) =>
         `<div style="display:inline-flex;align-items:center;gap:8px;margin:4px 0;">
-      <div style="width:24px;height:24px;border-radius:4px;background:${value};border:1px solid #ddd;"></div>
-      <code>--color-${name}</code>: <code>${value}</code>
+      <div style="width:24px;height:24px;border-radius:4px;background:${safeSwatchColor(value)};border:1px solid #ddd;"></div>
+      <code>--color-${escapeHtml(name)}</code>: <code>${escapeHtml(value)}</code>
     </div>`,
     )
     .join('<br>')
-  const darkColorSwatches = darkMode?.darkTokens
-    ? Object.entries(darkMode.darkTokens.colors)
+  const darkColorSwatches = publicDarkTokens
+    ? Object.entries(publicDarkTokens.colors)
         .map(
           ([name, value]) =>
             `<div style="display:inline-flex;align-items:center;gap:8px;margin:4px 0;">
-      <div style="width:24px;height:24px;border-radius:4px;background:${value};border:1px solid #555;"></div>
-      <code>--color-${name}</code>: <code>${value}</code>
+      <div style="width:24px;height:24px;border-radius:4px;background:${safeSwatchColor(value)};border:1px solid #555;"></div>
+      <code>--color-${escapeHtml(name)}</code>: <code>${escapeHtml(value)}</code>
     </div>`,
         )
         .join('<br>')
@@ -2501,8 +2586,8 @@ export function generatePdfHtml(
 </head>
 <body>
 <h1>Design Style Guide</h1>
-${url ? `<p>Source: <a href="${url}">${url}</a></p>` : ''}
-${featureTags?.length ? `<p>${featureTags.map((t) => `<span class="tag">${t}</span>`).join(' ')}</p>` : ''}
+${sourceLink}
+${featureTags?.length ? `<p>${featureTags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}</p>` : ''}
 
 <h2>Colors</h2>
 <div class="section">${colorSwatches}</div>
@@ -2510,18 +2595,18 @@ ${darkColorSwatches ? `<h2>Dark Mode Colors</h2><div class="section">${darkColor
 
 <h2>Typography</h2>
 <div class="section">
-  <p><strong>Font families:</strong> ${tokens.typography.fontFamilies.join(', ') || 'System default'}</p>
-  ${tokens.typography.fontStacks?.length ? `<p><strong>Full stacks:</strong></p><ul>${tokens.typography.fontStacks.map((s) => `<li><code>${s}</code></li>`).join('')}</ul>` : ''}
-  <p><strong>Font sizes:</strong> ${tokens.typography.fontSizes.join(', ')}</p>
-  <p><strong>Font weights:</strong> ${tokens.typography.fontWeights.join(', ')}</p>
-  ${tokens.typography.letterSpacings?.length ? `<p><strong>Letter spacing:</strong> ${tokens.typography.letterSpacings.join(', ')}</p>` : ''}
+  <p><strong>Font families:</strong> ${escapeHtml(publicTokens.typography.fontFamilies.join(', ') || 'System default')}</p>
+  ${publicTokens.typography.fontStacks?.length ? `<p><strong>Full stacks:</strong></p><ul>${publicTokens.typography.fontStacks.map((stack) => `<li><code>${escapeHtml(stack)}</code></li>`).join('')}</ul>` : ''}
+  <p><strong>Font sizes:</strong> ${escapeHtml(publicTokens.typography.fontSizes.join(', '))}</p>
+  <p><strong>Font weights:</strong> ${escapeHtml(publicTokens.typography.fontWeights.join(', '))}</p>
+  ${publicTokens.typography.letterSpacings?.length ? `<p><strong>Letter spacing:</strong> ${escapeHtml(publicTokens.typography.letterSpacings.join(', '))}</p>` : ''}
 </div>
 
 <h2>Spacing</h2>
 <div class="section">
   <table>
     <tr><th>Level</th><th>Value</th></tr>
-    ${tokens.spacing.map((s, i) => `<tr><td>${i + 1}</td><td><code>${s}</code></td></tr>`).join('\n    ')}
+    ${publicTokens.spacing.map((spacing, index) => `<tr><td>${index + 1}</td><td><code>${escapeHtml(spacing)}</code></td></tr>`).join('\n    ')}
   </table>
 </div>
 
@@ -2529,28 +2614,28 @@ ${darkColorSwatches ? `<h2>Dark Mode Colors</h2><div class="section">${darkColor
 <div class="section">
   <table>
     <tr><th>Size</th><th>Value</th></tr>
-    ${tokens.radii.map((r, i) => `<tr><td>${RADIUS_NAMES[i] || i}</td><td><code>${r}</code></td></tr>`).join('\n    ')}
+    ${publicTokens.radii.map((radius, index) => `<tr><td>${escapeHtml(RADIUS_NAMES[index] || index)}</td><td><code>${escapeHtml(radius)}</code></td></tr>`).join('\n    ')}
   </table>
 </div>
 
 ${
-  tokens.shadows.length > 0
+  publicTokens.shadows.length > 0
     ? `<h2>Shadows</h2>
 <div class="section">
-  ${tokens.shadows.map((s, i) => `<p>${SHADOW_NAMES[i] || i}: <code>${s}</code></p>`).join('\n  ')}
+  ${publicTokens.shadows.map((shadow, index) => `<p>${escapeHtml(SHADOW_NAMES[index] || index)}: <code>${escapeHtml(shadow)}</code></p>`).join('\n  ')}
 </div>`
     : ''
 }
 ${
-  tokens.zIndices?.length
+  publicTokens.zIndices?.length
     ? `<h2>Z-Index Layers</h2>
-<div class="section"><code>${tokens.zIndices.join(' | ')}</code></div>`
+<div class="section"><code>${escapeHtml(publicTokens.zIndices.join(' | '))}</code></div>`
     : ''
 }
 ${
-  tokens.transitions?.length
+  publicTokens.transitions?.length
     ? `<h2>Transitions</h2>
-<div class="section"><code>${tokens.transitions.join(' | ')}</code></div>`
+<div class="section"><code>${escapeHtml(publicTokens.transitions.join(' | '))}</code></div>`
     : ''
 }
 </body>

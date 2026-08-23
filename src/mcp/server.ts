@@ -14,9 +14,18 @@ import * as readline from 'node:readline'
 
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
+import {
+  sanitizeDesignEvidenceForPersistence,
+  sanitizeDesignTokensForPersistence,
+  sanitizeDiagnosticTextForDisplay,
+  sanitizeExtractionIssuesForDisplay,
+  sanitizePageCoverageForPersistence,
+  sanitizeUrlForPersistence,
+} from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
+import { isCurrentDesignProfile } from '../core/design-context/types.js'
 import type { DesignProfile } from '../core/design-context/types.js'
 import {
   buildDarkModeExportData,
@@ -135,10 +144,16 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
       signal,
     })
 
-    const tokens = result.tokens
+    const tokens = sanitizeDesignTokensForPersistence(result.tokens)
+    const publicEvidence = sanitizeDesignEvidenceForPersistence(result.designEvidence)
+    const publicPageCoverage = sanitizePageCoverageForPersistence(result.pageCoverage)
+    const publicExtractionIssues = sanitizeExtractionIssuesForDisplay(result.extractionIssues)
     const featureTags = result.featureTags
-    const darkMode = buildDarkModeExportData(result.darkMode)
-    const designContext = createDeterministicDesignContext(result.designEvidence, tokens, 'en')
+    const rawDarkMode = buildDarkModeExportData(result.darkMode)
+    const darkMode = rawDarkMode?.darkTokens
+      ? { ...rawDarkMode, darkTokens: sanitizeDesignTokensForPersistence(rawDarkMode.darkTokens) }
+      : rawDarkMode
+    const designContext = createDeterministicDesignContext(result.designEvidence, 'en')
 
     switch (format) {
       case 'css':
@@ -167,10 +182,10 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
       case 'evidence':
         return { content: [{ type: 'text', text: generateDesignEvidenceJson(result.designEvidence) }] }
       case 'component-specs':
-        return { content: [{ type: 'text', text: generateComponentSpecsJson(result.designEvidence) }] }
+        return { content: [{ type: 'text', text: generateComponentSpecsJson(publicEvidence) }] }
       case 'visual-qa':
         return {
-          content: [{ type: 'text', text: JSON.stringify(generateLocalVisualQa(result.designEvidence), null, 2) }],
+          content: [{ type: 'text', text: JSON.stringify(generateLocalVisualQa(publicEvidence), null, 2) }],
         }
       case 'all':
         return {
@@ -182,17 +197,16 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
                   tokens,
                   darkMode,
                   featureTags,
-                  pageCoverage: result.pageCoverage,
+                  pageCoverage: publicPageCoverage,
                   completion: result.completion,
-                  extractionIssues: result.extractionIssues,
+                  extractionIssues: publicExtractionIssues,
                   analysisTiming: result.timing,
                   designProfile: designContext.profile,
-                  reconstructionBrief: designContext.reconstructionBrief,
                   agentContext: designContext.agentContext,
                   validationReport: designContext.validationReport,
                   css: generateCssVariables(tokens, darkMode, result.breakpoints),
                   tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
-                  evidence: result.designEvidence,
+                  evidence: publicEvidence,
                   markdown: generateDesignDoc(
                     tokens,
                     url,
@@ -222,9 +236,9 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
                   tokens,
                   darkMode,
                   featureTags,
-                  pageCoverage: result.pageCoverage,
+                  pageCoverage: publicPageCoverage,
                   completion: result.completion,
-                  extractionIssues: result.extractionIssues,
+                  extractionIssues: publicExtractionIssues,
                   analysisTiming: result.timing,
                 },
                 null,
@@ -240,15 +254,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
     if (params.profileA && params.profileB) {
       const profileA = params.profileA as DesignProfile
       const profileB = params.profileB as DesignProfile
-      if (
-        profileA.schemaVersion !== '2' ||
-        profileB.schemaVersion !== '2' ||
-        profileA.claimSource !== 'deterministic-catalog' ||
-        profileB.claimSource !== 'deterministic-catalog' ||
-        !profileA.thesis ||
-        !profileB.thesis
-      ) {
-        throw new Error('Both profile inputs must be deterministic DesignProfile v2 objects')
+      if (!isCurrentDesignProfile(profileA) || !isCurrentDesignProfile(profileB)) {
+        throw new Error('Both profile inputs must be current deterministic DesignProfile v3 objects')
       }
       return {
         content: [{ type: 'text', text: JSON.stringify(compareDesignProfiles(profileA, profileB), null, 2) }],
@@ -263,8 +270,8 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
     ])
 
     if (params.depth === 'language') {
-      const contextA = createDeterministicDesignContext(resultA.designEvidence, resultA.tokens, 'en')
-      const contextB = createDeterministicDesignContext(resultB.designEvidence, resultB.tokens, 'en')
+      const contextA = createDeterministicDesignContext(resultA.designEvidence, 'en')
+      const contextB = createDeterministicDesignContext(resultB.designEvidence, 'en')
       return {
         content: [
           {
@@ -284,7 +291,12 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
         ],
       }
     }
-    const diff = compareDesigns(resultA.tokens, resultB.tokens, urlA, urlB)
+    const diff = compareDesigns(
+      resultA.tokens,
+      resultB.tokens,
+      sanitizeUrlForPersistence(urlA),
+      sanitizeUrlForPersistence(urlB),
+    )
     return { content: [{ type: 'text', text: JSON.stringify(diff, null, 2) }] }
   }
 
@@ -305,6 +317,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function requestKey(id: string | number): string {
   return `${typeof id}:${String(id)}`
+}
+
+function diagnosticUrlsFromParams(params: Record<string, unknown> | undefined): string[] {
+  if (!params) return []
+  return ['url', 'urlA', 'urlB'].map((key) => params[key]).filter((value): value is string => typeof value === 'string')
 }
 
 const activeRequests = new Map<string, AbortController>()
@@ -364,7 +381,10 @@ async function handleRequest(request: JsonRpcRequest & { id: string | number }) 
         } catch (error) {
           if (controller.signal.aborted) return
           if (error instanceof ProtocolError) throw error
-          const message = error instanceof Error ? error.message : String(error)
+          const message = sanitizeDiagnosticTextForDisplay(
+            error instanceof Error ? error.message : String(error),
+            diagnosticUrlsFromParams(args),
+          )
           result = {
             content: [
               {

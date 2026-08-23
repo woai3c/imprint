@@ -218,6 +218,18 @@ function agreementConfidence(ids: readonly string[], values: readonly string[], 
   return agreement >= 0.75 ? 'high' : 'medium'
 }
 
+function numericAgreementConfidence(
+  ids: readonly string[],
+  values: readonly number[],
+  evidence: DesignEvidence,
+  tolerance: number,
+): Confidence {
+  if (confidenceFor(ids, evidence) !== 'high' || values.length === 0) return 'medium'
+  const center = median(values)
+  const agreement = values.filter((value) => Math.abs(value - center) <= tolerance).length / values.length
+  return agreement >= 0.75 ? 'high' : 'medium'
+}
+
 function ownerTokenRefs(
   owners: Array<{ id: string; tokenRefs: string[] }>,
   prefix: string,
@@ -234,6 +246,98 @@ function ownerTokenRefs(
     }
   }
   return result
+}
+
+function representativeOwnersAcrossPages<T extends { id: string; pageId: string; tokenRefs: string[] }>(
+  owners: T[],
+  selectedRefs: ReadonlySet<string>,
+  limit = 12,
+): T[] {
+  const candidates = owners.filter((owner) => owner.tokenRefs.some((ref) => selectedRefs.has(ref)))
+  const result: T[] = []
+  const selectedIds = new Set<string>()
+  const selectedPages = new Set<string>()
+  const selectionLimit = Math.max(limit, selectedRefs.size)
+  const addOwner = (owner: T) => {
+    result.push(owner)
+    selectedIds.add(owner.id)
+    selectedPages.add(owner.pageId)
+  }
+
+  // Token ownership is an integrity requirement, so cover every selected ref
+  // before adding owners solely for page diversity. A greedy set cover keeps
+  // the evidence list bounded when one owner supports multiple token refs.
+  const uncoveredRefs = new Set(selectedRefs)
+  while (uncoveredRefs.size > 0 && result.length < selectionLimit) {
+    let bestOwner: T | undefined
+    let bestCoverage = 0
+    for (const owner of candidates) {
+      if (selectedIds.has(owner.id)) continue
+      const coverage = owner.tokenRefs.filter((ref) => uncoveredRefs.has(ref)).length
+      if (coverage > bestCoverage) {
+        bestOwner = owner
+        bestCoverage = coverage
+      }
+    }
+    if (!bestOwner || bestCoverage === 0) break
+    addOwner(bestOwner)
+    bestOwner.tokenRefs.forEach((ref) => uncoveredRefs.delete(ref))
+  }
+
+  for (const owner of candidates) {
+    if (selectedIds.has(owner.id) || selectedPages.has(owner.pageId)) continue
+    addOwner(owner)
+    if (result.length >= selectionLimit) return result
+  }
+  for (const owner of candidates) {
+    if (selectedIds.has(owner.id)) continue
+    addOwner(owner)
+    if (result.length >= selectionLimit) break
+  }
+  return result
+}
+
+function representativeOwnersAcrossUrls<T extends { id: string; pageId: string }>(
+  owners: readonly T[],
+  pageById: ReadonlyMap<string, EvidencePage>,
+  signatureFor: (owner: T) => string,
+  limit = 8,
+): T[] {
+  const byUrl = new Map<string, T[]>()
+  for (const owner of owners) {
+    const url = pageById.get(owner.pageId)?.url
+    if (!url) continue
+    const values = byUrl.get(url) || []
+    values.push(owner)
+    byUrl.set(url, values)
+  }
+  const representatives = [...byUrl.entries()].map(([url, values]) => {
+    const signatureCounts = new Map<string, number>()
+    for (const owner of values) {
+      const signature = signatureFor(owner)
+      signatureCounts.set(signature, (signatureCounts.get(signature) || 0) + 1)
+    }
+    const signature = [...signatureCounts.entries()].sort(
+      (first, second) => second[1] - first[1] || first[0].localeCompare(second[0]),
+    )[0][0]
+    const owner = values
+      .filter((candidate) => signatureFor(candidate) === signature)
+      .sort((first, second) => first.id.localeCompare(second.id))[0]
+    return { owner, signature, url }
+  })
+  const crossUrlFrequency = new Map<string, number>()
+  representatives.forEach(({ signature }) =>
+    crossUrlFrequency.set(signature, (crossUrlFrequency.get(signature) || 0) + 1),
+  )
+  return representatives
+    .sort(
+      (first, second) =>
+        (crossUrlFrequency.get(second.signature) || 0) - (crossUrlFrequency.get(first.signature) || 0) ||
+        first.signature.localeCompare(second.signature) ||
+        first.url.localeCompare(second.url),
+    )
+    .slice(0, limit)
+    .map(({ owner }) => owner)
 }
 
 function orderedSectionAssertions(
@@ -263,24 +367,83 @@ function buildCompositionClaims(
   evidence: DesignEvidence,
   sections: SectionEvidence[],
   sectionsByPage: Map<string, SectionEvidence[]>,
+  pageById: Map<string, EvidencePage>,
   t: ReturnType<typeof coreTranslator>,
 ): void {
   if (sections.length === 0) return
-  const sample = sections.slice(0, 8)
-  const widths = sample.map((section) => section.rect.width)
-  const anchors = sample.map(sectionAnchor)
+  const representatives = [...sectionsByPage.entries()].flatMap(([pageId, pageSections]) => {
+    if (pageSections.length === 0) return []
+    const pageMedian = median(pageSections.map((section) => section.rect.width))
+    const section = [...pageSections].sort(
+      (first, second) =>
+        Math.abs(first.rect.width - pageMedian) - Math.abs(second.rect.width - pageMedian) ||
+        first.rect.width - second.rect.width ||
+        sectionAnchor(first).localeCompare(sectionAnchor(second)) ||
+        first.role.localeCompare(second.role) ||
+        first.order - second.order ||
+        first.id.localeCompare(second.id),
+    )[0]
+    return [{ section, url: pageById.get(pageId)?.url || '' }]
+  })
+  const widths = representatives.map(({ section }) => section.rect.width)
+  const anchors = representatives.map(({ section }) => sectionAnchor(section))
   const dominantAnchor = [...new Set(anchors)].sort(
     (first, second) =>
-      anchors.filter((value) => value === second).length - anchors.filter((value) => value === first).length,
+      anchors.filter((value) => value === second).length - anchors.filter((value) => value === first).length ||
+      first.localeCompare(second),
   )[0]
-  const sectionIds = sample.map((section) => section.id)
+  const centerWidth = median(widths)
+  const isWidthInlier = ({ section }: (typeof representatives)[number]) =>
+    Math.abs(section.rect.width - centerWidth) <= 0.12
+  const inliers = representatives
+    .filter(isWidthInlier)
+    .sort(
+      (first, second) =>
+        Math.abs(first.section.rect.width - centerWidth) - Math.abs(second.section.rect.width - centerWidth) ||
+        first.url.localeCompare(second.url) ||
+        first.section.id.localeCompare(second.section.id),
+    )
+  const outliers = representatives
+    .filter((representative) => !isWidthInlier(representative))
+    .sort(
+      (first, second) =>
+        Math.abs(second.section.rect.width - centerWidth) - Math.abs(first.section.rect.width - centerWidth) ||
+        first.url.localeCompare(second.url) ||
+        first.section.id.localeCompare(second.section.id),
+    )
+  const sampleLimit = 8
+  const outlierLimit = Math.min(outliers.length, Math.ceil(sampleLimit / 3))
+  const sample = [...inliers.slice(0, sampleLimit - outlierLimit), ...outliers.slice(0, outlierLimit)]
+  const allSectionIds = representatives.map(({ section }) => section.id)
+  const sectionIds = sample.map(({ section }) => section.id)
+  const sampleWidths = sample.map(({ section }) => section.rect.width)
+  const minimumWidth = Math.min(...widths)
+  const maximumWidth = Math.max(...widths)
+  const widthConfidence = numericAgreementConfidence(allSectionIds, widths, evidence, 0.12)
+  const widthStatement =
+    widthConfidence === 'high' && outliers.length > 0
+      ? t('containerClusterStatement', {
+          count: representatives.length,
+          matching: inliers.length,
+          percentage: roundedPercent(inliers.length / representatives.length),
+          width: roundedPercent(centerWidth),
+          minimum: roundedPercent(Math.min(...outliers.map(({ section }) => section.rect.width))),
+          maximum: roundedPercent(Math.max(...outliers.map(({ section }) => section.rect.width))),
+        })
+      : widthConfidence === 'high' || maximumWidth - minimumWidth <= 0.24
+        ? t('containerStatement', {
+            count: representatives.length,
+            width: roundedPercent(centerWidth),
+          })
+        : t('containerRangeStatement', {
+            count: representatives.length,
+            minimum: roundedPercent(minimumWidth),
+            maximum: roundedPercent(maximumWidth),
+          })
   builder.add('composition-container', [{ kind: 'singleton', slot: 'composition.container' }], {
-    statement: t('containerStatement', {
-      count: sample.length,
-      width: roundedPercent(median(widths)),
-    }),
+    statement: widthStatement,
     implementation: t('boundedImplementation'),
-    confidence: confidenceFor(sectionIds, evidence),
+    confidence: widthConfidence,
     evidenceIds: sectionIds,
     assertions: [
       {
@@ -289,8 +452,8 @@ function buildCompositionClaims(
         predicate: 'supports',
         scope: assertionScope(sectionIds, evidence),
         evidenceIds: sectionIds,
-        property: 'rect.width.median-percent',
-        value: roundedPercent(median(widths)),
+        property: 'rect.width.page-representatives-percent',
+        value: sampleWidths.map((width) => String(roundedPercent(width))),
       },
     ],
   })
@@ -300,7 +463,7 @@ function buildCompositionClaims(
       count: anchors.filter((value) => value === dominantAnchor).length,
     }),
     implementation: t('boundedImplementation'),
-    confidence: agreementConfidence(sectionIds, anchors, evidence),
+    confidence: agreementConfidence(allSectionIds, anchors, evidence),
     evidenceIds: sectionIds,
     assertions: [
       {
@@ -316,6 +479,7 @@ function buildCompositionClaims(
   })
   const counts = [...sectionsByPage.values()].map((values) => values.length)
   const densityEvidenceIds = sections.map((section) => section.id)
+  const spacingRefs = ownerTokenRefs(sections, 'spacing.', 12).map((item) => item.ref)
   builder.add('composition-density', [{ kind: 'singleton', slot: 'composition.density' }], {
     statement: t('densityStatement', {
       minimum: Math.min(...counts),
@@ -335,7 +499,17 @@ function buildCompositionClaims(
         property: 'detected-section-count-range',
         value: [String(Math.min(...counts)), String(Math.max(...counts))],
       },
+      ...sections.flatMap((section) =>
+        stableList(section.tokenRefs.filter((ref) => spacingRefs.includes(ref))).map((ref) => ({
+          kind: 'token' as const,
+          target: ref,
+          predicate: 'observed',
+          scope: assertionScope([section.id], evidence),
+          evidenceIds: [section.id],
+        })),
+      ),
     ],
+    tokenRefs: spacingRefs,
   })
 }
 
@@ -350,14 +524,18 @@ function buildVisualClaims(
   const owners = [...sections, ...components]
   const colorRefs = ownerTokenRefs(owners, 'color.')
   if (colorRefs.length > 0) {
-    const evidenceIds = colorRefs.map((item) => item.ownerId)
-    const assertions: DesignClaimAssertion[] = colorRefs.map((item) => ({
-      kind: 'token',
-      target: item.ref,
-      predicate: 'observed',
-      scope: assertionScope([item.ownerId], evidence),
-      evidenceIds: [item.ownerId],
-    }))
+    const selectedRefs = new Set(colorRefs.map((item) => item.ref))
+    const representativeOwners = representativeOwnersAcrossPages(owners, selectedRefs)
+    const evidenceIds = representativeOwners.map((owner) => owner.id)
+    const assertions: DesignClaimAssertion[] = representativeOwners.flatMap((owner) =>
+      stableList(owner.tokenRefs.filter((ref) => selectedRefs.has(ref))).map((ref) => ({
+        kind: 'token',
+        target: ref,
+        predicate: 'observed',
+        scope: assertionScope([owner.id], evidence),
+        evidenceIds: [owner.id],
+      })),
+    )
     const input = {
       statement: t('tokenOwnershipStatement', { count: colorRefs.length, dimension: t('dimensions.color') }),
       implementation: t('tokenOwnershipImplementation'),
@@ -375,7 +553,13 @@ function buildVisualClaims(
       (node.observedTypography || node.tokenRefs.some((ref) => ref.startsWith('typography.'))),
   )
   if (typographyOwners.length > 0) {
-    const sample = typographyOwners.slice(0, 8)
+    const sample = representativeOwnersAcrossUrls(typographyOwners, pageById, (node) =>
+      JSON.stringify([
+        node.textRole || node.role,
+        stableList(node.tokenRefs.filter((ref) => ref.startsWith('typography.'))),
+        node.observedTypography || {},
+      ]),
+    )
     const typographyRefs = ownerTokenRefs(sample, 'typography.')
     const evidenceIds = sample.map((node) => node.id)
     builder.add('visual-typography', [{ kind: 'singleton', slot: 'visual.typography' }], {
@@ -403,7 +587,12 @@ function buildVisualClaims(
   }
 
   if (components.length > 0) {
-    const samples = components.slice(0, 8)
+    const samples = representativeOwnersAcrossUrls(components, pageById, (component) =>
+      JSON.stringify([
+        componentShape(component, pageById.get(component.pageId)),
+        stableList(component.tokenRefs.filter((ref) => ref.startsWith('radius.'))),
+      ]),
+    )
     const shapeFacts = samples.map((component) => ({
       component,
       shape: componentShape(component, pageById.get(component.pageId)),
@@ -444,7 +633,18 @@ function buildVisualClaims(
     )
   })
   if (surfaceOwners.length > 0) {
-    const samples = surfaceOwners.slice(0, 8)
+    const samples = representativeOwnersAcrossUrls(surfaceOwners, pageById, (owner) => {
+      const border =
+        'styles' in owner
+          ? hasVisibleBorder(owner.styles.border)
+          : Object.values(owner.observedStyles?.borders || {}).some(hasVisibleBorder)
+      const shadow =
+        'styles' in owner ? hasVisibleShadow(owner.styles.boxShadow) : hasVisibleShadow(owner.observedStyles?.boxShadow)
+      return JSON.stringify([
+        border && shadow ? 'mixed' : border ? 'border' : shadow ? 'shadow' : 'flat',
+        stableList(owner.tokenRefs.filter((ref) => /^(?:border|color|shadow)\./.test(ref))),
+      ])
+    })
     const evidenceIds = samples.map((owner) => owner.id)
     const bordered = samples.filter((owner) =>
       'styles' in owner
@@ -1201,7 +1401,7 @@ export function buildDeterministicClaimCatalog(evidence: DesignEvidence, languag
     })
   }
 
-  buildCompositionClaims(builder, evidence, sections, sectionsByPage, t)
+  buildCompositionClaims(builder, evidence, sections, sectionsByPage, pageById, t)
   buildVisualClaims(builder, evidence, sections, components, pageById, t)
   buildSectionClaims(builder, evidence, sections, pageById, t)
   buildComponentClaims(builder, evidence, components, pageById, t)

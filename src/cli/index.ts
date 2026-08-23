@@ -4,14 +4,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
-import { sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
+import {
+  sanitizeDesignTokensForPersistence,
+  sanitizeDiagnosticTextForDisplay,
+  sanitizeUrlForPersistence,
+} from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { generateDesignProfileJson } from '../core/design-context/profile-export.js'
-import {
-  getReconstructionBriefEligibility,
-  reconstructionBriefUnavailableMessage,
-} from '../core/design-context/reconstruction-brief.js'
 import {
   buildDarkModeExportData,
   generateComponentSpecsJson,
@@ -38,6 +38,7 @@ import {
 import { resolveCliExportFormats } from './export-formats.js'
 
 const cliT = coreTranslator('en', 'cli')
+const diagnosticInputUrls = process.argv.slice(2).filter((value) => /^[a-z][a-z\d+.-]*:\/\//i.test(value))
 
 function log(msg: string, quiet: boolean) {
   if (!quiet) process.stderr.write(`${msg}\n`)
@@ -105,14 +106,16 @@ async function main(): Promise<number> {
     process.removeListener('SIGINT', cancelAnalysis)
     if (cancellationDeadline) clearTimeout(cancellationDeadline)
   }
-  const darkModeExport = buildDarkModeExportData(result.darkMode)
+  const rawDarkModeExport = buildDarkModeExportData(result.darkMode)
+  const darkModeExport = rawDarkModeExport?.darkTokens
+    ? { ...rawDarkModeExport, darkTokens: sanitizeDesignTokensForPersistence(rawDarkModeExport.darkTokens) }
+    : rawDarkModeExport
 
-  const designContext = createDeterministicDesignContext(result.designEvidence, result.tokens, 'en')
+  const designContext = createDeterministicDesignContext(result.designEvidence, 'en')
   const profile = designContext.profile
-  const reconstructionBrief = designContext.reconstructionBrief
   const finalTiming = result.timing
 
-  const exportTokens = result.tokens
+  const exportTokens = sanitizeDesignTokensForPersistence(result.tokens)
   const exportDarkMode = darkModeExport
   const cssVars = generateCssVariables(exportTokens, exportDarkMode, result.breakpoints)
   const tailwind = generateTailwindTheme(exportTokens, exportDarkMode, result.breakpoints)
@@ -136,13 +139,13 @@ async function main(): Promise<number> {
       JSON.stringify(
         darkModeExport?.darkTokens
           ? {
-              ...result.tokens,
+              ...exportTokens,
               darkMode: {
                 method: darkModeExport.method,
                 tokens: darkModeExport.darkTokens,
               },
             }
-          : result.tokens,
+          : exportTokens,
         null,
         2,
       ),
@@ -158,7 +161,6 @@ async function main(): Promise<number> {
 
   const formats = resolveCliExportFormats(options.format, {
     hasProfile: true,
-    hasReconstructionBrief: reconstructionBrief !== null,
   })
 
   for (const format of formats) {
@@ -195,17 +197,6 @@ async function main(): Promise<number> {
         filename = 'design-profile.json'
         content = generateDesignProfileJson(profile)
         break
-      case 'reconstruction': {
-        if (!reconstructionBrief) {
-          const eligibility = getReconstructionBriefEligibility(profile)
-          throw new Error(
-            reconstructionBriefUnavailableMessage(eligibility.eligible ? 'no-profile' : eligibility.reason),
-          )
-        }
-        filename = 'RECONSTRUCTION.md'
-        content = reconstructionBrief
-        break
-      }
       case 'components':
         filename = 'component-specs.json'
         content = generateComponentSpecsJson(result.designEvidence)
@@ -216,7 +207,7 @@ async function main(): Promise<number> {
         break
       case 'pdf':
         filename = 'style-guide.html'
-        content = generatePdfHtml(result.tokens, url, result.featureTags, darkModeExport)
+        content = generatePdfHtml(exportTokens, sanitizeUrlForPersistence(url), result.featureTags, exportDarkMode)
         break
       default:
         log(`  Unknown format: ${format}`, options.quiet)
@@ -248,7 +239,7 @@ function printUsage() {
     ${cliT('usage.doctor')}
 
   Options:
-    --format <type>     Output: design.md | reconstruction | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
+    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
@@ -263,13 +254,13 @@ function printUsage() {
     imprint extract https://github.com --format design.md --output ./design/
     imprint extract https://stripe.com --format json --json-stdout | jq .colors
     imprint extract https://example.com --viewport all --format profile
-    imprint extract https://example.com --format reconstruction
 
 `)
 }
 
 const usageErrorKeys: Record<CliUsageErrorCode, string> = {
   'invalid-url': 'errors.invalidUrl',
+  'invalid-format': 'errors.invalidFormat',
   'invalid-viewports': 'errors.invalidViewport',
   'invalid-page-count': 'errors.invalidPageCount',
   'invalid-auth-mode': 'errors.invalidAuthMode',
@@ -300,8 +291,14 @@ main()
       exitCode = CLI_EXIT_CODES.cancelled
       message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
     } else {
-      message = cliT('errors.runtime', { message: error instanceof Error ? error.message : String(error) })
+      message = cliT('errors.runtime', {
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
-    if (message) process.stderr.write(`${cliT('errors.prefix')}: ${message}\n`)
+    if (message) {
+      process.stderr.write(
+        `${cliT('errors.prefix')}: ${sanitizeDiagnosticTextForDisplay(message, diagnosticInputUrls)}\n`,
+      )
+    }
     process.exitCode = exitCode
   })

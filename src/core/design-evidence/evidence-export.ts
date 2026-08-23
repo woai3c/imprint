@@ -1,5 +1,6 @@
 import type { DocLanguage } from '../analyzer/agent-guide.js'
 import { hasVisibleBorder, hasVisibleShadow, isTransparentColor } from '../analyzer/component-detect.js'
+import { sanitizeDesignEvidenceForPersistence } from '../analyzer/url-privacy.js'
 import { coreTranslator } from '../i18n/index.js'
 import { resolveScreenshotAssetCoverage } from './asset-integrity.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
@@ -216,10 +217,10 @@ function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, z
 }
 
 export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
-  return JSON.stringify(evidence, null, 2)
+  return JSON.stringify(sanitizeDesignEvidenceForPersistence(evidence), null, 2)
 }
 
-export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: DocLanguage = 'en'): string {
+function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLanguage): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
   const pageCount = new Set(evidence.pages.map((page) => page.url)).size
@@ -299,19 +300,6 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
           ? `- \`${page.viewport}\` ${page.url}：检测到横向溢出（内容 ${page.contentWidth}px > 视口 ${page.viewportWidth}px）；视口外内容不能视为已隐藏或已重排`
           : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
       )
-      for (const source of page.horizontalOverflowSources?.slice(0, 3) || []) {
-        const sectionContext = [
-          source.sectionRole ? displaySectionRole(source.sectionRole) : '',
-          source.sectionId ? `\`${source.sectionId}\`` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ')
-        lines.push(
-          zh
-            ? `  - 来源：\`${source.locator}\`${sectionContext ? `（区块 ${sectionContext}）` : ''}；超出 ${source.overflowPx}px，元素宽 ${source.width}px，position: ${source.position}`
-            : `  - Source: \`${source.locator}\`${sectionContext ? ` (section ${sectionContext})` : ''}; ${source.overflowPx}px outside, ${source.width}px wide, position: ${source.position}`,
-        )
-      }
     }
     const roles = topologyPage.sectionIds
       .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
@@ -346,9 +334,7 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
     lines.push(zh ? '### 结构事实' : '### Structural Facts')
     lines.push('')
     for (const { section, facts } of dedupedStructuralFacts.slice(0, 24)) {
-      lines.push(
-        `- ${displaySectionRole(section.role)} · \`${section.id}\`: ${facts.map((fact) => `\`${fact}\``).join(' · ')}`,
-      )
+      lines.push(`- ${displaySectionRole(section.role)}: ${facts.map((fact) => `\`${fact}\``).join(' · ')}`)
     }
   }
 
@@ -384,22 +370,6 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
       lines.push(zh ? '### 伪元素与首字处理' : '### Pseudo-element Treatments')
       lines.push('')
       lines.push(...pseudoLines)
-    }
-  }
-
-  if (evidence.techStack) {
-    const ts = evidence.techStack
-    const parts: string[] = []
-    if (ts.frameworks.length > 0) parts.push(`${zh ? '框架' : 'Framework'}: ${ts.frameworks.join(', ')}`)
-    if (ts.uiLibraries.length > 0) parts.push(`${zh ? 'UI 库' : 'UI Library'}: ${ts.uiLibraries.join(', ')}`)
-    if (ts.cssApproach.length > 0) parts.push(`${zh ? 'CSS 方案' : 'CSS'}: ${ts.cssApproach.join(', ')}`)
-    if (ts.bundler) parts.push(`${zh ? '构建工具' : 'Bundler'}: ${ts.bundler}`)
-    if (ts.icons) parts.push(`${zh ? '图标' : 'Icons'}: ${ts.icons}`)
-    if (parts.length > 0) {
-      lines.push('')
-      lines.push(zh ? '### 技术栈' : '### Tech Stack')
-      lines.push('')
-      for (const part of parts) lines.push(`- ${part}`)
     }
   }
 
@@ -529,7 +499,7 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
     lines.push('')
     for (const { observation, section, changes } of usefulResponsiveObservations.slice(0, 20)) {
       const page = section ? evidence.pages.find((candidate) => candidate.id === section.pageId) : undefined
-      const context = `${page?.url || evidence.source.finalUrl} · ${displaySectionRole(section?.role)} · \`${observation.sectionId}\``
+      const context = `${page?.url || evidence.source.finalUrl} · ${displaySectionRole(section?.role)}`
       const properties = changes.map(([property]) => property)
       const changeType = displayedResponsiveChangeType(observation.changeType, properties)
       lines.push(
@@ -564,6 +534,11 @@ export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: 
   }
 
   return lines.join('\n')
+}
+
+/** Public Markdown projection: keep observations while removing private URLs and internal implementation locators. */
+export function generateDesignEvidenceBrief(evidence: DesignEvidence, language: DocLanguage = 'en'): string {
+  return renderDesignEvidenceBrief(sanitizeDesignEvidenceForPersistence(evidence), language)
 }
 
 const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {

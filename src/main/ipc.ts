@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { BrowserWindow, app, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 
 import {
   listManagedSessions,
@@ -17,13 +17,8 @@ import {
   type LoginDecision,
   createAnalysisRequest,
 } from '../core/analyzer/index.js'
-import { isPageHealthEvidenceEligible } from '../core/analyzer/page-health.js'
-import {
-  type ReferenceCaptureInput,
-  compareReferenceCaptures,
-  routeIdentityFromUrl,
-} from '../core/analyzer/reference-compare.js'
-import type { AnalysisCompletion, AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
+import { compareReferenceCaptures, routeIdentityFromUrl } from '../core/analyzer/reference-compare.js'
+import type { DesignToken } from '../core/analyzer/types.js'
 import {
   sanitizeAuthWallDetectionForDisplay,
   sanitizeDesignEvidenceForPersistence,
@@ -42,21 +37,17 @@ import type { DesignProfile } from '../core/design-context/types.js'
 import { createValidationRecipe, validateRecipe } from '../core/design-context/validation-recipe.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import {
-  type DarkModeExportData,
   buildDarkModeExportData,
   generateCssVariables,
   generateDesignDoc,
   generateDesignEvidenceJson,
   generateTailwindTheme,
-  restoreDarkModeExportData,
 } from '../core/export/index.js'
 import {
   type AnalysisRecoveryResponse,
   type AnalyzeOptions,
   type AnalyzeResponse,
   type AppSettings,
-  type PageScreenshotData,
-  type RendererPerformanceSample,
   type ThemeRecord,
   type ThemeSaveResponse,
   type ThemeSummaryRecord,
@@ -66,8 +57,22 @@ import { AnalysisRecoveryRegistry } from './analysis-recovery.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { createComparisonVisualPairs } from './comparison-visuals.js'
 import { getDb } from './database.js'
+import { addHistoryThumbnailPaths, toAnalysisSummaryWithThumbnail } from './history-thumbnails.js'
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
+import {
+  readAnalysisCompletion,
+  readAnalysisTiming,
+  readCaptureManifest,
+  readDarkModeExportData,
+  readDesignEvidence,
+  readFirstScreenshotPath,
+  readPageScreenshots,
+  referenceCaptureFromRecord,
+  toAnalysisSummary,
+  toThemeSummary,
+} from './persisted-records.js'
+import { formatRendererPerformanceSample } from './renderer-performance-sample.js'
 import { getSettings, saveSettings } from './settings.js'
 
 interface SaveTextFileOptions {
@@ -81,311 +86,6 @@ const analysisFinishControllers = new Map<number, AbortController>()
 const analysisRecoveryRegistry = new AnalysisRecoveryRegistry()
 const THEME_SUMMARY_COLUMNS = `id, name, source_url, screenshot_path, tokens_json, dark_tokens_json,
   dark_mode_method, dark_mode_selector, tags, is_favorite, created_at, updated_at`
-
-function compactTokenSnapshot(serialized: string | null): string | null {
-  if (!serialized) return serialized
-  try {
-    const parsed = JSON.parse(serialized) as unknown
-    if (!isRecord(parsed) || !('usageCount' in parsed)) return serialized
-    const { usageCount: _usageCount, ...tokens } = parsed
-    return JSON.stringify(tokens)
-  } catch {
-    return serialized
-  }
-}
-
-function readPerformanceNumber(value: unknown, minimum: number, maximum: number, digits = 1): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null
-  const factor = 10 ** digits
-  return Math.round(Math.min(maximum, Math.max(minimum, value)) * factor) / factor
-}
-
-function readPerformanceLabel(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') return fallback
-  return value.replace(/[\r\n\t]/g, ' ').slice(0, 120) || fallback
-}
-
-function formatRendererPerformanceSample(value: unknown): string | null {
-  if (!isRecord(value)) return null
-
-  const windowMs = readPerformanceNumber(value.windowMs, 1, 60_000, 0)
-  const frames = readPerformanceNumber(value.frames, 1, 10_000, 0)
-  const fps = readPerformanceNumber(value.fps, 0, 500)
-  const p95FrameMs = readPerformanceNumber(value.p95FrameMs, 0, 60_000)
-  const maxFrameMs = readPerformanceNumber(value.maxFrameMs, 0, 60_000)
-  const framesOver50Ms = readPerformanceNumber(value.framesOver50Ms, 0, 10_000, 0)
-  const longTasks = readPerformanceNumber(value.longTasks, 0, 10_000, 0)
-  const longTaskMs = readPerformanceNumber(value.longTaskMs, 0, 60_000)
-  const devicePixelRatio = readPerformanceNumber(value.devicePixelRatio, 0.1, 10, 2)
-  const hardwareConcurrency = readPerformanceNumber(value.hardwareConcurrency, 0, 512, 0)
-
-  if (
-    windowMs === null ||
-    frames === null ||
-    fps === null ||
-    p95FrameMs === null ||
-    maxFrameMs === null ||
-    framesOver50Ms === null ||
-    longTasks === null ||
-    longTaskMs === null ||
-    devicePixelRatio === null ||
-    hardwareConcurrency === null
-  ) {
-    return null
-  }
-
-  const sample = value as unknown as RendererPerformanceSample
-  return [
-    'renderer',
-    `windowMs=${windowMs}`,
-    `frames=${frames}`,
-    `fps=${fps}`,
-    `p95FrameMs=${p95FrameMs}`,
-    `maxFrameMs=${maxFrameMs}`,
-    `framesOver50Ms=${framesOver50Ms}`,
-    `longTasks=${longTasks}`,
-    `longTaskMs=${longTaskMs}`,
-    `focused=${sample.focused === true}`,
-    `theme=${readPerformanceLabel(sample.theme, 'unknown')}`,
-    `route=${readPerformanceLabel(sample.route, 'unknown')}`,
-    `dpr=${devicePixelRatio}`,
-    `cores=${hardwareConcurrency}`,
-  ].join(' ')
-}
-
-function toThemeSummary(record: ThemeSummaryRecord): ThemeSummaryRecord {
-  return {
-    ...record,
-    tokens_json: compactTokenSnapshot(record.tokens_json) || '{}',
-    dark_tokens_json: compactTokenSnapshot(record.dark_tokens_json),
-  }
-}
-
-function readFirstScreenshotPath(serialized: unknown): string | null {
-  if (typeof serialized !== 'string') return null
-
-  try {
-    const screenshots = JSON.parse(serialized) as unknown
-    if (!Array.isArray(screenshots) || screenshots.length === 0) return null
-    const first = screenshots[0]
-    return isRecord(first) && typeof first.path === 'string' ? first.path : null
-  } catch {
-    return null
-  }
-}
-
-const HISTORY_THUMBNAIL_SIZE = { width: 192, height: 128 }
-const historyThumbnailJobs = new Map<string, Promise<string>>()
-
-function isValidHistoryThumbnail(filePath: string): boolean {
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) return false
-  const image = nativeImage.createFromBuffer(fs.readFileSync(filePath))
-  if (image.isEmpty()) return false
-  const size = image.getSize()
-  return size.width <= HISTORY_THUMBNAIL_SIZE.width && size.height <= HISTORY_THUMBNAIL_SIZE.height
-}
-
-function findHistoryThumbnailSource(evidence: DesignEvidence | null, screenshot: PageScreenshotData): string {
-  if (!evidence) return screenshot.path
-  const page =
-    evidence.pages.find(
-      (candidate) => candidate.url === screenshot.url && candidate.viewport === screenshot.viewport,
-    ) ||
-    evidence.pages.find((candidate) => candidate.url === screenshot.url) ||
-    evidence.pages[0]
-  const viewportCrop = page?.images.find((image) => image.kind === 'viewport-crop')
-  return viewportCrop?.path || screenshot.path
-}
-
-function readDesignEvidence(serialized: unknown): DesignEvidence | null {
-  if (typeof serialized !== 'string') return null
-  try {
-    const evidence = JSON.parse(serialized) as DesignEvidence
-    for (const page of evidence.pages || []) {
-      if (!page.health) continue
-      page.health.evidenceEligible = isPageHealthEvidenceEligible(page.health)
-    }
-    return evidence
-  } catch {
-    return null
-  }
-}
-
-function readAnalysisTiming(serialized: unknown): AnalysisTiming | undefined {
-  if (typeof serialized !== 'string') return undefined
-  try {
-    const stored = JSON.parse(serialized) as unknown
-    if (!isRecord(stored)) return undefined
-    const readNumber = (key: string): number | undefined => {
-      const value = stored[key]
-      return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
-    }
-    const optional = {
-      userWaitMs: readNumber('userWaitMs'),
-      browserMs: readNumber('browserMs'),
-      preparationMs: readNumber('preparationMs'),
-      extractionMs: readNumber('extractionMs'),
-      healthGateMs: readNumber('healthGateMs'),
-      screenshotCaptureMs: readNumber('screenshotCaptureMs'),
-    }
-    return {
-      ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined)),
-      validationMs: readNumber('validationMs') ?? 0,
-      totalMs: readNumber('totalMs') ?? 0,
-      imageCount: readNumber('imageCount') ?? 0,
-      ...(Array.isArray(stored.budgetExceeded)
-        ? { budgetExceeded: stored.budgetExceeded.filter((value): value is string => typeof value === 'string') }
-        : {}),
-    }
-  } catch {
-    return undefined
-  }
-}
-
-async function createHistoryThumbnail(sourcePath: string): Promise<string> {
-  if (!fs.existsSync(sourcePath)) return sourcePath
-
-  const stats = fs.statSync(sourcePath)
-  const cacheKey = createHash('sha256').update(`${sourcePath}:${stats.size}:${stats.mtimeMs}`).digest('hex')
-  const thumbnailDir = path.join(app.getPath('userData'), 'history-thumbnails')
-  const thumbnailPath = path.join(thumbnailDir, `${cacheKey}.jpg`)
-  if (isValidHistoryThumbnail(thumbnailPath)) return thumbnailPath
-
-  const existingJob = historyThumbnailJobs.get(cacheKey)
-  if (existingJob) return existingJob
-
-  const job = (async () => {
-    try {
-      fs.mkdirSync(thumbnailDir, { recursive: true })
-      const image = nativeImage.createFromBuffer(fs.readFileSync(sourcePath))
-      if (image.isEmpty()) return sourcePath
-      const size = image.getSize()
-      const scale = Math.min(1, HISTORY_THUMBNAIL_SIZE.width / size.width, HISTORY_THUMBNAIL_SIZE.height / size.height)
-      const thumbnail =
-        scale < 1
-          ? image.resize({
-              width: Math.max(1, Math.round(size.width * scale)),
-              height: Math.max(1, Math.round(size.height * scale)),
-              quality: 'better',
-            })
-          : image
-      fs.writeFileSync(thumbnailPath, thumbnail.toJPEG(78))
-      return thumbnailPath
-    } catch {
-      return sourcePath
-    } finally {
-      historyThumbnailJobs.delete(cacheKey)
-    }
-  })()
-  historyThumbnailJobs.set(cacheKey, job)
-  return job
-}
-
-async function addHistoryThumbnailPaths(
-  pageScreenshots: PageScreenshotData[],
-  evidence: DesignEvidence | null,
-): Promise<PageScreenshotData[]> {
-  const enriched: PageScreenshotData[] = []
-  for (const screenshot of pageScreenshots) {
-    enriched.push({
-      ...screenshot,
-      thumbnailPath: await createHistoryThumbnail(findHistoryThumbnailSource(evidence, screenshot)),
-    })
-  }
-  return enriched
-}
-
-function toAnalysisSummary(
-  { page_screenshots_json: screenshots, design_evidence_json: _designEvidenceJson, ...record }: Record<string, unknown>,
-  screenshotPath?: string | null,
-) {
-  const evidence = readDesignEvidence(_designEvidenceJson)
-  const siteNameCandidates = [evidence?.source?.siteName, evidence?.pages?.find((page) => page.siteName)?.siteName]
-  const siteName =
-    siteNameCandidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() ||
-    hostnameFromUrl(String(record.url || ''))
-  return {
-    ...record,
-    site_name: siteName,
-    screenshot_path: screenshotPath === undefined ? readFirstScreenshotPath(screenshots) : screenshotPath,
-  }
-}
-
-function hostnameFromUrl(value: string): string {
-  try {
-    return new URL(value).hostname.replace(/^www\./, '') || value
-  } catch {
-    return value
-  }
-}
-
-async function toAnalysisSummaryWithThumbnail(record: Record<string, unknown>) {
-  const screenshot = readPageScreenshots(record.page_screenshots_json)[0]
-  if (!screenshot) return toAnalysisSummary(record, null)
-  const evidence = readDesignEvidence(record.design_evidence_json)
-  const thumbnailPath = await createHistoryThumbnail(findHistoryThumbnailSource(evidence, screenshot))
-  return toAnalysisSummary(record, thumbnailPath)
-}
-
-function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
-  return JSON.parse((serialized as string) || '[]') as PageScreenshotData[]
-}
-
-function readCaptureManifest(serialized: unknown): CaptureManifest | null {
-  if (typeof serialized !== 'string') return null
-  try {
-    const manifest = JSON.parse(serialized) as unknown
-    if (
-      !isRecord(manifest) ||
-      manifest.schemaVersion !== '1' ||
-      !isRecord(manifest.tool) ||
-      !isRecord(manifest.request) ||
-      !isRecord(manifest.environment) ||
-      !Array.isArray(manifest.environment.viewports) ||
-      !isRecord(manifest.stabilization) ||
-      !isRecord(manifest.stabilization.animationFreeze) ||
-      !isRecord(manifest.capture)
-    ) {
-      return null
-    }
-    return manifest as unknown as CaptureManifest
-  } catch {
-    return null
-  }
-}
-
-function readAnalysisCompletion(serialized: unknown): AnalysisCompletion | undefined {
-  if (typeof serialized !== 'string') return undefined
-  try {
-    const completion = JSON.parse(serialized) as unknown
-    if (!isRecord(completion) || !['complete', 'time-limit', 'user-finished'].includes(String(completion.reason))) {
-      return undefined
-    }
-    const activeLimitValid =
-      typeof completion.activeLimitMs === 'number' &&
-      Number.isFinite(completion.activeLimitMs) &&
-      completion.activeLimitMs > 0
-    if (completion.reason === 'time-limit' && !activeLimitValid) return undefined
-    if (completion.activeLimitMs !== undefined && !activeLimitValid) return undefined
-    return completion as unknown as AnalysisCompletion
-  } catch {
-    return undefined
-  }
-}
-
-function readDarkModeExportData(
-  serialized: unknown,
-  baseTokens: DesignToken,
-  method: unknown,
-  selector?: unknown,
-): DarkModeExportData | undefined {
-  if (typeof serialized !== 'string') return undefined
-  try {
-    return restoreDarkModeExportData(JSON.parse(serialized) as unknown, baseTokens, method, selector)
-  } catch {
-    return undefined
-  }
-}
 
 function restoreDeterministicStoredContext(
   record: Record<string, unknown>,
@@ -477,37 +177,6 @@ function buildStoredAnalysisResult(
     analysisTiming: readAnalysisTiming(record.analysis_timing_json),
     url: record.url,
     completion: readAnalysisCompletion(record.completion_json),
-  }
-}
-
-function referenceCaptureFromRecord(record: Record<string, unknown>): ReferenceCaptureInput | null {
-  try {
-    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-    if (
-      !isRecord(tokens) ||
-      !isRecord(tokens.colors) ||
-      !isRecord(tokens.typography) ||
-      !Array.isArray(tokens.typography.fontFamilies) ||
-      !Array.isArray(tokens.typography.fontStacks) ||
-      !Array.isArray(tokens.typography.fontSizes) ||
-      !Array.isArray(tokens.typography.fontWeights) ||
-      !Array.isArray(tokens.typography.lineHeights) ||
-      !Array.isArray(tokens.typography.letterSpacings) ||
-      !Array.isArray(tokens.spacing) ||
-      !Array.isArray(tokens.radii)
-    ) {
-      return null
-    }
-    return {
-      analysisId: String(record.id),
-      url: String(record.final_url || record.url || ''),
-      createdAt: typeof record.created_at === 'string' ? record.created_at : undefined,
-      tokens,
-      evidence: readDesignEvidence(record.design_evidence_json),
-      manifest: readCaptureManifest(record.capture_manifest_json),
-    }
-  } catch {
-    return null
   }
 }
 

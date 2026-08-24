@@ -5,12 +5,13 @@ import { pathToFileURL } from 'node:url'
 
 import { BrowserWindow, Menu, Tray, app, nativeImage, net, protocol } from 'electron'
 
-import { type CoreLanguage, coreT } from '../core/i18n/index.js'
+import { coreT } from '../core/i18n/index.js'
 import { isLinux, isMacOS, isWindows } from '../shared/platform.js'
 import { initDatabase } from './database.js'
 import { registerIpcHandlers } from './ipc.js'
 import { initLogger, log } from './logger.js'
 import { monitorWindowPerformance } from './performance-monitor.js'
+import { getSettings } from './settings.js'
 
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,AutofillEnableAccountWalletStorage')
 
@@ -102,7 +103,7 @@ function createTray() {
   if (macOS && typeof trayImage !== 'string') trayImage.setTemplateImage(true)
 
   tray = new Tray(trayImage)
-  const language: CoreLanguage = app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+  const language = getSettings().language === 'zh-CN' ? 'zh-CN' : 'en'
   tray.setToolTip(coreT(language, 'app.tray.tooltip'))
   const contextMenu = Menu.buildFromTemplate([
     {

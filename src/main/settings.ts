@@ -20,6 +20,14 @@ function normalizeAnalysisPageCount(value: unknown): number {
   return Number.isSafeInteger(pageCount) && pageCount >= 1 ? pageCount : 8
 }
 
+function normalizeLanguage(value: unknown): AppSettings['language'] {
+  return value === 'en' || value === 'zh-CN' ? value : ''
+}
+
+function detectSystemLanguage(): AppSettings['language'] {
+  return app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+}
+
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
 }
@@ -29,7 +37,7 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     analysisDepth: saved.analysisDepth === 'deep' ? 'deep' : 'standard',
     proxyServer: typeof saved.proxyServer === 'string' ? saved.proxyServer : '',
-    language: typeof saved.language === 'string' ? saved.language : '',
+    language: normalizeLanguage(saved.language),
     colorMode: typeof saved.colorMode === 'string' ? saved.colorMode : '',
     themePreference: typeof saved.themePreference === 'string' ? saved.themePreference : '',
     validationScenario: typeof saved.validationScenario === 'string' ? saved.validationScenario : '',
@@ -61,11 +69,20 @@ function writeToDisk(settings: AppSettings): void {
 }
 
 export function getSettings(): AppSettings {
-  return readFromDisk()
+  const settings = readFromDisk()
+  if (settings.language) return settings
+
+  const initialized = { ...settings, language: detectSystemLanguage() }
+  try {
+    writeToDisk(initialized)
+  } catch {
+    // A read-only profile can still use the detected language for this session.
+  }
+  return initialized
 }
 
 export function saveSettings(update: Partial<AppSettings>): AppSettings {
-  const settings = normalizeSettings({ ...readFromDisk(), ...update })
+  const settings = normalizeSettings({ ...getSettings(), ...update })
   writeToDisk(settings)
   return settings
 }

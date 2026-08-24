@@ -37,7 +37,7 @@
   },
   "analyze": {
     "title": "提取设计风格",
-    "description": "输入目标网站 URL，自动提取 UI 设计系统（颜色、字体、间距、阴影等）",
+    "description": "输入目标网站 URL，提取已观察到的 UI 设计规则（颜色、字体、间距、阴影等）",
     "placeholder": "https://example.com",
     "button": "分析",
     "analyzing": "分析中",
@@ -47,7 +47,7 @@
     "preparing": "准备中...",
     "error": "分析异常",
     "emptyTitle": "输入网站 URL 开始分析",
-    "emptyDescription": "支持任意公开网页。分析完成后只需导出一份 DESIGN.md；让 AI 修改已有 UI 时，再同时提供当前页面截图或源代码。",
+    "emptyDescription": "支持公开网页。分析完成后只需导出一份 DESIGN.md；让 AI 修改已有 UI 时，再同时提供当前页面截图或源代码。",
     "analysisHint": "分析完全由确定性程序在本地完成，不需要配置外部服务。",
     "tabOverview": "概览",
     "tabPreview": "可视预览",
@@ -63,7 +63,7 @@
     },
     "agentExport": {
       "title": "配合 AI 编程助手使用",
-      "summary": "复制 DESIGN.md 粘贴给你的 AI 编程助手（Cursor、Claude 等），即可将该设计系统应用到你的项目中。"
+      "summary": "复制 DESIGN.md 粘贴给你的 AI 编程助手（Cursor、Claude 等），即可在项目中复用所提取的设计系统。"
     },
     "completeTip": "分析完成！复制 DESIGN.md 交给你的 AI 编程助手。",
     "partialCompleteTip": "当前结果已可用，共完成 {{pages}} 个页面。",
@@ -158,19 +158,26 @@
       "sourceInstances": "{{count}} 个来源实例",
       "transfer": {
         "title": "设计迁移指南",
-        "description": "先使用可复用的基础规则；只有目标页面出现对应界面时才使用组件配方。局部观察仍会保留，但不会被扩大成全局规则。",
-        "p0": "核心设计语言",
+        "description": "先使用可复用的基础规则；只有目标页面出现对应界面时才使用组件模式。局部观察仍会保留，但不会被扩大成全局规则。",
+        "p0": "核心设计规则",
+        "p0Badge": "默认采用",
         "noP0": "当前没有基础规则达到跨页面和高置信度要求。精确令牌仍然保留，但不会显示为全局规则。",
-        "coordinates": "有限风格坐标",
-        "p1": "条件式组件配方",
-        "noP1": "当前没有组件配方具备足够的可复用证据。",
+        "coordinates": "设计维度覆盖",
+        "priorityLabels": {
+          "P0": "可复用核心规则",
+          "P1": "场景化组件模式",
+          "P2": "局部观察"
+        },
+        "p1": "场景化组件模式",
+        "p1Badge": "按场景使用",
+        "noP1": "当前没有组件模式具备足够证据用于场景化复用。",
         "instances": "{{count}} 个观察实例",
         "useWhen": "适用场景",
         "observed": "观察到的处理",
         "coverage": "已观察行为覆盖",
         "coverageValue": "{{states}} 组状态配方 · {{responsive}} 组响应式配方",
-        "p2Summary": "局部事实与未知项（{{rules}} 条事实 · {{recipes}} 个配方 · {{unknowns}} 个未知项）",
-        "unknowns": "未知或覆盖不足",
+        "p2Summary": "局部设计观察与覆盖不足（{{rules}} 条观察 · {{recipes}} 个模式 · {{unknowns}} 项不足）",
+        "unknowns": "未知与覆盖不足",
         "viewEvidence": "查看证据",
         "categories": {
           "color": "色彩",
@@ -645,8 +652,8 @@
         },
         "getStarted": "开始使用",
         "hero": {
-          "title": "把任何网站的设计系统",
-          "highlight": "变成你的令牌",
+          "title": "提取网站的视觉语言",
+          "highlight": "生成可复用的设计规则",
           "description": "输入 URL，提取颜色、字体、间距、圆角与设计规则，汇总为一份可独立使用的 DESIGN.md。",
           "primaryAction": "免费开始",
           "secondaryAction": "查看演示"
@@ -655,7 +662,7 @@
         "features": {
           "extract": {
             "title": "一键提取",
-            "description": "输入 URL 即可提取完整设计系统"
+            "description": "输入 URL 提取已观察到的设计规则"
           },
           "export": {
             "title": "单一设计文档",

@@ -216,21 +216,26 @@
     "sectionLayoutSummary": "{{roles}} sections share the same {{layouts}} layout.",
     "ownedProperty": "{{owner}} {{property}}",
     "transfer": {
-      "overviewHeading": "### Transfer Priorities",
+      "overviewHeading": "### Design Transfer Guide",
       "intro": "> Business requirements determine content and behavior. This contract constrains only the observed visual and interaction language within its stated scope.",
       "instructions": {
-        "p0": "Apply P0 rules by default within their stated scope.",
-        "p1": "Apply a P1 recipe only when the target contains the matching component and variant.",
-        "p2": "Treat P2 as local evidence; it must not override P0 or P1.",
+        "p0": "Apply core design rules by default within their stated scope.",
+        "p1": "Apply a contextual component pattern only when the target contains the matching component and variant.",
+        "p2": "Treat local design observations as references for matching contexts; they must not override core rules or contextual component patterns.",
         "brand": "Do not copy source branding, logos, copy, or media.",
         "accessibility": "Accessibility, correct product behavior, and explicit user requirements take priority."
       },
-      "p0Heading": "#### P0 · Core design language",
+      "p0Heading": "#### Core Design Rules",
       "p0Empty": "- No foundation met the cross-page, high-confidence requirement. Use exact tokens as observed values, not as global transfer rules.",
       "implementation": "Implementation",
-      "coordinateHeading": "#### Cross-page foundation coverage",
-      "coordinateIntro": "These six lines grade only each dimension's cross-page foundation. A dimension shown as P2 can still have a narrower repeated P0 rule above or local P2 facts below.",
+      "coordinateHeading": "#### Design dimension coverage",
+      "coordinateIntro": "These six lines show whether each dimension has enough cross-page support to become a reusable core rule or remains a local observation. A local dimension can still have a narrower core rule above or more specific observations below.",
       "coordinateLine": "- **{{dimension}}:** {{priority}}",
+      "priorityLabels": {
+        "P0": "Reusable core rule",
+        "P1": "Contextual component pattern",
+        "P2": "Local design observation"
+      },
       "categories": {
         "color": "Color",
         "typography": "Typography",
@@ -241,8 +246,8 @@
         "interaction": "Interaction",
         "responsive": "Responsive behavior"
       },
-      "componentsHeading": "### P1 · Conditional Component Recipes",
-      "componentsIntro": "> These recipes are not global defaults. Use one only when the target contains the matching component and variant. Keep each treatment scoped to that component and variant; when no state is listed, do not present an invented state as a source rule.",
+      "componentsHeading": "### Contextual Component Patterns",
+      "componentsIntro": "> These patterns are not global defaults. Use one only when the target contains the matching component and variant. Keep each treatment scoped to that component and variant; when no state is listed, do not present an invented state as a source rule.",
       "componentTitle": "{{component}} · {{variant}}",
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px radius",
@@ -252,7 +257,7 @@
       "states": "Observed states",
       "responsive": "Observed responsive behavior",
       "restrictions": "Restrictions",
-      "noP1Recipes": "No component recipe currently has enough reusable evidence for P1.",
+      "noP1Recipes": "No component pattern currently has enough evidence for contextual reuse.",
       "useWhenValues": {
         "primary-action": "the target needs its principal action",
         "action": "the target needs a supporting or ordinary action",
@@ -274,11 +279,12 @@
         "do-not-invent-unobserved-state": "No reliable state recipe was observed; do not invent one as a source rule.",
         "do-not-promote-local-layout": "Do not promote this specialized component's local layout to the whole page."
       },
-      "p2Heading": "### P2 · Local Facts and Unknowns",
-      "p2Intro": "> P2 facts are useful references for matching contexts, but they are not site-wide rules and cannot override P0 or P1.",
-      "localFacts": "Local facts",
+      "p2Heading": "### Local Design Observations",
+      "p2Intro": "> These observations are useful references for matching contexts, but they are not site-wide rules and cannot override core design rules or contextual component patterns.",
+      "localFacts": "Observed local facts",
       "localFactsScopeNotice": "Each fact below applies only to its cited capture scope; verify it again before broader reuse.",
-      "localRecipes": "Local or specialized component recipes",
+      "localRecipes": "Local or specialized component patterns",
+      "unknownsHeading": "### Unknowns and Coverage Gaps",
       "unknowns": "Unknown or insufficiently covered",
       "none": "None recorded.",
       "neededEvidence": "Needed evidence"
@@ -765,18 +771,18 @@
       "specialShapeObserved": "Component evidence also contains pill or circular treatments formed by control geometry.",
       "specialShapeNotObserved": "No pill or circular treatment was observed in component evidence.",
       "shapeImplementation": "Choose an ordinary radius through the matching component recipe. Keep pill and circular values limited to variants that were directly observed with those shapes.",
-      "surfaceStatement": "In this foundation sample of {{count}} representative base surfaces, {{bordered}} use visible borders and {{shadowed}} use visible shadows. Their dominant treatment is {{strategy}}. This does not describe every component or content group; component-specific surfaces remain governed by the matching P1 recipes.",
+      "surfaceStatement": "In this foundation sample of {{count}} representative base surfaces, {{bordered}} use visible edge treatments and {{shadowed}} use depth shadows. Their dominant treatment is {{strategy}}. This does not describe every component or content group; component-specific surfaces remain governed by the matching contextual component patterns.",
       "surfaceStrategies": {
-        "border": "border-led",
+        "border": "edge-led",
         "shadow": "shadow-led",
-        "mixed": "mixed border and shadow",
+        "mixed": "mixed edge and depth",
         "flat": "flat"
       },
       "surfaceImplementations": {
-        "border": "Use a cited border only in a matching surface or component context; this sample does not prove that every group is border-led or that shadows are absent elsewhere.",
-        "shadow": "Use a cited shadow only in a matching surface or component context; this sample does not prove that borders are absent elsewhere.",
-        "mixed": "Choose a cited border or shadow through the matching surface or component evidence; do not infer an uncited elevation role from this sample.",
-        "flat": "Keep matching sampled surfaces flat; this sample does not prove that borders or shadows are absent from other components."
+        "border": "Use a cited border or crisp edge shadow only in a matching surface or component context; this sample does not prove that every group is edge-led or that depth shadows are absent elsewhere.",
+        "shadow": "Use a cited depth shadow only in a matching surface or component context; this sample does not prove that edge treatments are absent elsewhere.",
+        "mixed": "Choose a cited edge treatment or depth shadow through the matching surface or component evidence; do not infer an uncited elevation role from this sample.",
+        "flat": "Keep matching sampled surfaces flat; this sample does not prove that edge treatments or depth shadows are absent from other components."
       },
       "densityStatement": "Build recurring padding and gaps from the most-used observed spacing values: {{values}}.",
       "densityImplementation": "Use smaller values inside controls and related groups, and larger values between sections; keep one-off page geometry outside the reusable spacing rhythm."
@@ -806,7 +812,7 @@
       "tokenOwnershipImplementation": "Reuse only the cited token references on compatible observed owners; do not invent semantic roles.",
       "typographyStatement": "The {{count}} representative text nodes cover these typography roles: {{roles}}.",
       "shapeStatement": "The {{count}} representative components use these corner shapes: {{shapes}}.",
-      "surfaceStatement": "Among {{count}} observed surface regions, {{bordered}} have visible borders and {{shadowed}} have visible shadows.",
+      "surfaceStatement": "Among {{count}} observed surface regions, {{bordered}} have visible edge treatments and {{shadowed}} have depth shadows.",
       "sectionCompositionStatement": "Observed {{count}} {{role}} sections using these layout modes: {{layouts}}.",
       "sectionRhythmStatement": "Observed {{role}} sections consistently appear at position {{position}} in their page's section order.",
       "sectionTransitionStatement": "Observed {{role}} sections are consistently followed by {{next}} sections.",

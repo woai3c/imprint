@@ -216,21 +216,26 @@
     "sectionLayoutSummary": "{{roles}}区块采用相同的{{layouts}}布局。",
     "ownedProperty": "{{owner}}{{property}}",
     "transfer": {
-      "overviewHeading": "### 迁移优先级",
+      "overviewHeading": "### 设计迁移指南",
       "intro": "> 业务内容和正确行为由用户需求决定；本契约只约束已声明范围内观察到的视觉与交互语言。",
       "instructions": {
-        "p0": "在已声明范围内默认应用 P0 规则。",
-        "p1": "只有目标页面出现对应组件和变体时才应用 P1 配方。",
-        "p2": "P2 只作为局部参考，不能覆盖 P0 或 P1。",
+        "p0": "在已声明范围内默认应用核心设计规则。",
+        "p1": "只有目标页面出现对应组件和变体时，才应用相应的场景化组件模式。",
+        "p2": "局部设计观察只用于相符场景，不能覆盖核心设计规则或场景化组件模式。",
         "brand": "不要复制来源网站的品牌、Logo、文案或媒体内容。",
         "accessibility": "可访问性、正确的产品行为和用户明确要求优先。"
       },
-      "p0Heading": "#### P0 · 核心设计语言",
+      "p0Heading": "#### 核心设计规则",
       "p0Empty": "- 当前没有基础规则同时达到跨页面和高置信度要求。精确令牌仍可作为观察值使用，但不能当作全局迁移规则。",
       "implementation": "实施方式",
-      "coordinateHeading": "#### 跨页面基础规则覆盖",
-      "coordinateIntro": "下面只评估六个维度是否形成跨页面基础规则。同一维度即使标为 P2，上方仍可能存在适用于特定重复结构的 P0 规则，下方也可能保留局部 P2 事实。",
+      "coordinateHeading": "#### 设计维度覆盖",
+      "coordinateIntro": "下面说明六个设计维度是否具备足够的跨页面证据，可以作为可复用核心规则；证据不足的维度保留为局部观察。局部维度仍可能在上方形成范围更窄的核心规则，或在下方保留更具体的观察。",
       "coordinateLine": "- **{{dimension}}：** {{priority}}",
+      "priorityLabels": {
+        "P0": "可复用核心规则",
+        "P1": "场景化组件模式",
+        "P2": "局部设计观察"
+      },
       "categories": {
         "color": "色彩",
         "typography": "排版",
@@ -241,8 +246,8 @@
         "interaction": "交互",
         "responsive": "响应式行为"
       },
-      "componentsHeading": "### P1 · 条件式组件配方",
-      "componentsIntro": "> 这些配方不是全局默认值；只有目标页面出现对应组件和变体时才使用。每种处理都只限于该组件和变体；没有列出状态时，不要把自行补充的状态写成来源规则。",
+      "componentsHeading": "### 场景化组件模式",
+      "componentsIntro": "> 这些模式不是全局默认值；只有目标页面出现对应组件和变体时才使用。每种处理都只限于该组件和变体；没有列出状态时，不要把自行补充的状态写成来源规则。",
       "componentTitle": "{{component}} · {{variant}}",
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px 圆角",
@@ -252,7 +257,7 @@
       "states": "已观察状态",
       "responsive": "已观察响应式行为",
       "restrictions": "限制",
-      "noP1Recipes": "当前没有组件配方具备足够的可复用证据进入 P1。",
+      "noP1Recipes": "当前没有组件模式具备足够证据用于场景化复用。",
       "useWhenValues": {
         "primary-action": "目标页面需要一个主要操作时",
         "action": "目标页面需要次要或普通操作时",
@@ -274,11 +279,12 @@
         "do-not-invent-unobserved-state": "未观察到可靠状态配方，不要把自行补充的状态写成来源规则。",
         "do-not-promote-local-layout": "不要把该专用组件的局部布局扩展到整个页面。"
       },
-      "p2Heading": "### P2 · 局部事实与未知项",
-      "p2Intro": "> P2 只在相同场景中作为参考，不是全站规则，也不能覆盖 P0 或 P1。",
-      "localFacts": "局部事实",
+      "p2Heading": "### 局部设计观察",
+      "p2Intro": "> 这些观察只在相同场景中作为参考，不是全站规则，也不能覆盖核心设计规则或场景化组件模式。",
+      "localFacts": "已观察的局部事实",
       "localFactsScopeNotice": "以下每条事实只适用于其引用的采集范围；扩大复用范围前需要重新验证。",
-      "localRecipes": "局部或专用组件配方",
+      "localRecipes": "局部或专用组件模式",
+      "unknownsHeading": "### 未知与覆盖不足",
       "unknowns": "未知或覆盖不足",
       "none": "无。",
       "neededEvidence": "需要补充的证据"
@@ -765,18 +771,18 @@
       "specialShapeObserved": "组件证据中还观察到由控件几何形成的胶囊形或圆形处理。",
       "specialShapeNotObserved": "组件证据中未观察到胶囊形或圆形处理。",
       "shapeImplementation": "通过对应组件配方选择普通圆角；胶囊形和圆形值只用于直接观察到这些形状的变体。",
-      "surfaceStatement": "在用于基础规则判断的 {{count}} 个代表性基础表面中，{{bordered}} 个使用可见边框，{{shadowed}} 个使用可见阴影；其主要处理为{{strategy}}。这不代表所有组件或内容分组，具体组件表面仍以对应的 P1 配方为准。",
+      "surfaceStatement": "在用于基础规则判断的 {{count}} 个代表性基础表面中，{{bordered}} 个使用可见边缘处理，{{shadowed}} 个使用层级阴影；其主要处理为{{strategy}}。这不代表所有组件或内容分组，具体组件表面仍以对应的场景化组件模式为准。",
       "surfaceStrategies": {
-        "border": "边框",
+        "border": "边缘分隔",
         "shadow": "阴影",
-        "mixed": "边框与阴影混合",
+        "mixed": "边缘与层级混合",
         "flat": "扁平层级"
       },
       "surfaceImplementations": {
-        "border": "只在相符的表面或组件证据中使用已引用边框；该样本不能证明所有分组都以边框为主，也不能证明其他位置没有阴影。",
-        "shadow": "只在相符的表面或组件证据中使用已引用阴影；该样本不能证明其他位置没有边框。",
-        "mixed": "根据相符的表面或组件证据选择已引用边框或阴影；不要根据该样本推断未被引用的层级用途。",
-        "flat": "相符的采样表面保持扁平；该样本不能证明其他组件没有边框或阴影。"
+        "border": "只在相符的表面或组件证据中使用已引用边框或清晰边缘阴影；该样本不能证明所有分组都采用边缘分隔，也不能证明其他位置没有层级阴影。",
+        "shadow": "只在相符的表面或组件证据中使用已引用层级阴影；该样本不能证明其他位置没有边缘处理。",
+        "mixed": "根据相符的表面或组件证据选择已引用边缘处理或层级阴影；不要根据该样本推断未被引用的层级用途。",
+        "flat": "相符的采样表面保持扁平；该样本不能证明其他组件没有边缘处理或层级阴影。"
       },
       "densityStatement": "重复使用的内边距和间隔应优先来自这些高频观察值：{{values}}。",
       "densityImplementation": "控件内部和紧密相关内容使用较小值，区块之间使用较大值；一次性页面几何不进入可复用间距节奏。"
@@ -806,7 +812,7 @@
       "tokenOwnershipImplementation": "仅在兼容且已观察的所有者上复用引用令牌，不要臆造语义角色。",
       "typographyStatement": "从 {{count}} 个代表性文本节点中观察到以下排版角色：{{roles}}。",
       "shapeStatement": "从 {{count}} 个代表性组件中观察到以下圆角形态：{{shapes}}。",
-      "surfaceStatement": "观察到 {{count}} 个表面区域：{{bordered}} 个带可见边框，{{shadowed}} 个带可见阴影。",
+      "surfaceStatement": "观察到 {{count}} 个表面区域：{{bordered}} 个带可见边缘处理，{{shadowed}} 个带层级阴影。",
       "sectionCompositionStatement": "观察到 {{count}} 个 {{role}} 区块，使用的布局模式包括：{{layouts}}。",
       "sectionRhythmStatement": "已观察的 {{role}} 区块在各自页面的区块顺序中均位于第 {{position}} 个。",
       "sectionTransitionStatement": "已观察的 {{role}} 区块后均紧接 {{next}} 区块。",

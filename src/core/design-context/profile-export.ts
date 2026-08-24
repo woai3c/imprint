@@ -421,7 +421,7 @@ function transferRuleLines(
 function coordinateLine(coordinate: StyleCoordinate, context: TransferExportContext): string {
   return context.t('transfer.coordinateLine', {
     dimension: context.t(`transfer.categories.${coordinate.dimension}`),
-    priority: coordinate.priority,
+    priority: context.t(`transfer.priorityLabels.${coordinate.priority}`),
   })
 }
 
@@ -566,7 +566,7 @@ export function generateTransferBoundariesMarkdown(
       )
     }
   }
-  lines.push('', `#### ${context.t('transfer.unknowns')}`, '')
+  lines.push('', context.t('transfer.unknownsHeading'), '')
   if (profile.uncertainties.length === 0) lines.push(`- ${context.t('transfer.none')}`)
   else {
     for (const item of uniqueUncertainties(profile)) {

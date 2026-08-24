@@ -33,6 +33,10 @@ Every useful result should move cleanly between the desktop app, CLI, and MCP se
 self-contained `DESIGN.md`; specialized CSS, Tailwind, and JSON representations remain available to CLI/MCP automation.
 Prefer semantic, implementation-neutral concepts over app-specific decoration.
 
+The current downloadable release surface is Desktop. CLI and MCP remain tested source-build integration surfaces until
+their installable package and client setup are released in the next product stage. MCP stays a local stdio process and
+must not introduce a hosted Imprint service, account, model provider, or API-key dependency.
+
 ### Content first
 
 The analyzed design system is the primary content. Theme atmosphere may provide context and emotional resonance, but it
@@ -208,11 +212,12 @@ runs out, the tab strip scrolls horizontally instead.
   resolved values appear with the claim. Raw claim IDs, assertions, and the complete internal evidence record are not
   repeated as a human-facing appendix.
 - New analyses derive a bounded transfer guide from the same evidence. Overview presents reusable cross-page foundations
-  as P0, matching component-and-variant recipes as conditional P1, and local or insufficiently covered observations as
-  progressively disclosed P2/Unknown. The normal desktop view uses these human-readable groups instead of exposing
-  DesignProfile, claim catalog, assertion, or evidence-ID terminology. A human-readable **View evidence** action may
-  still open the supporting screenshot region without revealing the internal identifier. A P2 fact never becomes a
-  global rule merely because the user opens its details.
+  as **Core Design Rules**, matching component-and-variant guidance as **Contextual Component Patterns**, scoped facts as
+  **Local Design Observations**, and unresolved areas as **Unknowns and Coverage Gaps**. Internal P0/P1/P2 priority values
+  remain implementation details and never appear in the normal desktop view or human-facing DESIGN.md. These groups also
+  avoid exposing DesignProfile, claim catalog, assertion, or evidence-ID terminology. A human-readable **View evidence**
+  action may still open the supporting screenshot region without revealing the internal identifier. A local observation
+  never becomes a global rule merely because the user opens its details.
 - Analysis status describes capture and evidence quality only. A usable deterministic analysis cannot become `partial`
   or `failed` because an unrelated external tool is unavailable.
 - Imprint does not contain a model-provider, API-key, local-model, or Agent CLI execution path. The user's external coding
@@ -447,12 +452,13 @@ The desktop app has one export artifact: **DESIGN.md**. It explains design inten
 values, coverage, and limitations. Users provide it together with the current UI screenshot or source code when asking
 an external coding agent to revise an existing interface.
 
-The document begins with a transfer contract: P0 foundations apply by default only within their declared scope; P1
-recipes apply only when the target contains the matching component and variant; P2 facts remain local and cannot
-override either. Six bounded coordinates summarize color, typography, shape, surface/elevation, density/rhythm, and
-composition without producing an opaque style score. Component recipes distinguish general Web usage guidance from observed source
-styles, include only observed states and responsive behavior, and state restrictions that prevent special shapes,
-overlay elevation, or local layout from being generalized.
+The document begins with a transfer contract: Core Design Rules apply by default only within their declared scope;
+Contextual Component Patterns apply only when the target contains the matching component and variant; Local Design
+Observations remain scoped and cannot override either. Unknowns and Coverage Gaps state where the evidence cannot support
+a reusable conclusion. Six bounded design dimensions summarize color, typography, shape, surface/elevation,
+density/rhythm, and composition without producing an opaque style score. Component patterns distinguish general Web
+usage guidance from observed source styles, include only observed states and responsive behavior, and state restrictions
+that prevent special shapes, overlay elevation, or local layout from being generalized.
 
 Generated documents are built as a typed document model and rendered with the Google Labs DESIGN.md alpha token schema
 and canonical section order. Standard tokens and safely mapped components stay in the normative fields. A compact

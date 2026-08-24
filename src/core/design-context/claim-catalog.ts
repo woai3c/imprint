@@ -245,6 +245,43 @@ function ownerTokenRefs(
   return result
 }
 
+const SEMANTIC_COLOR_REF_ORDER = [
+  'color.background',
+  'color.surface',
+  'color.foreground',
+  'color.muted-foreground',
+  'color.primary',
+  'color.accent',
+  'color.border',
+  'color.secondary',
+] as const
+
+function preferredColorTokenRefs(owners: readonly { pageId: string; tokenRefs: string[] }[], limit = 12): string[] {
+  const semanticRank = new Map<string, number>(SEMANTIC_COLOR_REF_ORDER.map((ref, index) => [ref, index]))
+  const stats = new Map<string, { owners: number; pages: Set<string> }>()
+  for (const owner of owners) {
+    for (const ref of new Set(owner.tokenRefs.filter((candidate) => candidate.startsWith('color.')))) {
+      const current = stats.get(ref) || { owners: 0, pages: new Set<string>() }
+      current.owners += 1
+      current.pages.add(owner.pageId)
+      stats.set(ref, current)
+    }
+  }
+  return [...stats.entries()]
+    .sort(([firstRef, first], [secondRef, second]) => {
+      const firstSemanticRank = semanticRank.get(firstRef)
+      const secondSemanticRank = semanticRank.get(secondRef)
+      if (firstSemanticRank !== undefined || secondSemanticRank !== undefined) {
+        if (firstSemanticRank === undefined) return 1
+        if (secondSemanticRank === undefined) return -1
+        return firstSemanticRank - secondSemanticRank
+      }
+      return second.pages.size - first.pages.size || second.owners - first.owners || firstRef.localeCompare(secondRef)
+    })
+    .slice(0, limit)
+    .map(([ref]) => ref)
+}
+
 function representativeOwnersAcrossPages<T extends { id: string; pageId: string; tokenRefs: string[] }>(
   owners: T[],
   selectedRefs: ReadonlySet<string>,
@@ -519,9 +556,9 @@ function buildVisualClaims(
   t: ReturnType<typeof coreTranslator>,
 ): void {
   const owners = [...sections, ...components]
-  const colorRefs = ownerTokenRefs(owners, 'color.')
+  const colorRefs = preferredColorTokenRefs(owners)
   if (colorRefs.length > 0) {
-    const selectedRefs = new Set(colorRefs.map((item) => item.ref))
+    const selectedRefs = new Set(colorRefs)
     const representativeOwners = representativeOwnersAcrossPages(owners, selectedRefs)
     const evidenceIds = representativeOwners.map((owner) => owner.id)
     const assertions: DesignClaimAssertion[] = representativeOwners.flatMap((owner) =>
@@ -539,7 +576,7 @@ function buildVisualClaims(
       confidence: confidenceFor(evidenceIds, evidence),
       evidenceIds,
       assertions,
-      tokenRefs: colorRefs.map((item) => item.ref),
+      tokenRefs: colorRefs,
     }
     builder.add('visual-color', [{ kind: 'singleton', slot: 'visual.color' }], input)
   }

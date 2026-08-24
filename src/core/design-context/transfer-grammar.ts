@@ -265,7 +265,7 @@ function withFoundationGuidance(
   }
   if (category === 'color') {
     const supported = new Set(reusableRefs('color', ['color.']))
-    const semanticRefs = ['background', 'surface', 'foreground', 'muted-foreground', 'primary', 'border']
+    const semanticRefs = ['background', 'surface', 'foreground', 'muted-foreground', 'primary', 'accent', 'border']
       .map((name) => `color.${name}`)
       .filter((ref) => supported.has(ref))
     const refs = semanticRefs.length > 0 ? semanticRefs : [...supported].slice(0, 6)

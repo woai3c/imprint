@@ -126,8 +126,16 @@ function hasNonzeroDimension(value: string | undefined): boolean {
   return numericDimensions(value).some((dimension) => Math.abs(dimension) > 0.01)
 }
 
-export function hasVisibleShadow(value: string | undefined): boolean {
-  if (!value || value.trim().toLowerCase() === 'none') return false
+interface VisibleShadowLayer {
+  blur: number
+  inset: boolean
+  offsetX: number
+  offsetY: number
+  spread: number
+}
+
+function visibleShadowLayers(value: string | undefined): VisibleShadowLayer[] {
+  if (!value || value.trim().toLowerCase() === 'none') return []
   const layers: string[] = []
   let depth = 0
   let start = 0
@@ -142,26 +150,47 @@ export function hasVisibleShadow(value: string | undefined): boolean {
   layers.push(value.slice(start))
 
   const colorPattern = /transparent|#[\da-f]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi
-  return layers.some((layer) => {
+  return layers.flatMap((layer) => {
     const colors = layer.match(colorPattern) || []
-    if (colors.length > 0 && colors.every((color) => isTransparentColor(color))) return false
+    if (colors.length > 0 && colors.every((color) => isTransparentColor(color))) return []
     const geometry = layer
       .replace(colorPattern, ' ')
       .replace(/\binset\b/gi, ' ')
       .match(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:[a-z%]+)?/gi)
-    if (!geometry || geometry.length < 2) return false
+    if (!geometry || geometry.length < 2) return []
     const lengths = geometry.slice(0, 4).map((dimension) => Number.parseFloat(dimension))
     const [offsetX = 0, offsetY = 0, blur = 0, spread = 0] = lengths
-    return Math.abs(offsetX) > 0.01 || Math.abs(offsetY) > 0.01 || blur > 0.01 || spread > 0.01
+    if (Math.abs(offsetX) <= 0.01 && Math.abs(offsetY) <= 0.01 && blur <= 0.01 && spread <= 0.01) return []
+    return [{ blur, inset: /\binset\b/i.test(layer), offsetX, offsetY, spread }]
   })
+}
+
+function isCrispEdgeShadowLayer(layer: VisibleShadowLayer): boolean {
+  if (layer.blur > 0.01) return false
+  if (layer.inset || layer.spread > 0.01) return true
+  return Math.max(Math.abs(layer.offsetX), Math.abs(layer.offsetY)) <= 1.01
+}
+
+export function hasVisibleShadow(value: string | undefined): boolean {
+  return visibleShadowLayers(value).length > 0
+}
+
+/** A zero-blur outline or separator painted with box-shadow rather than a CSS border. */
+export function hasCrispEdgeShadow(value: string | undefined): boolean {
+  return visibleShadowLayers(value).some(isCrispEdgeShadowLayer)
+}
+
+/** A shadow that conveys spatial depth rather than only painting a crisp edge. */
+export function hasDepthShadow(value: string | undefined): boolean {
+  return visibleShadowLayers(value).some((layer) => !isCrispEdgeShadowLayer(layer))
 }
 
 export function classifyCardStyle(styles: Readonly<Record<string, string>>): string {
   const radius = Math.max(0, ...numericDimensions(styles.borderRadius))
   const corner = radius > 0 ? `r${Number(radius.toFixed(2))}` : 'square'
-  const surface = hasVisibleShadow(styles.boxShadow)
+  const surface = hasDepthShadow(styles.boxShadow)
     ? 'elevated'
-    : hasVisibleBorder(styles.border)
+    : hasVisibleBorder(styles.border) || hasCrispEdgeShadow(styles.boxShadow)
       ? 'outlined'
       : 'flat'
   return `${surface}-${corner}`
@@ -209,7 +238,7 @@ function classifyButtonStyleFamily(candidate: ComponentVariantCandidate): string
           : visibleBorder && matchesKnownSurface && !borderMatchesFill
             ? 'outlined'
             : 'filled'
-  return `${corner}-${surface}${hasVisibleShadow(candidate.styles.boxShadow) ? '-shadowed' : ''}`
+  return `${corner}-${surface}${hasDepthShadow(candidate.styles.boxShadow) ? '-shadowed' : ''}`
 }
 
 function isIconSized(styles: Record<string, string>, context: ComponentVariantContext): boolean {

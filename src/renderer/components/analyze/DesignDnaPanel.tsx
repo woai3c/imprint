@@ -109,7 +109,9 @@ function TransferGrammarOverview({
       <section>
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{t('analyze.designDna.transfer.p0')}</h3>
-          <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">P0</span>
+          <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+            {t('analyze.designDna.transfer.p0Badge')}
+          </span>
         </div>
         {grammar.coreRules.length > 0 ? (
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
@@ -142,7 +144,9 @@ function TransferGrammarOverview({
           {grammar.styleCoordinates.map((coordinate) => (
             <article key={coordinate.dimension} className="rounded-lg border border-border/60 bg-background p-3">
               <p className="text-xs text-muted-foreground">{term('categories', coordinate.dimension)}</p>
-              <p className="mt-1 text-sm font-semibold">{coordinate.priority}</p>
+              <p className="mt-1 text-sm font-semibold">
+                {t(`analyze.designDna.transfer.priorityLabels.${coordinate.priority}`)}
+              </p>
             </article>
           ))}
         </div>
@@ -151,7 +155,9 @@ function TransferGrammarOverview({
       <section>
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{t('analyze.designDna.transfer.p1')}</h3>
-          <span className="rounded-full bg-success/10 px-2 py-1 text-xs font-medium text-success">P1</span>
+          <span className="rounded-full bg-success/10 px-2 py-1 text-xs font-medium text-success">
+            {t('analyze.designDna.transfer.p1Badge')}
+          </span>
         </div>
         {p1Recipes.length > 0 ? (
           <div className="mt-3 grid gap-3 xl:grid-cols-2">

@@ -1,5 +1,11 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
-import { hasVisibleBorder, hasVisibleShadow, isTransparentColor } from '../analyzer/component-detect.js'
+import {
+  hasCrispEdgeShadow,
+  hasDepthShadow,
+  hasVisibleBorder,
+  hasVisibleShadow,
+  isTransparentColor,
+} from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { ComponentEvidence, SectionEvidence } from '../design-evidence/types.js'
@@ -32,9 +38,9 @@ export function isSurfaceEvidenceOwner(owner: SurfaceEvidenceOwner): boolean {
 }
 
 export function surfaceEvidenceStrategy(owner: SurfaceEvidenceOwner): 'border' | 'flat' | 'mixed' | 'shadow' {
-  const border = borderValues(owner).some(hasVisibleBorder)
-  const shadow = hasVisibleShadow(boxShadow(owner))
-  return border && shadow ? 'mixed' : border ? 'border' : shadow ? 'shadow' : 'flat'
+  const edge = borderValues(owner).some(hasVisibleBorder) || hasCrispEdgeShadow(boxShadow(owner))
+  const depth = hasDepthShadow(boxShadow(owner))
+  return edge && depth ? 'mixed' : edge ? 'border' : depth ? 'shadow' : 'flat'
 }
 
 function isSurfaceFillRef(ref: string): boolean {

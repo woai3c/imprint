@@ -37,7 +37,7 @@
   },
   "analyze": {
     "title": "Extract Design Styles",
-    "description": "Enter a target URL to automatically extract the UI design system (colors, fonts, spacing, shadows, etc.)",
+    "description": "Enter a target URL to extract observed UI design rules (colors, fonts, spacing, shadows, etc.)",
     "placeholder": "https://example.com",
     "button": "Analyze",
     "analyzing": "Analyzing",
@@ -47,7 +47,7 @@
     "preparing": "Preparing...",
     "error": "Analysis error",
     "emptyTitle": "Enter a URL to start analyzing",
-    "emptyDescription": "Supports any public webpage. After analysis, export one self-contained DESIGN.md. When asking AI to revise an existing UI, also provide the current screenshot or source code.",
+    "emptyDescription": "Supports public webpages. After analysis, export one self-contained DESIGN.md. When asking AI to revise an existing UI, also provide the current screenshot or source code.",
     "analysisHint": "Analysis is deterministic, runs locally, and requires no external service configuration.",
     "tabOverview": "Overview",
     "tabPreview": "Visual Preview",
@@ -63,7 +63,7 @@
     },
     "agentExport": {
       "title": "Use with AI Coding Agents",
-      "summary": "Copy DESIGN.md and paste it into your AI agent (Cursor, Claude, etc.) to apply this design system to your project."
+      "summary": "Copy DESIGN.md and paste it into your AI agent (Cursor, Claude, etc.) to reuse the extracted design system in your project."
     },
     "completeTip": "Analysis complete! Copy DESIGN.md and give it to your AI coding agent.",
     "partialCompleteTip": "Current result is ready. Completed pages: {{pages}}.",
@@ -158,19 +158,26 @@
       "sourceInstances": "{{count}} source instances",
       "transfer": {
         "title": "Design transfer guide",
-        "description": "Start with reusable foundations, then apply component recipes only when the target contains the matching UI. Local observations remain available without becoming global rules.",
-        "p0": "Core design language",
+        "description": "Start with reusable foundations, then apply component patterns only when the target contains the matching UI. Local observations remain available without becoming global rules.",
+        "p0": "Core design rules",
+        "p0Badge": "Default guidance",
         "noP0": "No foundation currently meets the cross-page, high-confidence threshold. Exact tokens are still available, but they are not presented as global rules.",
-        "coordinates": "Finite style coordinates",
-        "p1": "Conditional component recipes",
-        "noP1": "No component recipe currently has enough reusable evidence.",
+        "coordinates": "Design dimension coverage",
+        "priorityLabels": {
+          "P0": "Reusable core rule",
+          "P1": "Contextual component pattern",
+          "P2": "Local observation"
+        },
+        "p1": "Contextual component patterns",
+        "p1Badge": "Use when applicable",
+        "noP1": "No component pattern currently has enough evidence for contextual reuse.",
         "instances": "{{count}} observed instances",
         "useWhen": "Use when",
         "observed": "Observed treatment",
         "coverage": "Observed behavior coverage",
         "coverageValue": "{{states}} state recipes · {{responsive}} responsive recipes",
-        "p2Summary": "Local facts and unknowns ({{rules}} facts · {{recipes}} recipes · {{unknowns}} unknowns)",
-        "unknowns": "Unknown or insufficiently covered",
+        "p2Summary": "Local design observations and coverage gaps ({{rules}} observations · {{recipes}} patterns · {{unknowns}} gaps)",
+        "unknowns": "Unknowns and coverage gaps",
         "viewEvidence": "View evidence",
         "categories": {
           "color": "Color",
@@ -675,8 +682,8 @@
         },
         "getStarted": "Get started",
         "hero": {
-          "title": "Turn any website's design system",
-          "highlight": "into your tokens",
+          "title": "Extract a website's visual language",
+          "highlight": "into reusable design rules",
           "description": "Enter a URL to extract colors, typography, spacing, radii, and design rules into one self-contained DESIGN.md.",
           "primaryAction": "Start for free",
           "secondaryAction": "View demo"
@@ -685,7 +692,7 @@
         "features": {
           "extract": {
             "title": "One-click extraction",
-            "description": "Enter a URL to extract a complete design system"
+            "description": "Enter a URL to extract observed design rules"
           },
           "export": {
             "title": "One design document",

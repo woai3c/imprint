@@ -361,7 +361,7 @@ describe('deterministic design context', () => {
     expect(statements).toEqual(expect.arrayContaining([expect.stringContaining('Visible transitions were observed')]))
     expect(profile.transferGrammar!.localRules.map((item) => item.category)).toContain('responsive')
     expect(generateTransferOverviewMarkdown(profile, tokens, new Map(), evidence)).toContain(
-      "These six lines grade only each dimension's cross-page foundation",
+      'These six lines show whether each dimension has enough cross-page support',
     )
   })
 
@@ -593,6 +593,126 @@ describe('deterministic design context', () => {
     expect(supportedSurface).toMatchObject({ priority: 'P0', claim: { tokenRefs: ['color.background'] } })
   })
 
+  it('describes crisp inset separators as edge treatment instead of elevation shadows', () => {
+    const evidence = createEvidence()
+    evidence.tokens = {
+      ...structuredClone(tokens),
+      shadows: ['rgba(209, 217, 224, 0.7) 0px -1px 0px 0px inset'],
+    }
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      evidenceRefs: ['image-secondary'],
+    }
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = ['color.background', 'shadow.1']
+      section.observedStyles = {
+        backgroundColor: '#ffffff',
+        boxShadow: 'rgba(209, 217, 224, 0.7) 0px -1px 0px 0px inset',
+      }
+    })
+
+    const surface = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.styleCoordinates.find(
+      (coordinate) => coordinate.dimension === 'surface',
+    )
+
+    expect(surface).toMatchObject({ priority: 'P0', claim: { tokenRefs: ['color.background', 'shadow.1'] } })
+    expect(surface?.claim.statement).toContain('2 use visible edge treatments and 0 use depth shadows')
+    expect(surface?.claim.statement).toContain('edge-led')
+    expect(surface?.claim.statement).not.toContain('shadow-led')
+  })
+
+  it('prioritizes shared semantic color roles over earlier low-level observed colors', () => {
+    const evidence = createEvidence()
+    evidence.tokens = {
+      ...structuredClone(tokens),
+      colors: {
+        background: '#ffffff',
+        surface: '#f6f8fa',
+        foreground: '#1f2328',
+        'muted-foreground': '#59636e',
+        primary: '#1f883d',
+        accent: '#0969da',
+        border: '#d1d9e0',
+        'observed-1': '#111111',
+        'observed-2': '#222222',
+        'observed-3': '#333333',
+        'observed-4': '#444444',
+        'observed-5': '#555555',
+        'observed-6': '#666666',
+      },
+    }
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      evidenceRefs: ['image-secondary'],
+    }
+    const sectionRefs = [
+      'color.observed-1',
+      'color.observed-2',
+      'color.observed-3',
+      'color.observed-4',
+      'color.observed-5',
+      'color.observed-6',
+      'color.background',
+      'color.surface',
+      'color.foreground',
+      'color.muted-foreground',
+      'color.border',
+    ]
+    evidence.sections.forEach((section) => {
+      section.tokenRefs = sectionRefs
+    })
+    evidence.components = evidence.sections.map((section, index) => ({
+      ...structuredClone(evidence.components[0]),
+      id: `component-color-${index}`,
+      pageId: section.pageId,
+      sectionId: section.id,
+      tokenRefs: ['color.primary', 'color.accent'],
+      evidenceRefs: [section.id, section.evidenceRefs[0]],
+    }))
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en')
+    const context = createDeterministicDesignContext(evidence, 'en')
+    const color = context.profile.transferGrammar!.styleCoordinates.find(
+      (coordinate) => coordinate.dimension === 'color',
+    )
+    const integrity = validateDesignClaimCatalog(catalog, evidence)
+
+    expect(color).toMatchObject({
+      priority: 'P0',
+      claim: {
+        tokenRefs: [
+          'color.background',
+          'color.surface',
+          'color.foreground',
+          'color.muted-foreground',
+          'color.primary',
+          'color.accent',
+          'color.border',
+        ],
+      },
+    })
+    expect(color?.claim.statement).toContain(
+      'page canvas, content surface, primary text, muted text, primary action, accent, border',
+    )
+    expect(integrity.errors.filter((error) => error.includes('token-ref-without-cited-owner'))).toEqual([])
+  })
+
   it('orders the selected spacing rhythm by size after ranking values by observed frequency', () => {
     const evidence = createEvidence()
     evidence.tokens = {
@@ -724,10 +844,13 @@ describe('deterministic design context', () => {
         expect.objectContaining({ component: 'button', variant: 'primary', priority: 'P1', sourceInstances: 2 }),
       ]),
     )
-    expect(designDoc).toContain('### Transfer Priorities')
-    expect(designDoc).toContain('#### P0 · Core design language')
-    expect(designDoc).toContain('### P1 · Conditional Component Recipes')
-    expect(designDoc).toContain('### P2 · Local Facts and Unknowns')
+    expect(designDoc).toContain('### Design Transfer Guide')
+    expect(designDoc).toContain('#### Core Design Rules')
+    expect(designDoc).toContain('### Contextual Component Patterns')
+    expect(designDoc).toContain('### Local Design Observations')
+    expect(designDoc).toContain('### Unknowns and Coverage Gaps')
+    expect(designDoc).toContain('- **Color:** Reusable core rule')
+    expect(designDoc).not.toMatch(/^#{3,4} P[012]\b/m)
     expect(designDoc).not.toContain('## Key Observations')
   })
 
@@ -1036,7 +1159,7 @@ describe('deterministic design context', () => {
     expect(renamed?.claim.statement).toBe(first?.claim.statement)
   })
 
-  it('does not emit a token-based P0 rule when its displayed claim cannot cite the shared tokens', () => {
+  it('keeps shared semantic colors citable when unrelated palette evidence appears first', () => {
     const evidence = createEvidence()
     evidence.tokens = {
       ...structuredClone(tokens),
@@ -1092,7 +1215,10 @@ describe('deterministic design context', () => {
       (coordinate) => coordinate.dimension === 'color',
     )
 
-    expect(color).toMatchObject({ priority: 'P2', claim: { tokenRefs: [] } })
+    expect(color).toMatchObject({
+      priority: 'P0',
+      claim: { tokenRefs: ['color.background', 'color.primary'] },
+    })
   })
 
   it('cites an actual owner for every selected color token before filling page-diverse evidence', () => {

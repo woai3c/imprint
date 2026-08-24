@@ -3,7 +3,10 @@ import { describe, expect, test } from 'vitest'
 import {
   type ComponentCandidate,
   type ComponentVariantCandidate,
+  classifyCardStyle,
   classifyComponentVariant,
+  hasCrispEdgeShadow,
+  hasDepthShadow,
   hasVisibleShadow,
   isOutlinedButton,
   isPillRadius,
@@ -63,6 +66,17 @@ describe('component candidate summarization', () => {
     expect(hasVisibleShadow('0 0 0 2px rgba(0, 0, 0, 0.2)')).toBe(true)
     expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 0%)')).toBe(false)
     expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 20%)')).toBe(true)
+  })
+
+  test('distinguishes crisp edge shadows from shadows that convey depth', () => {
+    expect(hasCrispEdgeShadow('rgba(31, 35, 40, 0.15) 0 0 0 1px')).toBe(true)
+    expect(hasDepthShadow('rgba(31, 35, 40, 0.15) 0 0 0 1px')).toBe(false)
+    expect(hasCrispEdgeShadow('rgba(209, 217, 224, 0.7) 0 -1px 0 0 inset')).toBe(true)
+    expect(hasDepthShadow('rgba(209, 217, 224, 0.7) 0 -1px 0 0 inset')).toBe(false)
+    expect(hasCrispEdgeShadow('0 1px 3px rgba(0, 0, 0, 0.12)')).toBe(false)
+    expect(hasDepthShadow('0 1px 3px rgba(0, 0, 0, 0.12)')).toBe(true)
+    expect(hasDepthShadow('2px 2px 0 rgb(0, 0, 0)')).toBe(true)
+    expect(classifyCardStyle({ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.15)' })).toBe('outlined-r6')
   })
 
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {

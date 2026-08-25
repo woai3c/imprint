@@ -6,8 +6,9 @@
   <p><strong>从目标网站提取视觉语言，生成可供 AI 复用的设计系统。</strong></p>
 
   <p>
-    提取颜色、字体、间距、圆角、阴影和组件风格。
-    Desktop 导出一份完整的 DESIGN.md。CLI 与 MCP 自动化入口目前可从源码构建，正式安装包将在后续阶段发布。
+    提取颜色、字体、间距、圆角、阴影和组件风格，再将同一套视觉语言复用于多个页面。
+    Desktop 默认导出一份完整的 DESIGN.md，也支持 CSS Variables 和 Tailwind v4 @theme。
+    CLI 与 MCP 自动化入口目前可从源码构建，正式安装包计划在后续版本发布。
   </p>
 
   <p>
@@ -51,7 +52,7 @@ DOM 层级、计算样式、响应式规则或交互状态。Imprint 展示并�
        ↓
 Claude Code / Codex / 其他 AI Agent
        ↓
-复用所提取视觉语言的产品界面
+共享所提取视觉语言的多个产品页面
 ```
 
 ## 为什么需要 Imprint？
@@ -61,40 +62,55 @@ AI Coding 可以快速生成界面，但生成结果可能依赖模型已有认�
 单靠提示词很难持续传递一套设计语言。Imprint 将真实网站中观察到的证据转换成结构化指导，并明确记录其适用范围、
 置信度、覆盖情况和局限。
 
-## 产品目标与使用边界
+一次导出即可在整个产品中复用同一套设计系统：`DESIGN.md` 指导 AI Agent 在不同页面中延续相同的设计决策，CSS Variables
+或 Tailwind v4 `@theme` 则为代码提供统一的视觉变量来源。这样无需在每次提示中重新描述整套风格，也能帮助多页面应用
+保持视觉一致。
 
-Imprint 的目标是让网站的视觉语言能够被复用。它记录实际观察结果、保留可追溯性，并为外部 AI Agent 提供能够应用到其他
-前端项目中的设计规则和精确值。
+## 能力边界
+
+Imprint 记录实际观察结果、保留可追溯性，并为开发者和外部 AI Agent 提供能够应用到其他前端项目中的设计规则和精确值。
 
 生成的设计指导只覆盖成功观察到的页面、视口和状态。`DESIGN.md` 会记录覆盖范围和局限，帮助下游 Agent 复用有证据支持的
 规则，而不把未观察到的行为当成事实。目标产品的业务需求和最终实现仍由用户及其选择的 Agent 决定。
 
 ## 功能
 
-| 功能           | 说明                                                                    |
-| -------------- | ----------------------------------------------------------------------- |
-| 网站分析       | 输入 URL，自动分析网页视觉风格                                          |
-| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                          |
-| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制                    |
-| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                           |
-| 截图证据       | 自动捕获已分析页面和视口，作为可追溯的视觉证据                          |
-| 设计系统生成   | 提取已观察到的颜色、字体、间距、圆角、阴影和组件风格                    |
-| AI 友好文档    | 导出 Google DESIGN.md alpha，并保留可追溯的 Imprint 扩展                |
-| 代码导出       | 从源码构建的 CLI/MCP 支持 CSS Variables、Tailwind CSS v4 和 JSON Tokens |
-| Agent 集成     | 当前通过 Desktop 导出物使用；可安装的本地 MCP 将在下一阶段发布          |
-| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                                 |
-| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌                    |
-| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                      |
-| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性              |
+| 功能           | 说明                                                                        |
+| -------------- | --------------------------------------------------------------------------- |
+| 网站分析       | 输入 URL，自动分析网页视觉风格                                              |
+| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                              |
+| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制                        |
+| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                               |
+| 截图证据       | 自动捕获已分析页面和视口，作为可追溯的视觉证据                              |
+| 设计系统生成   | 提取已观察到的颜色、字体、间距、圆角、阴影和组件风格                        |
+| AI 友好文档    | 导出包含证据规则、适用范围和局限的完整 DESIGN.md                            |
+| 代码导出       | Desktop 与源码构建的 CLI/MCP 均可导出 CSS Variables 和 Tailwind v4 `@theme` |
+| Agent 集成     | 当前使用 Desktop 导出物；可安装的本地 CLI/MCP 计划在后续版本发布            |
+| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                                     |
+| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌                        |
+| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                          |
+| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性                  |
+
+## 下载安装
+
+从 [GitHub Releases](https://github.com/woai3c/imprint/releases/latest) 下载最新 Desktop 版本。CLI 与 MCP 的
+正式安装包计划在后续版本发布。
+
+| 平台    | 架构                  |
+| ------- | --------------------- |
+| Windows | x64                   |
+| macOS   | Apple Silicon (arm64) |
+| macOS   | Intel (x64)           |
 
 ## 与 AI Coding Agent 配合使用
 
 1. 使用 Imprint 分析网站 URL。
 2. 导出生成的 `DESIGN.md`。
-3. 将 `DESIGN.md` 放到目标项目中。
+3. 将 `DESIGN.md` 放到目标项目中。对于多页面应用，同时导出 CSS Variables 或 Tailwind v4 `@theme`，并从全局样式
+   入口加载该文件。
 4. 给 AI Coding Agent 以下指令：
 
-> 实现前先阅读 DESIGN.md。在文档声明的范围内采用“核心设计规则”；只有目标页面出现对应组件和变体时，才使用“场景化组件模式”；“局部设计观察”仅作为相符场景下的参考。保留当前产品需求，不要复制来源网站的品牌、文案和受版权保护的内容。
+> 实现前先阅读 DESIGN.md。在文档声明的范围内采用“核心设计规则”；只有目标页面出现对应组件和变体时，才使用“场景化组件模式”；“局部设计观察”仅作为相符场景下的参考。复用项目已导出的共享 Token，不要为每个页面分别创建新的色板或间距体系。保留当前产品需求，不要复制来源网站的品牌、文案和受版权保护的内容。
 
 <p align="center">
   <img src="./docs/media/design-md-agent-workflow-zh-CN.gif" alt="将导出的 DESIGN.md 和产品需求交给外部 Coding Agent" width="960" />
@@ -104,26 +120,34 @@ Imprint 的目标是让网站的视觉语言能够被复用。它记录实际观
 
 ### 应该导出哪一种？
 
-Desktop 的 AI 工作流只导出一份完整的 `DESIGN.md`。从源码构建的 CLI 和 MCP 还提供下列专用格式，用于自动化和
-直接实现；它们的正式安装包将在后续阶段发布。
+Desktop 与从源码构建的 CLI/MCP 共用 `DESIGN.md`、CSS Variables 和 Tailwind v4 `@theme`。`DESIGN.md` 是 AI
+工作流的默认产物；CSS 和 Tailwind 是直接实现所需的辅助产物。CLI/MCP 另外提供 Tokens JSON（DTCG）供结构化
+工具链使用，其正式安装包计划在后续版本发布。
 
-| 目标                               | 推荐输出                 | 一起提供             |
-| ---------------------------------- | ------------------------ | -------------------- |
-| 让 AI 修改已有 UI                  | **DESIGN.md**            | 当前 UI 截图或源代码 |
-| 直接在 CSS 项目中实现              | **CSS Variables**        | 现有样式入口文件     |
-| 直接在 Tailwind v4 项目中实现      | **Tailwind `@theme`**    | 项目的主题样式文件   |
-| 交给工具链或需要结构化数据的 Agent | **Tokens JSON**          | 具体的自动化任务说明 |
-| 审计来源页面的实际观察范围         | **Design Evidence JSON** | 对应页面截图         |
+| 目标                                  | 推荐输出                                           | 一起提供             |
+| ------------------------------------- | -------------------------------------------------- | -------------------- |
+| 让 AI 修改已有 UI                     | **DESIGN.md**                                      | 当前 UI 截图或源代码 |
+| 使用同一视觉语言构建多个页面          | **DESIGN.md + CSS Variables 或 Tailwind `@theme`** | 全局加载代码产物     |
+| 直接在 CSS 项目中实现                 | **CSS Variables**                                  | 现有样式入口文件     |
+| 直接在 Tailwind v4 项目中实现         | **Tailwind `@theme`**                              | 项目的主题样式文件   |
+| 交给需要结构化数据的 CLI/MCP 工具链   | **Tokens JSON（CLI/MCP）**                         | 具体的自动化任务说明 |
+| 审计来源页面的实际观察范围（CLI/MCP） | **Design Evidence JSON**                           | 对应页面截图         |
 
 如果只给 AI 一个导出文件，请选择 **DESIGN.md**。
 
-Imprint 生成的 `DESIGN.md` 遵循 [Google Labs DESIGN.md alpha 规范](https://github.com/google-labs-code/design.md)：先构建类型化文档模型，再按规范 YAML 分组和固定章节顺序渲染。紧凑的 `x-imprint` 扩展只保留来源、覆盖率、分析摘要、响应式元数据和 alpha 规范暂未覆盖的令牌；完整令牌溯源保留在 Tokens JSON 与 `design-evidence.json` 中。
+对于多页面应用，建议在项目根目录保留一份 `DESIGN.md`，并从全局样式入口加载导出的 CSS Variables 或 Tailwind
+主题。所有页面复用这些文件，不要在没有明确需要不同视觉语言时为每个页面生成互不相关的 Token。
 
-## 确定性设计上下文
+Imprint 生成的 `DESIGN.md` 遵循目前仍处于 alpha 阶段的
+[Google Labs DESIGN.md 规范](https://github.com/google-labs-code/design.md)。程序先构建类型化文档模型，再按其标准 YAML
+分组和章节顺序渲染。`x-imprint` 扩展保留来源、覆盖率、分析摘要、响应式元数据和该规范暂未覆盖的令牌。
+`DESIGN.md` 已包含正常使用所需的设计指导。对于高级自动化，CLI/MCP 还可导出机器可读的 Tokens JSON 和用于
+底层观察审计的 Design Evidence JSON；这两种格式不属于 Desktop 的主要工作流。
 
-每次分析都会生成确定性的 `DesignEvidence`：多视口截图、页面拓扑、归一化区块与组件几何、响应式差异、安全交互观察、
-媒体层、覆盖范围和限制。程序规则再将证据转换为稳定、可追溯的 Design Profile、重构简报、验证方案和导出物。相同的
-捕获证据会生成完全相同的上下文。
+## 提取原理
+
+每次分析都会生成确定性的浏览器观察：多视口截图、页面拓扑、归一化区块与组件几何、响应式差异、安全交互观察、
+媒体层、覆盖范围和限制。程序规则再将这些观察转换为稳定的设计指导、Token 和导出物。相同的捕获证据会生成相同结果。
 
 Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外部 Coding Agent 可以通过文件或 MCP 使用分析完成后的
 产物，但不会参与提取，也不能改变来源事实。
@@ -131,16 +155,20 @@ Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外�
 ## CLI 与 MCP
 
 > **发布状态：** GitHub Releases 当前只发布 Desktop 应用。CLI 与本地 stdio MCP 已实现并经过测试，但目前仍是
-> 源码构建预览。可安装的软件包和受支持的 MCP 客户端配置将在下一产品阶段发布，不包含在当前 Desktop 安装包中。
+> 源码构建预览。可安装的软件包和受支持的 MCP 客户端配置计划在后续版本发布，不包含在当前 Desktop 安装包中。
 
 ```bash
 pnpm build:cli
 imprint doctor
 imprint doctor --browser-path "/path/to/chrome" --json
-imprint extract https://example.com --viewport all --format evidence
-imprint extract https://example.com --pages 5 --discovery auto --format json
-imprint extract https://example.com --viewport all --format profile
+imprint extract https://example.com --pages 8
+imprint extract https://example.com --format css
+imprint extract https://example.com --format tailwind
+imprint extract https://example.com --format json
 ```
+
+CLI 提取与 MCP `imprint_extract` 都默认返回 `DESIGN.md`；只有下游需要直接实现产物时，才选择 `css`、
+`tailwind` 或 `json`。
 
 CLI 与 MCP 不依赖 Imprint 托管服务、正在运行的 Desktop 应用、模型厂商或 API Key，二者都在用户电脑本地运行。
 当前从源码构建时仍需要 Node.js 20.19 或更高版本，以及本机已安装的 Chrome、Edge 或兼容的 Chromium；分析公网
@@ -155,17 +183,6 @@ MCP 还需要支持 MCP 的 Coding Agent 或客户端。客户端会在本地启
 
 MCP 服务器提供确定性的 `imprint_extract` 与 `imprint_compare` 工具，不需要任何厂商凭据。`imprint_compare` 可以接收
 两个 URL 或两个已经导出的 Design Profile，并按 token 或确定性设计语言进行比较。
-
-## 下载安装
-
-从 [GitHub Releases](https://github.com/woai3c/imprint/releases/latest) 下载最新 Desktop 版本。CLI 与 MCP 的
-正式安装包将在后续阶段发布。
-
-| 平台    | 架构                  |
-| ------- | --------------------- |
-| Windows | x64                   |
-| macOS   | Apple Silicon (arm64) |
-| macOS   | Intel (x64)           |
 
 ## 技术栈
 

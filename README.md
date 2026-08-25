@@ -6,9 +6,11 @@
   <p><strong>Extract visual languages from websites and generate reusable design systems for AI.</strong></p>
 
   <p>
-    Extract colors, typography, spacing, radii, shadows, and component styles.
-    Desktop exports one self-contained DESIGN.md. CLI and MCP automation entry points are currently available from
-    source and will receive installable distribution in a later release.
+    Extract colors, typography, spacing, radii, shadows, and component styles, then reuse the same visual language
+    across multiple pages. Desktop defaults to one self-contained DESIGN.md and also exports CSS Variables,
+    and Tailwind v4 @theme.
+    CLI and MCP automation entry points are currently available from source; installable distribution is planned for a
+    later release.
   </p>
 
   <p>
@@ -55,7 +57,7 @@ Reusable Design System / DESIGN.md
         ↓
 Claude Code / Codex / Other AI Agents
         ↓
-Interfaces that reuse the extracted visual language
+Multiple pages sharing the extracted visual language
 ```
 
 ## Why Imprint?
@@ -65,10 +67,14 @@ AI coding tools can generate interfaces quickly, but they often produce generic 
 Prompts alone rarely preserve a design language consistently across repeated work. Imprint converts observed website
 evidence into structured guidance with explicit scope, confidence, coverage, and limitations.
 
-## Goal and scope
+Export once and reuse the same design system across a product: `DESIGN.md` guides an AI agent's decisions from page to
+page, while CSS Variables or a Tailwind v4 `@theme` give the implementation one shared source of visual values. This
+helps a multi-page application remain visually consistent without restating the entire style in every prompt.
 
-Imprint's goal is to make a website's visual language reusable. It records what was actually observed, keeps the result
-traceable, and gives external AI agents precise design rules and values they can apply in other frontend projects.
+## Scope and boundaries
+
+Imprint records what was actually observed, keeps the result traceable, and gives developers and external AI agents
+precise design rules and values they can apply in other frontend projects.
 
 Generated guidance covers the pages, viewports, and states that were successfully observed. `DESIGN.md` records that
 coverage and its limitations so downstream agents can reuse supported rules without treating unobserved behavior as
@@ -76,30 +82,42 @@ fact. The target product's requirements and final implementation remain the resp
 
 ## Features
 
-| Feature                  | Description                                                                                     |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| Website analysis         | Analyze visual styles directly from a URL                                                       |
-| Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes              |
-| Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations |
-| Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence               |
-| Screenshot evidence      | Capture analyzed pages and viewports as traceable visual evidence                               |
-| Design system generation | Generate observed colors, typography, spacing, radii, shadows, and component guidance           |
-| AI-ready documentation   | Export Google DESIGN.md alpha with traceable Imprint extensions                                 |
-| Code export              | Source-built CLI/MCP export CSS Variables, Tailwind CSS v4 themes, and JSON Design Tokens       |
-| Agent integration        | Use Desktop artifacts now; installable local MCP distribution is planned for the next stage     |
-| Local-first storage      | Store project data locally with SQLite                                                          |
-| Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios      |
-| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                     |
-| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states           |
+| Feature                  | Description                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| Website analysis         | Analyze visual styles directly from a URL                                                        |
+| Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes               |
+| Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations  |
+| Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence                |
+| Screenshot evidence      | Capture analyzed pages and viewports as traceable visual evidence                                |
+| Design system generation | Generate observed colors, typography, spacing, radii, shadows, and component guidance            |
+| AI-ready documentation   | Export a self-contained DESIGN.md with evidence-backed rules, scope, and limitations             |
+| Code export              | Export CSS Variables and Tailwind v4 `@theme` from Desktop or source-built CLI/MCP               |
+| Agent integration        | Use Desktop artifacts now; installable local CLI/MCP distribution is planned for a later release |
+| Local-first storage      | Store project data locally with SQLite                                                           |
+| Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios       |
+| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                      |
+| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states            |
+
+## Download
+
+Download the latest Desktop version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest). CLI and
+MCP installable packages are planned for a later release.
+
+| Platform | Architecture          |
+| -------- | --------------------- |
+| Windows  | x64                   |
+| macOS    | Apple Silicon (arm64) |
+| macOS    | Intel (x64)           |
 
 ## Use with AI Coding Agents
 
 1. Analyze a website URL with Imprint.
 2. Export the generated `DESIGN.md`.
-3. Copy `DESIGN.md` into your project.
+3. Copy `DESIGN.md` into your project. For a multi-page application, also export either CSS Variables or Tailwind v4
+   `@theme` and load that file from the global style entry.
 4. Give your AI coding agent the following instruction:
 
-> Read DESIGN.md before implementation. Apply its Core Design Rules within their documented scope. Use Contextual Component Patterns only when the target contains the matching component and variant, and treat Local Design Observations as scoped references. Preserve the existing product requirements, and do not copy copyrighted text or branding from the source website.
+> Read DESIGN.md before implementation. Apply its Core Design Rules within their documented scope. Use Contextual Component Patterns only when the target contains the matching component and variant, and treat Local Design Observations as scoped references. Reuse the project's shared exported tokens instead of creating a separate palette or spacing scale for each page. Preserve the existing product requirements, and do not copy copyrighted text or branding from the source website.
 
 <p align="center">
   <img src="./docs/media/design-md-agent-workflow-en.gif" alt="Give an exported DESIGN.md and product requirements to an external coding agent" width="960" />
@@ -109,28 +127,38 @@ fact. The target product's requirements and final implementation remain the resp
 
 ### Which format should I export?
 
-The Desktop AI workflow exports one complete `DESIGN.md`. Source-built CLI and MCP entry points additionally expose the
-specialized formats below for automation and implementation workflows; their installable distribution is planned for a
-later release.
+Desktop and the source-built CLI/MCP entry points share `DESIGN.md`, CSS Variables, and Tailwind v4 `@theme`.
+`DESIGN.md` is the default for AI workflows; CSS and Tailwind are implementation outputs. CLI/MCP additionally expose
+Tokens JSON (DTCG) for structured toolchain integrations. Their installable distribution is planned for a later release.
 
-| Goal                                                   | Recommended output       | Include with it                      |
-| ------------------------------------------------------ | ------------------------ | ------------------------------------ |
-| Ask AI to revise an existing UI                        | **DESIGN.md**            | Current UI screenshot or source code |
-| Implement directly in a CSS project                    | **CSS Variables**        | The existing style entry file        |
-| Implement directly in a Tailwind v4 project            | **Tailwind `@theme`**    | The project's theme stylesheet       |
-| Use a toolchain or an agent that needs structured data | **Tokens JSON**          | A precise automation task            |
-| Audit how the source pages were observed               | **Design Evidence JSON** | The related screenshots              |
+| Goal                                               | Recommended output                                 | Include with it                      |
+| -------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
+| Ask AI to revise an existing UI                    | **DESIGN.md**                                      | Current UI screenshot or source code |
+| Build several pages with one visual language       | **DESIGN.md + CSS Variables or Tailwind `@theme`** | Load the code artifact globally      |
+| Implement directly in a CSS project                | **CSS Variables**                                  | The existing style entry file        |
+| Implement directly in a Tailwind v4 project        | **Tailwind `@theme`**                              | The project's theme stylesheet       |
+| Use a CLI/MCP toolchain that needs structured data | **Tokens JSON (CLI/MCP)**                          | A precise automation task            |
+| Audit how the source pages were observed (CLI/MCP) | **Design Evidence JSON**                           | The related screenshots              |
 
 If you give AI only one exported file, choose **DESIGN.md**.
 
-Imprint's generated `DESIGN.md` follows the [Google Labs DESIGN.md alpha specification](https://github.com/google-labs-code/design.md): a typed document model is rendered into the normative YAML groups and canonical section order. The summarized `x-imprint` extension keeps source, coverage, analysis summaries, responsive metadata, and token groups not covered by the alpha schema; complete token provenance remains in Tokens JSON and `design-evidence.json`.
+For a multi-page application, keep one `DESIGN.md` at the project root and load the exported CSS Variables or Tailwind
+theme once from the global style entry. Reuse those files across pages instead of generating an unrelated token set for
+each page.
 
-## Deterministic design context
+Imprint's generated `DESIGN.md` follows the
+[Google Labs DESIGN.md specification](https://github.com/google-labs-code/design.md), which is currently alpha. A typed
+document model is rendered into its standard YAML groups and section order. The `x-imprint` extension keeps source,
+coverage, analysis summaries, responsive metadata, and token groups not covered by that specification. `DESIGN.md`
+contains the guidance required for normal use. For advanced automation, CLI/MCP can additionally export machine-readable
+Tokens JSON and Design Evidence JSON; these formats are not part of the primary Desktop workflow.
 
-Every analysis produces deterministic `DesignEvidence`: multi-viewport screenshots, page topology, normalized section
-and component geometry, responsive differences, safe interaction observations, media layers, coverage, and limitations.
-Program-owned rules turn that evidence into a stable, traceable Design Profile, Reconstruction Brief, validation recipe,
-and exports. Identical captured evidence produces identical context.
+## How extraction works
+
+Every analysis produces deterministic browser observations: multi-viewport screenshots, page topology, normalized
+section and component geometry, responsive differences, safe interaction observations, media layers, coverage, and
+limitations. Program-owned rules turn those observations into stable guidance, tokens, and exports. Identical captured
+evidence produces identical results.
 
 Imprint has no built-in model provider, API-key settings, or Agent CLI execution path. External coding agents can consume
 the completed artifacts through files or MCP, but they never participate in extraction or change source facts.
@@ -139,16 +167,20 @@ the completed artifacts through files or MCP, but they never participate in extr
 
 > **Release status:** GitHub Releases currently distribute the Desktop application only. The CLI and local stdio MCP
 > server are implemented and tested source-build previews. Installable packages and supported MCP client setup will be
-> released in the next product stage; they are not included in the current Desktop installers.
+> provided in a later release; they are not included in the current Desktop installers.
 
 ```bash
 pnpm build:cli
 imprint doctor
 imprint doctor --browser-path "/path/to/chrome" --json
-imprint extract https://example.com --viewport all --format evidence
-imprint extract https://example.com --pages 5 --discovery auto --format json
-imprint extract https://example.com --viewport all --format profile
+imprint extract https://example.com --pages 8
+imprint extract https://example.com --format css
+imprint extract https://example.com --format tailwind
+imprint extract https://example.com --format json
 ```
+
+CLI extraction and MCP `imprint_extract` both default to `DESIGN.md`. Select `css`, `tailwind`, or `json` only when the
+consumer needs a direct implementation artifact.
 
 The CLI and MCP server do not require an Imprint-hosted service, a running Desktop application, a model provider, or an
 API key. Both run locally. Source builds currently require Node.js 20.19 or newer and an installed Chrome, Edge, or
@@ -171,17 +203,6 @@ The MCP server exposes deterministic `imprint_extract` and `imprint_compare` too
 language-depth comparison. Its stdio transport writes one newline-delimited JSON-RPC message per stdout line, keeps logs
 on stderr, and supports legacy lifecycle negotiation through protocol version `2025-11-25`. The compiled server is
 covered by an official `@modelcontextprotocol/sdk` client contract test.
-
-## Download
-
-Download the latest Desktop version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest). CLI and
-MCP installable packages are planned for a later release.
-
-| Platform | Architecture          |
-| -------- | --------------------- |
-| Windows  | x64                   |
-| macOS    | Apple Silicon (arm64) |
-| macOS    | Intel (x64)           |
 
 ## Tech Stack
 

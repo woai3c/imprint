@@ -13,7 +13,9 @@ Imprint is a deterministic design-context and visual-validation tool for AI codi
 what a browser actually rendered into stable, traceable evidence, claims, tokens, and implementation artifacts that an
 agent can use without guessing. AI is only a downstream consumer of exported context, not a built-in runtime dependency
 or an authority for source facts. The same captured evidence always produces the same claims, profile, reconstruction
-brief, validation recipe, and exports. Coding and adaptation remain the responsibility of the user's external agent.
+brief, validation recipe, and exports. One extracted system may guide multiple pages of the same target product, while
+shared CSS Variables or a Tailwind v4 `@theme` provide a single implementation source for recurring visual values.
+Coding and adaptation remain the responsibility of the user's external agent.
 
 ## Design values
 
@@ -29,12 +31,14 @@ clustered values, semantic tokens, and export formats through progressive disclo
 
 ### Portability
 
-Every useful result should move cleanly between the desktop app, CLI, and MCP server. The desktop app gives users one
-self-contained `DESIGN.md`; specialized CSS, Tailwind, and JSON representations remain available to CLI/MCP automation.
-Prefer semantic, implementation-neutral concepts over app-specific decoration.
+Every useful result should move cleanly between the desktop app, CLI, and MCP server. All three entry points expose the
+same primary artifacts: one self-contained `DESIGN.md`, CSS Variables, and Tailwind v4 `@theme`. `DESIGN.md` remains the
+default artifact for AI workflows; implementation formats are secondary exports. CLI and MCP may additionally expose
+Tokens JSON (DTCG) for structured toolchain integrations. Prefer semantic, implementation-neutral concepts over
+app-specific decoration.
 
 The current downloadable release surface is Desktop. CLI and MCP remain tested source-build integration surfaces until
-their installable package and client setup are released in the next product stage. MCP stays a local stdio process and
+their installable package and client setup are released in a later release. MCP stays a local stdio process and
 must not introduce a hosted Imprint service, account, model provider, or API-key dependency.
 
 ### Content first
@@ -55,8 +59,8 @@ space than related items, and keep page-level actions with the page heading rath
 ### Contrast (对比)
 
 Use contrast to express hierarchy and state, not decoration. Primary actions, selected items, errors, and focus must be
-immediately distinguishable. Supporting text should be quieter but still comfortably readable; normal product metadata
-must not fall below 12px, with 11px reserved for compact, non-essential preview annotations.
+immediately distinguishable. Supporting text should be quieter but still comfortably readable; product text, including
+compact and non-essential preview annotations, must not fall below 12px.
 
 ### Alignment (对齐)
 
@@ -246,8 +250,11 @@ runs out, the tab strip scrolls horizontally instead.
   defaults to the two latest eligible records, and offers only later records for the same normalized route. Users may
   choose any earlier and later pair for that route; comparison does not create or mutate a pinned reference. Repeated
   row-level comparison buttons and per-record reference actions are avoided.
-- The comparison checks the recorded page and viewport set, page-analysis mode, access mode, language, coverage, and page-health eligibility
-  before reporting supported token changes. Missing or incompatible evidence produces `inconclusive`, never “no
+- The comparison checks page-analysis mode, access mode, language, coverage, and page-health eligibility before
+  reporting supported changes. When both captures contain the same eligible page-and-viewport set, pages that are not
+  evidence-eligible are excluded and the remaining shared set is compared with explicit partial coverage. The report
+  names the excluded count, routes, viewports, and recorded health reasons. A comparison becomes `inconclusive` when no
+  shared eligible page remains or the two eligible sets cannot be aligned; it never turns missing evidence into “no
   change.” The selected page count is an upper bound. Analysis records every discovered and completed page;
   coverage remains partial when the user stops the run before selected pages finish. A selected page or
   planned viewport that fails also remains incomplete. Selecting two records does not mutate either record.
@@ -255,11 +262,11 @@ runs out, the tab strip scrolls horizontally instead.
   timezone, color scheme, reduced-motion preference, the runtime browser identity, each captured viewport's effective
   DPR/user agent/emulation profile, browser and tool versions, actual animation-freeze coverage, font readiness,
   page-health coverage, and explicit limitations. Missing legacy manifests or differences in conditions that can affect
-  token extraction produce `inconclusive`; browser, platform, or tool-version differences remain visible
-  limitations for the currently exact token comparison.
+  token extraction produce `inconclusive`; browser and platform differences remain visible limitations. A tool-version
+  difference is recorded under non-blocking condition differences and never causes failure by itself.
 - Before browser work begins, every entry point must normalize its inputs through versioned Analysis Request schema
-  `2`: an HTTP(S) URL, an ordered deduplicated subset of desktop/tablet/mobile viewports, a positive integer page bound
-  with no product-level maximum, access mode, dark-mode extraction choice, depth, and page-discovery mode. Entry points may declare different
+  `2`: an HTTP(S) URL, an ordered deduplicated subset of desktop/tablet/mobile viewports, an integer page bound from
+  1 to 20, access mode, dark-mode extraction choice, depth, and page-discovery mode. Entry points may declare different
   defaults, but they must pass the resulting explicit request to the same core analyzer. Invalid values are rejected
   instead of silently falling back to another viewport or page count. The request schema version is recorded in the
   Capture Manifest; a recorded-version mismatch, including a new capture compared with a legacy capture that lacks
@@ -288,7 +295,8 @@ runs out, the tab strip scrolls horizontally instead.
   its scope states in plain language that similar elements were excluded to prevent false change reports. Two-sided
   evidence references remain stored for traceability but are not exposed as navigation controls.
 - Visual difference pairs only uniquely matched, readable full-page screenshots from the same normalized page route and
-  viewport, and the action is absent when every paired screenshot has the same recorded content hash. It opens above the
+  viewport. A partial comparison limits those pairs to the shared eligible page set. The action is absent when every
+  paired screenshot has the same recorded content hash. It opens above the
   comparison and returns to the unchanged comparison when closed. The comparison header provides a visible return to
   the pair picker, preserving the current pair so users can continue with another comparison without closing and
   restarting the flow. The default view keeps the earlier and later original screenshots side by side with synchronized
@@ -307,8 +315,8 @@ runs out, the tab strip scrolls horizontally instead.
   order and accessible image names preserve the distinction without covering screenshot content.
 - “Changed” is a factual observation, not a defect. Comparison has no approval, contract, or governance workflow. The
   user can copy the current localized report or export it as a standalone Markdown file. Both outputs include the two
-  analysis records and capture times, the overall result, comparability reasons and limitations, category coverage,
-  and every reported change. Exported reports must preserve the same factual boundaries as the visible comparison and
+  analysis records and capture times, the overall result, comparability reasons and limitations, excluded pages in a
+  partial comparison, category coverage, and every reported change. Exported reports must preserve the same factual boundaries as the visible comparison and
   must not introduce causal, defect, or compliance claims. The comparison header stays on one line: return, title,
   result, and report actions. Screenshot difference is a compact outlined text button and is absent when no visual pair
   exists; copy and Markdown export remain icon actions with immediate hover and keyboard-focus tooltips. Fixed product
@@ -364,11 +372,11 @@ runs out, the tab strip scrolls horizontally instead.
 
 ## Multi-page analysis evidence
 
-- Desktop analysis automatically follows usable same-site pages up to a user-visible page limit. The default is 8 pages;
-  users may enter any positive integer with no product-level maximum. Treat this value as a maximum rather than a
+- Desktop analysis automatically follows usable same-site pages up to a user-visible page limit. The default is 8 pages,
+  and the supported range is 1–20. Treat this value as a maximum rather than a
   promise that every site exposes that many representative pages. Place the compact numeric input and short explanation
   below the URL-and-action row; never put this secondary control between the URL field and primary action. CLI and MCP
-  use the same positive-integer contract and the same default of 8 when omitted.
+  use the same 1–20 range and the same default of 8 when omitted.
 - The entered URL is the first page. Automatic
   discovery combines rendered navigation links with same-origin sitemap entries, excludes authentication, legal, and
   asset URLs, and favors a diverse set of product, pricing, documentation, company, support, and content pages instead
@@ -408,13 +416,14 @@ runs out, the tab strip scrolls horizontally instead.
 
 - Every completed analysis persists its complete shared result data and DESIGN.md along with page screenshot paths in
   the local SQLite database. Text payloads are small; screenshots already live on disk and are never duplicated into
-  the database. The desktop export surface exposes only DESIGN.md.
+  the database. The desktop result tabs and export menu expose DESIGN.md, CSS Variables, and Tailwind v4 `@theme` from
+  that same saved result.
 - Opening a history record that has complete saved tokens, evidence, and a current deterministic profile re-renders its
   DESIGN.md with the current document exporter without revisiting the website. The captured facts remain unchanged;
   legacy records without enough structured data retain their originally saved document.
 - History rows act as work entries, not a log: selecting a record opens the complete result in a dialog where the
-  user can review the overview, visual preview, and DESIGN.md; copy or export DESIGN.md; or save the result to the Theme
-  Library.
+  user can review the overview, visual preview, and DESIGN.md; copy DESIGN.md; export any primary artifact; or save the
+  result to the Theme Library.
 - Each history row shows the first captured page screenshot as a compact, top-aligned thumbnail; records whose
   screenshot is unavailable retain the same layout with an explicit placeholder. Show the record's localized creation
   date and time together so analyses from the same day remain distinguishable. Chinese uses `YYYY-MM-DD HH:MM:SS`;
@@ -448,9 +457,13 @@ runs out, the tab strip scrolls horizontally instead.
 
 ## Export semantics
 
-The desktop app has one export artifact: **DESIGN.md**. It explains design intent, rules, observed evidence, reusable
-values, coverage, and limitations. Users provide it together with the current UI screenshot or source code when asking
-an external coding agent to revise an existing interface.
+The desktop app treats **DESIGN.md** as its primary and default export. It explains design intent, rules, observed
+evidence, reusable values, coverage, and limitations. Users provide it together with the current UI screenshot or
+source code when asking an external coding agent to revise an existing interface. A secondary export menu also provides
+CSS Variables and Tailwind v4 `@theme` for direct implementation. For multi-page
+products, one shared DESIGN.md communicates recurring design decisions while the CSS or Tailwind artifact is loaded once
+from the global style entry and reused across pages. These artifacts help maintain consistency; they do not guarantee
+that an external agent or developer will apply every rule correctly.
 
 The document begins with a transfer contract: Core Design Rules apply by default only within their declared scope;
 Contextual Component Patterns apply only when the target contains the matching component and variant; Local Design
@@ -468,15 +481,21 @@ viewport scope, relevant section/component semantics, implementation boundaries,
 does not require a second artifact to understand or apply the report, and it does not repeat a raw internal evidence-ID
 index.
 
-The result page keeps Overview and Visual Preview as in-app inspection surfaces, not export formats. Its copy and export
-actions always produce the same complete DESIGN.md, and the Theme Library does the same without a format selector.
+The result page keeps Overview and Visual Preview as in-app inspection surfaces, not export formats. Separate DESIGN.md,
+Tailwind v4, and CSS Variables tabs let users inspect and copy the current artifact directly. The export action names
+and offers DESIGN.md, CSS Variables, and Tailwind v4 `@theme`. Save, validate, export, and copy use one compact,
+equal-weight icon group with accessible names and hover or keyboard-focus explanations. Keep this group flat on the
+toolbar rather than enclosing it in another pill or bordered capsule; supporting workflow information is separated by a
+single hairline. Opening the lightweight export menu must update only that menu and compute its initial position in the
+same interaction; it must not re-render the active overview, preview, or document first. The Theme Library retains its
+own saved-format preference.
 Built-in-theme exports contain reusable design intent and tokens but omit Imprint-specific background images, textures,
 and desktop-shell component styles. In the document preview, render front matter as collapsed machine-readable YAML and
 the remaining body as Markdown; copy and export preserve the original document byte content.
 
-CLI and MCP integrations may continue to request CSS variables, Tailwind v4 `@theme`, Tokens JSON, Design Evidence, or
-the reconstruction brief for machine workflows. Those compatibility formats are not separate choices in the desktop
-experience and DESIGN.md never depends on them.
+CLI and MCP integrations expose the same primary formats and may additionally request Tokens JSON (DTCG), Design
+Evidence, or other structured diagnostics for machine workflows. DESIGN.md remains self-contained and never depends on
+a second export.
 
 The Preview tab renders deterministic token and component test surfaces only; it never executes generated markup or
 scripts. Validation work belongs in the dedicated Theme Library scenarios and uses allowlisted components with explicit

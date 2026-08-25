@@ -348,20 +348,23 @@ function claimLines(
   ]
 }
 
-interface TransferExportContext {
+interface ClaimExportContext {
   t: ReturnType<typeof coreTranslator>
   formatText: (text: string) => string
   formatTokenRefs: (claim: DesignClaim) => string | null
   scopeForClaim: (claim: DesignClaim) => string | null
+}
+
+interface TransferExportContext extends ClaimExportContext {
   boundedImplementation: string
 }
 
-function createTransferExportContext(
+function createClaimExportContext(
   profile: DesignProfile,
   tokens?: DesignToken,
   publicColorNames: ReadonlyMap<string, string> = new Map(),
   evidence?: DesignEvidence,
-): TransferExportContext {
+): ClaimExportContext {
   const t = coreTranslator(profile.language, 'profileExport')
   const referenceTokens = evidence?.tokens || tokens
   const aliasRefs = new Map<string, string>()
@@ -380,17 +383,29 @@ function createTransferExportContext(
     const value = directlyResolved || (sourceRef ? resolveDesignTokenRef(referenceTokens, sourceRef) : null)
     return value ? `\`${mapped}\` (${value})` : null
   }
+  const formatTokenRefs = (claim: DesignClaim): string | null => {
+    const refs = claim.tokenRefs?.flatMap((ref) => {
+      const formatted = formatTokenRef(ref)
+      return formatted ? [formatted] : []
+    })
+    return refs?.length ? refs.join(t('listSeparator')) : null
+  }
   return {
     t,
     formatText,
-    formatTokenRefs: (claim) => {
-      const refs = claim.tokenRefs?.flatMap((ref) => {
-        const formatted = formatTokenRef(ref)
-        return formatted ? [formatted] : []
-      })
-      return refs?.length ? refs.join(t('listSeparator')) : null
-    },
+    formatTokenRefs,
     scopeForClaim: buildClaimScopeFormatter(evidence, t),
+  }
+}
+
+function createTransferExportContext(
+  profile: DesignProfile,
+  tokens?: DesignToken,
+  publicColorNames: ReadonlyMap<string, string> = new Map(),
+  evidence?: DesignEvidence,
+): TransferExportContext {
+  return {
+    ...createClaimExportContext(profile, tokens, publicColorNames, evidence),
     boundedImplementation: coreTranslator(profile.language, 'designContext.catalog')('boundedImplementation'),
   }
 }
@@ -589,35 +604,17 @@ export function generateDesignProfileMarkdown(
   publicColorNames: ReadonlyMap<string, string> = new Map(),
   evidence?: DesignEvidence,
 ): string {
-  const t = coreTranslator(profile.language, 'profileExport')
-  const referenceTokens = evidence?.tokens || tokens
-  const aliasRefs = new Map<string, string>()
-  for (const [sourceName, publicName] of publicColorNames) {
-    aliasRefs.set(`color.${sourceName}`, `color.${publicName}`)
-  }
-  const formatText = (text: string): string => formatClaimText(text, aliasRefs, t)
-  const formatTokenRef = (ref: string): string | null => {
-    const mapped = aliasRefs.get(ref) ?? ref
-    if (!referenceTokens) return `\`${mapped}\``
-    const directlyResolved = resolveDesignTokenRef(referenceTokens, ref)
-    const sourceRef = [...aliasRefs.entries()].find(
-      ([candidate, publicRef]) =>
-        publicRef === mapped && referenceTokens.colors[candidate.slice('color.'.length)] !== undefined,
-    )?.[0]
-    const value = directlyResolved || (sourceRef ? resolveDesignTokenRef(referenceTokens, sourceRef) : null)
-    return value ? `\`${mapped}\` (${value})` : null
-  }
+  const { t, formatText, formatTokenRefs, scopeForClaim } = createClaimExportContext(
+    profile,
+    tokens,
+    publicColorNames,
+    evidence,
+  )
   const claimOptions = {
     formatText,
-    formatTokenRefs: (claim: DesignClaim): string | null => {
-      const refs = claim.tokenRefs?.flatMap((ref) => {
-        const formatted = formatTokenRef(ref)
-        return formatted ? [formatted] : []
-      })
-      return refs?.length ? refs.join(t('listSeparator')) : null
-    },
+    formatTokenRefs,
     renderedClaimKeys: new Set<string>(),
-    scopeForClaim: buildClaimScopeFormatter(evidence, t),
+    scopeForClaim,
   }
   const exactScopeForClaim = buildClaimScopeFormatter(evidence, t, Number.MAX_SAFE_INTEGER)
   const compositionClaims = Object.entries(profile.composition).map(([label, claim]) => ({

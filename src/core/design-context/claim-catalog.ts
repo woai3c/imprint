@@ -166,7 +166,7 @@ interface CatalogBuilder {
   entries: DesignClaimCatalogEntry[]
 }
 
-function createCatalogBuilder(evidence: DesignEvidence, language: 'en' | 'zh-CN'): CatalogBuilder {
+function createCatalogBuilder(language: 'en' | 'zh-CN'): CatalogBuilder {
   const t = coreTranslator(language, 'designContext.catalog')
   const entries: DesignClaimCatalogEntry[] = []
   const entriesByKey = new Map<string, DesignClaimCatalogEntry>()
@@ -1288,7 +1288,7 @@ function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'):
 
 export function buildDeterministicClaimCatalog(evidence: DesignEvidence, language: 'en' | 'zh-CN'): DesignClaimCatalog {
   const t = coreTranslator(language, 'designContext.catalog')
-  const builder = createCatalogBuilder(evidence, language)
+  const builder = createCatalogBuilder(language)
   const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
   const validPageIds = canonicalCatalogPageIds(evidence)
   const safeCapturePageIds = new Set(

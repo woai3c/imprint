@@ -5,6 +5,7 @@ import { coreTranslator } from '../i18n/index.js'
 import { resolveScreenshotAssetCoverage } from './asset-integrity.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
 import {
+  boundedPixelValue,
   displayedResponsiveChangeType,
   hasConsistentResponsiveSectionIdentity,
   usefulResponsiveChanges,
@@ -49,14 +50,6 @@ function incrementValue(values: Map<string, number>, value: string): void {
 
 function displaySectionRole(role: string | undefined): string {
   return !role || role === 'unknown' ? 'content' : role
-}
-
-function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
-  if (typeof value !== 'string') return null
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
-  if (!match) return null
-  const amount = Number.parseFloat(match[1])
-  return amount > 0 && amount <= maximum ? value : null
 }
 
 function compactRoles(roles: string[]): string[] {

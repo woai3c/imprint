@@ -282,12 +282,3 @@ export async function discoverPages(
     issues,
   }
 }
-
-export async function discoverSubPages(
-  page: Page,
-  baseUrl: string,
-  max: number,
-  mode: PageDiscoveryMode = 'auto',
-): Promise<string[]> {
-  return (await discoverPages(page, baseUrl, max, mode)).pages.map((candidate) => candidate.url)
-}

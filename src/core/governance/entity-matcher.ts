@@ -72,6 +72,24 @@ function sortedIds(items: Array<{ id: string }>): string[] {
   return items.map(({ id }) => id).sort()
 }
 
+function unresolvedCandidateMatch(
+  kind: CrossCaptureEntityKind,
+  key: string,
+  referenceCandidates: Array<{ id: string }>,
+  targetCandidates: Array<{ id: string }>,
+): CrossCaptureEntityMatch {
+  const ambiguous = referenceCandidates.length > 0 && targetCandidates.length > 0
+  return {
+    kind,
+    pageKey: key,
+    status: ambiguous ? 'ambiguous' : 'unmatched',
+    confidence: 'none',
+    reason: ambiguous ? 'duplicate-semantic-candidates' : 'missing-counterpart',
+    referenceIds: sortedIds(referenceCandidates),
+    targetIds: sortedIds(targetCandidates),
+  }
+}
+
 function sectionSignature(section: SectionEvidence, evidence: DesignEvidence): string {
   const sectionsById = new Map(evidence.sections.map((item) => [item.id, item]))
   const parentRole = section.parentSectionId ? sectionsById.get(section.parentSectionId)?.role || 'unknown' : 'root'
@@ -133,26 +151,8 @@ function matchSectionsForPage(
         referenceIds: [referenceCandidates[0].id],
         targetIds: [targetCandidates[0].id],
       })
-    } else if (referenceCandidates.length > 0 && targetCandidates.length > 0) {
-      matches.push({
-        kind: 'section',
-        pageKey: key,
-        status: 'ambiguous',
-        confidence: 'none',
-        reason: 'duplicate-semantic-candidates',
-        referenceIds: sortedIds(referenceCandidates),
-        targetIds: sortedIds(targetCandidates),
-      })
     } else {
-      matches.push({
-        kind: 'section',
-        pageKey: key,
-        status: 'unmatched',
-        confidence: 'none',
-        reason: 'missing-counterpart',
-        referenceIds: sortedIds(referenceCandidates),
-        targetIds: sortedIds(targetCandidates),
-      })
+      matches.push(unresolvedCandidateMatch('section', key, referenceCandidates, targetCandidates))
     }
   }
 
@@ -209,26 +209,8 @@ function matchComponentsWithinSections(
         referenceIds: [referenceCandidates[0].id],
         targetIds: [targetCandidates[0].id],
       })
-    } else if (referenceCandidates.length > 0 && targetCandidates.length > 0) {
-      matches.push({
-        kind: 'component',
-        pageKey: key,
-        status: 'ambiguous',
-        confidence: 'none',
-        reason: 'duplicate-semantic-candidates',
-        referenceIds: sortedIds(referenceCandidates),
-        targetIds: sortedIds(targetCandidates),
-      })
     } else {
-      matches.push({
-        kind: 'component',
-        pageKey: key,
-        status: 'unmatched',
-        confidence: 'none',
-        reason: 'missing-counterpart',
-        referenceIds: sortedIds(referenceCandidates),
-        targetIds: sortedIds(targetCandidates),
-      })
+      matches.push(unresolvedCandidateMatch('component', key, referenceCandidates, targetCandidates))
     }
   }
   return matches

@@ -1,6 +1,20 @@
 import { coreTranslator } from '../../core/i18n/index.js'
 import type { AppTheme } from './theme-types.js'
 
+function serializeThemeVariables(
+  scope: ':root' | '@theme',
+  variables: Record<string, string>,
+  backgroundImage?: string,
+): string {
+  if (backgroundImage) variables['--bg-image'] = `url('./${backgroundImage}')`
+
+  const declarations = Object.entries(variables)
+    .map(([name, value]) => `  ${name}: ${value};`)
+    .join('\n')
+
+  return `${scope} {\n${declarations}\n}\n`
+}
+
 export function generateThemeCss(theme: AppTheme): string {
   const { typography, spacing, layout, shape, elevation, motion } = theme.tokens
   const variables: Record<string, string> = {
@@ -39,15 +53,7 @@ export function generateThemeCss(theme: AppTheme): string {
     '--motion-easing': motion.easing,
   }
 
-  if (theme.backgroundImage) {
-    variables['--bg-image'] = `url('./${theme.backgroundImage}')`
-  }
-
-  const declarations = Object.entries(variables)
-    .map(([name, value]) => `  ${name}: ${value};`)
-    .join('\n')
-
-  return `:root {\n${declarations}\n}\n`
+  return serializeThemeVariables(':root', variables, theme.backgroundImage)
 }
 
 export function generateThemeTailwind(theme: AppTheme): string {
@@ -93,15 +99,7 @@ export function generateThemeTailwind(theme: AppTheme): string {
     '--ease-theme': motion.easing,
   }
 
-  if (theme.backgroundImage) {
-    variables['--bg-image'] = `url('./${theme.backgroundImage}')`
-  }
-
-  const declarations = Object.entries(variables)
-    .map(([name, value]) => `  ${name}: ${value};`)
-    .join('\n')
-
-  return `@theme {\n${declarations}\n}\n`
+  return serializeThemeVariables('@theme', variables, theme.backgroundImage)
 }
 
 export function generateThemeJson(theme: AppTheme): string {

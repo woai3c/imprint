@@ -42,6 +42,22 @@ function stable(values: readonly string[], limit = Number.POSITIVE_INFINITY): st
   return unique(values.filter(Boolean)).sort().slice(0, limit)
 }
 
+function displayedResponsiveProperties(properties: readonly string[]): string[] {
+  return stable(
+    properties.map((property) =>
+      property === 'rect.height'
+        ? 'height'
+        : property === 'rect.width'
+          ? 'width'
+          : property === 'rect.x'
+            ? 'horizontalPosition'
+            : property === 'rect.y'
+              ? 'verticalPosition'
+              : property,
+    ),
+  )
+}
+
 function baseReusableClaim(claim: DesignClaim): boolean {
   // Foundation catalog claims receive high confidence only when their combined
   // evidence spans multiple canonical URLs. Individual assertions can remain
@@ -574,19 +590,7 @@ function responsiveClaims(
   const groups = new Map<string, typeof evidence.responsiveObservations>()
   for (const observation of evidence.responsiveObservations) {
     if (!sectionIds.has(observation.sectionId) || observation.changedProperties.length === 0) continue
-    const displayProperties = stable(
-      observation.changedProperties.map((property) =>
-        property === 'rect.height'
-          ? 'height'
-          : property === 'rect.width'
-            ? 'width'
-            : property === 'rect.x'
-              ? 'horizontalPosition'
-              : property === 'rect.y'
-                ? 'verticalPosition'
-                : property,
-      ),
-    )
+    const displayProperties = displayedResponsiveProperties(observation.changedProperties)
     const key = JSON.stringify([
       observation.fromViewport,
       observation.toViewport,
@@ -601,19 +605,7 @@ function responsiveClaims(
   return [...groups.values()].slice(0, 3).map((items) => {
     const observation = items[0]
     const evidenceIds = items.map((item) => item.id)
-    const displayProperties = stable(
-      observation.changedProperties.map((property) =>
-        property === 'rect.height'
-          ? 'height'
-          : property === 'rect.width'
-            ? 'width'
-            : property === 'rect.x'
-              ? 'horizontalPosition'
-              : property === 'rect.y'
-                ? 'verticalPosition'
-                : property,
-      ),
-    )
+    const displayProperties = displayedResponsiveProperties(observation.changedProperties)
     return {
       statement: t('responsiveStatement', {
         from: observation.fromViewport,

@@ -328,6 +328,11 @@ export async function preparePageForExtraction(
   let dismissedObstructions = 0
   let hiddenObstructions = 0
   const active = () => !options.signal?.aborted
+  const clearObstructions = async () => {
+    if (!active()) throw options.signal?.reason
+    hiddenObstructions += await hideConsentObstructions(page)
+    dismissedObstructions += await dismissTransientObstructions(page)
+  }
 
   try {
     if (!active()) throw options.signal?.reason
@@ -336,9 +341,7 @@ export async function preparePageForExtraction(
     issues.push({ stage: 'fonts', reason: reasonFrom(error) })
   }
   try {
-    if (!active()) throw options.signal?.reason
-    hiddenObstructions += await hideConsentObstructions(page)
-    dismissedObstructions += await dismissTransientObstructions(page)
+    await clearObstructions()
   } catch (error) {
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }
@@ -349,9 +352,7 @@ export async function preparePageForExtraction(
     issues.push({ stage: 'lazy-content', reason: reasonFrom(error) })
   }
   try {
-    if (!active()) throw options.signal?.reason
-    hiddenObstructions += await hideConsentObstructions(page)
-    dismissedObstructions += await dismissTransientObstructions(page)
+    await clearObstructions()
   } catch (error) {
     issues.push({ stage: 'obstructions', reason: reasonFrom(error) })
   }

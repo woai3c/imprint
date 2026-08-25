@@ -3,7 +3,7 @@ import type { DesignEvidence, ResponsiveSectionObservation } from './types.js'
 
 type ResponsiveChange = NonNullable<ResponsiveSectionObservation['changes']>[string]
 
-function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
+export function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
   if (typeof value !== 'string') return null
   const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i)
   if (!match) return null

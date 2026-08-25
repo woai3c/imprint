@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are generated from Conventional Commits by `pnpm release`.
 
+## [0.0.5] - 2026-08-25
+
+### Added
+
+- persist initial interface language (1a5e010)
+- improve design transfer guidance (6e86701)
+- clarify desktop design guidance (48f97cc)
+- generate evidence-backed transfer guidance (ff035a0)
+- improve multi-page design analysis (3f4599f)
+- recover timed-out page navigation (dba597a)
+- streamline deterministic analysis workflow (8b24f0c)
+- complete initial analysis comparison workflow (d49606b)
+- improve analysis comparison workflow (a943f38)
+
+### Changed
+
+- separate theme exports from skin store (2e3cdc0)
+- modularize export and IPC helpers (67e39b4)
+- improve DESIGN.md readability (ab84966)
+
+### Fixed
+
+- improve transfer guidance quality (5b95dc7)
+- stabilize multi-page evidence extraction (108457e)
+
 ## [0.0.4] - 2026-08-18
 
 ### Added

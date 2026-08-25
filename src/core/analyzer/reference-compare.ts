@@ -6,6 +6,7 @@ import {
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { type CrossCaptureEntityMatchingResult, matchCrossCaptureEntities } from '../governance/entity-matcher.js'
 import { isPageHealthEvidenceEligible } from './page-health.js'
+import type { PageHealthIssue } from './page-health.js'
 import type { CaptureManifest, DesignToken } from './types.js'
 
 export const REFERENCE_COMPARISON_SCHEMA_VERSION = '1' as const
@@ -39,13 +40,23 @@ export type ReferenceComparabilityReason =
   | 'language-mismatch'
   | 'incomplete-coverage'
   | 'missing-page-health'
+  | 'no-common-eligible-pages'
   | 'unhealthy-page'
 
 export type ReferenceComparisonLimitation =
   | 'browser-environment-differs'
   | 'tool-version-differs'
+  | 'incomplete-coverage'
+  | 'unhealthy-pages-excluded'
   | 'exact-observed-values-only'
   | 'entry-and-captured-page-set-only'
+
+export interface ReferenceComparisonExcludedPage {
+  pageKey: string
+  url: string
+  viewport: string
+  issueCodes: Array<PageHealthIssue['code'] | 'unknown'>
+}
 
 export interface ReferenceComparabilityDifference {
   field: string
@@ -102,6 +113,7 @@ export interface ReferenceComparisonResult {
     reasons: ReferenceComparabilityReason[]
     limitations: ReferenceComparisonLimitation[]
     comparedPageKeys: string[]
+    excludedPages: ReferenceComparisonExcludedPage[]
     differences: ReferenceComparabilityDifference[]
   }
   categories: ReferenceCategoryComparison[]
@@ -135,8 +147,8 @@ function pageKey(page: DesignEvidence['pages'][number]): string {
   return `${routeIdentityFromUrl(page.url)}::${page.viewport}`
 }
 
-function sortedPageKeys(evidence: DesignEvidence): string[] {
-  return [...new Set(evidence.pages.map(pageKey))].sort()
+function pagesByKey(evidence: DesignEvidence): Map<string, DesignEvidence['pages'][number]> {
+  return new Map(evidence.pages.map((page) => [pageKey(page), page]))
 }
 
 function sameValues(first: string[], second: string[]): boolean {
@@ -270,6 +282,7 @@ function collectComparabilityReasons(
   limitations: ReferenceComparisonLimitation[]
   differences: ReferenceComparabilityDifference[]
   comparedPageKeys: string[]
+  excludedPages: ReferenceComparisonExcludedPage[]
 } {
   const reasons = new Set<ReferenceComparabilityReason>()
   const manifestComparability = collectManifestComparability(reference.manifest, target.manifest)
@@ -283,6 +296,7 @@ function collectComparabilityReasons(
       limitations: manifestComparability.limitations,
       differences: manifestComparability.differences,
       comparedPageKeys: [],
+      excludedPages: [],
     }
   }
 
@@ -297,9 +311,10 @@ function collectComparabilityReasons(
     reasons.add('language-mismatch')
   }
 
-  const referencePageKeys = sortedPageKeys(referenceEvidence)
-  const targetPageKeys = sortedPageKeys(targetEvidence)
-  if (!sameValues(referencePageKeys, targetPageKeys)) reasons.add('page-set-mismatch')
+  const referencePages = pagesByKey(referenceEvidence)
+  const targetPages = pagesByKey(targetEvidence)
+  const referencePageKeys = [...referencePages.keys()].sort()
+  const targetPageKeys = [...targetPages.keys()].sort()
 
   if (
     referenceEvidence.coverage.pageCoverage !== 'complete' ||
@@ -307,24 +322,102 @@ function collectComparabilityReasons(
     referenceEvidence.coverage.captureCoverage?.status === 'partial' ||
     targetEvidence.coverage.captureCoverage?.status === 'partial'
   ) {
-    reasons.add('incomplete-coverage')
+    manifestComparability.limitations.push('incomplete-coverage')
   }
 
-  for (const evidence of [referenceEvidence, targetEvidence]) {
-    for (const page of evidence.pages) {
-      if (!page.health) {
-        reasons.add('missing-page-health')
-      } else if (!isPageHealthEvidenceEligible(page.health)) {
-        reasons.add('unhealthy-page')
-      }
+  const hasMissingHealth = [...referenceEvidence.pages, ...targetEvidence.pages].some((page) => !page.health)
+  if (hasMissingHealth) reasons.add('missing-page-health')
+
+  const eligibleKeys = (pages: Map<string, DesignEvidence['pages'][number]>) =>
+    [...pages]
+      .filter(([, page]) => page.health && isPageHealthEvidenceEligible(page.health))
+      .map(([key]) => key)
+      .sort()
+  const referenceEligiblePageKeys = eligibleKeys(referencePages)
+  const targetEligiblePageKeys = eligibleKeys(targetPages)
+  const targetEligiblePageKeySet = new Set(targetEligiblePageKeys)
+  const commonEligiblePageKeys = referenceEligiblePageKeys.filter((key) => targetEligiblePageKeySet.has(key))
+  let comparedPageKeys: string[] = []
+  let excludedPages: ReferenceComparisonExcludedPage[] = []
+
+  if (!hasMissingHealth) {
+    if (commonEligiblePageKeys.length === 0) reasons.add('no-common-eligible-pages')
+    if (!sameValues(referenceEligiblePageKeys, targetEligiblePageKeys)) reasons.add('page-set-mismatch')
+    if (commonEligiblePageKeys.length > 0 && sameValues(referenceEligiblePageKeys, targetEligiblePageKeys)) {
+      comparedPageKeys = referenceEligiblePageKeys
+      const compared = new Set(comparedPageKeys)
+      const excludedKeys = [...new Set([...referencePageKeys, ...targetPageKeys])]
+        .filter((key) => !compared.has(key))
+        .sort()
+      excludedPages = excludedKeys.map((key) => {
+        const referencePage = referencePages.get(key)
+        const targetPage = targetPages.get(key)
+        const representative = referencePage || targetPage!
+        const issueCodes = [referencePage, targetPage].flatMap(
+          (page) => page?.health?.issues.map((issue) => issue.code) || [],
+        )
+        return {
+          pageKey: key,
+          url: routeIdentityFromUrl(representative.url),
+          viewport: representative.viewport,
+          issueCodes: [...new Set(issueCodes.length > 0 ? issueCodes : ['unknown' as const])].sort(),
+        }
+      })
     }
   }
 
+  if (excludedPages.length > 0) manifestComparability.limitations.push('unhealthy-pages-excluded')
+
   return {
     reasons: [...reasons].sort(),
-    limitations: manifestComparability.limitations,
+    limitations: [...new Set(manifestComparability.limitations)],
     differences: manifestComparability.differences,
-    comparedPageKeys: reasons.has('page-set-mismatch') ? [] : referencePageKeys,
+    comparedPageKeys,
+    excludedPages,
+  }
+}
+
+function evidenceForComparedPages(evidence: DesignEvidence, comparedPageKeys: string[]): DesignEvidence {
+  const allowedPageKeys = new Set(comparedPageKeys)
+  const pages = evidence.pages.filter((page) => allowedPageKeys.has(pageKey(page)))
+  const pageIds = new Set(pages.map((page) => page.id))
+  const sections = evidence.sections.filter((section) => pageIds.has(section.pageId))
+  const sectionIds = new Set(sections.map((section) => section.id))
+  const excludedSectionIds = new Set(
+    evidence.sections.filter((section) => !pageIds.has(section.pageId)).map((section) => section.id),
+  )
+
+  return {
+    ...evidence,
+    pages,
+    topology: {
+      ...evidence.topology,
+      pages: evidence.topology.pages.filter((page) => pageIds.has(page.pageId)),
+      globalLayers: evidence.topology.globalLayers.filter((layer) => pageIds.has(layer.pageId)),
+    },
+    sections,
+    components: evidence.components.filter((component) => pageIds.has(component.pageId)),
+    layoutNodes: evidence.layoutNodes.filter((node) => pageIds.has(node.pageId)),
+    pseudoElements: evidence.pseudoElements?.filter((item) => pageIds.has(item.pageId)),
+    interactionObservations: evidence.interactionObservations.filter((observation) => pageIds.has(observation.pageId)),
+    responsiveObservations: evidence.responsiveObservations.filter(
+      (observation) =>
+        sectionIds.has(observation.sectionId) &&
+        !observation.evidenceRefs.some((evidenceRef) => excludedSectionIds.has(evidenceRef)),
+    ),
+    mediaLayers: evidence.mediaLayers.filter((layer) => pageIds.has(layer.pageId)),
+  }
+}
+
+function captureForComparedPages(input: ReferenceCaptureInput, comparedPageKeys: string[]): ReferenceCaptureInput {
+  if (!input.evidence) return input
+  const evidence = evidenceForComparedPages(input.evidence, comparedPageKeys)
+  return {
+    ...input,
+    // Design Evidence tokens are built only from page-health-eligible captures. The all-capture token snapshot remains
+    // useful as a portable export, but it must not reintroduce an excluded page into a comparison.
+    tokens: input.evidence.tokens,
+    evidence,
   }
 }
 
@@ -467,11 +560,12 @@ function categoryResult(
   category: ReferenceComparisonCategory,
   changes: ReferenceComparisonChange[],
   inconclusive: boolean,
+  partialCoverage = false,
 ): ReferenceCategoryComparison {
   return {
     category,
     status: inconclusive ? 'inconclusive' : changes.length > 0 ? 'changed' : 'unchanged',
-    coverage: inconclusive ? 'none' : 'complete',
+    coverage: inconclusive ? 'none' : partialCoverage ? 'partial' : 'complete',
     limitations: [],
     changes: inconclusive ? [] : changes,
   }
@@ -910,26 +1004,48 @@ export function compareReferenceCaptures(
 ): ReferenceComparisonResult {
   const comparability = collectComparabilityReasons(reference, target)
   const inconclusive = comparability.reasons.length > 0
+  const partialCoverage =
+    comparability.excludedPages.length > 0 || comparability.limitations.includes('incomplete-coverage')
+  const comparedReference = inconclusive
+    ? reference
+    : captureForComparedPages(reference, comparability.comparedPageKeys)
+  const comparedTarget = inconclusive ? target : captureForComparedPages(target, comparability.comparedPageKeys)
   const entityMatching =
-    !inconclusive && reference.evidence && target.evidence
-      ? matchCrossCaptureEntities(reference.evidence, target.evidence)
+    !inconclusive && comparedReference.evidence && comparedTarget.evidence
+      ? matchCrossCaptureEntities(comparedReference.evidence, comparedTarget.evidence)
       : null
   const categories = [
-    categoryResult('colors', compareNamedColors(reference, target), inconclusive),
-    categoryResult('typography', compareTypography(reference, target), inconclusive),
+    categoryResult('colors', compareNamedColors(comparedReference, comparedTarget), inconclusive, partialCoverage),
+    categoryResult('typography', compareTypography(comparedReference, comparedTarget), inconclusive, partialCoverage),
     categoryResult(
       'spacing',
-      compareScale('spacing', 'spacing', reference.tokens.spacing, target.tokens.spacing, reference, target),
+      compareScale(
+        'spacing',
+        'spacing',
+        comparedReference.tokens.spacing,
+        comparedTarget.tokens.spacing,
+        comparedReference,
+        comparedTarget,
+      ),
       inconclusive,
+      partialCoverage,
     ),
     categoryResult(
       'radii',
-      compareScale('radii', 'radii', reference.tokens.radii, target.tokens.radii, reference, target),
+      compareScale(
+        'radii',
+        'radii',
+        comparedReference.tokens.radii,
+        comparedTarget.tokens.radii,
+        comparedReference,
+        comparedTarget,
+      ),
       inconclusive,
+      partialCoverage,
     ),
-    compareLayoutEvidence(reference.evidence, target.evidence, entityMatching, inconclusive),
-    compareInteractionEvidence(reference.evidence, target.evidence, inconclusive),
-    compareResponsiveEvidence(reference.evidence, target.evidence, entityMatching, inconclusive),
+    compareLayoutEvidence(comparedReference.evidence, comparedTarget.evidence, entityMatching, inconclusive),
+    compareInteractionEvidence(comparedReference.evidence, comparedTarget.evidence, inconclusive),
+    compareResponsiveEvidence(comparedReference.evidence, comparedTarget.evidence, entityMatching, inconclusive),
   ] satisfies ReferenceCategoryComparison[]
   const changedItems = categories.reduce((total, category) => total + category.changes.length, 0)
   const changedCategories = categories.filter((category) => category.status === 'changed').length
@@ -954,6 +1070,7 @@ export function compareReferenceCaptures(
       reasons: comparability.reasons,
       limitations: [...comparability.limitations, 'exact-observed-values-only', 'entry-and-captured-page-set-only'],
       comparedPageKeys: comparability.comparedPageKeys,
+      excludedPages: comparability.excludedPages,
       differences: comparability.differences,
     },
     categories,

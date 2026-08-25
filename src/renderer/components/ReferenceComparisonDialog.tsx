@@ -38,8 +38,23 @@ export function ReferenceComparisonDialog({
   const notify = useFeedbackStore((state) => state.show)
   const [visualDiffOpen, setVisualDiffOpen] = useState(false)
   const captureConditionLimitations = comparison.comparability.limitations.filter(
-    (limitation) => limitation !== 'exact-observed-values-only' && limitation !== 'entry-and-captured-page-set-only',
+    (limitation) =>
+      limitation !== 'exact-observed-values-only' &&
+      limitation !== 'entry-and-captured-page-set-only' &&
+      limitation !== 'unhealthy-pages-excluded' &&
+      limitation !== 'tool-version-differs',
   )
+  const excludedPages = comparison.comparability.excludedPages || []
+  const blockingDifferences = comparison.comparability.differences.filter(
+    (difference) => difference.effect === 'inconclusive',
+  )
+  const nonBlockingDifferences = comparison.comparability.differences.filter(
+    (difference) => difference.effect === 'limitation',
+  )
+  const excludedPageGroups = [...new Set(excludedPages.map((page) => page.issueCodes.join('|')))].map((key) => {
+    const pages = excludedPages.filter((page) => page.issueCodes.join('|') === key)
+    return { key, pages, issueCodes: pages[0]?.issueCodes || [] }
+  })
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -172,6 +187,39 @@ export function ReferenceComparisonDialog({
             </Alert>
           )}
 
+          {excludedPages.length > 0 && (
+            <Alert tone="info" title={t('history.referenceComparison.excludedPages.title')}>
+              <p>
+                {t('history.referenceComparison.excludedPages.description', {
+                  count: comparison.comparability.comparedPageKeys.length,
+                })}
+              </p>
+              <ul className="mt-1 list-disc pl-4">
+                {excludedPageGroups.map((group) => (
+                  <li key={group.key}>
+                    {t('history.referenceComparison.excludedPages.group', {
+                      count: group.pages.length,
+                      reasons: group.issueCodes
+                        .map((code) =>
+                          t(`history.referenceComparison.excludedPages.issues.${code}`, {
+                            defaultValue: t('history.referenceComparison.excludedPages.issues.unknown'),
+                          }),
+                        )
+                        .join(t('history.referenceComparison.excludedPages.issueSeparator')),
+                    })}
+                  </li>
+                ))}
+              </ul>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {excludedPages.map((page) => (
+                  <li key={page.pageKey}>
+                    {page.url} · {page.viewport}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+
           {comparison.comparability.reasons.length > 0 && (
             <Alert tone="warning" title={t('history.referenceComparison.inconclusiveTitle')}>
               <ul className="list-disc pl-4">
@@ -182,11 +230,27 @@ export function ReferenceComparisonDialog({
             </Alert>
           )}
 
-          {comparison.comparability.differences.length > 0 && (
+          {blockingDifferences.length > 0 && (
             <div className="rounded-lg border border-border bg-card/30 p-3 text-xs">
-              <p className="font-medium">{t('history.referenceComparison.differencesTitle')}</p>
+              <p className="font-medium">{t('history.referenceComparison.blockingDifferencesTitle')}</p>
               <ul className="mt-1 space-y-1 text-muted-foreground">
-                {comparison.comparability.differences.map((difference) => (
+                {blockingDifferences.map((difference) => (
+                  <li key={difference.field} className="break-all font-mono">
+                    {difference.field}: {difference.reference ?? '—'} → {difference.target ?? '—'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {nonBlockingDifferences.length > 0 && (
+            <div className="rounded-lg border border-border bg-card/30 p-3 text-xs">
+              <p className="font-medium">{t('history.referenceComparison.nonBlockingDifferencesTitle')}</p>
+              <p className="mt-1 text-muted-foreground">
+                {t('history.referenceComparison.nonBlockingDifferencesDescription')}
+              </p>
+              <ul className="mt-2 space-y-1 text-muted-foreground">
+                {nonBlockingDifferences.map((difference) => (
                   <li key={difference.field} className="break-all font-mono">
                     {difference.field}: {difference.reference ?? '—'} → {difference.target ?? '—'}
                   </li>

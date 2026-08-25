@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
-import type { ComparisonVisualPair } from '../../shared/ipc-contract'
+import type { ComparisonVisualCapture, ComparisonVisualPair } from '../../shared/ipc-contract'
 import { getScreenshotUrl } from '../lib/page-screenshots'
 import { type VisualDiffRegion, createVisualDiff, fitVisualDiffPreview } from '../lib/visual-diff'
 
@@ -26,6 +26,8 @@ interface RenderedDiff {
   targetRegions: VisualDiffRegion[]
   alignment: 'top' | 'height-shift'
   scaled: boolean
+  referencePreviewUrl: string
+  targetPreviewUrl: string
 }
 
 type VisualDiffError = 'load-failed' | 'width-mismatch'
@@ -36,20 +38,70 @@ const MIN_ZOOM = 1
 const MAX_ZOOM = 3
 const ZOOM_STEP = 0.25
 
-async function loadScreenshot(path: string): Promise<ImageBitmap> {
-  const response = await fetch(getScreenshotUrl(path))
-  if (!response.ok) throw new Error('Screenshot could not be loaded')
-  return createImageBitmap(await response.blob())
+interface LoadedScreenshot {
+  blob: Blob
+  width: number
+  height: number
 }
 
-function screenshotPixels(bitmap: ImageBitmap, width: number, height: number, scale: number) {
+interface PreviewPixels {
+  pixels: ImageData
+  previewUrl: string
+}
+
+async function pngDimensions(blob: Blob): Promise<{ width: number; height: number } | null> {
+  const bytes = new Uint8Array(await blob.slice(0, 24).arrayBuffer())
+  if (bytes.length < 24 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) {
+    return null
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
+async function loadScreenshot(capture: ComparisonVisualCapture): Promise<LoadedScreenshot> {
+  const response = await fetch(getScreenshotUrl(capture.path))
+  if (!response.ok) throw new Error('Screenshot could not be loaded')
+  const blob = await response.blob()
+  const storedWidth = Number.isFinite(capture.width) && Number(capture.width) > 0 ? Number(capture.width) : null
+  const storedHeight = Number.isFinite(capture.height) && Number(capture.height) > 0 ? Number(capture.height) : null
+  const encoded = storedWidth && storedHeight ? null : await pngDimensions(blob)
+  const width = storedWidth || encoded?.width
+  const height = storedHeight || encoded?.height
+  if (!width || !height) throw new Error('Screenshot dimensions are unavailable')
+  return { blob, width, height }
+}
+
+async function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('Preview image could not be created'))),
+      'image/png',
+    )
+  })
+}
+
+async function screenshotPixels(blob: Blob, width: number, height: number): Promise<PreviewPixels> {
+  const bitmap = await createImageBitmap(blob, {
+    resizeWidth: width,
+    resizeHeight: height,
+    resizeQuality: 'high',
+  })
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) throw new Error('Canvas is unavailable')
-  context.drawImage(bitmap, 0, 0, width, bitmap.height * scale)
-  return context.getImageData(0, 0, width, height)
+  if (!context) {
+    bitmap.close()
+    throw new Error('Canvas is unavailable')
+  }
+  try {
+    context.drawImage(bitmap, 0, 0, width, height)
+    const pixels = context.getImageData(0, 0, width, height)
+    const previewUrl = URL.createObjectURL(await canvasBlob(canvas))
+    return { pixels, previewUrl }
+  } finally {
+    bitmap.close()
+  }
 }
 
 function viewportLabelKey(viewport: string): string {
@@ -75,14 +127,15 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
 
   useEffect(() => {
     let cancelled = false
+    const previewUrls: string[] = []
 
-    Promise.all([loadScreenshot(pair.reference.path), loadScreenshot(pair.target.path)])
+    Promise.all([loadScreenshot(pair.reference), loadScreenshot(pair.target)])
       .then(([reference, target]) => {
-        try {
-          if (reference.width !== target.width) {
-            if (!cancelled) setError('width-mismatch')
-            return
-          }
+        if (reference.width !== target.width) {
+          if (!cancelled) setError('width-mismatch')
+          return null
+        }
+        return (async () => {
           const geometry = fitVisualDiffPreview(
             reference.width,
             reference.height,
@@ -91,12 +144,24 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
             MAX_PREVIEW_WIDTH,
             MAX_PREVIEW_PIXELS,
           )
-          const { width, referenceHeight, targetHeight, scale } = geometry
-          const referencePixels = screenshotPixels(reference, width, referenceHeight, scale)
-          const targetPixels = screenshotPixels(target, width, targetHeight, scale)
+          const { width, referenceHeight, targetHeight } = geometry
+          // Decode sequentially at the bounded preview size. Holding two original long-page bitmaps can otherwise
+          // consume hundreds of megabytes before the comparison buffers are even allocated.
+          const referencePreview = await screenshotPixels(reference.blob, width, referenceHeight)
+          if (cancelled) {
+            URL.revokeObjectURL(referencePreview.previewUrl)
+            return
+          }
+          previewUrls.push(referencePreview.previewUrl)
+          const targetPreview = await screenshotPixels(target.blob, width, targetHeight)
+          if (cancelled) {
+            URL.revokeObjectURL(targetPreview.previewUrl)
+            return
+          }
+          previewUrls.push(targetPreview.previewUrl)
           const diff = createVisualDiff(
-            { width, height: referenceHeight, data: referencePixels.data },
-            { width, height: targetHeight, data: targetPixels.data },
+            { width, height: referenceHeight, data: referencePreview.pixels.data },
+            { width, height: targetHeight, data: targetPreview.pixels.data },
           )
           if (!cancelled) {
             setRendered({
@@ -109,14 +174,15 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
               originalTargetWidth: target.width,
               originalTargetHeight: target.height,
               scaled: geometry.scaled,
+              referencePreviewUrl: referencePreview.previewUrl,
+              targetPreviewUrl: targetPreview.previewUrl,
             })
           }
-        } finally {
-          reference.close()
-          target.close()
-        }
+        })()
       })
       .catch(() => {
+        for (const previewUrl of previewUrls) URL.revokeObjectURL(previewUrl)
+        previewUrls.length = 0
         if (!cancelled) setError('load-failed')
       })
       .finally(() => {
@@ -125,6 +191,7 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
 
     return () => {
       cancelled = true
+      for (const previewUrl of previewUrls) URL.revokeObjectURL(previewUrl)
     }
   }, [pair])
 
@@ -258,7 +325,7 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
                 <div className="overflow-hidden rounded-lg border border-border bg-warning/10">
                   <div className="relative">
                     <img
-                      src={getScreenshotUrl(pair.reference.path)}
+                      src={rendered.referencePreviewUrl}
                       alt={t('history.referenceComparison.visualDiff.referenceImageAlt')}
                       data-testid="visual-diff-reference"
                       draggable={false}
@@ -279,7 +346,7 @@ export function VisualDiffDialog({ pairs, onClose }: VisualDiffDialogProps) {
                 <div className="overflow-hidden rounded-lg border border-border bg-warning/10">
                   <div className="relative">
                     <img
-                      src={getScreenshotUrl(pair.target.path)}
+                      src={rendered.targetPreviewUrl}
                       alt={t('history.referenceComparison.visualDiff.targetImageAlt')}
                       data-testid="visual-diff-target"
                       draggable={false}

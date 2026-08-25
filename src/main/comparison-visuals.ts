@@ -8,6 +8,7 @@ import type { ComparisonVisualPair, PageScreenshotData } from '../shared/ipc-con
 interface ComparisonVisualPairOptions {
   referenceEvidence?: DesignEvidence | null
   targetEvidence?: DesignEvidence | null
+  allowedPageKeys?: string[]
   isReadable?: (path: string) => boolean
   readContentHash?: (path: string) => string | undefined
 }
@@ -57,11 +58,20 @@ export function createComparisonVisualPairs(
 ): ComparisonVisualPair[] {
   const isReadable = options.isReadable || fs.existsSync
   const readContentHash = options.readContentHash || fileContentHash
+  const allowedPageKeys = options.allowedPageKeys ? new Set(options.allowedPageKeys) : null
   const referenceGroups = groupScreenshots(
-    referenceScreenshots.filter((screenshot) => readableScreenshot(screenshot, isReadable)),
+    referenceScreenshots.filter(
+      (screenshot) =>
+        readableScreenshot(screenshot, isReadable) &&
+        (!allowedPageKeys || allowedPageKeys.has(screenshotKey(screenshot))),
+    ),
   )
   const targetGroups = groupScreenshots(
-    targetScreenshots.filter((screenshot) => readableScreenshot(screenshot, isReadable)),
+    targetScreenshots.filter(
+      (screenshot) =>
+        readableScreenshot(screenshot, isReadable) &&
+        (!allowedPageKeys || allowedPageKeys.has(screenshotKey(screenshot))),
+    ),
   )
   const pairs: ComparisonVisualPair[] = []
 

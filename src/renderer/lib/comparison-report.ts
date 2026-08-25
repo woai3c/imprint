@@ -104,7 +104,8 @@ function captureLines(
 }
 
 function appendComparability(lines: string[], comparison: ReferenceComparisonResult, t: TFunction): void {
-  const { reasons, limitations, differences } = comparison.comparability
+  const { reasons, limitations, differences, comparedPageKeys } = comparison.comparability
+  const excludedPages = comparison.comparability.excludedPages || []
   if (reasons.length > 0) {
     lines.push('', `### ${t('history.referenceComparison.report.reasonsTitle')}`, '')
     for (const reason of reasons) lines.push(`- ${t(`history.referenceComparison.reasons.${reason}`)}`)
@@ -113,9 +114,46 @@ function appendComparability(lines: string[], comparison: ReferenceComparisonRes
     lines.push('', `### ${t('history.referenceComparison.report.limitationsTitle')}`, '')
     for (const limitation of limitations) lines.push(`- ${t(`history.referenceComparison.limitations.${limitation}`)}`)
   }
-  if (differences.length > 0) {
-    lines.push('', `### ${t('history.referenceComparison.report.conditionDifferencesTitle')}`, '')
-    for (const difference of differences) {
+  if (excludedPages.length > 0) {
+    lines.push('', `### ${t('history.referenceComparison.excludedPages.title')}`, '')
+    lines.push(t('history.referenceComparison.excludedPages.description', { count: comparedPageKeys.length }), '')
+    const groups = [...new Set(excludedPages.map((page) => page.issueCodes.join('|')))].map((key) => {
+      const pages = excludedPages.filter((page) => page.issueCodes.join('|') === key)
+      return { key, pages, issueCodes: pages[0]?.issueCodes || [] }
+    })
+    for (const group of groups) {
+      const reasonsText = group.issueCodes
+        .map((code) =>
+          t(`history.referenceComparison.excludedPages.issues.${code}`, {
+            defaultValue: t('history.referenceComparison.excludedPages.issues.unknown'),
+          }),
+        )
+        .join(t('history.referenceComparison.excludedPages.issueSeparator'))
+      lines.push(
+        `- ${t('history.referenceComparison.excludedPages.group', {
+          count: group.pages.length,
+          reasons: reasonsText,
+        })}`,
+      )
+    }
+    for (const page of excludedPages) lines.push(`  - ${inlineCode(page.url)} · ${page.viewport}`)
+  }
+  const blockingDifferences = differences.filter((difference) => difference.effect === 'inconclusive')
+  if (blockingDifferences.length > 0) {
+    lines.push('', `### ${t('history.referenceComparison.blockingDifferencesTitle')}`, '')
+    for (const difference of blockingDifferences) {
+      lines.push(
+        `- ${inlineCode(difference.field)}: ${inlineCode(difference.reference ?? '—')} → ${inlineCode(
+          difference.target ?? '—',
+        )}`,
+      )
+    }
+  }
+  const nonBlockingDifferences = differences.filter((difference) => difference.effect === 'limitation')
+  if (nonBlockingDifferences.length > 0) {
+    lines.push('', `### ${t('history.referenceComparison.nonBlockingDifferencesTitle')}`, '')
+    lines.push(t('history.referenceComparison.nonBlockingDifferencesDescription'), '')
+    for (const difference of nonBlockingDifferences) {
       lines.push(
         `- ${inlineCode(difference.field)}: ${inlineCode(difference.reference ?? '—')} → ${inlineCode(
           difference.target ?? '—',

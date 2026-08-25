@@ -27,6 +27,7 @@ function comparison(): ReferenceComparisonResult {
       reasons: [],
       limitations: ['exact-observed-values-only', 'entry-and-captured-page-set-only'],
       comparedPageKeys: ['http://127.0.0.1:4173/::desktop'],
+      excludedPages: [],
       differences: [],
     },
     categories: [
@@ -120,7 +121,7 @@ function comparison(): ReferenceComparisonResult {
   }
 }
 
-async function markdown(language: 'en' | 'zh-CN') {
+async function markdown(language: 'en' | 'zh-CN', value = comparison()) {
   const instance = i18next.createInstance()
   await instance.init({
     lng: language,
@@ -128,7 +129,7 @@ async function markdown(language: 'en' | 'zh-CN') {
     resources: { en: { translation: en }, 'zh-CN': { translation: zhCN } },
     interpolation: { escapeValue: false },
   })
-  return buildComparisonMarkdown(comparison(), instance.t, language)
+  return buildComparisonMarkdown(value, instance.t, language)
 }
 
 describe('comparison report', () => {
@@ -151,5 +152,35 @@ describe('comparison report', () => {
     expect(report).toContain('# Imprint Analysis Comparison Report')
     expect(report).toContain('Fewer sections appear before the Footer')
     expect(comparisonReportFileName(comparison())).toBe('imprint-comparison-127.0.0.1-2026-08-19.md')
+  })
+
+  it('reports excluded unhealthy pages and tool versions as a non-blocking condition', async () => {
+    const value = comparison()
+    value.comparability.comparedPageKeys = ['https://example.com/::desktop']
+    value.comparability.excludedPages = [
+      {
+        pageKey: 'https://example.com/blocked-one::desktop',
+        url: 'https://example.com/blocked-one',
+        viewport: 'desktop',
+        issueCodes: ['large-overlay'],
+      },
+      {
+        pageKey: 'https://example.com/blocked-two::desktop',
+        url: 'https://example.com/blocked-two',
+        viewport: 'desktop',
+        issueCodes: ['large-overlay'],
+      },
+    ]
+    value.comparability.limitations.unshift('unhealthy-pages-excluded', 'tool-version-differs')
+    value.comparability.differences = [
+      { field: 'tool.version', reference: '"0.0.4"', target: '"0.0.5"', effect: 'limitation' },
+    ]
+
+    const report = await markdown('zh-CN', value)
+
+    expect(report).toContain('已排除 2 个存在遮罩的页面。')
+    expect(report).toContain('不影响比较的条件差异')
+    expect(report).toContain('这些差异仅用于追溯，没有导致本次比较失败。')
+    expect(report).toContain('`tool.version`: `"0.0.4"` → `"0.0.5"`')
   })
 })

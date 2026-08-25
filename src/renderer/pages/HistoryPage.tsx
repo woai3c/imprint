@@ -12,7 +12,7 @@ import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { IconButton } from '../components/ui/IconButton'
-import { loadComparisonRecords, removeComparisonRecords } from '../lib/comparison-records-cache.js'
+import { removeComparisonRecords } from '../lib/comparison-records-cache.js'
 import { formatLocalDateTime } from '../lib/date-time'
 import { getScreenshotUrl } from '../lib/page-screenshots'
 import { useFeedbackStore } from '../stores/feedback-store'
@@ -39,12 +39,6 @@ export function HistoryPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
-
-  useEffect(() => {
-    void loadComparisonRecords().catch(() => {
-      // The comparison picker shows a retryable error if its own load fails.
-    })
-  }, [])
 
   useEffect(() => {
     let cancelled = false

@@ -237,6 +237,39 @@ function addUnpairedFocusEvidence(input: ReferenceCaptureInput): void {
   })
 }
 
+function addPage(
+  input: ReferenceCaptureInput,
+  pathname: string,
+  options: { eligible?: boolean; issue?: 'large-overlay' } = {},
+): void {
+  const captureEvidence = input.evidence!
+  const basePage = captureEvidence.pages[0]
+  const baseSection = captureEvidence.sections[0]
+  const suffix = pathname.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')
+  const pageId = `${input.analysisId}-page-${suffix}`
+  const pageUrl = new URL(pathname, input.url).toString()
+  const eligible = options.eligible !== false
+  captureEvidence.pages.push({
+    ...structuredClone(basePage),
+    id: pageId,
+    url: pageUrl,
+    health: eligible
+      ? structuredClone(basePage.health)
+      : {
+          ...structuredClone(basePage.health!),
+          status: 'degraded',
+          overlayAreaRatio: 0.4,
+          evidenceEligible: false,
+          issues: [{ code: options.issue || 'large-overlay', severity: 'warning', recoverable: true }],
+        },
+  })
+  captureEvidence.sections.push({
+    ...structuredClone(baseSection),
+    id: `${input.analysisId}-hero-${suffix}`,
+    pageId,
+  })
+}
+
 function manifest(url = 'https://example.com/products'): CaptureManifest {
   return {
     schemaVersion: '1',
@@ -600,6 +633,106 @@ describe('reference capture comparison', () => {
     expect(result.comparability.reasons).toContain('missing-page-health')
   })
 
+  it('excludes matching unhealthy pages and compares the remaining eligible subset', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    for (const pathname of ['/blocked-one', '/blocked-two']) {
+      addPage(reference, pathname, { eligible: false, issue: 'large-overlay' })
+      addPage(target, pathname, { eligible: false, issue: 'large-overlay' })
+    }
+
+    target.tokens = tokens({ colors: { background: '#ffffff', primary: '#dd3322' } })
+    target.evidence!.sections.find((section) => section.pageId === 'target-page-blocked-one')!.order = 5
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('unchanged')
+    expect(result.comparability.reasons).toEqual([])
+    expect(result.comparability.comparedPageKeys).toEqual(['https://example.com/products::desktop'])
+    expect(result.comparability.excludedPages).toEqual([
+      {
+        pageKey: 'https://example.com/blocked-one::desktop',
+        url: 'https://example.com/blocked-one',
+        viewport: 'desktop',
+        issueCodes: ['large-overlay'],
+      },
+      {
+        pageKey: 'https://example.com/blocked-two::desktop',
+        url: 'https://example.com/blocked-two',
+        viewport: 'desktop',
+        issueCodes: ['large-overlay'],
+      },
+    ])
+    expect(result.comparability.limitations).toContain('unhealthy-pages-excluded')
+    expect(result.categories.find((category) => category.category === 'colors')).toMatchObject({
+      status: 'unchanged',
+      coverage: 'partial',
+      changes: [],
+    })
+    expect(result.categories.find((category) => category.category === 'layout')?.changes).toEqual([])
+    expect(
+      result.entityMatching?.sections.every((match) => match.pageKey === 'https://example.com/products::desktop'),
+    ).toBe(true)
+  })
+
+  it('allows an unmatched page only when it is ineligible and the eligible page sets still align', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addPage(target, '/blocked-only-later', { eligible: false })
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('unchanged')
+    expect(result.comparability.reasons).toEqual([])
+    expect(result.comparability.excludedPages.map((page) => page.pageKey)).toEqual([
+      'https://example.com/blocked-only-later::desktop',
+    ])
+  })
+
+  it('returns inconclusive when no common page is eligible', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    reference.evidence!.pages[0].health = {
+      ...reference.evidence!.pages[0].health!,
+      status: 'degraded',
+      evidenceEligible: false,
+      issues: [{ code: 'large-overlay', severity: 'warning', recoverable: true }],
+    }
+    target.evidence!.pages[0].health = structuredClone(reference.evidence!.pages[0].health)
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('inconclusive')
+    expect(result.comparability.reasons).toContain('no-common-eligible-pages')
+    expect(result.comparability.comparedPageKeys).toEqual([])
+  })
+
+  it('returns inconclusive when the eligible page sets cannot be aligned', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addPage(reference, '/eligible-only-earlier')
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('inconclusive')
+    expect(result.comparability.reasons).toContain('page-set-mismatch')
+    expect(result.comparability.comparedPageKeys).toEqual([])
+  })
+
+  it('compares aligned eligible pages with partial coverage instead of rejecting the whole capture', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    target.evidence!.coverage.pageCoverage = 'partial'
+    target.evidence!.coverage.captureCoverage!.status = 'partial'
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('unchanged')
+    expect(result.comparability.reasons).toEqual([])
+    expect(result.comparability.limitations).toContain('incomplete-coverage')
+    expect(result.categories.find((category) => category.category === 'colors')?.coverage).toBe('partial')
+  })
+
   it('returns inconclusive when a capture setting differs', () => {
     const target = capture('target')
     target.manifest!.request.maxPages = 2
@@ -637,5 +770,21 @@ describe('reference capture comparison', () => {
 
     expect(result.status).toBe('unchanged')
     expect(result.comparability.limitations).toContain('browser-environment-differs')
+  })
+
+  it('records a tool version change as non-blocking', () => {
+    const target = capture('target')
+    target.manifest!.tool.version = '0.0.4'
+    const result = compareReferenceCaptures(capture('reference'), target)
+
+    expect(result.status).toBe('unchanged')
+    expect(result.comparability.reasons).toEqual([])
+    expect(result.comparability.limitations).toContain('tool-version-differs')
+    expect(result.comparability.differences).toContainEqual({
+      field: 'tool.version',
+      reference: '"0.0.3"',
+      target: '"0.0.4"',
+      effect: 'limitation',
+    })
   })
 })

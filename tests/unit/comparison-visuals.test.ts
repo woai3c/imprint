@@ -68,4 +68,23 @@ describe('comparison visual pairing', () => {
       }),
     ).toEqual([])
   })
+
+  it('limits visual pairs to the page keys that participated in a partial comparison', () => {
+    const reference = [
+      screenshot({ path: '/reference-product.png' }),
+      screenshot({ path: '/reference-blocked.png', url: 'https://example.com/blocked' }),
+    ]
+    const target = [
+      screenshot({ path: '/target-product.png' }),
+      screenshot({ path: '/target-blocked.png', url: 'https://example.com/blocked' }),
+    ]
+
+    const pairs = createComparisonVisualPairs(reference, target, {
+      allowedPageKeys: ['https://example.com/product::desktop'],
+      isReadable: () => true,
+      readContentHash: (path) => path,
+    })
+
+    expect(pairs.map((pair) => `${pair.url}::${pair.viewport}`)).toEqual(['https://example.com/product::desktop'])
+  })
 })

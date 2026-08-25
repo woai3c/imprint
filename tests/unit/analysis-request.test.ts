@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { AnalysisRequestError, createAnalysisRequest } from '../../src/core/analyzer/analysis-request.js'
+import {
+  AnalysisRequestError,
+  MAX_ANALYSIS_PAGE_COUNT,
+  createAnalysisRequest,
+} from '../../src/core/analyzer/analysis-request.js'
 
 describe('versioned analysis request', () => {
   it('normalizes the core defaults into an explicit request', () => {
@@ -46,10 +50,10 @@ describe('versioned analysis request', () => {
     expect(createAnalysisRequest({ url: 'https://example.test', useSession: false }).authMode).toBe('anonymous')
   })
 
-  it('accepts any positive safe-integer page bound', () => {
-    expect(createAnalysisRequest({ url: 'https://example.test', maxPages: 250 })).toMatchObject({
+  it('accepts the maximum supported page bound', () => {
+    expect(createAnalysisRequest({ url: 'https://example.test', maxPages: MAX_ANALYSIS_PAGE_COUNT })).toMatchObject({
       pageMode: 'bounded',
-      maxPages: 250,
+      maxPages: 20,
     })
   })
 
@@ -65,6 +69,7 @@ describe('versioned analysis request', () => {
     { input: { url: 'https://example.test', viewports: ['wide'] }, code: 'invalid-viewports' },
     { input: { url: 'https://example.test', maxPages: 1.5 }, code: 'invalid-page-count' },
     { input: { url: 'https://example.test', maxPages: 0 }, code: 'invalid-page-count' },
+    { input: { url: 'https://example.test', maxPages: 21 }, code: 'invalid-page-count' },
     { input: { url: 'https://example.test', maxPages: Number.MAX_SAFE_INTEGER + 1 }, code: 'invalid-page-count' },
     { input: { url: 'https://example.test', authMode: 'prompt' }, code: 'invalid-auth-mode' },
     { input: { url: 'https://example.test', extractDarkMode: 'yes' }, code: 'invalid-dark-mode' },

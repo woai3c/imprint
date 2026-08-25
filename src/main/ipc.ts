@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { finished } from 'node:stream/promises'
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 
@@ -53,6 +54,12 @@ import {
   type ThemeSummaryRecord,
 } from '../shared/ipc-contract.js'
 import { isRecord } from '../shared/type-guards.js'
+import {
+  clearGeneratedAssetDirectories,
+  collectAnalysisAssets,
+  collectStoredAnalysisAssets,
+  removeGeneratedAssets,
+} from './analysis-assets.js'
 import { AnalysisRecoveryRegistry } from './analysis-recovery.js'
 import { analyzeUrl } from './analyzer/index.js'
 import { createComparisonVisualPairs } from './comparison-visuals.js'
@@ -61,6 +68,7 @@ import { addHistoryThumbnailPaths, toAnalysisSummaryWithThumbnail } from './hist
 import { getLogDir, log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
 import {
+  analysisSiteName,
   readAnalysisCompletion,
   readAnalysisTiming,
   readCaptureManifest,
@@ -228,6 +236,59 @@ async function saveTextFile(content: string, options: SaveTextFileOptions) {
   return { success: true as const, filePath: result.filePath }
 }
 
+async function writeStreamChunk(stream: fs.WriteStream, chunk: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    stream.write(chunk, (error) => (error ? reject(error) : resolve()))
+  })
+}
+
+async function writeLocalDataArchive(filePath: string): Promise<void> {
+  const database = getDb()
+  const stream = fs.createWriteStream(filePath, { encoding: 'utf8' })
+  const streamCompletion = finished(stream).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  const readTheme = database.prepare('SELECT * FROM themes WHERE id = ?')
+  const readAnalysis = database.prepare('SELECT * FROM analyses WHERE id = ?')
+  const writeRows = async (
+    ids: Array<{ id: string }>,
+    read: (id: string) => Record<string, unknown> | undefined,
+  ): Promise<void> => {
+    let first = true
+    for (const { id } of ids) {
+      const row = read(id)
+      if (!row) continue
+      await writeStreamChunk(stream, `${first ? '' : ','}${JSON.stringify(row)}`)
+      first = false
+    }
+  }
+
+  try {
+    await writeStreamChunk(stream, '{"themes":[')
+    await writeRows(
+      database.prepare('SELECT id FROM themes WHERE is_builtin = 0 ORDER BY updated_at DESC').all() as Array<{
+        id: string
+      }>,
+      (id) => readTheme.get(id) as Record<string, unknown> | undefined,
+    )
+    await writeStreamChunk(stream, '],"analyses":[')
+    await writeRows(
+      database.prepare('SELECT id FROM analyses ORDER BY created_at DESC').all() as Array<{ id: string }>,
+      (id) => readAnalysis.get(id) as Record<string, unknown> | undefined,
+    )
+    await writeStreamChunk(stream, `],"settings":${JSON.stringify(getSettings())}}`)
+    stream.end()
+    const streamError = await streamCompletion
+    if (streamError) throw streamError
+  } catch (error) {
+    stream.destroy()
+    await streamCompletion
+    await fs.promises.rm(filePath, { force: true }).catch(() => {})
+    throw error
+  }
+}
+
 export function registerIpcHandlers() {
   migrateLegacyManagedSessions(app.getPath('userData'))
 
@@ -386,8 +447,17 @@ export function registerIpcHandlers() {
     )
   })
 
-  ipcMain.handle('themes:delete', (_event, id: string) => {
-    const result = getDb().prepare('DELETE FROM themes WHERE id = ? AND is_builtin = 0').run(id)
+  ipcMain.handle('themes:delete', async (_event, id: string) => {
+    const db = getDb()
+    const theme = db.prepare('SELECT * FROM themes WHERE id = ? AND is_builtin = 0').get(id) as
+      Record<string, unknown> | undefined
+    const linkedAnalyses = theme
+      ? (db.prepare('SELECT COUNT(*) AS count FROM analyses WHERE theme_id = ?').get(id) as { count: number }).count
+      : 0
+    const result = db.prepare('DELETE FROM themes WHERE id = ? AND is_builtin = 0').run(id)
+    if (result.changes > 0 && theme && linkedAnalyses === 0) {
+      await removeGeneratedAssets(app.getPath('userData'), collectStoredAnalysisAssets(theme))
+    }
     return { success: result.changes > 0 }
   })
 
@@ -465,15 +535,15 @@ export function registerIpcHandlers() {
     const db = getDb()
     const records = db
       .prepare(
-        `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                 a.created_at, a.page_screenshots_json, a.route_identity, a.design_evidence_json
+        `SELECT a.id, a.theme_id, t.name AS theme_name, a.site_name, a.url, a.pages_analyzed, a.viewports,
+                 a.duration_ms, a.created_at, a.preview_path, a.route_identity
          FROM analyses a
          LEFT JOIN themes t ON t.id = a.theme_id
          ORDER BY a.created_at DESC`,
       )
       .all() as Array<Record<string, unknown>>
 
-    return records.map((record) => toAnalysisSummary(record))
+    return records.map((record) => toAnalysisSummary(record, (record.preview_path as string | null) || null))
   })
 
   ipcMain.handle(
@@ -487,10 +557,7 @@ export function registerIpcHandlers() {
       const search = typeof query?.search === 'string' ? query.search.trim().slice(0, 500) : ''
       const where = search
         ? `WHERE a.url LIKE @search OR COALESCE(t.name, '') LIKE @search
-             OR CASE WHEN json_valid(a.design_evidence_json)
-               THEN COALESCE(json_extract(a.design_evidence_json, '$.source.siteName'), '') LIKE @search
-               ELSE 0
-             END`
+             OR COALESCE(a.site_name, '') LIKE @search`
         : ''
       const searchParams = search ? { search: `%${search}%` } : {}
       const matchingIds = (
@@ -508,8 +575,8 @@ export function registerIpcHandlers() {
       const page = Math.min(requestedPage, Math.max(1, Math.ceil(total / pageSize)))
       const records = db
         .prepare(
-          `SELECT a.id, a.theme_id, t.name AS theme_name, a.url, a.pages_analyzed, a.viewports, a.duration_ms,
-                   a.created_at, a.page_screenshots_json, a.route_identity, a.design_evidence_json
+          `SELECT a.id, a.theme_id, t.name AS theme_name, a.site_name, a.url, a.pages_analyzed, a.viewports,
+                   a.duration_ms, a.created_at, a.preview_path, a.route_identity
            FROM analyses a
            LEFT JOIN themes t ON t.id = a.theme_id
            ${where}
@@ -531,18 +598,29 @@ export function registerIpcHandlers() {
     },
   )
 
-  ipcMain.handle('analyses:delete', (_event, id: string) => {
+  ipcMain.handle('analyses:delete', async (_event, id: string) => {
     const db = getDb()
+    const record = db.prepare('SELECT * FROM analyses WHERE id = ?').get(id) as Record<string, unknown> | undefined
     db.prepare('DELETE FROM analyses WHERE id = ?').run(id)
+    if (record && !record.theme_id) {
+      await removeGeneratedAssets(app.getPath('userData'), collectStoredAnalysisAssets(record))
+    }
     return { success: true }
   })
 
-  ipcMain.handle('analyses:deleteMany', (_event, ids: string[]) => {
+  ipcMain.handle('analyses:deleteMany', async (_event, ids: string[]) => {
     const db = getDb()
+    const lookup = db.prepare('SELECT * FROM analyses WHERE id = ?')
     const stmt = db.prepare('DELETE FROM analyses WHERE id = ?')
+    const assets: string[] = []
     db.transaction((list: string[]) => {
-      for (const id of list) stmt.run(id)
+      for (const id of list) {
+        const record = lookup.get(id) as Record<string, unknown> | undefined
+        if (record && !record.theme_id) assets.push(...collectStoredAnalysisAssets(record))
+        stmt.run(id)
+      }
     })(ids)
+    await removeGeneratedAssets(app.getPath('userData'), assets)
     return { success: true }
   })
 
@@ -574,6 +652,12 @@ export function registerIpcHandlers() {
       readPageScreenshots(record.page_screenshots_json),
       designEvidence,
     )
+    const darkMode = readDarkModeExportData(
+      record.dark_tokens_json,
+      tokens,
+      record.dark_mode_method,
+      record.dark_mode_selector,
+    )
 
     return {
       id: record.id,
@@ -591,9 +675,7 @@ export function registerIpcHandlers() {
       designDoc: storedContext.designDoc,
       pageScreenshots,
       featureTags: JSON.parse((record.feature_tags_json as string) || '[]'),
-      darkTokens:
-        readDarkModeExportData(record.dark_tokens_json, tokens, record.dark_mode_method, record.dark_mode_selector)
-          ?.darkTokens?.colors ?? null,
+      darkTokens: darkMode?.darkTokens?.colors ?? null,
       hasDarkMode: record.has_dark_mode === 1,
       accessMode: record.access_mode,
       authWallDetected: record.auth_wall_detected === 1,
@@ -619,6 +701,9 @@ export function registerIpcHandlers() {
         {
           referenceEvidence: readDesignEvidence(lookup.reference.design_evidence_json),
           targetEvidence: readDesignEvidence(lookup.target.design_evidence_json),
+          ...(lookup.comparison.status === 'inconclusive'
+            ? {}
+            : { allowedPageKeys: lookup.comparison.comparability.comparedPageKeys }),
         },
       ),
     }
@@ -694,6 +779,7 @@ export function registerIpcHandlers() {
       const displayUrl = sanitizeUrlForPersistence(url)
       const analysisStartedAt = Date.now()
       const recoverableRun = analysisRecoveryRegistry.start(senderId, displayUrl)
+      let unpersistedAssets: string[] = []
       const completeRun = (response: AnalyzeResponse): AnalyzeResponse => {
         return analysisRecoveryRegistry.complete(senderId, recoverableRun, response)
       }
@@ -748,10 +834,15 @@ export function registerIpcHandlers() {
           },
           (request, signal) => waitForLoginDecision(win, request, signal),
         )
+        unpersistedAssets = collectAnalysisAssets(result.pageScreenshots, result.designEvidence)
 
         const persistedTokens = sanitizeDesignTokensForPersistence(result.tokens)
         const persistedEvidence = sanitizeDesignEvidenceForPersistence(result.designEvidence)
         const persistedScreenshots = sanitizePageScreenshotsForPersistence(result.pageScreenshots)
+        const displayedScreenshots = await addHistoryThumbnailPaths(persistedScreenshots, persistedEvidence)
+        unpersistedAssets.push(
+          ...displayedScreenshots.flatMap((screenshot) => (screenshot.thumbnailPath ? [screenshot.thumbnailPath] : [])),
+        )
         const persistedPageCoverage = sanitizePageCoverageForPersistence(result.pageCoverage)
         const persistedFinalUrl = sanitizeUrlForPersistence(result.finalUrl)
         const displayedIssues = sanitizeExtractionIssuesForDisplay(result.extractionIssues)
@@ -781,15 +872,17 @@ export function registerIpcHandlers() {
         const db = getDb()
         const analysisId = result.analysisId
         const viewports = effectiveOptions.viewports
-        const pagesAnalyzed = Math.max(1, new Set(persistedScreenshots.map((screenshot) => screenshot.url)).size)
+        const pagesAnalyzed = Math.max(1, new Set(displayedScreenshots.map((screenshot) => screenshot.url)).size)
+        const siteName = analysisSiteName(displayUrl, persistedEvidence)
+        const previewPath = displayedScreenshots[0]?.thumbnailPath || null
         db.prepare(
           `INSERT INTO analyses
-           (id, url, pages_analyzed, viewports, duration_ms, created_at,
+           (id, url, pages_analyzed, viewports, duration_ms, created_at, site_name, preview_path,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
              feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url, route_identity,
              design_evidence_json, design_profile_json, evidence_coverage_json,
              validation_report_json, analysis_timing_json, capture_manifest_json, completion_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           displayUrl,
@@ -797,11 +890,13 @@ export function registerIpcHandlers() {
           JSON.stringify(viewports),
           result.duration,
           new Date().toISOString(),
+          siteName,
+          previewPath,
           JSON.stringify(persistedTokens),
           cssVars,
           tailwind,
           designDoc,
-          JSON.stringify(persistedScreenshots),
+          JSON.stringify(displayedScreenshots),
           JSON.stringify(result.featureTags || []),
           darkModeExport?.darkTokens ? JSON.stringify(darkModeExport.darkTokens) : null,
           result.darkMode?.hasDarkMode ? result.darkMode.method : null,
@@ -819,6 +914,7 @@ export function registerIpcHandlers() {
           JSON.stringify(result.captureManifest),
           JSON.stringify(result.completion),
         )
+        unpersistedAssets = []
 
         log.info(
           'analysis',
@@ -845,7 +941,7 @@ export function registerIpcHandlers() {
           tailwindTheme: tailwind,
           designDoc,
           screenshots: result.screenshots,
-          pageScreenshots: persistedScreenshots,
+          pageScreenshots: displayedScreenshots,
           duration: result.duration,
           analysisTiming: result.timing,
           url: displayUrl,
@@ -869,6 +965,7 @@ export function registerIpcHandlers() {
           completion: result.completion,
         })
       } catch (err: unknown) {
+        await removeGeneratedAssets(app.getPath('userData'), unpersistedAssets)
         if (analysisController.signal.aborted) {
           log.info('analysis', `cancelled: url=${displayUrl}`)
           return completeRun({ cancelled: true })
@@ -986,6 +1083,30 @@ export function registerIpcHandlers() {
     // Never log values from user-specific configuration.
     log.info('settings', `saved: ${Object.keys(settings).join(', ')}`)
     return saveSettings(settings)
+  })
+
+  ipcMain.handle('data:exportAll', async () => {
+    const result = await dialog.showSaveDialog({
+      defaultPath: `imprint-local-data-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (result.canceled || !result.filePath) return { success: false, canceled: true }
+    await writeLocalDataArchive(result.filePath)
+    log.info('data', `local archive written: ${result.filePath}`)
+    return { success: true, filePath: result.filePath }
+  })
+
+  ipcMain.handle('data:clearAll', async () => {
+    const database = getDb()
+    database.transaction(() => {
+      database.prepare('DELETE FROM analyses').run()
+      database.prepare('DELETE FROM themes WHERE is_builtin = 0').run()
+    })()
+    database.pragma('wal_checkpoint(TRUNCATE)')
+    database.exec('VACUUM')
+    await clearGeneratedAssetDirectories(app.getPath('userData'))
+    log.info('data', 'cleared local analyses, saved website themes, and generated screenshot assets')
+    return { success: true }
   })
 
   ipcMain.on('log:event', (_event, level: string, message: string) => {

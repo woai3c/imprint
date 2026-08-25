@@ -81,8 +81,8 @@ const TOOLS = [
         url: { type: 'string', description: 'The URL to analyze' },
         format: {
           type: 'string',
-          enum: ['tokens', 'evidence', 'component-specs', 'visual-qa', 'css', 'tailwind', 'markdown', 'all'],
-          description: 'Output format (default: tokens)',
+          enum: ['tokens', 'json', 'evidence', 'component-specs', 'visual-qa', 'css', 'tailwind', 'markdown', 'all'],
+          description: 'Output format (default: markdown / DESIGN.md)',
         },
         viewport: {
           type: 'string',
@@ -93,7 +93,8 @@ const TOOLS = [
         maxPages: {
           type: 'integer',
           minimum: 1,
-          description: 'Page limit; any positive integer (default: 8)',
+          maximum: 20,
+          description: 'Page limit from 1 to 20 (default: 8)',
         },
         discovery: {
           type: 'string',
@@ -126,7 +127,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
 
   if (name === 'imprint_extract') {
     const url = params.url as string
-    const format = (params.format as string) || 'tokens'
+    const format = (params.format as string) || 'markdown'
     const viewport = (params.viewport as string) || 'desktop'
     const useSession = params.useSession !== false
     const maxPages = params.maxPages === undefined ? undefined : Number(params.maxPages)
@@ -154,8 +155,19 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
       ? { ...rawDarkMode, darkTokens: sanitizeDesignTokensForPersistence(rawDarkMode.darkTokens) }
       : rawDarkMode
     const designContext = createDeterministicDesignContext(result.designEvidence, 'en')
+    const tokenSummary = {
+      tokens,
+      darkMode,
+      featureTags,
+      pageCoverage: publicPageCoverage,
+      completion: result.completion,
+      extractionIssues: publicExtractionIssues,
+      analysisTiming: result.timing,
+    }
 
     switch (format) {
+      case 'json':
+        return { content: [{ type: 'text', text: generateDtcgJson(tokens, darkMode) }] }
       case 'css':
         return { content: [{ type: 'text', text: generateCssVariables(tokens, darkMode, result.breakpoints) }] }
       case 'tailwind':
@@ -194,13 +206,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
               type: 'text',
               text: JSON.stringify(
                 {
-                  tokens,
-                  darkMode,
-                  featureTags,
-                  pageCoverage: publicPageCoverage,
-                  completion: result.completion,
-                  extractionIssues: publicExtractionIssues,
-                  analysisTiming: result.timing,
+                  ...tokenSummary,
                   designProfile: designContext.profile,
                   agentContext: designContext.agentContext,
                   validationReport: designContext.validationReport,
@@ -231,19 +237,7 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
           content: [
             {
               type: 'text',
-              text: JSON.stringify(
-                {
-                  tokens,
-                  darkMode,
-                  featureTags,
-                  pageCoverage: publicPageCoverage,
-                  completion: result.completion,
-                  extractionIssues: publicExtractionIssues,
-                  analysisTiming: result.timing,
-                },
-                null,
-                2,
-              ),
+              text: JSON.stringify(tokenSummary, null, 2),
             },
           ],
         }

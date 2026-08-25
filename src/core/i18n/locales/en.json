@@ -27,7 +27,7 @@
       "invalidUrl": "Provide exactly one valid HTTP(S) URL.",
       "invalidFormat": "Unsupported export format: {{value}}",
       "invalidViewport": "Viewport must be desktop, tablet, mobile, or all: {{value}}",
-      "invalidPageCount": "--pages must be a positive integer: {{value}}",
+      "invalidPageCount": "--pages must be an integer from 1 to 20.",
       "invalidAuthMode": "The access mode is invalid.",
       "invalidDarkMode": "The dark-mode setting is invalid.",
       "invalidDepth": "The analysis depth is invalid.",

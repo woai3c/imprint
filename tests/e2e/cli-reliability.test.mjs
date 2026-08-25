@@ -57,12 +57,14 @@ test('CLI doctor returns the environment exit code for an invalid browser path',
 })
 
 test('CLI rejects malformed integer options with the usage exit code', () => {
-  const result = spawnSync(process.execPath, [cliPath, 'extract', 'https://example.test', '--pages', '2x'], {
-    encoding: 'utf8',
-  })
+  for (const value of ['2x', '21']) {
+    const result = spawnSync(process.execPath, [cliPath, 'extract', 'https://example.test', '--pages', value], {
+      encoding: 'utf8',
+    })
 
-  assert.equal(result.status, 2)
-  assert.match(result.stderr, /--pages must be a positive integer/)
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /--pages must be an integer from 1 to 20/)
+  }
 })
 
 test('CLI keeps JSON stdout parseable during a real extraction', { skip: !browserPath, timeout: 90_000 }, async (t) => {

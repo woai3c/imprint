@@ -27,7 +27,7 @@
       "invalidUrl": "请提供且仅提供一个有效的 HTTP(S) URL。",
       "invalidFormat": "不支持的导出格式：{{value}}",
       "invalidViewport": "视口必须是 desktop、tablet、mobile 或 all：{{value}}",
-      "invalidPageCount": "--pages 必须是正整数：{{value}}",
+      "invalidPageCount": "--pages 必须是 1 到 20 之间的整数。",
       "invalidAuthMode": "访问模式无效。",
       "invalidDarkMode": "深色模式设置无效。",
       "invalidDepth": "分析深度无效。",

@@ -33,8 +33,10 @@ test('official MCP client initializes the stdio server and lists tools', { timeo
   )
   const extractTool = result.tools.find((tool) => tool.name === 'imprint_extract')
   const maxPagesSchema = extractTool?.inputSchema?.properties?.maxPages
+  const formatSchema = extractTool?.inputSchema?.properties?.format
   assert.equal(maxPagesSchema?.minimum, 1)
-  assert.equal('maximum' in (maxPagesSchema || {}), false)
+  assert.equal(maxPagesSchema?.maximum, 20)
+  assert.ok(formatSchema?.enum?.includes('json'))
 })
 
 test(
@@ -69,7 +71,7 @@ test(
     await client.connect(transport)
     const result = await client.callTool({
       name: 'imprint_extract',
-      arguments: { url: `http://127.0.0.1:${address.port}`, useSession: false, maxPages: 1 },
+      arguments: { url: `http://127.0.0.1:${address.port}`, format: 'tokens', useSession: false, maxPages: 1 },
     })
     const content = result.content
     assert.ok(Array.isArray(content) && content[0]?.type === 'text')

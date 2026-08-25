@@ -4,6 +4,7 @@ import type { AuthMode } from './types.js'
 export const ANALYSIS_REQUEST_SCHEMA_VERSION = '2' as const
 export const ANALYSIS_VIEWPORTS = ['desktop', 'tablet', 'mobile'] as const
 export const DEFAULT_ANALYSIS_PAGE_COUNT = 8
+export const MAX_ANALYSIS_PAGE_COUNT = 20
 
 export type AnalysisViewport = (typeof ANALYSIS_VIEWPORTS)[number]
 export type AnalysisDepth = 'standard' | 'deep'
@@ -94,7 +95,7 @@ export function createAnalysisRequest(
   const viewports = [...new Set(requestedViewports)] as AnalysisViewport[]
 
   const maxPages = input.maxPages ?? defaults.maxPages ?? DEFAULT_ANALYSIS_PAGE_COUNT
-  if (!Number.isSafeInteger(maxPages) || maxPages < 1) {
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > MAX_ANALYSIS_PAGE_COUNT) {
     throw new AnalysisRequestError('invalid-page-count')
   }
 

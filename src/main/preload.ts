@@ -47,6 +47,8 @@ const api = {
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('settings:save', settings),
+  exportLocalData: () => ipcRenderer.invoke('data:exportAll'),
+  clearLocalData: () => ipcRenderer.invoke('data:clearAll'),
 
   // History
   getAnalyses: () => ipcRenderer.invoke('analyses:list'),

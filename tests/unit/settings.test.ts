@@ -44,8 +44,9 @@ describe('settings persistence', () => {
     expect(persisted).toEqual(settings)
   })
 
-  it('keeps any positive integer page limit', () => {
-    expect(saveSettings({ analysisPageCount: 250 }).analysisPageCount).toBe(250)
+  it('keeps the page limit inside the supported range', () => {
+    expect(saveSettings({ analysisPageCount: 20 }).analysisPageCount).toBe(20)
+    expect(saveSettings({ analysisPageCount: 250 }).analysisPageCount).toBe(20)
     expect(saveSettings({ analysisPageCount: 0 }).analysisPageCount).toBe(8)
   })
 

@@ -28,7 +28,7 @@ describe('CLI command contract', () => {
       kind: 'extract',
       url: 'https://example.test/catalog',
       options: {
-        format: 'all',
+        format: 'design.md',
         output: '.',
         viewports: ['desktop', 'tablet', 'mobile'],
         useSession: false,
@@ -56,13 +56,14 @@ describe('CLI command contract', () => {
     if (command.kind === 'extract') expect(command.options.maxPages).toBe(8)
   })
 
-  it('accepts a page bound above the former product maximum', () => {
-    const command = parseCliCommand(['extract', 'https://example.test', '--pages', '250'])
-    expect(command).toMatchObject({ kind: 'extract', options: { maxPages: 250 } })
+  it('accepts the maximum supported page bound', () => {
+    const command = parseCliCommand(['extract', 'https://example.test', '--pages', '20'])
+    expect(command).toMatchObject({ kind: 'extract', options: { maxPages: 20 } })
   })
 
   it.each([
     { args: ['extract', 'https://example.test', '--pages', '2x'], code: 'invalid-page-count' },
+    { args: ['extract', 'https://example.test', '--pages', '21'], code: 'invalid-page-count' },
     { args: ['extract', 'file:///tmp/page.html'], code: 'invalid-url' },
     { args: ['extract', 'https://example.test', '--format', 'reconstruction'], code: 'invalid-format' },
     { args: ['extract', 'https://example.test', '--viewport', 'wide'], code: 'invalid-viewports' },

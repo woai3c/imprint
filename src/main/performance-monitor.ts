@@ -92,11 +92,15 @@ export function monitorWindowPerformance(window: BrowserWindow, createdAt: numbe
   activeWindow = window
   startMainProcessSampler()
 
+  let navigationStartedAt = createdAt
+  window.webContents.on('did-start-loading', () => {
+    navigationStartedAt = performance.now()
+  })
   window.webContents.on('did-finish-load', () => {
     const display = screen.getDisplayMatching(window.getBounds())
     log.info(
       'performance',
-      `window loaded durationMs=${Math.round(performance.now() - createdAt)} displayHz=${display.displayFrequency} scaleFactor=${display.scaleFactor} size=${display.size.width}x${display.size.height}`,
+      `window loaded durationMs=${Math.round(performance.now() - navigationStartedAt)} displayHz=${display.displayFrequency} scaleFactor=${display.scaleFactor} size=${display.size.width}x${display.size.height}`,
     )
   })
   window.on('unresponsive', () => log.warn('performance', 'window unresponsive'))

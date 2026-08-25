@@ -1,3 +1,4 @@
+import { DEFAULT_ANALYSIS_PAGE_COUNT, MAX_ANALYSIS_PAGE_COUNT } from '../../core/analyzer/analysis-request.js'
 import type { AppSettings } from '../../shared/ipc-contract'
 import { VALIDATION_SCENARIO_IDS } from './validation-scenarios'
 
@@ -40,11 +41,15 @@ export function setLanguagePreference(language: string): void {
 
 export function getAnalysisPageCountPreference(): number {
   const stored = Number(readCached('analysisPageCount'))
-  return Number.isSafeInteger(stored) && stored >= 1 ? stored : 8
+  if (!Number.isSafeInteger(stored) || stored < 1) return DEFAULT_ANALYSIS_PAGE_COUNT
+  return Math.min(stored, MAX_ANALYSIS_PAGE_COUNT)
 }
 
 export function setAnalysisPageCountPreference(pageCount: number): number {
-  const normalized = Number.isSafeInteger(pageCount) && pageCount >= 1 ? pageCount : 8
+  const normalized =
+    Number.isSafeInteger(pageCount) && pageCount >= 1
+      ? Math.min(pageCount, MAX_ANALYSIS_PAGE_COUNT)
+      : DEFAULT_ANALYSIS_PAGE_COUNT
   writeSetting({ analysisPageCount: normalized })
   return normalized
 }

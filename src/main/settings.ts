@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
+import { DEFAULT_ANALYSIS_PAGE_COUNT, MAX_ANALYSIS_PAGE_COUNT } from '../core/analyzer/analysis-request.js'
 import type { AppSettings } from '../shared/ipc-contract.js'
 
 const defaults: AppSettings = {
@@ -12,12 +13,13 @@ const defaults: AppSettings = {
   colorMode: '',
   themePreference: '',
   validationScenario: '',
-  analysisPageCount: 8,
+  analysisPageCount: DEFAULT_ANALYSIS_PAGE_COUNT,
 }
 
 function normalizeAnalysisPageCount(value: unknown): number {
   const pageCount = Number(value)
-  return Number.isSafeInteger(pageCount) && pageCount >= 1 ? pageCount : 8
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1) return DEFAULT_ANALYSIS_PAGE_COUNT
+  return Math.min(pageCount, MAX_ANALYSIS_PAGE_COUNT)
 }
 
 function normalizeLanguage(value: unknown): AppSettings['language'] {

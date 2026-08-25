@@ -146,11 +146,8 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     const submittedFixtureUrl = `${fixtureUrl}?access_token=private-value#private-panel`
     assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '8')
     assert.equal(await page.getByTestId('analysis-page-count').getAttribute('min'), '1')
-    assert.equal(await page.getByTestId('analysis-page-count').getAttribute('max'), null)
-    assert.match(
-      (await page.getByTestId('analysis-page-scope').textContent()) || '',
-      /default 8.*any positive integer/i,
-    )
+    assert.equal(await page.getByTestId('analysis-page-count').getAttribute('max'), '20')
+    assert.match((await page.getByTestId('analysis-page-scope').textContent()) || '', /default 8.*maximum 20/i)
 
     await page.locator('a[href="#/settings"]').click()
     await page.getByTestId('proxy-server').waitFor({ state: 'visible' })
@@ -163,6 +160,16 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 6)
     assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 2)
+    const immediateThumbnailSize = await page
+      .getByTestId('analysis-page-screenshot')
+      .first()
+      .locator('img')
+      .evaluate(async (image) => {
+        await image.decode()
+        return { width: image.naturalWidth, height: image.naturalHeight }
+      })
+    assert.ok(immediateThumbnailSize.width <= 192)
+    assert.ok(immediateThumbnailSize.height <= 128)
     await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
     assert.match(
       (await page.getByTestId('analysis-evidence-coverage').textContent()) || '',
@@ -193,17 +200,52 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('analysis-screenshot-lightbox').getByRole('button', { name: 'Close' }).click()
     await page.getByTestId('analysis-screenshot-lightbox').waitFor({ state: 'detached' })
     await page.getByTestId('agent-export-info').hover()
-    await page.getByRole('tooltip').waitFor({ state: 'visible' })
+    await page.locator('#agent-export-tooltip').waitFor({ state: 'visible' })
     await page.getByTestId('artifact-tab-overview').click()
     await page.getByTestId('design-dna-overview').waitFor({ state: 'visible' })
+    await page.getByTestId('artifact-action-group').waitFor({ state: 'visible' })
 
-    assert.equal(await page.getByTestId('artifact-tab-css').count(), 0)
+    await page.getByTestId('artifact-tab-tailwind').click()
+    assert.match((await page.getByTestId('artifact-content-tailwind').textContent()) || '', /@theme/)
+    await page.getByRole('button', { name: 'Copy Tailwind v4', exact: true }).click()
+    await page.getByText('Copied to clipboard', { exact: true }).waitFor()
+    await page.getByTestId('artifact-tab-css').click()
+    assert.match((await page.getByTestId('artifact-content-css').textContent()) || '', /:root/)
+    await page.getByRole('button', { name: 'Copy CSS Variables', exact: true }).click()
+    await page.getByText('Copied to clipboard', { exact: true }).waitFor()
     await page.getByTestId('artifact-tab-markdown').click()
     const markdown = await page.getByTestId('artifact-content-markdown').textContent()
     assert.match(markdown || '', /Design System/)
     await page.getByRole('button', { name: 'Copy DESIGN.md', exact: true }).click()
     await page.getByText('Copied to clipboard', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('button', { name: 'Export DESIGN.md', exact: true }).count(), 1)
+    const exportMenuLatencyMs = await page.getByTestId('artifact-export-menu').evaluate(
+      (button) =>
+        new Promise((resolve, reject) => {
+          const startedAt = performance.now()
+          let timeoutId
+          const observer = new MutationObserver(() => {
+            if (!document.querySelector('[data-testid="export-artifact-design-md"]')) return
+            observer.disconnect()
+            window.clearTimeout(timeoutId)
+            resolve(performance.now() - startedAt)
+          })
+          observer.observe(document.body, { childList: true, subtree: true })
+          timeoutId = window.setTimeout(() => {
+            observer.disconnect()
+            reject(new Error('Export menu did not open within 1 second'))
+          }, 1_000)
+          button.click()
+        }),
+    )
+    assert.ok(
+      exportMenuLatencyMs < 250,
+      `Expected export menu within 250ms, received ${exportMenuLatencyMs.toFixed(1)}ms`,
+    )
+    await page.getByRole('menuitem', { name: /DESIGN\.md/ }).waitFor({ state: 'visible' })
+    await page.getByRole('menuitem', { name: /CSS Variables/ }).waitFor({ state: 'visible' })
+    await page.getByRole('menuitem', { name: /Tailwind @theme/ }).waitFor({ state: 'visible' })
+    assert.equal(await page.getByRole('menuitem', { name: /Tokens JSON/ }).count(), 0)
+    await page.keyboard.press('Escape')
 
     const previousManagedScreenshotSrc = await page
       .getByTestId('analysis-page-screenshot')
@@ -320,6 +362,9 @@ test('extracts and persists a deterministic local design system', { timeout: 300
         capturePageMode: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.pageMode,
         captureMaxPages: JSON.parse(fullRecords[0]?.capture_manifest_json || 'null')?.request?.maxPages,
         completionReason: JSON.parse(fullRecords[0]?.completion_json || 'null')?.reason,
+        persistedScreenshotsHaveThumbnails: JSON.parse(fullRecords[0]?.page_screenshots_json || '[]').every(
+          (screenshot) => typeof screenshot.thumbnailPath === 'string' && screenshot.thumbnailPath.length > 0,
+        ),
       }
     })
     assert.equal(analysisListPayloads.summaryKeys.includes('tokens_json'), false)
@@ -336,6 +381,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(analysisListPayloads.capturePageMode, 'bounded')
     assert.equal(analysisListPayloads.captureMaxPages, 8)
     assert.equal(analysisListPayloads.completionReason, 'complete')
+    assert.equal(analysisListPayloads.persistedScreenshotsHaveThumbnails, true)
     const siteNameSearch = await page.evaluate(() =>
       window.electronAPI.getAnalysisSummariesPage({ page: 1, pageSize: 10, search: 'Imprint Fixture' }),
     )
@@ -519,7 +565,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     assert.equal(await page.getByTestId('analyze-url').inputValue(), failureUrl)
     await page.getByTestId('analysis-error-retry').waitFor({ state: 'visible' })
 
-    await page.getByTestId('analysis-page-count').fill('250')
+    await page.getByTestId('analysis-page-count').fill('20')
     await page.getByRole('button', { name: 'Switch to dark mode' }).click()
     await page.locator('a[href="#/themes"]').click()
     await page.locator('.theme-card-preview-blueprint').locator('..').click()
@@ -537,7 +583,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
 
     await page.getByRole('link', { name: 'Analyze' }).waitFor()
     assert.equal(await page.evaluate(async () => (await window.electronAPI.getSettings()).language), 'en')
-    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '250')
+    assert.equal(await page.getByTestId('analysis-page-count').inputValue(), '20')
     assert.equal(await page.locator('html').getAttribute('data-app-theme'), 'blueprint')
     assert.equal(await page.locator('html').evaluate((element) => element.classList.contains('dark')), true)
 
@@ -658,6 +704,24 @@ test(
         target.naturalWidth > 0
       )
     })
+    const visualPreviewDimensions = await page.evaluate(() => {
+      const reference = document.querySelector('[data-testid="visual-diff-reference"]')
+      const target = document.querySelector('[data-testid="visual-diff-target"]')
+      if (!(reference instanceof HTMLImageElement) || !(target instanceof HTMLImageElement)) return null
+      return {
+        reference: { width: reference.naturalWidth, height: reference.naturalHeight },
+        target: { width: target.naturalWidth, height: target.naturalHeight },
+      }
+    })
+    assert.ok(visualPreviewDimensions)
+    assert.ok(visualPreviewDimensions.reference.width <= 1200)
+    assert.ok(visualPreviewDimensions.target.width <= 1200)
+    assert.ok(
+      Math.max(
+        visualPreviewDimensions.reference.width * visualPreviewDimensions.reference.height,
+        visualPreviewDimensions.target.width * visualPreviewDimensions.target.height,
+      ) <= 4_000_000,
+    )
     assert.equal(await visualDiff.getByText('Earlier analysis', { exact: true }).count(), 0)
     assert.equal(await visualDiff.getByText('Later analysis', { exact: true }).count(), 0)
     assert.equal(await visualDiff.getByTestId('visual-diff-zoom-level').textContent(), '100%')

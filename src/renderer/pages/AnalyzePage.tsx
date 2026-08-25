@@ -3,6 +3,7 @@ import { AlertTriangle, Info, Loader2, Square } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { MAX_ANALYSIS_PAGE_COUNT } from '../../core/analyzer/analysis-request.js'
 import type {
   AnalysisProgress,
   AnalyzeResponse,
@@ -67,7 +68,10 @@ export function AnalyzePage() {
   const pageCount = store.pageCount
   const parsedPageCount = Number(pageCountInput)
   const pageCountInputValid =
-    /^\d+$/.test(pageCountInput) && Number.isSafeInteger(parsedPageCount) && parsedPageCount >= 1
+    /^\d+$/.test(pageCountInput) &&
+    Number.isSafeInteger(parsedPageCount) &&
+    parsedPageCount >= 1 &&
+    parsedPageCount <= MAX_ANALYSIS_PAGE_COUNT
   const evidenceViewer = useEvidenceViewer(result, (key) => t(`analyze.evidenceDetail.fields.${key}`))
   const notifyAnalysisReady = useCallback(
     (data: AnalysisResultData) => {
@@ -421,6 +425,7 @@ export function AnalyzePage() {
             data-testid="analysis-page-count"
             type="number"
             min={1}
+            max={MAX_ANALYSIS_PAGE_COUNT}
             step={1}
             inputMode="numeric"
             value={pageCountInput}
@@ -428,7 +433,14 @@ export function AnalyzePage() {
               const value = event.target.value
               const parsed = Number(value)
               setPageCountInput(value)
-              if (/^\d+$/.test(value) && Number.isSafeInteger(parsed) && parsed >= 1) store.setPageCount(parsed)
+              if (
+                /^\d+$/.test(value) &&
+                Number.isSafeInteger(parsed) &&
+                parsed >= 1 &&
+                parsed <= MAX_ANALYSIS_PAGE_COUNT
+              ) {
+                store.setPageCount(parsed)
+              }
             }}
             onBlur={() => {
               if (!pageCountInputValid) setPageCountInput(String(pageCount))

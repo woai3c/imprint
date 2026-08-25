@@ -68,10 +68,24 @@ test('migrates and redacts a populated legacy Desktop database idempotently', { 
   assert.equal(migrated.url, 'https://example.com/products')
   assert.equal(migrated.final_url, 'https://example.com/products')
   assert.equal(migrated.route_identity, 'https://example.com/products')
+  assert.equal(migrated.site_name, 'example.com')
+  assert.equal(migrated.preview_path, '/tmp/capture.png')
   assert.equal(migrated.duration_ms, 987)
   assert.equal(migrated.capture_manifest_json, null)
+  const structurallyMalformed = secondSnapshot.analyses.find(
+    (record) => record.id === 'analysis-structurally-malformed',
+  )
+  assert.equal(structurallyMalformed.route_identity, 'https://example.com/products')
+  assert.equal(structurallyMalformed.site_name, 'example.com')
+  assert.equal(structurallyMalformed.preview_path, null)
   assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'capture_manifest_json'))
   assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'completion_json'))
+  assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'site_name'))
+  assert.ok(secondSnapshot.analysisColumns.some((column) => column.name === 'preview_path'))
+  assert.deepEqual(
+    secondSnapshot.migrations.map(({ id }) => id),
+    ['normalized-analysis-duration-v1', 'persisted-url-and-summary-v1'],
+  )
   assert.equal(
     secondSnapshot.analysisColumns.some((column) => column.name === 'is_reference'),
     false,

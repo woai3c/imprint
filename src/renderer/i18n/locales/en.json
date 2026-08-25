@@ -47,15 +47,27 @@
     "preparing": "Preparing...",
     "error": "Analysis error",
     "emptyTitle": "Enter a URL to start analyzing",
-    "emptyDescription": "Supports public webpages. After analysis, export one self-contained DESIGN.md. When asking AI to revise an existing UI, also provide the current screenshot or source code.",
+    "emptyDescription": "Analyze a public webpage, then export DESIGN.md for AI guidance or CSS Variables and Tailwind @theme for implementation.",
     "analysisHint": "Analysis is deterministic, runs locally, and requires no external service configuration.",
     "tabOverview": "Overview",
     "tabPreview": "Visual Preview",
     "tabMarkdown": "DESIGN.md",
+    "tabTailwind": "Tailwind v4",
+    "tabCss": "CSS Variables",
     "copyCurrent": "Copy {{format}}",
     "exportCurrent": "Export {{format}}",
+    "artifactActions": "Analysis artifact actions",
     "artifacts": {
-      "markdown": "DESIGN.md"
+      "markdown": "DESIGN.md",
+      "tailwind": "Tailwind v4",
+      "css": "CSS Variables"
+    },
+    "exportMenu": {
+      "open": "Export artifacts",
+      "title": "Choose an export artifact",
+      "designMd": "DESIGN.md",
+      "cssVariables": "CSS Variables",
+      "tailwindTheme": "Tailwind @theme"
     },
     "designDoc": {
       "frontmatterTitle": "Machine-readable metadata (YAML)",
@@ -63,7 +75,7 @@
     },
     "agentExport": {
       "title": "Use with AI Coding Agents",
-      "summary": "Copy DESIGN.md and paste it into your AI agent (Cursor, Claude, etc.) to reuse the extracted design system in your project."
+      "summary": "Use DESIGN.md as AI guidance. Export CSS Variables or Tailwind @theme when the project also needs shared implementation values across pages."
     },
     "completeTip": "Analysis complete! Copy DESIGN.md and give it to your AI coding agent.",
     "partialCompleteTip": "Current result is ready. Completed pages: {{pages}}.",
@@ -77,8 +89,8 @@
     "pageCount": {
       "label": "Page limit",
       "unit": "pages",
-      "help": "Default 8. Enter any positive integer; the actual count depends on representative same-site pages found.",
-      "invalid": "Enter an integer greater than or equal to 1."
+      "help": "Default 8, maximum 20. The actual count depends on representative same-site pages found.",
+      "invalid": "Enter an integer from 1 to 20."
     },
     "progressReady": "Captured pages: {{analyzed}} · Discovered pages: {{discovered}}. The current result is ready to use.",
     "finishNow": "Finish and view current result",
@@ -1076,7 +1088,32 @@
       "captureConditionTitle": "Capture conditions differ",
       "captureConditionDescription": "The analyses can still be compared, but these recorded differences limit how the result should be interpreted.",
       "inconclusiveTitle": "No comparison verdict",
-      "differencesTitle": "Recorded condition differences",
+      "blockingDifferencesTitle": "Condition differences that prevent comparison",
+      "nonBlockingDifferencesTitle": "Non-blocking condition differences",
+      "nonBlockingDifferencesDescription": "These differences are recorded for traceability and did not cause the comparison to fail.",
+      "excludedPages": {
+        "title": "Partial coverage",
+        "description": "Comparing {{count}} shared eligible pages. Excluded pages do not participate in the verdict.",
+        "group_one": "Excluded {{count}} page with {{reasons}}.",
+        "group_other": "Excluded {{count}} pages with {{reasons}}.",
+        "issueSeparator": ", ",
+        "issues": {
+          "large-overlay": "a visible overlay",
+          "main-content-empty": "empty main content",
+          "skeleton-heavy": "a dominant loading skeleton",
+          "fonts-not-ready": "fonts that were not ready",
+          "dom-still-mutating": "a page that was still changing",
+          "horizontal-overflow": "severe horizontal overflow",
+          "auth-wall": "an access wall",
+          "captcha": "a CAPTCHA",
+          "error-page": "an error page",
+          "rate-limited": "rate limiting",
+          "unexpected-navigation": "unexpected navigation",
+          "health-recovery-failed": "failed page recovery",
+          "health-recovery-timeout": "page recovery timeout",
+          "unknown": "an unknown page-health issue"
+        }
+      },
       "report": {
         "actionsLabel": "Comparison actions",
         "copyAction": "Copy report",
@@ -1213,16 +1250,19 @@
         "capture-environment-mismatch": "A capture environment setting that can affect extracted tokens differs.",
         "stabilization-mismatch": "The captures used different stabilization strategies.",
         "route-mismatch": "The entry routes do not match.",
-        "page-set-mismatch": "The captured page and viewport sets do not match.",
+        "page-set-mismatch": "The eligible page and viewport sets cannot be aligned.",
         "access-mode-mismatch": "The captures used different visitor or signed-in access modes.",
         "language-mismatch": "The captures used different page languages.",
         "incomplete-coverage": "At least one capture has incomplete page or viewport coverage.",
         "missing-page-health": "At least one captured page has no health result.",
+        "no-common-eligible-pages": "The captures have no shared page and viewport that is eligible for comparison.",
         "unhealthy-page": "At least one captured page is not eligible as comparison evidence."
       },
       "limitations": {
         "browser-environment-differs": "The browser product, version, execution mode, operating system, or architecture differs.",
-        "tool-version-differs": "The captures were produced by different Imprint versions.",
+        "tool-version-differs": "The captures were produced by different Imprint versions; this alone does not prevent comparison.",
+        "incomplete-coverage": "The verdict covers only the shared eligible pages captured by both analyses.",
+        "unhealthy-pages-excluded": "Pages without comparison-eligible evidence were excluded from the verdict.",
         "exact-observed-values-only": "Supported token values and structured observations are compared exactly; perceptual tolerances are not yet calibrated.",
         "entry-and-captured-page-set-only": "Comparability is limited to the recorded entry route, page set, and viewports."
       },

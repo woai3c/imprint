@@ -239,11 +239,11 @@ function printUsage() {
     ${cliT('usage.doctor')}
 
   Options:
-    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: all)
+    --format <type>     Output: design.md | tailwind | css | scss | json | evidence | profile | components | visual-qa | pdf | all (default: design.md)
     --output <path>     Output directory (default: current directory)
     --viewport <size>   Viewport: desktop | tablet | mobile | all (default: desktop)
     --dark-mode         Also extract dark mode theme
-    --pages <count>     Stop after this many pages; any positive integer (default: 8)
+    --pages <count>     Stop after this many pages; 1-20 (default: 8)
     --discovery <mode>  Page discovery: auto | links | sitemap (default: auto)
     ${cliT('usage.browserPath')}
     --no-session        Don't reuse Imprint's saved browser session

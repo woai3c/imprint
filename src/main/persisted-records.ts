@@ -39,15 +39,128 @@ export function readFirstScreenshotPath(serialized: unknown): string | null {
   }
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isRecordArray(value: unknown): value is Array<Record<string, unknown>> {
+  return Array.isArray(value) && value.every(isRecord)
+}
+
+function isPageScreenshotData(value: unknown): value is PageScreenshotData {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.url === 'string' &&
+    typeof value.path === 'string' &&
+    typeof value.viewport === 'string' &&
+    (value.thumbnailPath === undefined || typeof value.thumbnailPath === 'string') &&
+    (value.width === undefined || (typeof value.width === 'number' && Number.isFinite(value.width))) &&
+    (value.height === undefined || (typeof value.height === 'number' && Number.isFinite(value.height))) &&
+    (value.valid === undefined || typeof value.valid === 'boolean')
+  )
+}
+
+function isDesignToken(value: unknown): value is DesignToken {
+  if (!isRecord(value) || !isRecord(value.colors) || !isRecord(value.typography)) return false
+  return (
+    isStringArray(value.typography.fontFamilies) &&
+    isStringArray(value.typography.fontStacks) &&
+    isStringArray(value.typography.fontSizes) &&
+    isStringArray(value.typography.fontWeights) &&
+    isStringArray(value.typography.lineHeights) &&
+    isStringArray(value.typography.letterSpacings) &&
+    isStringArray(value.spacing) &&
+    isStringArray(value.radii) &&
+    isStringArray(value.shadows) &&
+    isStringArray(value.borders) &&
+    isStringArray(value.zIndices) &&
+    isStringArray(value.transitions)
+  )
+}
+
+function isEvidenceImage(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.id === 'string' &&
+    ['overview', 'viewport-crop', 'region-crop'].includes(String(value.kind)) &&
+    typeof value.path === 'string' &&
+    typeof value.width === 'number' &&
+    Number.isFinite(value.width) &&
+    typeof value.height === 'number' &&
+    Number.isFinite(value.height)
+  )
+}
+
+function isEvidencePage(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.url !== 'string' ||
+    typeof value.viewport !== 'string' ||
+    !Array.isArray(value.images) ||
+    !value.images.every(isEvidenceImage)
+  ) {
+    return false
+  }
+  if (value.health === undefined) return true
+  return (
+    isRecord(value.health) &&
+    ['healthy', 'degraded', 'unusable'].includes(String(value.health.status)) &&
+    isRecordArray(value.health.issues) &&
+    value.health.issues.every((issue) => typeof issue.code === 'string')
+  )
+}
+
+function isDesignEvidence(value: unknown): value is DesignEvidence {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== '1' ||
+    typeof value.analysisId !== 'string' ||
+    !isRecord(value.source) ||
+    typeof value.source.requestedUrl !== 'string' ||
+    typeof value.source.finalUrl !== 'string' ||
+    !['anonymous', 'managed'].includes(String(value.source.accessMode)) ||
+    !Array.isArray(value.pages) ||
+    !value.pages.every(isEvidencePage) ||
+    !isDesignToken(value.tokens) ||
+    !isStringArray(value.featureTags) ||
+    !isRecord(value.topology) ||
+    value.topology.schemaVersion !== '1' ||
+    !isRecordArray(value.topology.pages) ||
+    !isRecordArray(value.topology.globalLayers) ||
+    !isStringArray(value.topology.crossPagePatternIds) ||
+    !isRecordArray(value.sections) ||
+    !isRecordArray(value.components) ||
+    !isRecordArray(value.layoutNodes) ||
+    !isRecord(value.interactionStyles) ||
+    !isRecordArray(value.interactionStyles.hover) ||
+    !isRecordArray(value.interactionStyles.focus) ||
+    !isRecordArray(value.interactionStyles.active) ||
+    !isRecordArray(value.interactionObservations) ||
+    !isRecordArray(value.breakpoints) ||
+    !isRecordArray(value.responsiveObservations) ||
+    !isRecordArray(value.motion) ||
+    !isRecordArray(value.mediaLayers) ||
+    !isRecord(value.coverage) ||
+    !isStringArray(value.limitations)
+  ) {
+    return false
+  }
+  if (value.pseudoElements !== undefined && !isRecordArray(value.pseudoElements)) return false
+  if (value.deterministicClaims !== undefined && !isRecordArray(value.deterministicClaims)) return false
+  return true
+}
+
 export function readDesignEvidence(serialized: unknown): DesignEvidence | null {
   if (typeof serialized !== 'string') return null
   try {
-    const evidence = JSON.parse(serialized) as DesignEvidence
-    for (const page of evidence.pages || []) {
+    const parsed = JSON.parse(serialized) as unknown
+    if (!isDesignEvidence(parsed)) return null
+    for (const page of parsed.pages) {
       if (!page.health) continue
       page.health.evidenceEligible = isPageHealthEvidenceEligible(page.health)
     }
-    return evidence
+    return parsed
   } catch {
     return null
   }
@@ -92,24 +205,56 @@ function hostnameFromUrl(value: string): string {
   }
 }
 
+export function analysisSiteName(url: string, evidence: DesignEvidence | null): string {
+  const candidates = [evidence?.source?.siteName, evidence?.pages?.find((page) => page.siteName)?.siteName]
+  return (
+    candidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() || hostnameFromUrl(url)
+  )
+}
+
+export function analysisPreviewPath(
+  pageScreenshots: PageScreenshotData[],
+  evidence: DesignEvidence | null,
+): string | null {
+  const screenshot = pageScreenshots[0]
+  if (!screenshot) return null
+  if (!evidence) return screenshot.path
+  const evidencePages = Array.isArray(evidence.pages) ? evidence.pages : []
+  const page =
+    evidencePages.find((candidate) => candidate.url === screenshot.url && candidate.viewport === screenshot.viewport) ||
+    evidencePages.find((candidate) => candidate.url === screenshot.url) ||
+    evidencePages[0]
+  const images = Array.isArray(page?.images) ? page.images : []
+  return (
+    images.find((image) => image.kind === 'viewport-crop' && typeof image.path === 'string')?.path || screenshot.path
+  )
+}
+
 export function toAnalysisSummary(
   { page_screenshots_json: screenshots, design_evidence_json: designEvidenceJson, ...record }: Record<string, unknown>,
   screenshotPath?: string | null,
 ) {
-  const evidence = readDesignEvidence(designEvidenceJson)
-  const siteNameCandidates = [evidence?.source?.siteName, evidence?.pages?.find((page) => page.siteName)?.siteName]
-  const siteName =
-    siteNameCandidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() ||
-    hostnameFromUrl(String(record.url || ''))
+  const storedSiteName = typeof record.site_name === 'string' ? record.site_name.trim() : ''
+  const evidence = storedSiteName ? null : readDesignEvidence(designEvidenceJson)
+  const siteName = storedSiteName || analysisSiteName(String(record.url || ''), evidence)
+  const storedPreviewPath = typeof record.preview_path === 'string' ? record.preview_path : null
+  const { preview_path: _previewPath, ...publicRecord } = record
   return {
-    ...record,
+    ...publicRecord,
     site_name: siteName,
-    screenshot_path: screenshotPath === undefined ? readFirstScreenshotPath(screenshots) : screenshotPath,
+    screenshot_path:
+      screenshotPath === undefined ? storedPreviewPath || readFirstScreenshotPath(screenshots) : screenshotPath,
   }
 }
 
 export function readPageScreenshots(serialized: unknown): PageScreenshotData[] {
-  return JSON.parse((serialized as string) || '[]') as PageScreenshotData[]
+  if (typeof serialized !== 'string') return []
+  try {
+    const screenshots = JSON.parse(serialized) as unknown
+    return Array.isArray(screenshots) ? screenshots.filter(isPageScreenshotData) : []
+  } catch {
+    return []
+  }
 }
 
 export function readCaptureManifest(serialized: unknown): CaptureManifest | null {

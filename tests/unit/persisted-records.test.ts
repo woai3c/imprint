@@ -63,14 +63,22 @@ describe('persisted record adapters', () => {
     expect(JSON.parse(toThemeSummary(record).dark_tokens_json || '{}')).not.toHaveProperty('usageCount')
   })
 
-  it('reads screenshot paths and preserves strict screenshot-array parsing', () => {
+  it('reads screenshot paths and tolerates malformed legacy screenshot arrays', () => {
     const serialized = JSON.stringify([{ url: 'https://example.com', path: '/tmp/page.png', viewport: 'desktop' }])
+    const mixed = JSON.stringify([
+      {},
+      { url: 'https://example.com', path: '/tmp/page.png', viewport: 'desktop', width: 1440 },
+      { url: 'https://example.com', path: 42, viewport: 'mobile' },
+    ])
 
     expect(readFirstScreenshotPath(serialized)).toBe('/tmp/page.png')
     expect(readFirstScreenshotPath('{invalid')).toBeNull()
     expect(readPageScreenshots(serialized)).toHaveLength(1)
+    expect(readPageScreenshots(mixed)).toEqual([
+      { url: 'https://example.com', path: '/tmp/page.png', viewport: 'desktop', width: 1440 },
+    ])
     expect(readPageScreenshots(undefined)).toEqual([])
-    expect(() => readPageScreenshots('{invalid')).toThrow()
+    expect(readPageScreenshots('{invalid')).toEqual([])
   })
 
   it('normalizes stored timing fields while retaining valid optional measurements', () => {
@@ -122,10 +130,21 @@ describe('persisted record adapters', () => {
 
   it('restores evidence eligibility and derives history summary display fields', () => {
     const evidence = {
-      source: { siteName: '  Example Studio  ' },
+      schemaVersion: '1',
+      analysisId: 'analysis-1',
+      source: {
+        requestedUrl: 'https://example.com/path',
+        finalUrl: 'https://example.com/path',
+        accessMode: 'anonymous',
+        siteName: '  Example Studio  ',
+      },
       pages: [
         {
+          id: 'page-1',
+          url: 'https://example.com/path',
+          viewport: 'desktop',
           siteName: 'Fallback page name',
+          images: [],
           health: {
             status: 'degraded',
             issues: [{ code: 'horizontal-overflow' }],
@@ -133,6 +152,20 @@ describe('persisted record adapters', () => {
           },
         },
       ],
+      tokens,
+      featureTags: [],
+      topology: { schemaVersion: '1', pages: [], globalLayers: [], crossPagePatternIds: [] },
+      sections: [],
+      components: [],
+      layoutNodes: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      interactionObservations: [],
+      breakpoints: [],
+      responsiveObservations: [],
+      motion: [],
+      mediaLayers: [],
+      coverage: {},
+      limitations: [],
     }
     const serializedEvidence = JSON.stringify(evidence)
     const restored = readDesignEvidence(serializedEvidence)
@@ -152,12 +185,34 @@ describe('persisted record adapters', () => {
     })
     expect(summary).not.toHaveProperty('page_screenshots_json')
     expect(summary).not.toHaveProperty('design_evidence_json')
+
+    expect(readDesignEvidence(JSON.stringify({ ...evidence, pages: [{}] }))).toBeNull()
+    expect(
+      readDesignEvidence(JSON.stringify({ ...evidence, pages: [{ ...evidence.pages[0], images: [{}] }] })),
+    ).toBeNull()
   })
 
   it('falls back to the hostname when stored evidence has no site name', () => {
     expect(toAnalysisSummary({ url: 'https://www.example.com/path' }, null)).toMatchObject({
       site_name: 'example.com',
       screenshot_path: null,
+    })
+  })
+
+  it('uses the lightweight stored history projection without exposing its internal column', () => {
+    expect(
+      toAnalysisSummary({
+        id: 'analysis-projected',
+        url: 'https://example.com',
+        site_name: 'Stored name',
+        preview_path: '/tmp/preview.jpg',
+        design_evidence_json: '{invalid',
+      }),
+    ).toEqual({
+      id: 'analysis-projected',
+      url: 'https://example.com',
+      site_name: 'Stored name',
+      screenshot_path: '/tmp/preview.jpg',
     })
   })
 

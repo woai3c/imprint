@@ -311,6 +311,8 @@ export interface ElectronAPI {
   reportPerformance: (sample: RendererPerformanceSample) => void
   getSettings: () => Promise<AppSettings>
   saveSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+  exportLocalData: () => Promise<FileOperationResult>
+  clearLocalData: () => Promise<{ success: boolean }>
   getAnalyses: () => Promise<AnalysisRecord[]>
   getAnalysisSummaries: () => Promise<AnalysisRecord[]>
   getAnalysisSummariesPage: (query?: AnalysisSummaryPageQuery) => Promise<AnalysisSummaryPage>

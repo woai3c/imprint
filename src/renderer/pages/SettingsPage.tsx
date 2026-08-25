@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import type { AppSettings } from '../../shared/ipc-contract'
 import { PageHeader } from '../components/PageHeader'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { removeComparisonRecords } from '../lib/comparison-records-cache.js'
+import { invalidateComparisonRecords } from '../lib/comparison-records-cache.js'
 import { useFeedbackStore } from '../stores/feedback-store'
 
 export function SettingsPage() {
@@ -30,16 +30,8 @@ export function SettingsPage() {
 
   const handleExportAll = async () => {
     try {
-      const themes = await window.electronAPI.getThemeArchive()
-      const analyses = await window.electronAPI.getAnalyses()
-      const settings = await window.electronAPI.getSettings()
-      const blob = JSON.stringify({ themes, analyses, settings }, null, 2)
-      const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/json' }))
-      const anchor = document.createElement('a')
-      anchor.href = blobUrl
-      anchor.download = `imprint-local-data-${new Date().toISOString().slice(0, 10)}.json`
-      anchor.click()
-      URL.revokeObjectURL(blobUrl)
+      const result = await window.electronAPI.exportLocalData()
+      if (!result.success) return
       notify(t('feedback.dataExported'))
     } catch {
       notify(t('feedback.actionFailed'), 'error')
@@ -49,14 +41,8 @@ export function SettingsPage() {
   const handleClearAll = async () => {
     setClearing(true)
     try {
-      const themes = await window.electronAPI.getThemes()
-      for (const theme of themes) await window.electronAPI.deleteTheme(theme.id)
-      const analyses = await window.electronAPI.getAnalysisSummaries()
-      const analysisIds = analyses.map((analysis) => analysis.id)
-      if (analysisIds.length > 0) {
-        await window.electronAPI.deleteAnalyses(analysisIds)
-        removeComparisonRecords(analysisIds)
-      }
+      await window.electronAPI.clearLocalData()
+      invalidateComparisonRecords()
       notify(t('feedback.dataCleared'))
       setConfirmClearAll(false)
     } catch {

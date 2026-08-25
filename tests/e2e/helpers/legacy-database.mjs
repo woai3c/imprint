@@ -117,6 +117,21 @@ if (operation === 'create') {
     )
   database
     .prepare(
+      `INSERT INTO analyses
+       (id, url, created_at, tokens_json, page_screenshots_json, final_url, design_evidence_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'analysis-structurally-malformed',
+      privateUrl,
+      '2026-08-17T00:00:02.000Z',
+      '{}',
+      '[{}]',
+      privateUrl,
+      JSON.stringify({ schemaVersion: '1', pages: [{}] }),
+    )
+  database
+    .prepare(
       `INSERT INTO themes
        (id, name, source_url, tokens_json, design_doc, created_at, updated_at, design_evidence_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -136,6 +151,7 @@ if (operation === 'create') {
     analyses: database.prepare('SELECT * FROM analyses ORDER BY id').all(),
     themes: database.prepare('SELECT * FROM themes ORDER BY id').all(),
     analysisColumns: database.prepare('PRAGMA table_info(analyses)').all(),
+    migrations: database.prepare('SELECT id FROM app_migrations ORDER BY id').all(),
     indexes: database.prepare('PRAGMA index_list(analyses)').all(),
     obsoleteComparisonTables: database
       .prepare(

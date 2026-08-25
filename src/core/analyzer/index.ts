@@ -86,6 +86,8 @@ export {
   ANALYSIS_REQUEST_SCHEMA_VERSION,
   ANALYSIS_VIEWPORTS,
   CORE_ANALYSIS_REQUEST_DEFAULTS,
+  DEFAULT_ANALYSIS_PAGE_COUNT,
+  MAX_ANALYSIS_PAGE_COUNT,
   AnalysisRequestError,
   createAnalysisRequest,
 } from './analysis-request.js'
@@ -664,6 +666,12 @@ export async function analyze(
   if (!fs.existsSync(screenshotDir)) {
     fs.mkdirSync(screenshotDir, { recursive: true })
   }
+  const analysisAssetPaths = new Set<string>()
+  const analysisAssetPath = (suffix: string): string => {
+    const filePath = path.join(screenshotDir, `${analysisId}-${Date.now()}-${suffix}.png`)
+    analysisAssetPaths.add(filePath)
+    return filePath
+  }
 
   reportProgress('progress.launchingBrowser', 5)
 
@@ -1058,14 +1066,14 @@ export async function analyze(
         }
       }
 
-      const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}.png`)
+      const screenshotPath = analysisAssetPath(`page-1-${vpName}`)
       const evidenceSnapshot = await extractPageEvidence(page, vpName)
       if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
       timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
       let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
-        const viewportPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-viewport.png`)
+        const viewportPath = analysisAssetPath(`page-1-${vpName}-viewport`)
         await measure('screenshotCaptureMs', () => page.screenshot({ path: viewportPath, fullPage: false }))
         const viewportValid = recordScreenshotDimensionIssue(
           extractionIssues,
@@ -1131,7 +1139,7 @@ export async function analyze(
             width: clip.width / Math.max(evidenceSnapshot.width, 1),
             height: clip.height / Math.max(evidenceSnapshot.height, 1),
           }
-          const regionPath = path.join(screenshotDir, `${Date.now()}-page-1-${vpName}-region-${sectionIndex + 1}.png`)
+          const regionPath = analysisAssetPath(`page-1-${vpName}-region-${sectionIndex + 1}`)
           try {
             await measure('screenshotCaptureMs', () => page.screenshot({ path: regionPath, clip }))
             const regionValid = recordScreenshotDimensionIssue(
@@ -1408,11 +1416,11 @@ export async function analyze(
             evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
           }
 
-          const screenshotPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}.png`)
+          const screenshotPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}`)
           const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
           timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
           let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
-          const viewportPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-${mainViewportName}-viewport.png`)
+          const viewportPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}-viewport`)
           await measure('screenshotCaptureMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
           const viewportValid = recordScreenshotDimensionIssue(
             extractionIssues,
@@ -1567,11 +1575,8 @@ export async function analyze(
               }
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - mobileExtractionStartedAt)
-              const mobileOverviewPath = path.join(screenshotDir, `${Date.now()}-page-${i + 2}-mobile-adaptive.png`)
-              const mobileViewportPath = path.join(
-                screenshotDir,
-                `${Date.now()}-page-${i + 2}-mobile-adaptive-viewport.png`,
-              )
+              const mobileOverviewPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive`)
+              const mobileViewportPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive-viewport`)
               await measure('screenshotCaptureMs', () =>
                 runWithinDeadline(adaptiveDeadline, () =>
                   subPage.screenshot({
@@ -1838,6 +1843,20 @@ export async function analyze(
       pageCoverage,
     })
 
+    const retainedAssetPaths = new Set([
+      ...screenshots,
+      ...pageScreenshots.map((screenshot) => screenshot.path),
+      ...designEvidence.pages.flatMap((page) => page.images.map((image) => image.path)),
+    ])
+    for (const assetPath of analysisAssetPaths) {
+      if (retainedAssetPaths.has(assetPath)) continue
+      try {
+        fs.rmSync(assetPath, { force: true })
+      } catch {
+        // A later housekeeping pass can remove files that are temporarily locked by the browser.
+      }
+    }
+
     return {
       analysisId,
       tokens,
@@ -1864,6 +1883,13 @@ export async function analyze(
       },
     }
   } catch (error) {
+    for (const assetPath of analysisAssetPaths) {
+      try {
+        fs.rmSync(assetPath, { force: true })
+      } catch {
+        // A later housekeeping pass can remove files that are temporarily locked by the browser.
+      }
+    }
     throwIfAnalysisAborted(analysisSignal)
     throw error
   } finally {

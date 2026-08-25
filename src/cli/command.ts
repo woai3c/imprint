@@ -16,7 +16,6 @@ export const CLI_EXIT_CODES = {
   cancelled: 130,
 } as const
 
-export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES]
 export type CliUsageErrorCode =
   | 'invalid-url'
   | 'invalid-format'
@@ -153,7 +152,7 @@ export function parseCliCommand(args: string[]): CliCommand {
   const pagesText = scanned.values.get('--pages')
   if (pagesText !== undefined && !/^\d+$/.test(pagesText)) throw new CliUsageError('invalid-page-count', pagesText)
   const maxPages = pagesText === undefined ? undefined : Number(pagesText)
-  const format = scanned.values.get('--format') || 'all'
+  const format = scanned.values.get('--format') || 'design.md'
   if (!exportFormats.has(format)) throw new CliUsageError('invalid-format', format)
   const pageDiscovery = scanned.values.get('--discovery') || 'auto'
   if (!['auto', 'links', 'sitemap'].includes(pageDiscovery)) {

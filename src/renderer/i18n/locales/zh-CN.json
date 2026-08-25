@@ -47,15 +47,27 @@
     "preparing": "准备中...",
     "error": "分析异常",
     "emptyTitle": "输入网站 URL 开始分析",
-    "emptyDescription": "支持公开网页。分析完成后只需导出一份 DESIGN.md；让 AI 修改已有 UI 时，再同时提供当前页面截图或源代码。",
+    "emptyDescription": "分析公开网页后，可导出 DESIGN.md 供 AI 使用，也可导出 CSS Variables 和 Tailwind @theme 用于代码实现。",
     "analysisHint": "分析完全由确定性程序在本地完成，不需要配置外部服务。",
     "tabOverview": "概览",
     "tabPreview": "可视预览",
     "tabMarkdown": "DESIGN.md",
+    "tabTailwind": "Tailwind v4",
+    "tabCss": "CSS 变量",
     "copyCurrent": "复制 {{format}}",
     "exportCurrent": "导出 {{format}}",
+    "artifactActions": "分析产物操作",
     "artifacts": {
-      "markdown": "DESIGN.md"
+      "markdown": "DESIGN.md",
+      "tailwind": "Tailwind v4",
+      "css": "CSS 变量"
+    },
+    "exportMenu": {
+      "open": "导出分析产物",
+      "title": "选择要导出的产物",
+      "designMd": "DESIGN.md",
+      "cssVariables": "CSS Variables",
+      "tailwindTheme": "Tailwind @theme"
     },
     "designDoc": {
       "frontmatterTitle": "机器可读元数据（YAML）",
@@ -63,7 +75,7 @@
     },
     "agentExport": {
       "title": "配合 AI 编程助手使用",
-      "summary": "复制 DESIGN.md 粘贴给你的 AI 编程助手（Cursor、Claude 等），即可在项目中复用所提取的设计系统。"
+      "summary": "使用 DESIGN.md 指导 AI；项目还需要跨页面共享实现变量时，可导出 CSS Variables 或 Tailwind @theme。"
     },
     "completeTip": "分析完成！复制 DESIGN.md 交给你的 AI 编程助手。",
     "partialCompleteTip": "当前结果已可用，共完成 {{pages}} 个页面。",
@@ -77,8 +89,8 @@
     "pageCount": {
       "label": "页面上限",
       "unit": "页",
-      "help": "默认 8 页；可输入任意正整数，实际数量取决于发现的代表性同站页面。",
-      "invalid": "请输入大于或等于 1 的整数。"
+      "help": "默认 8 页，最多 20 页；实际数量取决于发现的代表性同站页面。",
+      "invalid": "请输入 1 到 20 之间的整数。"
     },
     "progressReady": "已完成 {{analyzed}} 个页面 · 已发现 {{discovered}} 个页面，当前结果已经可以使用。",
     "finishNow": "结束并查看当前结果",
@@ -1029,7 +1041,31 @@
       "captureConditionTitle": "捕获条件存在差异",
       "captureConditionDescription": "结果仍可比较，但以下已记录条件不同，解读时需要注意。",
       "inconclusiveTitle": "无法给出比较结论",
-      "differencesTitle": "已记录的条件差异",
+      "blockingDifferencesTitle": "导致无法比较的条件差异",
+      "nonBlockingDifferencesTitle": "不影响比较的条件差异",
+      "nonBlockingDifferencesDescription": "这些差异仅用于追溯，没有导致本次比较失败。",
+      "excludedPages": {
+        "title": "部分覆盖",
+        "description": "本次只比较两次捕获中共同且具备证据资格的 {{count}} 个页面；下列页面不参与结论。",
+        "group": "已排除 {{count}} 个{{reasons}}的页面。",
+        "issueSeparator": "、",
+        "issues": {
+          "large-overlay": "存在遮罩",
+          "main-content-empty": "主内容为空",
+          "skeleton-heavy": "骨架屏占比过高",
+          "fonts-not-ready": "字体未加载完成",
+          "dom-still-mutating": "仍在持续变化",
+          "horizontal-overflow": "存在严重横向溢出",
+          "auth-wall": "存在访问限制",
+          "captcha": "存在验证码",
+          "error-page": "显示错误内容",
+          "rate-limited": "受到访问频率限制",
+          "unexpected-navigation": "发生意外跳转",
+          "health-recovery-failed": "页面恢复失败",
+          "health-recovery-timeout": "页面恢复超时",
+          "unknown": "存在未知健康问题"
+        }
+      },
       "report": {
         "actionsLabel": "比较操作",
         "copyAction": "复制报告",
@@ -1163,16 +1199,19 @@
         "capture-environment-mismatch": "两次捕获中有会影响 token 提取的环境设置不一致。",
         "stabilization-mismatch": "两次捕获使用了不同的稳定化策略。",
         "route-mismatch": "两次捕获的入口路由不一致。",
-        "page-set-mismatch": "两次捕获的页面或视口集合不一致。",
+        "page-set-mismatch": "两次捕获中具备证据资格的页面或视口集合无法对应。",
         "access-mode-mismatch": "两次捕获使用了不同的访客或登录访问模式。",
         "language-mismatch": "两次捕获使用了不同的页面语言。",
         "incomplete-coverage": "至少一次捕获的页面或视口覆盖不完整。",
         "missing-page-health": "至少一个捕获页面缺少健康检查结果。",
+        "no-common-eligible-pages": "两次捕获中没有任何共同且具备比较证据资格的页面和视口。",
         "unhealthy-page": "至少一个捕获页面不具备比较证据资格。"
       },
       "limitations": {
         "browser-environment-differs": "浏览器产品、版本、运行模式、操作系统或架构不一致。",
-        "tool-version-differs": "两次捕获由不同版本的 Imprint 生成。",
+        "tool-version-differs": "两次捕获由不同版本的 Imprint 生成；仅此一项不会阻止比较。",
+        "incomplete-coverage": "比较结论只覆盖两次分析都已捕获的共同合格页面。",
+        "unhealthy-pages-excluded": "不具备比较证据资格的页面已从结论中排除。",
         "exact-observed-values-only": "当前精确比较受支持的 token 值和结构化观察，尚未校准感知容差。",
         "entry-and-captured-page-set-only": "可比性仅覆盖已记录的入口路由、页面集合和视口。"
       },

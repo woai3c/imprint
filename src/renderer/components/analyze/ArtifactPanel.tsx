@@ -1,7 +1,8 @@
-import { ChevronRight, Copy, Download, FlaskConical, Info, Save } from 'lucide-react'
+import { BookmarkCheck, BookmarkPlus, ChevronRight, Copy, Download, FlaskConical, Info } from 'lucide-react'
 import remarkGfm from 'remark-gfm'
 
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
@@ -14,6 +15,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { IconButton } from '../ui/IconButton'
 import { Tabs } from '../ui/Tabs'
 import { DesignDnaPanel } from './DesignDnaPanel'
+import { type DesktopArtifactExport, type DesktopArtifactExportId, desktopArtifactExports } from './artifact-exports'
 import { type ExportTab, artifactTabIds } from './artifact-tabs'
 import { splitDesignMarkdown } from './design-markdown'
 
@@ -21,6 +23,126 @@ interface ArtifactPanelProps {
   result: AnalysisResultData
   onResultUpdate?: (result: Partial<AnalysisResultData>) => void
   onOpenEvidence?: (evidenceId: string) => void
+}
+
+interface ExportMenuPosition {
+  left: number
+  top: number
+}
+
+interface ArtifactExportMenuProps {
+  artifacts: DesktopArtifactExport[]
+  onExport: (artifactId: DesktopArtifactExportId) => Promise<void>
+}
+
+const EXPORT_MENU_WIDTH = 224
+const EXPORT_MENU_GUTTER = 8
+
+function getExportMenuPosition(trigger: DOMRect): ExportMenuPosition {
+  return {
+    left: Math.max(
+      EXPORT_MENU_GUTTER,
+      Math.min(trigger.right - EXPORT_MENU_WIDTH, window.innerWidth - EXPORT_MENU_WIDTH - EXPORT_MENU_GUTTER),
+    ),
+    top: trigger.bottom + EXPORT_MENU_GUTTER,
+  }
+}
+
+function ArtifactExportMenu({ artifacts, onExport }: ArtifactExportMenuProps) {
+  const { t } = useTranslation()
+  const menuId = useId()
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<ExportMenuPosition | null>(null)
+  const open = position !== null
+
+  useEffect(() => {
+    if (!open) return
+
+    const reposition = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect()
+      if (!trigger) return
+      const next = getExportMenuPosition(trigger)
+      setPosition((current) => {
+        if (!current || (current.left === next.left && current.top === next.top)) return current
+        return next
+      })
+    }
+    const closeOnOutsidePointer = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setPosition(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPosition(null)
+    }
+
+    document.addEventListener('mousedown', closeOnOutsidePointer)
+    window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsidePointer)
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open])
+
+  const toggleMenu = () => {
+    if (open) {
+      setPosition(null)
+      return
+    }
+    const trigger = triggerRef.current?.getBoundingClientRect()
+    if (trigger) setPosition(getExportMenuPosition(trigger))
+  }
+
+  return (
+    <div ref={triggerRef} className="relative">
+      <IconButton
+        data-testid="artifact-export-menu"
+        icon={Download}
+        iconSize={16}
+        label={t('analyze.exportMenu.open')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={toggleMenu}
+        showTooltip={!open}
+        className={open ? 'bg-secondary text-foreground' : ''}
+      />
+      {position &&
+        createPortal(
+          <div
+            id={menuId}
+            ref={menuRef}
+            role="menu"
+            aria-label={t('analyze.exportMenu.title')}
+            style={position}
+            className="fixed z-60 w-56 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl"
+          >
+            {artifacts.map((artifact) => (
+              <button
+                key={artifact.id}
+                type="button"
+                role="menuitem"
+                data-testid={`export-artifact-${artifact.id}`}
+                onClick={() => {
+                  setPosition(null)
+                  void onExport(artifact.id)
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none"
+              >
+                <span className="text-xs font-medium text-foreground">{t(artifact.labelKey)}</span>
+                <span className="text-[10px] text-muted-foreground">{artifact.defaultName}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </div>
+  )
 }
 
 export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: ArtifactPanelProps) {
@@ -31,7 +153,8 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
   const [savingTheme, setSavingTheme] = useState(false)
   const [saveConflict, setSaveConflict] = useState<ThemeSaveConflict | null>(null)
   const activeTab = selectedTab
-  const activeArtifactLabel = t('analyze.artifacts.markdown')
+  const activeArtifact = activeTab === 'tailwind' ? 'tailwind' : activeTab === 'css' ? 'css' : 'markdown'
+  const activeArtifactLabel = t(`analyze.artifacts.${activeArtifact}`)
   const showCopyDownload = activeTab !== 'preview'
 
   const tabs: { id: ExportTab; label: string }[] = artifactTabIds().map((id) => ({
@@ -41,25 +164,40 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
         overview: 'analyze.tabOverview',
         preview: 'analyze.tabPreview',
         markdown: 'analyze.tabMarkdown',
+        tailwind: 'analyze.tabTailwind',
+        css: 'analyze.tabCss',
       }[id],
     ),
   }))
 
   const tokens = result.tokens as Record<string, unknown> | undefined
   const designMarkdown = splitDesignMarkdown(result.designDoc || '')
+  const exportArtifacts = desktopArtifactExports(result)
 
   const handleCopy = async () => {
+    const content =
+      activeTab === 'tailwind'
+        ? result.tailwindTheme || ''
+        : activeTab === 'css'
+          ? result.cssVariables || ''
+          : result.designDoc || ''
     try {
-      await navigator.clipboard.writeText(result.designDoc || '')
+      await navigator.clipboard.writeText(content)
       notify(t('feedback.copied'))
     } catch {
       notify(t('feedback.actionFailed'), 'error')
     }
   }
 
-  const handleExportFile = async () => {
+  const handleExportFile = async (artifactId: DesktopArtifactExportId) => {
+    const artifact = exportArtifacts.find((candidate) => candidate.id === artifactId)
+    if (!artifact) return
     try {
-      const exportResult = await window.electronAPI.exportFile(result.designDoc, 'DESIGN.md', 'md')
+      const exportResult = await window.electronAPI.exportFile(
+        artifact.content,
+        artifact.defaultName,
+        artifact.extension,
+      )
       if (exportResult.success) notify(t('feedback.exported'))
       else if (exportResult.error) notify(t('feedback.actionFailed'), 'error')
     } catch {
@@ -98,35 +236,43 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
           testIdPrefix="artifact-tab"
           trailing={
             <>
-              <IconButton
-                data-testid="save-theme"
-                icon={Save}
-                label={result.savedThemeId ? t('analyze.saved') : t('analyze.saveToLibrary')}
-                onClick={() => void saveTheme()}
-                disabled={!result.analysisId || !!result.savedThemeId || savingTheme}
-              />
-              {result.savedThemeId && (
+              <div
+                role="group"
+                aria-label={t('analyze.artifactActions')}
+                data-testid="artifact-action-group"
+                className="flex items-center gap-1"
+              >
                 <IconButton
-                  data-testid="validate-theme"
-                  icon={FlaskConical}
-                  label={t('analyze.validateInScenarios')}
-                  onClick={() => navigate('/templates', { state: { themeId: result.savedThemeId } })}
+                  data-testid="save-theme"
+                  icon={result.savedThemeId ? BookmarkCheck : BookmarkPlus}
+                  iconSize={16}
+                  label={result.savedThemeId ? t('analyze.saved') : t('analyze.saveToLibrary')}
+                  onClick={() => void saveTheme()}
+                  disabled={!result.analysisId || !!result.savedThemeId || savingTheme}
+                  showTooltip
                 />
-              )}
-              {showCopyDownload && (
-                <IconButton
-                  icon={Download}
-                  label={t('analyze.exportCurrent', { format: activeArtifactLabel })}
-                  onClick={handleExportFile}
-                />
-              )}
-              {showCopyDownload && (
-                <IconButton
-                  icon={Copy}
-                  label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
-                  onClick={handleCopy}
-                />
-              )}
+                {result.savedThemeId && (
+                  <IconButton
+                    data-testid="validate-theme"
+                    icon={FlaskConical}
+                    iconSize={16}
+                    label={t('analyze.validateInScenarios')}
+                    onClick={() => navigate('/templates', { state: { themeId: result.savedThemeId } })}
+                    showTooltip
+                  />
+                )}
+                <ArtifactExportMenu artifacts={exportArtifacts} onExport={handleExportFile} />
+                {showCopyDownload && (
+                  <IconButton
+                    icon={Copy}
+                    iconSize={16}
+                    label={t('analyze.copyCurrent', { format: activeArtifactLabel })}
+                    onClick={handleCopy}
+                    showTooltip
+                  />
+                )}
+              </div>
+              <div aria-hidden="true" className="mx-1 h-5 w-px bg-border/70" />
               <div className="group relative z-50">
                 <button
                   type="button"
@@ -135,7 +281,7 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
                   aria-describedby="agent-export-tooltip"
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Info size={14} />
+                  <Info size={16} />
                 </button>
                 <div
                   id="agent-export-tooltip"
@@ -193,6 +339,14 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
                 <Markdown remarkPlugins={[remarkGfm]}>{designMarkdown.body}</Markdown>
               </div>
             </div>
+          )}
+          {(activeTab === 'tailwind' || activeTab === 'css') && (
+            <pre
+              data-testid={`artifact-content-${activeTab}`}
+              className="p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap"
+            >
+              {activeTab === 'tailwind' ? result.tailwindTheme : result.cssVariables}
+            </pre>
           )}
         </div>
       </div>

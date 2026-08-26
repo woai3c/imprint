@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, ExternalLink, GitCompareArrows, ImageIcon, T
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 
 import type { AnalysisRecord, ComparisonVisualPair, ReferenceComparisonResult } from '../../shared/ipc-contract'
 import { AnalysisDetailDialog } from '../components/AnalysisDetailDialog'
@@ -21,6 +22,7 @@ const PAGE_SIZE = 10
 
 export function HistoryPage() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const notify = useFeedbackStore((state) => state.show)
   const [records, setRecords] = useState<AnalysisRecord[]>([])
   const [search, setSearch] = useState('')
@@ -37,7 +39,9 @@ export function HistoryPage() {
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
   const [matchingIds, setMatchingIds] = useState<string[]>([])
   const [page, setPage] = useState(1)
+  const [pageInput, setPageInput] = useState('1')
   const [total, setTotal] = useState(0)
+  const [globalTotal, setGlobalTotal] = useState<number | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -51,7 +55,9 @@ export function HistoryPage() {
           setRecords(data.records)
           setMatchingIds(data.matchingIds)
           setPage(data.page)
+          setPageInput(String(data.page))
           setTotal(data.total)
+          if (!search) setGlobalTotal(data.total)
         } finally {
           if (!cancelled) setLoading(false)
         }
@@ -79,6 +85,7 @@ export function HistoryPage() {
         return next
       })
       notify(t('feedback.historyDeleted'))
+      setGlobalTotal((current) => (current === null ? current : Math.max(0, current - 1)))
       setPendingDeleteId(null)
       setRefreshKey((current) => current + 1)
     } catch {
@@ -99,6 +106,7 @@ export function HistoryPage() {
       setRecords((current) => current.filter((record) => !removed.has(record.id)))
       setSelectedIds(new Set())
       notify(t('feedback.historyDeleted'))
+      setGlobalTotal((current) => (current === null ? current : Math.max(0, current - ids.length)))
       setPendingBatchDelete(false)
       setRefreshKey((current) => current + 1)
     } catch {
@@ -131,6 +139,17 @@ export function HistoryPage() {
   const allFilteredSelected = matchingIds.length > 0 && selectedFilteredCount === matchingIds.length
   const someFilteredSelected = selectedFilteredCount > 0 && !allFilteredSelected
   const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  const goToPage = () => {
+    const requestedPage = Number.parseInt(pageInput, 10)
+    if (!Number.isFinite(requestedPage) || totalPages < 1) {
+      setPageInput(String(page))
+      return
+    }
+    const nextPage = Math.min(totalPages, Math.max(1, requestedPage))
+    setPageInput(String(nextPage))
+    setPage(nextPage)
+  }
 
   const toggleSelectAll = () => {
     setSelectedIds((current) => {
@@ -166,7 +185,7 @@ export function HistoryPage() {
         actions={
           <Button
             data-testid="history-open-comparison-picker"
-            disabled={loading}
+            disabled={loading || globalTotal === null || globalTotal < 2}
             onClick={() => setComparisonPickerOpen(true)}
           >
             <GitCompareArrows size={16} aria-hidden="true" />
@@ -240,25 +259,19 @@ export function HistoryPage() {
             </p>
           </div>
         ) : records.length === 0 ? (
-          <EmptyState title={t('history.noResults')} description={t('history.noResultsTip')} className="h-64" />
+          <EmptyState
+            title={t('history.noResults')}
+            description={t('history.noResultsTip')}
+            action={!search ? <Button onClick={() => navigate('/')}>{t('history.startAnalysis')}</Button> : undefined}
+            className="h-64"
+          />
         ) : (
           <div className="ui-enter">
             <div className="space-y-2">
               {records.map((record) => (
-                <div
+                <article
                   key={record.id}
-                  data-testid="history-record"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setDetailTarget({ analysisId: record.id })}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      setDetailTarget({ analysisId: record.id })
-                    }
-                  }}
-                  aria-label={t('history.viewRecord', { url: record.url })}
-                  className={`flex cursor-pointer items-center gap-4 rounded-lg border p-4 transition-colors hover:border-primary/30 hover:bg-secondary/30 ${
+                  className={`group flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover:border-primary/30 hover:bg-secondary/30 ${
                     selectedIds.has(record.id) ? 'border-primary/50 bg-secondary/40' : 'border-border'
                   }`}
                 >
@@ -267,38 +280,44 @@ export function HistoryPage() {
                     data-testid="history-select-record"
                     checked={selectedIds.has(record.id)}
                     onChange={() => toggleSelected(record.id)}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
                     aria-label={t('history.selectRecord', { url: record.url })}
                     className="app-checkbox size-4 shrink-0 cursor-pointer rounded"
                   />
-                  <HistoryThumbnail path={record.screenshot_path} url={record.url} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <span className="truncate text-sm font-medium">{record.site_name}</span>
-                      {record.duration_ms != null && record.duration_ms > 0 && (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {record.duration_ms >= 60000
-                            ? t('history.durationMin', { minutes: (record.duration_ms / 60000).toFixed(1) })
-                            : t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
+                  <button
+                    type="button"
+                    data-testid="history-record"
+                    onClick={() => setDetailTarget({ analysisId: record.id })}
+                    aria-label={t('history.viewRecord', { url: record.url })}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <HistoryThumbnail path={record.screenshot_path} url={record.url} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-3">
+                        <span className="truncate text-sm font-medium">{record.site_name}</span>
+                        {record.duration_ms != null && record.duration_ms > 0 && (
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {record.duration_ms >= 60000
+                              ? t('history.durationMin', { minutes: (record.duration_ms / 60000).toFixed(1) })
+                              : t('history.duration', { seconds: (record.duration_ms / 1000).toFixed(1) })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="max-w-full truncate" title={record.url}>
+                          {record.url}
                         </span>
-                      )}
+                        <span>·</span>
+                        <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
+                        {record.theme_name && <span>· {record.theme_name}</span>}
+                      </div>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                      <span className="max-w-full truncate" title={record.url}>
-                        {record.url}
-                      </span>
-                      <span>·</span>
-                      <span>{t('history.pageCount', { count: record.pages_analyzed })}</span>
-                      {record.theme_name && <span>· {record.theme_name}</span>}
-                    </div>
-                  </div>
 
-                  <span data-testid="history-created-at" className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatLocalDateTime(record.created_at, i18n.language)}
-                  </span>
+                    <span data-testid="history-created-at" className="whitespace-nowrap text-xs text-muted-foreground">
+                      {formatLocalDateTime(record.created_at, i18n.language)}
+                    </span>
+                  </button>
 
-                  <div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                  <div className="flex shrink-0 items-center gap-1">
                     <IconButton
                       icon={ExternalLink}
                       label={t('history.openSource')}
@@ -311,7 +330,7 @@ export function HistoryPage() {
                       className="hover:bg-destructive/10 hover:text-destructive"
                     />
                   </div>
-                </div>
+                </article>
               ))}
             </div>
 
@@ -320,9 +339,19 @@ export function HistoryPage() {
                 <span className="text-xs text-muted-foreground">
                   {t('history.paginationSummary', { page, totalPages, total })}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
+                    data-testid="history-first-page"
+                    onClick={() => setPage(1)}
+                    disabled={page <= 1 || loading}
+                    className="inline-flex min-h-8 items-center rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('history.firstPage')}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="history-previous-page"
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={page <= 1 || loading}
                     className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -330,14 +359,55 @@ export function HistoryPage() {
                     <ChevronLeft size={14} aria-hidden="true" />
                     {t('history.previousPage')}
                   </button>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      goToPage()
+                    }}
+                    className="flex items-center gap-1.5"
+                  >
+                    <label htmlFor="history-page-input" className="sr-only">
+                      {t('history.pageInputLabel')}
+                    </label>
+                    <input
+                      id="history-page-input"
+                      data-testid="history-page-input"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={totalPages}
+                      value={pageInput}
+                      onChange={(event) => setPageInput(event.target.value)}
+                      onBlur={goToPage}
+                      className="h-8 w-12 rounded-md border border-input bg-background px-2 text-center text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">/ {totalPages}</span>
+                    <button
+                      type="submit"
+                      data-testid="history-go-to-page"
+                      className="min-h-8 rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
+                    >
+                      {t('history.goToPage')}
+                    </button>
+                  </form>
                   <button
                     type="button"
+                    data-testid="history-next-page"
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={page >= totalPages || loading}
                     className="inline-flex min-h-8 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {t('history.nextPage')}
                     <ChevronRight size={14} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="history-last-page"
+                    onClick={() => setPage(totalPages)}
+                    disabled={page >= totalPages || loading}
+                    className="inline-flex min-h-8 items-center rounded-md border border-border bg-background px-2.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('history.lastPage')}
                   </button>
                 </div>
               </nav>
@@ -412,7 +482,7 @@ function HistoryThumbnail({ path, url }: { path?: string | null; url: string }) 
     return (
       <div
         title={t('history.noPreview')}
-        className="flex h-16 w-24 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-muted-foreground"
+        className="flex h-14 w-20 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-muted-foreground"
       >
         <ImageIcon size={18} aria-hidden="true" />
         <span className="sr-only">{t('history.noPreview')}</span>
@@ -429,7 +499,7 @@ function HistoryThumbnail({ path, url }: { path?: string | null; url: string }) 
       decoding="async"
       draggable={false}
       onError={() => setFailed(true)}
-      className="h-16 w-24 shrink-0 rounded-md border border-border/60 bg-muted/30 object-cover object-top"
+      className="h-14 w-20 shrink-0 rounded-md border border-border/60 bg-muted/30 object-cover object-top"
     />
   )
 }

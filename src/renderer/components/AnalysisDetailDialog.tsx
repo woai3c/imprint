@@ -114,8 +114,8 @@ export function AnalysisDetailDialog({ analysisId, initialEvidenceId, onClose }:
             {t('feedback.actionFailed')}
           </div>
         ) : (
-          <div className="analysis-detail-body flex min-h-0 flex-1 gap-4 p-4">
-            <div className="analysis-detail-sidebar w-[340px] shrink-0 overflow-auto scrollbar-hidden">
+          <div className="analysis-detail-body flex min-h-0 flex-1 flex-col gap-3 p-4 lg:flex-row lg:gap-4">
+            <div className="analysis-detail-sidebar max-h-40 w-full shrink-0 overflow-auto scrollbar-hidden lg:max-h-none lg:w-[340px]">
               <ResultOverview
                 result={result}
                 analyzing={false}
@@ -123,7 +123,7 @@ export function AnalysisDetailDialog({ analysisId, initialEvidenceId, onClose }:
                 onOpenLightbox={evidenceViewer.openLightbox}
               />
             </div>
-            <div className="analysis-detail-main flex min-w-0 flex-1 flex-col">
+            <div className="analysis-detail-main flex min-h-0 min-w-0 flex-1 flex-col">
               <ArtifactPanel
                 result={result}
                 onResultUpdate={(update) => {

@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -63,16 +63,7 @@ export function SettingsPage() {
 
   return (
     <div className="h-full flex flex-col overflow-auto">
-      <PageHeader
-        title={t('settings.title')}
-        description={t('settings.description')}
-        actions={
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
-            <CheckCircle2 size={13} className="text-success" />
-            {t('settings.autoSave')}
-          </span>
-        }
-      />
+      <PageHeader title={t('settings.title')} description={t('settings.description')} />
 
       <div className="px-8 pb-8 space-y-8 max-w-2xl">
         <section>

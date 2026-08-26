@@ -270,7 +270,7 @@ function selectedPair(
 }
 
 function optionLabel(record: AnalysisRecord, language: string): string {
-  return `${record.site_name} · ${record.url} · ${formatLocalDateTime(record.created_at, language)}`
+  return `${record.site_name} · ${formatLocalDateTime(record.created_at, language)}`
 }
 
 function formatViewports(viewports: string, t: ReturnType<typeof useTranslation>['t']): string {

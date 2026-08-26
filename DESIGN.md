@@ -441,6 +441,10 @@ runs out, the tab strip scrolls horizontally instead.
   explicit confirmation as single deletion, plus a way to clear the selection.
 - Load history summaries from SQLite in pages of 10 and create thumbnail elements only for the current page. Search and
   select-all still apply to the complete filtered result set while pagination limits the rows and images rendered.
+  Pagination exposes first, previous, next, and last actions plus a bounded page-number field, so long histories never
+  require stepping through every intermediate page. Empty history includes a direct path back to analysis.
+- At the minimum supported desktop width, analysis results and history details place the compact result overview above
+  the artifact panel. All artifact tabs and actions remain directly reachable without a hidden horizontal tab strip.
 
 ## Persistent preferences
 

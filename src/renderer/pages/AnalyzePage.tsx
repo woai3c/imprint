@@ -580,7 +580,7 @@ export function AnalyzePage() {
           data-testid="analysis-result"
           data-source-url={result.url}
           data-access-mode={result.accessMode}
-          className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 gap-5"
+          className="ui-enter mx-8 mb-8 mt-4 flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-5"
         >
           <ResultOverview
             result={result}
@@ -601,7 +601,7 @@ export function AnalyzePage() {
             title={t('analyze.emptyTitle')}
             description={t('analyze.emptyDescription')}
             hint={t('analyze.analysisHint')}
-            className="flex-1 px-8"
+            className="h-72 px-8"
           />
         )
       )}

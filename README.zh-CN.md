@@ -44,15 +44,15 @@ DOM 层级、计算样式、响应式规则或交互状态。Imprint 展示并�
 不只依赖 AI 对视觉风格的猜测，而是为它提供建立在真实网页观察证据上的设计指导。
 
 ```text
-网站 URL
-       ↓
-    Imprint
-       ↓
-可复用设计系统 / DESIGN.md
-       ↓
+             网站 URL
+                 ↓
+              Imprint
+                 ↓
+    可复用设计系统 / DESIGN.md
+                 ↓
 Claude Code / Codex / 其他 AI Agent
-       ↓
-共享所提取视觉语言的多个产品页面
+                 ↓
+ 共享所提取视觉语言的多个产品页面
 ```
 
 ## 为什么需要 Imprint？

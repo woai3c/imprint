@@ -49,14 +49,14 @@ website as traceable evidence for the URL-based analysis.
 Instead of relying only on an AI agent's visual guesses, give it design guidance grounded in observed website evidence.
 
 ```text
-Website URL
-        ↓
-      Imprint
-        ↓
-Reusable Design System / DESIGN.md
-        ↓
-Claude Code / Codex / Other AI Agents
-        ↓
+                    Website URL
+                         ↓
+                      Imprint
+                         ↓
+         Reusable Design System / DESIGN.md
+                         ↓
+       Claude Code / Codex / Other AI Agents
+                         ↓
 Multiple pages sharing the extracted visual language
 ```
 

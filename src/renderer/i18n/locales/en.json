@@ -633,7 +633,7 @@
     "extractedThemeLabel": "Website themes",
     "extractedThemeDescription": "Observed foundation tokens · fixed scenario layout · this preview only",
     "noExtractedThemes": "Save a website analysis as a theme to validate it here.",
-    "extractedPreviewSummary": "“{{theme}}” is scoped to this preview: {{observed}} roles are observed and {{adapted}} missing roles are safely adapted.",
+    "extractedPreviewSummary": "“{{theme}}” is scoped to this preview: {{observed}} roles use observed values and {{adapted}} missing or low-contrast roles are safely adapted.",
     "extractedColorModeLabel": "Extracted theme color mode",
     "extractedColorModes": {
       "base": "Captured",
@@ -643,8 +643,8 @@
       "media": "Dark variant observed via prefers-color-scheme emulation — not necessarily the site's default",
       "toggle": "Dark variant observed by toggling {{selector}} — not necessarily the site's default"
     },
-    "extractedContrastWarning_one": "{{count}} observed color pair is below AA contrast",
-    "extractedContrastWarning_other": "{{count}} observed color pairs are below AA contrast",
+    "extractedContrastWarning_one": "{{count}} observed source pair is below AA; the preview adapts it for readability",
+    "extractedContrastWarning_other": "{{count}} observed source pairs are below AA; the preview adapts them for readability",
     "examples": {
       "dashboard": {
         "title": "Admin Dashboard",

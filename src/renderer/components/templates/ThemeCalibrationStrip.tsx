@@ -19,7 +19,7 @@ export function ThemeCalibrationStrip() {
   return (
     <div
       data-testid="theme-calibration-strip"
-      className="sticky top-2 z-10 mx-2 mt-2 mb-3 rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-sm backdrop-blur"
+      className="sticky top-0 z-10 mb-3 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur"
     >
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -68,7 +68,7 @@ export function ThemeCalibrationStrip() {
             <span
               key={badge.key}
               data-theme-role={badge.role}
-              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
             >
               {t(`templates.calibration.status.${badge.key}`)}
             </span>

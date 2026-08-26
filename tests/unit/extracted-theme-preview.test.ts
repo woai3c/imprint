@@ -66,8 +66,59 @@ describe('extracted theme preview normalization', () => {
     })
 
     expect(preview.contrastIssueCount).toBe(1)
+    expect(contrastRatio('#ffffff', preview.style['--color-foreground'])).toBeGreaterThanOrEqual(4.5)
     expect(preview.style['--color-primary']).not.toContain('url(')
     expect(preview.style['--color-primary-foreground']).toBeTruthy()
+  })
+
+  test('keeps validation geometry stable and rejects rare control radii and unreadable text roles', () => {
+    const preview = createExtractedThemePreview({
+      tokens_json: JSON.stringify({
+        colors: {
+          background: '#ffffff',
+          surface: '#f2f3f5',
+          foreground: '#8a919f',
+          'muted-foreground': '#c2c6cc',
+          primary: '#1e80ff',
+          'palette-4': '#333333',
+          'palette-7': '#515767',
+        },
+        typography: {
+          fontSizes: ['0.75rem', '0.8rem', '0.813rem', '0.875rem', '0.969rem', '1rem', '1.125rem'],
+        },
+        spacing: ['2px', '4px', '8px', '12px', '16px'],
+        radii: ['2px', '4px', '8px', '10px', '32px'],
+        usageCount: {
+          'textColor:rgb(51, 51, 51)': 1715,
+          'textColor:rgb(138, 145, 159)': 1088,
+          'textColor:rgb(81, 87, 103)': 310,
+          'radius:2px': 174,
+          'radius:4px': 139,
+          'radius:8px': 7,
+          'radius:10px': 5,
+          'radius:32px': 2,
+        },
+      }),
+    })
+
+    expect(preview.style['--spacing']).toBe('0.25rem')
+    expect(preview.style['--radius-md']).toBe('4px')
+    expect(preview.style['--radius-xl']).toBe('8px')
+    expect(preview.style['--color-foreground']).toBe('rgb(51, 51, 51)')
+    expect(preview.style['--color-muted-foreground']).toBe('rgb(81, 87, 103)')
+    expect(contrastRatio('#ffffff', preview.style['--color-foreground'])).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio('#ffffff', preview.style['--color-muted-foreground'])).toBeGreaterThanOrEqual(4.5)
+    expect(
+      [
+        preview.style['--text-xs'],
+        preview.style['--text-sm'],
+        preview.style['--text-base'],
+        preview.style['--text-lg'],
+        preview.style['--text-xl'],
+        preview.style['--text-2xl'],
+      ].every((value) => Number.parseFloat(value) % 2 === 0),
+    ).toBe(true)
+    expect(preview.contrastIssueCount).toBe(3)
   })
 
   test('falls back to a neutral complete preview when stored tokens are malformed', () => {

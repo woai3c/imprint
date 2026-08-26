@@ -604,7 +604,7 @@
     "extractedThemeLabel": "网站提取主题",
     "extractedThemeDescription": "已观察基础令牌 · 固定验证布局 · 仅作用于当前预览",
     "noExtractedThemes": "将网站分析保存为主题后，可在这里进行验证。",
-    "extractedPreviewSummary": "“{{theme}}”仅作用于当前预览：{{observed}} 个角色来自直接观察，{{adapted}} 个缺失角色经安全补全。",
+    "extractedPreviewSummary": "“{{theme}}”仅作用于当前预览：{{observed}} 个角色直接采用观察值，{{adapted}} 个缺失或低对比度角色经安全适配。",
     "extractedColorModeLabel": "提取主题颜色模式",
     "extractedColorModes": {
       "base": "原始",
@@ -614,7 +614,7 @@
       "media": "暗色变体通过模拟 prefers-color-scheme 观察得到，不代表站点默认以暗色加载",
       "toggle": "暗色变体通过切换 {{selector}} 观察得到，不代表站点默认以暗色加载"
     },
-    "extractedContrastWarning": "发现 {{count}} 组观察颜色未达到 AA 对比度",
+    "extractedContrastWarning": "来源中有 {{count}} 组观察配色低于 AA，预览已做可读性适配",
     "examples": {
       "dashboard": {
         "title": "管理仪表盘",

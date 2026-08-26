@@ -18,6 +18,7 @@ interface ExtractedTokens {
   radii?: unknown
   shadows?: unknown
   borders?: unknown
+  usageCount?: Record<string, unknown>
 }
 
 export interface ExtractedThemePreview {
@@ -107,16 +108,36 @@ function safeCssValue(value: string | undefined, fallback: string): string {
   return normalized && normalized.length <= 240 && !/[;{}<>]|url\s*\(/i.test(normalized) ? normalized : fallback
 }
 
-function parseHex(value: string | undefined): [number, number, number] | null {
+function parseColor(value: string | undefined): [number, number, number] | null {
   if (!value) return null
-  const match = value.trim().match(/^#([\da-f]{3}|[\da-f]{6})$/i)
-  if (!match) return null
-  const hex = match[1].length === 3 ? match[1].replace(/(.)/g, '$1$1') : match[1]
-  return [
-    Number.parseInt(hex.slice(0, 2), 16),
-    Number.parseInt(hex.slice(2, 4), 16),
-    Number.parseInt(hex.slice(4, 6), 16),
-  ]
+  const normalized = value.trim()
+  const hexMatch = normalized.match(/^#([\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i)
+  if (hexMatch) {
+    const hex = hexMatch[1].length === 3 ? hexMatch[1].replace(/(.)/g, '$1$1') : hexMatch[1]
+    if (hex.length === 8 && Number.parseInt(hex.slice(6, 8), 16) < 255) return null
+    return [
+      Number.parseInt(hex.slice(0, 2), 16),
+      Number.parseInt(hex.slice(2, 4), 16),
+      Number.parseInt(hex.slice(4, 6), 16),
+    ]
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\((.+)\)$/i)
+  if (!rgbMatch) return null
+  const parts = rgbMatch[1]
+    .replace(/\s*\/\s*/, ',')
+    .split(/\s*,\s*|\s+/)
+    .filter(Boolean)
+  if (parts.length < 3 || parts.length > 4) return null
+  const alpha = parts[3] === undefined ? 1 : Number.parseFloat(parts[3])
+  if (!Number.isFinite(alpha) || alpha < 0.999) return null
+  const channels = parts.slice(0, 3).map((part) => {
+    const amount = Number.parseFloat(part)
+    return part.endsWith('%') ? (amount / 100) * 255 : amount
+  })
+  return channels.every((channel) => Number.isFinite(channel) && channel >= 0 && channel <= 255)
+    ? (channels as [number, number, number])
+    : null
 }
 
 function toHex(rgb: [number, number, number]): string {
@@ -124,8 +145,8 @@ function toHex(rgb: [number, number, number]): string {
 }
 
 function mix(first: string, second: string, secondWeight: number, fallback: string): string {
-  const firstRgb = parseHex(first)
-  const secondRgb = parseHex(second)
+  const firstRgb = parseColor(first)
+  const secondRgb = parseColor(second)
   if (!firstRgb || !secondRgb) return fallback
   return toHex(
     firstRgb.map((channel, index) => channel * (1 - secondWeight) + secondRgb[index] * secondWeight) as [
@@ -137,7 +158,7 @@ function mix(first: string, second: string, secondWeight: number, fallback: stri
 }
 
 function luminance(value: string | undefined): number | null {
-  const rgb = parseHex(value)
+  const rgb = parseColor(value)
   if (!rgb) return null
   const channels = rgb.map((channel) => {
     const normalized = channel / 255
@@ -155,21 +176,121 @@ export function contrastRatio(first: string | undefined, second: string | undefi
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-function readableText(background: string, candidates: Array<string | undefined>): string {
-  const usableCandidates = [...candidates, '#ffffff', '#111827'].filter((value): value is string => !!safeColor(value))
-  return usableCandidates.reduce(
+function colorKey(value: string): string {
+  const parsed = parseColor(value)
+  return parsed ? parsed.map((channel) => Math.round(channel)).join(',') : value.trim().toLowerCase()
+}
+
+function uniqueColors(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>()
+  return values.filter((value): value is string => {
+    if (typeof value !== 'string' || !safeColor(value)) return false
+    const key = colorKey(value)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function minimumContrast(backgrounds: string[], candidate: string): number | null {
+  const ratios = backgrounds.map((background) => contrastRatio(background, candidate))
+  return ratios.some((ratio) => ratio === null) ? null : Math.min(...(ratios as number[]))
+}
+
+function readableText(
+  backgrounds: string | string[],
+  preferred: string | undefined,
+  candidates: Array<string | undefined>,
+): string {
+  const comparedBackgrounds = Array.isArray(backgrounds) ? backgrounds : [backgrounds]
+  const observedCandidates = uniqueColors([preferred, ...candidates])
+  if (preferred && (minimumContrast(comparedBackgrounds, preferred) ?? 0) >= 4.5) return preferred
+
+  const observedMatch = observedCandidates.find(
+    (candidate) => (minimumContrast(comparedBackgrounds, candidate) ?? 0) >= 4.5,
+  )
+  if (observedMatch) return observedMatch
+
+  return uniqueColors([...observedCandidates, '#ffffff', '#111827']).reduce(
     (best, candidate) => {
-      const ratio = contrastRatio(background, candidate) ?? 0
+      const ratio = minimumContrast(comparedBackgrounds, candidate) ?? 0
       return ratio > best.ratio ? { color: candidate, ratio } : best
     },
     { color: '#111827', ratio: -1 },
   ).color
 }
 
+function usageColors(usageCount: Record<string, unknown> | undefined, category: string): string[] {
+  const prefix = `${category}:`
+  return Object.entries(usageCount || {})
+    .filter(
+      (entry): entry is [string, number] =>
+        entry[0].startsWith(prefix) && typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] > 0,
+    )
+    .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+    .map(([key]) => safeColor(key.slice(prefix.length)))
+    .filter((value): value is string => !!value)
+}
+
+function isBetweenForegroundAndBackground(candidate: string, foreground: string, background: string): boolean {
+  const candidateLuminance = luminance(candidate)
+  const foregroundLuminance = luminance(foreground)
+  const backgroundLuminance = luminance(background)
+  if (candidateLuminance === null || foregroundLuminance === null || backgroundLuminance === null) return false
+  const minimum = Math.min(foregroundLuminance, backgroundLuminance)
+  const maximum = Math.max(foregroundLuminance, backgroundLuminance)
+  return candidateLuminance > minimum && candidateLuminance < maximum
+}
+
+function readableMutedText(
+  backgrounds: string[],
+  preferred: string | undefined,
+  foreground: string,
+  candidates: string[],
+): string {
+  if (preferred && (minimumContrast(backgrounds, preferred) ?? 0) >= 4.5) return preferred
+  const background = backgrounds[0]
+  const observedMatch = uniqueColors(candidates).find(
+    (candidate) =>
+      colorKey(candidate) !== colorKey(foreground) &&
+      isBetweenForegroundAndBackground(candidate, foreground, background) &&
+      (minimumContrast(backgrounds, candidate) ?? 0) >= 4.5,
+  )
+  return observedMatch || foreground
+}
+
 function numericCssValues(values: string[]): string[] {
   return values
     .filter((value) => /^\d*\.?\d+(?:px|rem|em)$/.test(value.trim()))
     .sort((first, second) => Number.parseFloat(first) - Number.parseFloat(second))
+}
+
+function lengthInPixels(value: string): number | null {
+  const match = value.trim().match(/^(\d*\.?\d+)(px|rem|em)$/)
+  if (!match) return null
+  const amount = Number.parseFloat(match[1]) * (match[2] === 'px' ? 1 : 16)
+  return Number.isFinite(amount) ? amount : null
+}
+
+function evenTypeScale(values: string[]): string[] {
+  const defaults = [12, 14, 16, 18, 20, 24]
+  const observed = [
+    ...new Set(
+      values
+        .map(lengthInPixels)
+        .filter((value): value is number => value !== null && value >= 10 && value <= 40)
+        .map((value) => Math.min(32, Math.max(12, Math.round(value / 2) * 2))),
+    ),
+  ].sort((first, second) => first - second)
+
+  if (observed.length < 3 || observed[0] > 14) return defaults.map((value) => `${value}px`)
+
+  const regularScale = observed.filter((value) => value <= 24)
+  const scale = defaults.map((fallback, index) => regularScale[index] ?? fallback)
+  const displaySize = observed.findLast((value) => value > 24)
+  if (displaySize) scale[scale.length - 1] = displaySize
+  for (let index = 1; index < scale.length; index += 1) scale[index] = Math.max(scale[index], scale[index - 1])
+  return scale.map((value) => `${value}px`)
 }
 
 function numericValues(values: string[]): string[] {
@@ -195,23 +316,48 @@ function borderWidth(values: string[]): string {
 }
 
 function isPillRadius(value: string): boolean {
-  const match = value.trim().match(/^(\d*\.?\d+)(px|rem|em)$/)
-  if (!match) return false
-  const pixels = Number.parseFloat(match[1]) * (match[2] === 'px' ? 1 : 16)
-  return pixels >= 999
+  const pixels = lengthInPixels(value)
+  return pixels !== null && pixels >= 999
 }
 
-function spacingUnit(values: string[]): string {
-  const pixels = values
-    .map((value) => {
-      const match = value.trim().match(/^(\d*\.?\d+)(px|rem)$/)
-      if (!match) return null
-      const amount = Number.parseFloat(match[1]) * (match[2] === 'rem' ? 16 : 1)
-      return Number.isFinite(amount) && amount > 0 ? amount : null
-    })
-    .filter((value): value is number => value !== null)
-  if (pixels.length === 0) return '0.25rem'
-  return `${Math.min(8, Math.max(2, Math.min(...pixels))) / 16}rem`
+function usageForLength(usageCount: Record<string, unknown> | undefined, category: string, pixels: number): number {
+  let count = 0
+  const prefix = `${category}:`
+  for (const [key, value] of Object.entries(usageCount || {})) {
+    if (!key.startsWith(prefix) || typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+    const observedPixels = lengthInPixels(key.slice(prefix.length))
+    if (observedPixels !== null && Math.abs(observedPixels - pixels) <= 0.1) count += value
+  }
+  return count
+}
+
+function previewRadiusScale(values: string[], usageCount: Record<string, unknown> | undefined): string[] {
+  const candidates = numericCssValues(values)
+    .filter((value) => !isPillRadius(value))
+    .map((value) => ({ value, pixels: lengthInPixels(value) }))
+    .filter((entry): entry is { value: string; pixels: number } => entry.pixels !== null)
+    .map((entry) => ({ ...entry, count: usageForLength(usageCount, 'radius', entry.pixels) }))
+    .sort((first, second) => first.pixels - second.pixels)
+
+  if (candidates.length <= 1) return candidates.map((candidate) => candidate.value)
+
+  const ranked = [...candidates].sort((first, second) => second.count - first.count || first.pixels - second.pixels)
+  const maxCount = ranked[0].count
+  let supported = candidates
+  if (maxCount > 0) {
+    const commonRadiusCeiling = Math.max(...ranked.slice(0, 2).map((candidate) => candidate.pixels)) * 2
+    supported = candidates.filter(
+      (candidate) => candidate.pixels <= commonRadiusCeiling || candidate.count >= maxCount * 0.2,
+    )
+  } else if (candidates.length >= 3) {
+    const previous = candidates.at(-2)!
+    const last = candidates.at(-1)!
+    if (last.pixels > previous.pixels * 2.5) supported = candidates.slice(0, -1)
+  }
+
+  return (supported.length > 0 ? supported : candidates)
+    .sort((first, second) => first.pixels - second.pixels)
+    .map((candidate) => candidate.value)
 }
 
 export function createExtractedThemePreview(
@@ -242,9 +388,12 @@ export function createExtractedThemePreview(
       .filter((entry): entry is [string, string] => !!entry[1]),
   )
   const palette = [...new Set(Object.values(sourceColors))]
+  const textCandidates = usageColors(tokens.usageCount, 'textColor')
   const background = sourceColors.background || palette[0] || '#ffffff'
-  const foreground = sourceColors.foreground || readableText(background, palette)
-  const surface = sourceColors.card || sourceColors.surface || mix(background, foreground, 0.04, background)
+  const initialForeground =
+    sourceColors.foreground || readableText(background, undefined, [...textCandidates, ...palette])
+  const surface = sourceColors.card || sourceColors.surface || mix(background, initialForeground, 0.04, background)
+  const foreground = readableText([background, surface], sourceColors.foreground, [...textCandidates, ...palette])
   const primary =
     sourceColors.primary || palette.find((color) => color !== background && color !== foreground) || foreground
   const secondary = sourceColors.secondary || mix(background, foreground, 0.08, surface)
@@ -253,10 +402,18 @@ export function createExtractedThemePreview(
   const border = sourceColors.border || mix(background, foreground, 0.2, foreground)
   const borderSubtle = sourceColors['border-subtle'] || border
   const input = sourceColors.input || border
-  const primaryForeground = sourceColors['primary-foreground'] || readableText(primary, [background, foreground])
-  const secondaryForeground = sourceColors['secondary-foreground'] || readableText(secondary, [foreground, background])
-  const mutedForeground = sourceColors['muted-foreground'] || readableText(muted, [foreground, background])
-  const accentForeground = sourceColors['accent-foreground'] || readableText(accent, [foreground, background])
+  const primaryForeground = readableText(primary, sourceColors['primary-foreground'], [foreground, ...textCandidates])
+  const secondaryForeground = readableText(secondary, sourceColors['secondary-foreground'], [
+    foreground,
+    ...textCandidates,
+  ])
+  const mutedForeground = readableMutedText(
+    [background, surface, muted],
+    sourceColors['muted-foreground'],
+    foreground,
+    textCandidates,
+  )
+  const accentForeground = readableText(accent, sourceColors['accent-foreground'], [foreground, ...textCandidates])
   const backgroundLuminance = luminance(background)
   const darkSurface = backgroundLuminance !== null && backgroundLuminance < 0.35
   const destructive = sourceColors.destructive || (darkSurface ? '#f97066' : '#b42318')
@@ -269,7 +426,7 @@ export function createExtractedThemePreview(
     background,
     foreground,
     card: surface,
-    'card-foreground': sourceColors['card-foreground'] || readableText(surface, [foreground, background]),
+    'card-foreground': readableText(surface, sourceColors['card-foreground'], [foreground, ...textCandidates]),
     primary,
     'primary-foreground': primaryForeground,
     secondary,
@@ -279,38 +436,41 @@ export function createExtractedThemePreview(
     accent,
     'accent-foreground': accentForeground,
     destructive,
-    'destructive-foreground':
-      sourceColors['destructive-foreground'] || readableText(destructive, [background, foreground]),
+    'destructive-foreground': readableText(destructive, sourceColors['destructive-foreground'], [
+      foreground,
+      ...textCandidates,
+    ]),
     border,
     'border-subtle': borderSubtle,
     input,
     ring: sourceColors.ring || primary,
     sidebar,
-    'sidebar-foreground': sourceColors['sidebar-foreground'] || readableText(sidebar, [foreground, background]),
+    'sidebar-foreground': readableText(sidebar, sourceColors['sidebar-foreground'], [foreground, ...textCandidates]),
     'sidebar-accent': sidebarAccent,
     warning,
-    'warning-foreground': sourceColors['warning-foreground'] || readableText(warning, [background, foreground]),
+    'warning-foreground': readableText(warning, sourceColors['warning-foreground'], [foreground, ...textCandidates]),
     'warning-strong': sourceColors['warning-strong'] || warning,
     success,
     popover: sourceColors.popover || surface,
-    'popover-foreground':
-      sourceColors['popover-foreground'] || readableText(sourceColors.popover || surface, [foreground, background]),
+    'popover-foreground': readableText(sourceColors.popover || surface, sourceColors['popover-foreground'], [
+      foreground,
+      ...textCandidates,
+    ]),
   }
 
   const fontStacks = stringArray(activeTokens.typography?.fontStacks)
   const fontFamilies = stringArray(activeTokens.typography?.fontFamilies)
   const fontBody = safeCssValue(fontStacks[0] || fontFamilies[0], 'system-ui, sans-serif')
-  const fontSizes = numericCssValues(stringArray(activeTokens.typography?.fontSizes))
+  const fontSizes = evenTypeScale(stringArray(activeTokens.typography?.fontSizes))
   const fontWeights = numericValues(stringArray(activeTokens.typography?.fontWeights))
   const lineHeights = numericValues(
     stringArray(activeTokens.typography?.lineHeights).filter((value) => /^\d*\.?\d+$/.test(value.trim())),
   )
   const letterSpacings = numericValues(stringArray(activeTokens.typography?.letterSpacings))
-  const radii = numericCssValues(stringArray(activeTokens.radii)).filter((value) => !isPillRadius(value))
+  const radii = previewRadiusScale(stringArray(activeTokens.radii), activeTokens.usageCount || tokens.usageCount)
   const shadows = stringArray(activeTokens.shadows)
     .map((value) => safeCssValue(value, ''))
     .filter(Boolean)
-  const sourceSpacing = stringArray(activeTokens.spacing)
   const sourceBorders = stringArray(activeTokens.borders)
   const radius = radii[Math.floor(radii.length / 2)] || '0.5rem'
   const largeRadius = radii[Math.min(radii.length - 1, Math.ceil(radii.length * 0.75))] || radius
@@ -328,7 +488,10 @@ export function createExtractedThemePreview(
     '--font-weight-medium': closestFontWeight(fontWeights, 500, '500'),
     '--font-weight-semibold': closestFontWeight(fontWeights, 600, '600'),
     '--font-weight-bold': closestFontWeight(fontWeights, 700, '700'),
-    '--spacing': spacingUnit(sourceSpacing),
+    // Tailwind derives structural widths and heights from --spacing. Keep the
+    // validation geometry fixed instead of treating the smallest observed gap
+    // as a global base unit and shrinking the entire scenario.
+    '--spacing': '0.25rem',
     '--text-xs': fontSizes[0] || '0.75rem',
     '--text-sm': fontSizes[1] || fontSizes[0] || '0.875rem',
     '--text-base': fontSizes[2] || fontSizes[1] || '1rem',
@@ -370,9 +533,14 @@ export function createExtractedThemePreview(
 
   const observedRoles = new Set(semanticColorRoles.filter((role) => !!sourceColors[role]))
   if (!sourceColors.card && sourceColors.surface) observedRoles.add('card')
+  for (const role of [...observedRoles]) {
+    const sourceValue = role === 'card' && !sourceColors.card ? sourceColors.surface : sourceColors[role]
+    if (!sourceValue || colorKey(sourceValue) !== colorKey(mappedColors[role])) observedRoles.delete(role)
+  }
   const observedRoleCount = observedRoles.size
   const contrastPairs: Array<[string | undefined, string | undefined]> = [
     [sourceColors.background, sourceColors.foreground],
+    [sourceColors.background, sourceColors['muted-foreground']],
     [sourceColors.card || sourceColors.surface, sourceColors['card-foreground'] || sourceColors.foreground],
     [sourceColors.primary, sourceColors['primary-foreground']],
   ]

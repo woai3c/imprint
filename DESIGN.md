@@ -525,7 +525,8 @@ Visual novelty must remain accountable to the product's extraction and validatio
   Poetic language may set context, but it cannot substitute for implementation evidence.
 - Treat the examples in the desktop app as validation scenarios, not bundled website templates. Organize them by product
   workflow, content and presentation, and interaction states. Keep every scenario directly visible in a compact grouped
-  tile layout; do not hide scenario switching inside a select menu.
+  tile layout; do not hide scenario switching inside a select menu. Scenario names remain readable at the minimum
+  window width, and groups do not add decorative count badges or nested card layers that compete with the preview.
 - Pin a compact theme-calibration strip above every validation surface: primary and secondary actions, a text link, an
   input with a focus ring, checkbox and radio controls, and default/success/warning/error status badges. Every control
   binds directly to a semantic theme role (no arbitrary fallback colors), and the strip states that these fixed

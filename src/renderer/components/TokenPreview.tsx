@@ -2,27 +2,10 @@ import { Moon, Sun } from 'lucide-react'
 
 import { useTranslation } from 'react-i18next'
 
-interface TokenData {
-  colors: Record<string, string>
-  typography: {
-    fontFamilies: string[]
-    fontStacks?: string[]
-    fontSizes: string[]
-    fontWeights: string[]
-    lineHeights: string[]
-    letterSpacings?: string[]
-  }
-  spacing: string[]
-  radii: string[]
-  shadows: string[]
-  borders: string[]
-  zIndices?: string[]
-  transitions?: string[]
-  usageCount?: Record<string, number>
-}
+import type { DesignToken } from '../../core/analyzer/types'
 
 interface TokenPreviewProps {
-  tokens: TokenData
+  tokens: DesignToken
   darkTokens?: Record<string, string> | null
   hasDarkMode?: boolean
 }
@@ -192,7 +175,7 @@ function TypographySection({
   usageCount,
   t,
 }: {
-  typography: TokenData['typography']
+  typography: DesignToken['typography']
   usageCount?: Record<string, number>
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {

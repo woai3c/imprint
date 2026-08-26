@@ -58,6 +58,17 @@ const canonicalSections = [
 ]
 
 describe('Google DESIGN.md alpha compatibility', () => {
+  test('keeps the options-object API equivalent to the legacy positional call', () => {
+    const positional = generateDesignDoc(tokens, 'https://example.com/product', ['high-contrast'])
+    const options = generateDesignDoc({
+      tokens,
+      url: 'https://example.com/product',
+      featureTags: ['high-contrast'],
+    })
+
+    expect(options).toBe(positional)
+  })
+
   test.each(['en', 'zh-CN'] as const)('generates an officially parseable %s document', (language) => {
     const designDoc = generateDesignDoc(
       tokens,

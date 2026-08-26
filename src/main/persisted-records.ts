@@ -1,6 +1,8 @@
 import { isPageHealthEvidenceEligible } from '../core/analyzer/page-health.js'
 import type { ReferenceCaptureInput } from '../core/analyzer/reference-compare.js'
 import type { AnalysisCompletion, AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
+import { isCurrentDesignProfile } from '../core/design-context/types.js'
+import type { DesignProfile, ValidationReport } from '../core/design-context/types.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import { type DarkModeExportData, restoreDarkModeExportData } from '../core/export/index.js'
 import type { PageScreenshotData, ThemeSummaryRecord } from '../shared/ipc-contract.js'
@@ -76,6 +78,35 @@ function isDesignToken(value: unknown): value is DesignToken {
     isStringArray(value.zIndices) &&
     isStringArray(value.transitions)
   )
+}
+
+function readJson(serialized: unknown): unknown {
+  if (typeof serialized !== 'string') return undefined
+  try {
+    return JSON.parse(serialized) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+export function readDesignTokens(serialized: unknown): DesignToken | null {
+  const parsed = readJson(serialized)
+  return isDesignToken(parsed) ? parsed : null
+}
+
+export function readStringList(serialized: unknown): string[] {
+  const parsed = readJson(serialized)
+  return isStringArray(parsed) ? parsed : []
+}
+
+export function readDesignProfile(serialized: unknown): DesignProfile | null {
+  const parsed = readJson(serialized)
+  return isCurrentDesignProfile(parsed) ? parsed : null
+}
+
+export function readValidationReport(serialized: unknown): ValidationReport | null {
+  const parsed = readJson(serialized)
+  return isRecord(parsed) ? (parsed as unknown as ValidationReport) : null
 }
 
 function isEvidenceImage(value: unknown): boolean {
@@ -315,22 +346,8 @@ export function readDarkModeExportData(
 
 export function referenceCaptureFromRecord(record: Record<string, unknown>): ReferenceCaptureInput | null {
   try {
-    const tokens = JSON.parse((record.tokens_json as string) || '{}') as DesignToken
-    if (
-      !isRecord(tokens) ||
-      !isRecord(tokens.colors) ||
-      !isRecord(tokens.typography) ||
-      !Array.isArray(tokens.typography.fontFamilies) ||
-      !Array.isArray(tokens.typography.fontStacks) ||
-      !Array.isArray(tokens.typography.fontSizes) ||
-      !Array.isArray(tokens.typography.fontWeights) ||
-      !Array.isArray(tokens.typography.lineHeights) ||
-      !Array.isArray(tokens.typography.letterSpacings) ||
-      !Array.isArray(tokens.spacing) ||
-      !Array.isArray(tokens.radii)
-    ) {
-      return null
-    }
+    const tokens = readDesignTokens(record.tokens_json)
+    if (!tokens) return null
     return {
       analysisId: String(record.id),
       url: String(record.final_url || record.url || ''),

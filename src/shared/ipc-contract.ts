@@ -8,6 +8,7 @@ import type {
   AnalysisTiming,
   AuthMode,
   CaptureManifest,
+  DesignToken,
   ExtractionIssue,
   LoginDecision,
   PageCoverage,
@@ -150,7 +151,7 @@ export interface ComparisonVisualPair {
 export interface AnalysisResultData {
   analysisId?: string
   savedThemeId?: string | null
-  tokens: Record<string, unknown>
+  tokens: DesignToken
   cssVariables: string
   tailwindTheme: string
   designDoc: string
@@ -189,7 +190,7 @@ export interface AnalysisDetailData {
   analysisTiming?: AnalysisTiming
   createdAt: string
   routeIdentity: string | null
-  tokens: Record<string, unknown>
+  tokens: DesignToken
   cssVariables: string
   tailwindTheme: string
   designDoc: string
@@ -229,14 +230,11 @@ export type AnalysisComparisonResponse =
       reason: 'analysis-not-found' | 'same-analysis' | 'analysis-order-invalid' | 'invalid-analysis-data'
     }
 
-export interface AnalyzeResponse extends Partial<AnalysisResultData> {
-  error?: boolean
-  message?: string
-  stage?: string
-  authRequired?: boolean
-  detection?: AuthWallDetection
-  cancelled?: boolean
-}
+export type AnalyzeResponse =
+  | AnalysisResultData
+  | { error: true; message?: string; stage?: string }
+  | { authRequired: true; detection: AuthWallDetection }
+  | { cancelled: true }
 
 export type AnalysisRecoveryResponse =
   | { status: 'idle' }

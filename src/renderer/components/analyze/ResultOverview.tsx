@@ -15,12 +15,10 @@ interface ResultOverviewProps {
 export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLightbox }: ResultOverviewProps) {
   const { t } = useTranslation()
 
-  const tokens = result.tokens as Record<string, unknown> | undefined
-  const colorCount = tokens?.colors ? Object.keys(tokens.colors as Record<string, string>).length : 0
-  const typographyData = tokens?.typography as { fontSizes?: string[] } | undefined
-  const typeStyleCount = typographyData?.fontSizes?.length || 0
-  const spacingCount = (tokens?.spacing as string[] | undefined)?.length || 0
-  const radiiCount = (tokens?.radii as string[] | undefined)?.length || 0
+  const colorCount = Object.keys(result.tokens.colors).length
+  const typeStyleCount = result.tokens.typography.fontSizes.length
+  const spacingCount = result.tokens.spacing.length
+  const radiiCount = result.tokens.radii.length
 
   const pageScreenshots = getPageScreenshots(result)
   const analyzedPageCount = new Set(pageScreenshots.map((screenshot) => screenshot.url)).size

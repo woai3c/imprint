@@ -735,6 +735,93 @@
       "inferredSuffix": "背景来自透明组件所在的通用表面假设，实施时应在真实容器中复核。",
       "warning": "- `{{name}}`：前景 `{{foreground}}` / {{backgroundKind}} `{{background}}` 为 {{ratio}}:1，低于该{{controlKind}}的 {{target}}:1 目标。{{inferredSuffix}}",
       "iconSchemaNote": "- `{{name}}`：前景 `{{foreground}}` / {{backgroundKind}} `{{background}}` 为 {{ratio}}:1，达到非文本图标的 3:1 目标；但 DESIGN.md alpha 组件字段只能将该颜色写为 `textColor`，通用校验器可能按 4.5:1 文字目标报警。"
+    },
+    "designDoc": {
+      "title": "设计系统",
+      "extractedFrom": "\n提取自：{{url}}",
+      "darkMode": {
+        "classToggleDetection": "切换 {{selector}} 后读取计算样式",
+        "mediaDetection": "模拟 prefers-color-scheme: dark 后读取计算样式",
+        "supported": "\n**深色模式：** 支持。暗色令牌通过{{detection}}主动观察得到；不代表该站点默认以深色加载。",
+        "notDetected": "\n**深色模式：** 未检测到"
+      },
+      "colors": {
+        "dominantHeading": "### 主要观察用途颜色分组\n",
+        "groupHeader": "| 分组 | 令牌 |",
+        "groups": {
+          "action": "操作",
+          "editorial": "编辑强调",
+          "status": "状态/趋势",
+          "decorative": "装饰",
+          "text": "文字",
+          "surface": "表面/背景",
+          "border": "边框",
+          "declared": "仅 CSS 声明，未观察到渲染用途",
+          "fallback": "已观察但未分配语义"
+        },
+        "completeHeading": "### 完整颜色令牌\n",
+        "tokenHeader": "| 令牌 | 值 | 用途 | 置信度 |",
+        "contexts": {
+          "action": "操作",
+          "status": "状态",
+          "background": "背景",
+          "text": "文字",
+          "border": "边框"
+        },
+        "pageCountOne": "{{count}}页",
+        "pageCountOther": "{{count}}页",
+        "declaredOnly": "仅 CSS 声明；未观察到渲染用途",
+        "primaryHeading": "\n### 已观察的主操作配色\n",
+        "primaryPair": "- 已观察的主操作配色：{{pair}}",
+        "observedContrast": "- 已观察对比度：{{ratio}}:1{{warning}}",
+        "contrastWarning": "（低于普通文本 4.5:1 目标）",
+        "primaryRecommendation": "- 派生的可访问性建议：`{{value}}`（{{ratio}}:1，目标 ≥ {{target}}:1；非页面观察值）",
+        "statusHeading": "\n### 已观察的状态与趋势配色\n",
+        "darkHeading": "\n### 深色模式颜色\n",
+        "valueHeader": "| 令牌 | 值 |"
+      },
+      "typography": {
+        "families": "**字体族：** {{values}}",
+        "systemDefault": "系统默认",
+        "fullStacks": "\n**完整字体栈：**",
+        "sizes": "\n**字号：** {{values}}",
+        "weights": "\n**字重：** {{values}}",
+        "letterSpacing": "\n**字间距：** {{values}}"
+      },
+      "layout": {
+        "spacingHeading": "### 可复用间距候选\n",
+        "spacingLevel": "- 级别 {{level}}: `{{value}}`{{countSuffix}}",
+        "noSpacing": "- 未观察到可靠的间距刻度。",
+        "geometryNote": "\n> 超过 96px 的低频页面几何不进入可复用刻度；有代表性的结构尺寸与响应式变化已保留在本文档中。",
+        "breakpointHeading": "\n### CSS 中声明的响应式断点\n",
+        "breakpointNote": "> 下列宽度来自 CSS media/container query；只有列出的变化才经过直接观察，空白不代表页面在该宽度没有变化。\n",
+        "breakpointHeader": "| 标签 | 宽度 | 直接观察到的变化 |",
+        "gradientHeading": "\n### 区块渐变处理\n"
+      },
+      "elevation": {
+        "shadowHeading": "### 阴影\n",
+        "noShadows": "未观察到稳定的阴影刻度；应通过边框、表面颜色和内容层级表达深度。",
+        "zIndexHeading": "\n### 层级（Z-Index）\n",
+        "zIndexLevel": "- 层级 {{level}}: `{{value}}`",
+        "transitionHeading": "\n### 过渡时长\n"
+      },
+      "shapes": {
+        "radiusHeading": "### 圆角刻度\n",
+        "noRadius": "未观察到可靠的圆角刻度。",
+        "structuralHeading": "\n### 结构圆角\n"
+      },
+      "components": {
+        "canonicalNote": "> 实例数按每个页面的一次代表性捕获统计；优先使用桌面端。其他视口只用于响应式观察，不重复累计实例。\n",
+        "header": "| 类型 | 实例数 | 置信度 | 代表样式 |",
+        "detectorNote": "\n> Detector 补充项：仅为聚合模式，不具备 DOM 实例级 provenance；与 Evidence 重叠的计数未相加。",
+        "noPatterns": "本次未观察到足够可靠的组件模式；请使用上面的令牌和原页面证据实现组件。"
+      },
+      "confidence": {
+        "heading": "\n## 提取置信度\n",
+        "counts": "- 高：{{high}}；中：{{medium}}；低：{{low}}",
+        "review": "- 建议人工确认：{{values}}",
+        "separator": "、"
+      }
     }
   },
   "transferGrammar": {

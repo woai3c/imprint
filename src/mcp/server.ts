@@ -12,31 +12,15 @@
  */
 import * as readline from 'node:readline'
 
+import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { analyze } from '../core/analyzer/index.js'
-import {
-  sanitizeDesignEvidenceForPersistence,
-  sanitizeDesignTokensForPersistence,
-  sanitizeDiagnosticTextForDisplay,
-  sanitizeExtractionIssuesForDisplay,
-  sanitizePageCoverageForPersistence,
-  sanitizeUrlForPersistence,
-} from '../core/analyzer/url-privacy.js'
+import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
 import { isCurrentDesignProfile } from '../core/design-context/types.js'
 import type { DesignProfile } from '../core/design-context/types.js'
-import {
-  buildDarkModeExportData,
-  generateComponentSpecsJson,
-  generateCssVariables,
-  generateDesignDoc,
-  generateDesignEvidenceJson,
-  generateDtcgJson,
-  generateLocalVisualQa,
-  generateTailwindTheme,
-} from '../core/export/index.js'
 import { coreTranslator } from '../core/i18n/index.js'
 
 interface JsonRpcRequest {
@@ -145,60 +129,32 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
       signal,
     })
 
-    const tokens = sanitizeDesignTokensForPersistence(result.tokens)
-    const publicEvidence = sanitizeDesignEvidenceForPersistence(result.designEvidence)
-    const publicPageCoverage = sanitizePageCoverageForPersistence(result.pageCoverage)
-    const publicExtractionIssues = sanitizeExtractionIssuesForDisplay(result.extractionIssues)
-    const featureTags = result.featureTags
-    const rawDarkMode = buildDarkModeExportData(result.darkMode)
-    const darkMode = rawDarkMode?.darkTokens
-      ? { ...rawDarkMode, darkTokens: sanitizeDesignTokensForPersistence(rawDarkMode.darkTokens) }
-      : rawDarkMode
-    const designContext = createDeterministicDesignContext(result.designEvidence, 'en')
+    const artifacts = buildAnalysisArtifacts(result, { sourceUrl: url, language: 'en' })
     const tokenSummary = {
-      tokens,
-      darkMode,
-      featureTags,
-      pageCoverage: publicPageCoverage,
+      tokens: artifacts.tokens,
+      darkMode: artifacts.darkMode,
+      featureTags: result.featureTags,
+      pageCoverage: artifacts.pageCoverage,
       completion: result.completion,
-      extractionIssues: publicExtractionIssues,
+      extractionIssues: artifacts.extractionIssues,
       analysisTiming: result.timing,
     }
 
     switch (format) {
       case 'json':
-        return { content: [{ type: 'text', text: generateDtcgJson(tokens, darkMode) }] }
+        return { content: [{ type: 'text', text: artifacts.dtcgJson }] }
       case 'css':
-        return { content: [{ type: 'text', text: generateCssVariables(tokens, darkMode, result.breakpoints) }] }
+        return { content: [{ type: 'text', text: artifacts.cssVariables }] }
       case 'tailwind':
-        return { content: [{ type: 'text', text: generateTailwindTheme(tokens, darkMode, result.breakpoints) }] }
+        return { content: [{ type: 'text', text: artifacts.tailwindTheme }] }
       case 'markdown':
-        return {
-          content: [
-            {
-              type: 'text',
-              text: generateDesignDoc(
-                tokens,
-                url,
-                featureTags,
-                darkMode,
-                result.breakpoints,
-                result.components,
-                'en',
-                result.designEvidence,
-                designContext.profile,
-              ),
-            },
-          ],
-        }
+        return { content: [{ type: 'text', text: artifacts.designDoc }] }
       case 'evidence':
-        return { content: [{ type: 'text', text: generateDesignEvidenceJson(result.designEvidence) }] }
+        return { content: [{ type: 'text', text: artifacts.evidenceJson }] }
       case 'component-specs':
-        return { content: [{ type: 'text', text: generateComponentSpecsJson(publicEvidence) }] }
+        return { content: [{ type: 'text', text: artifacts.componentSpecsJson }] }
       case 'visual-qa':
-        return {
-          content: [{ type: 'text', text: JSON.stringify(generateLocalVisualQa(publicEvidence), null, 2) }],
-        }
+        return { content: [{ type: 'text', text: artifacts.visualQaJson }] }
       case 'all':
         return {
           content: [
@@ -207,24 +163,14 @@ async function handleToolCall(name: string, params: Record<string, unknown>, sig
               text: JSON.stringify(
                 {
                   ...tokenSummary,
-                  designProfile: designContext.profile,
-                  agentContext: designContext.agentContext,
-                  validationReport: designContext.validationReport,
-                  css: generateCssVariables(tokens, darkMode, result.breakpoints),
-                  tailwind: generateTailwindTheme(tokens, darkMode, result.breakpoints),
-                  evidence: publicEvidence,
-                  markdown: generateDesignDoc(
-                    tokens,
-                    url,
-                    featureTags,
-                    darkMode,
-                    result.breakpoints,
-                    result.components,
-                    'en',
-                    result.designEvidence,
-                    designContext.profile,
-                  ),
-                  dtcg: generateDtcgJson(tokens, darkMode),
+                  designProfile: artifacts.designContext.profile,
+                  agentContext: artifacts.designContext.agentContext,
+                  validationReport: artifacts.designContext.validationReport,
+                  css: artifacts.cssVariables,
+                  tailwind: artifacts.tailwindTheme,
+                  evidence: artifacts.evidence,
+                  markdown: artifacts.designDoc,
+                  dtcg: artifacts.dtcgJson,
                 },
                 null,
                 2,

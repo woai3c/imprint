@@ -3,7 +3,6 @@ import { ExternalLink, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { DesignToken } from '../../../core/analyzer/types'
 import { formatRecipeVariant } from '../../../core/design-context/component-recipe-label'
 import type {
   DesignClaim,
@@ -510,7 +509,7 @@ export function DesignDnaPanel({ result, onResultUpdate, onOpenEvidence }: Desig
           )}
           {validationReport && (
             <div className="mt-4">
-              <ValidationReportPanel report={validationReport} tokens={result.tokens as unknown as DesignToken} />
+              <ValidationReportPanel report={validationReport} tokens={result.tokens} />
             </div>
           )}
         </section>

@@ -40,7 +40,7 @@ import {
 } from '../design-evidence/responsive-reliability.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
-import { coreT } from '../i18n/index.js'
+import { coreT, coreTranslator } from '../i18n/index.js'
 import { type DarkModeExportData, normalizeDarkSelector } from './dark-mode.js'
 import { designMdColorEntries } from './design-md-color-names.js'
 import {
@@ -1452,17 +1452,67 @@ function reconstructionSummary(
   ].filter(Boolean)
 }
 
+export interface GenerateDesignDocOptions {
+  tokens: DesignToken
+  url?: string
+  featureTags?: string[]
+  darkMode?: DarkModeExportData
+  breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>
+  components?: ComponentPattern[]
+  language?: DocLanguage
+  designEvidence?: DesignEvidence
+  designProfile?: DesignProfile | null
+}
+
+export function generateDesignDoc(options: GenerateDesignDocOptions): string
+/** @deprecated Prefer the options object overload so optional inputs cannot shift position. */
 export function generateDesignDoc(
   inputTokens: DesignToken,
   url?: string,
   featureTags?: string[],
   darkMode?: DarkModeExportData,
   breakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>,
-  components: ComponentPattern[] = [],
-  language: DocLanguage = 'en',
+  components?: ComponentPattern[],
+  language?: DocLanguage,
   inputDesignEvidence?: DesignEvidence,
   designProfile?: DesignProfile | null,
+): string
+export function generateDesignDoc(
+  input: DesignToken | GenerateDesignDocOptions,
+  legacyUrl?: string,
+  legacyFeatureTags?: string[],
+  legacyDarkMode?: DarkModeExportData,
+  legacyBreakpoints?: Array<{ width: number; label: string; layoutChanges?: string[] }>,
+  legacyComponents: ComponentPattern[] = [],
+  legacyLanguage: DocLanguage = 'en',
+  legacyDesignEvidence?: DesignEvidence,
+  legacyDesignProfile?: DesignProfile | null,
 ): string {
+  const options: GenerateDesignDocOptions =
+    'tokens' in input
+      ? input
+      : {
+          tokens: input,
+          url: legacyUrl,
+          featureTags: legacyFeatureTags,
+          darkMode: legacyDarkMode,
+          breakpoints: legacyBreakpoints,
+          components: legacyComponents,
+          language: legacyLanguage,
+          designEvidence: legacyDesignEvidence,
+          designProfile: legacyDesignProfile,
+        }
+  const {
+    tokens: inputTokens,
+    url,
+    featureTags,
+    darkMode,
+    breakpoints,
+    components = [],
+    language = 'en',
+    designEvidence: inputDesignEvidence,
+    designProfile,
+  } = options
   // Keep the complete portable token tables while resolving every evidence claim against its evidence-owned catalog.
   // The two catalogs have different scopes, so positional references must never cross this boundary.
   const tokens = sanitizeDesignTokensForPersistence(inputTokens)
@@ -1484,7 +1534,7 @@ export function generateDesignDoc(
       )
     }
   }
-  const zh = language === 'zh-CN'
+  const docT = coreTranslator(language, 'export.designDoc')
   const documentUrl = sanitizeUrlForPersistence(url || designEvidence?.source.requestedUrl || '') || undefined
   const documentFeatureTags = (featureTags || designEvidence?.featureTags || []).filter(
     (tag) => tag !== 'extensive CSS variable usage',
@@ -1539,7 +1589,7 @@ export function generateDesignDoc(
         language,
       ),
     )
-  if (documentUrl) lines.push(zh ? `\n提取自：${documentUrl}` : `\nExtracted from: ${documentUrl}`)
+  if (documentUrl) lines.push(docT('extractedFrom', { url: documentUrl }))
 
   if (documentFeatureTags.length > 0) {
     const tags = documentFeatureTags.map((tag) => `\`${localizedFeatureTag(tag, language)}\``).join(' · ')
@@ -1549,60 +1599,29 @@ export function generateDesignDoc(
   if (darkMode?.hasDarkMode) {
     const detection =
       darkMode.method === 'class-toggle'
-        ? zh
-          ? `切换 ${normalizeDarkSelector(darkMode.selector)} 后读取计算样式`
-          : `toggling ${normalizeDarkSelector(darkMode.selector)} and reading computed styles`
-        : zh
-          ? '模拟 prefers-color-scheme: dark 后读取计算样式'
-          : 'emulating prefers-color-scheme: dark and reading computed styles'
-    lines.push(
-      zh
-        ? `\n**深色模式：** 支持。暗色令牌通过${detection}主动观察得到；不代表该站点默认以深色加载。`
-        : `\n**Dark Mode:** Supported. Dark tokens were observed by ${detection}; this does not imply the site loads in dark by default.`,
-    )
+        ? docT('darkMode.classToggleDetection', { selector: normalizeDarkSelector(darkMode.selector) })
+        : docT('darkMode.mediaDetection')
+    lines.push(docT('darkMode.supported', { detection }))
   } else {
-    lines.push(zh ? `\n**深色模式：** 未检测到` : `\n**Dark Mode:** Not detected`)
+    lines.push(docT('darkMode.notDetected'))
   }
 
   // Colors
   lines = sections.colors
   const colorGroups = observedColorGroups(tokens, publicColorNames)
   if (colorGroups.length > 0) {
-    lines.push(zh ? '### 主要观察用途颜色分组\n' : '### Dominant Observed Color Roles\n')
-    lines.push(zh ? '| 分组 | 令牌 |' : '| Group | Tokens |')
+    lines.push(docT('colors.dominantHeading'))
+    lines.push(docT('colors.groupHeader'))
     lines.push('|---|---|')
-    const colorGroupLabels: Record<string, string> = zh
-      ? {
-          action: '操作',
-          editorial: '编辑强调',
-          status: '状态/趋势',
-          decorative: '装饰',
-          text: '文字',
-          surface: '表面/背景',
-          border: '边框',
-          declared: '仅 CSS 声明，未观察到渲染用途',
-          fallback: '已观察但未分配语义',
-        }
-      : {
-          action: 'Action',
-          editorial: 'Editorial accent',
-          status: 'Status/delta',
-          decorative: 'Decorative',
-          text: 'Text',
-          surface: 'Surface/background',
-          border: 'Border',
-          declared: 'CSS-declared; no rendered use observed',
-          fallback: 'Observed, unassigned role',
-        }
     for (const group of colorGroups) {
       lines.push(
-        `| ${colorGroupLabels[group.label]} | ${group.names.map((name) => `\`--color-${name}\``).join(', ')} |`,
+        `| ${docT(`colors.groups.${group.label}`)} | ${group.names.map((name) => `\`--color-${name}\``).join(', ')} |`,
       )
     }
     lines.push('')
-    lines.push(zh ? '### 完整颜色令牌\n' : '### Complete Color Tokens\n')
+    lines.push(docT('colors.completeHeading'))
   }
-  lines.push(zh ? '| 令牌 | 值 | 用途 | 置信度 |' : '| Token | Value | Usage | Confidence |')
+  lines.push(docT('colors.tokenHeader'))
   lines.push('|-------|-------|-------|------------|')
   for (const { sourceName, publicName, value } of publicColorEntries) {
     const bgCount = usageForColor(tokens, 'bgColor', value)
@@ -1625,49 +1644,55 @@ export function generateDesignDoc(
     const renderedCount = Math.max(bgCount + textCount + borderCount, actionCount, statusCount)
     const declaredOnly = isDeclaredOnlyColor(tokens, value)
     const contexts = [
-      actionCount > 0 ? (zh ? '操作' : 'action') : null,
-      statusCount > 0 ? (zh ? '状态' : 'status') : null,
-      bgCount > 0 ? (zh ? '背景' : 'background') : null,
-      textCount > 0 ? (zh ? '文字' : 'text') : null,
-      borderCount > 0 ? (zh ? '边框' : 'border') : null,
+      actionCount > 0 ? docT('colors.contexts.action') : null,
+      statusCount > 0 ? docT('colors.contexts.status') : null,
+      bgCount > 0 ? docT('colors.contexts.background') : null,
+      textCount > 0 ? docT('colors.contexts.text') : null,
+      borderCount > 0 ? docT('colors.contexts.border') : null,
     ].filter((context): context is string => context !== null)
     const context = contexts.join('+')
     const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
     const confidence = tokenEvidence
-      ? `${tokenEvidence.confidence} · ${zh ? `${tokenEvidence.pageCount}页` : `${tokenEvidence.pageCount} ${tokenEvidence.pageCount === 1 ? 'page' : 'pages'}`}`
+      ? `${tokenEvidence.confidence} · ${docT(
+          tokenEvidence.pageCount === 1 ? 'colors.pageCountOne' : 'colors.pageCountOther',
+          { count: tokenEvidence.pageCount },
+        )}`
       : '-'
     lines.push(
-      `| \`--color-${publicName}\` | \`${value}\` | ${renderedCount > 0 ? `${renderedCount}× (${context})` : declaredOnly ? (zh ? '仅 CSS 声明；未观察到渲染用途' : 'CSS-declared; no rendered use observed') : '-'} | ${confidence} |`,
+      `| \`--color-${publicName}\` | \`${value}\` | ${renderedCount > 0 ? `${renderedCount}× (${context})` : declaredOnly ? docT('colors.declaredOnly') : '-'} | ${confidence} |`,
     )
   }
 
   const primaryActionRole = tokens.colorRoles?.primaryAction
   if (primaryActionRole) {
-    lines.push(zh ? '\n### 已观察的主操作配色\n' : '\n### Observed Primary Action Pair\n')
+    lines.push(docT('colors.primaryHeading'))
     const pair = primaryActionRole.observedForeground
       ? `\`${primaryActionRole.observedBackground}\` / \`${primaryActionRole.observedForeground}\``
       : `\`${primaryActionRole.observedBackground}\``
-    lines.push(zh ? `- 已观察的主操作配色：${pair}` : `- Observed primary action pair: ${pair}`)
+    lines.push(docT('colors.primaryPair', { pair }))
     if (primaryActionRole.contrastRatio !== undefined) {
       lines.push(
-        zh
-          ? `- 已观察对比度：${primaryActionRole.contrastRatio.toFixed(2)}:1${primaryActionRole.contrastWarning ? '（低于普通文本 4.5:1 目标）' : ''}`
-          : `- Observed contrast: ${primaryActionRole.contrastRatio.toFixed(2)}:1${primaryActionRole.contrastWarning ? ' (below the 4.5:1 normal-text target)' : ''}`,
+        docT('colors.observedContrast', {
+          ratio: primaryActionRole.contrastRatio.toFixed(2),
+          warning: primaryActionRole.contrastWarning ? docT('colors.contrastWarning') : '',
+        }),
       )
     }
     if (primaryActionRole.recommendedOnPrimary) {
       const recommendation = primaryActionRole.recommendedOnPrimary
       lines.push(
-        zh
-          ? `- 派生的可访问性建议：\`${recommendation.value}\`（${recommendation.contrastRatio.toFixed(2)}:1，目标 ≥ ${recommendation.targetContrastRatio}:1；非页面观察值）`
-          : `- Derived accessible recommendation: \`${recommendation.value}\` (${recommendation.contrastRatio.toFixed(2)}:1, target ≥ ${recommendation.targetContrastRatio}:1; not an observed value)`,
+        docT('colors.primaryRecommendation', {
+          value: recommendation.value,
+          ratio: recommendation.contrastRatio.toFixed(2),
+          target: recommendation.targetContrastRatio,
+        }),
       )
     }
   }
 
   const semanticPairs = tokens.colorRoles?.semanticPairs
   if (semanticPairs && Object.keys(semanticPairs).length > 0) {
-    lines.push(zh ? '\n### 已观察的状态与趋势配色\n' : '\n### Observed Status and Delta Pairs\n')
+    lines.push(docT('colors.statusHeading'))
     for (const [role, pair] of Object.entries(semanticPairs)) {
       lines.push(
         `- \`${role}\`: ${[pair.observedBackground, pair.observedForeground]
@@ -1679,8 +1704,8 @@ export function generateDesignDoc(
   }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
-    lines.push(zh ? '\n### 深色模式颜色\n' : '\n### Dark Mode Colors\n')
-    lines.push(zh ? '| 令牌 | 值 |' : '| Token | Value |')
+    lines.push(docT('colors.darkHeading'))
+    lines.push(docT('colors.valueHeader'))
     lines.push('|-------|-------|')
     for (const { publicName, value } of designMdColorEntries(darkMode.darkTokens, 'dark-observed')) {
       lines.push(`| \`--color-${publicName}\` | \`${value}\` |`)
@@ -1690,64 +1715,46 @@ export function generateDesignDoc(
   // Typography
   lines = sections.typography
   lines.push(
-    zh
-      ? `**字体族：** ${tokens.typography.fontFamilies.join(', ') || '系统默认'}`
-      : `**Font families:** ${tokens.typography.fontFamilies.join(', ') || 'System default'}`,
+    docT('typography.families', {
+      values: tokens.typography.fontFamilies.join(', ') || docT('typography.systemDefault'),
+    }),
   )
   if (tokens.typography.fontStacks?.length > 0) {
-    lines.push(zh ? '\n**完整字体栈：**' : '\n**Full font stacks:**')
+    lines.push(docT('typography.fullStacks'))
     tokens.typography.fontStacks.forEach((stack) => {
       lines.push(`- \`${stack}\``)
     })
   }
-  lines.push(
-    zh
-      ? `\n**字号：** ${tokens.typography.fontSizes.join(', ')}`
-      : `\n**Font sizes:** ${tokens.typography.fontSizes.join(', ')}`,
-  )
-  lines.push(
-    zh
-      ? `\n**字重：** ${tokens.typography.fontWeights.join(', ')}`
-      : `\n**Font weights:** ${tokens.typography.fontWeights.join(', ')}`,
-  )
+  lines.push(docT('typography.sizes', { values: tokens.typography.fontSizes.join(', ') }))
+  lines.push(docT('typography.weights', { values: tokens.typography.fontWeights.join(', ') }))
   if (tokens.typography.letterSpacings?.length > 0) {
-    lines.push(
-      zh
-        ? `\n**字间距：** ${tokens.typography.letterSpacings.join(', ')}`
-        : `\n**Letter spacing:** ${tokens.typography.letterSpacings.join(', ')}`,
-    )
+    lines.push(docT('typography.letterSpacing', { values: tokens.typography.letterSpacings.join(', ') }))
   }
 
   // Layout
   lines = sections.layout
-  lines.push(zh ? '### 可复用间距候选\n' : '### Reusable Spacing Candidates\n')
+  lines.push(docT('layout.spacingHeading'))
   if (tokens.spacing.length > 0) {
     lines.push(
       tokens.spacing
         .map((s, i) => {
           const count = tokens.usageCount?.[`spacing:${s}`] || 0
-          return zh
-            ? `- 级别 ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
-            : `- Level ${i + 1}: \`${s}\`${count > 0 ? ` (${count}×)` : ''}`
+          return docT('layout.spacingLevel', {
+            level: i + 1,
+            value: s,
+            countSuffix: count > 0 ? ` (${count}×)` : '',
+          })
         })
         .join('\n'),
     )
   } else {
-    lines.push(zh ? '- 未观察到可靠的间距刻度。' : '- No reliable spacing scale was observed.')
+    lines.push(docT('layout.noSpacing'))
   }
-  lines.push(
-    zh
-      ? '\n> 超过 96px 的低频页面几何不进入可复用刻度；有代表性的结构尺寸与响应式变化已保留在本文档中。'
-      : '\n> Low-frequency page geometry above 96px is excluded from the reusable scale; representative structural dimensions and responsive changes remain in this document.',
-  )
+  lines.push(docT('layout.geometryNote'))
   if (documentBreakpoints.length > 0) {
-    lines.push(zh ? '\n### CSS 中声明的响应式断点\n' : '\n### Responsive Breakpoints Declared in CSS\n')
-    lines.push(
-      zh
-        ? '> 下列宽度来自 CSS media/container query；只有列出的变化才经过直接观察，空白不代表页面在该宽度没有变化。\n'
-        : '> These widths come from CSS media/container queries. Only listed changes were directly observed; an empty cell does not prove that nothing changes at that width.\n',
-    )
-    lines.push(zh ? '| 标签 | 宽度 | 直接观察到的变化 |' : '| Label | Width | Directly observed changes |')
+    lines.push(docT('layout.breakpointHeading'))
+    lines.push(docT('layout.breakpointNote'))
+    lines.push(docT('layout.breakpointHeader'))
     lines.push('|-------|-------|-------|')
     documentBreakpoints.forEach((breakpoint) => {
       lines.push(`| ${breakpoint.label} | \`${breakpoint.width}px\` | ${breakpoint.layoutChanges?.join(', ') || '-'} |`)
@@ -1763,7 +1770,7 @@ export function generateDesignDoc(
     ).values(),
   ].slice(0, 8)
   if (sectionGradients.length > 0) {
-    lines.push(zh ? '\n### 区块渐变处理\n' : '\n### Section Gradient Treatments\n')
+    lines.push(docT('layout.gradientHeading'))
     for (const { gradient, role } of sectionGradients) {
       const structure = [gradient.type, gradient.direction, gradient.stops.join(' → ')].filter(Boolean).join(' · ')
       lines.push(`- ${role}: \`${gradient.value}\` (${structure})`)
@@ -1773,25 +1780,21 @@ export function generateDesignDoc(
   // Elevation
   lines = sections.elevation
   if (tokens.shadows.length > 0) {
-    lines.push(zh ? '### 阴影\n' : '### Shadows\n')
+    lines.push(docT('elevation.shadowHeading'))
     lines.push(tokens.shadows.map((shadow, index) => `- ${SHADOW_NAMES[index] || index}: \`${shadow}\``).join('\n'))
   } else {
-    lines.push(
-      zh
-        ? '未观察到稳定的阴影刻度；应通过边框、表面颜色和内容层级表达深度。'
-        : 'No stable shadow scale was observed; express depth through borders, surface colors, and content hierarchy.',
-    )
+    lines.push(docT('elevation.noShadows'))
   }
   if (tokens.zIndices?.length > 0) {
-    lines.push(zh ? '\n### 层级（Z-Index）\n' : '\n### Z-Index Layers\n')
+    lines.push(docT('elevation.zIndexHeading'))
     lines.push(
       tokens.zIndices
-        .map((zIndex, index) => (zh ? `- 层级 ${index + 1}: \`${zIndex}\`` : `- Layer ${index + 1}: \`${zIndex}\``))
+        .map((zIndex, index) => docT('elevation.zIndexLevel', { level: index + 1, value: zIndex }))
         .join('\n'),
     )
   }
   if (tokens.transitions?.length > 0) {
-    lines.push(zh ? '\n### 过渡时长\n' : '\n### Transition Durations\n')
+    lines.push(docT('elevation.transitionHeading'))
     lines.push(
       tokens.transitions.map((transition, index) => `- ${proseDurationName(index)}: \`${transition}\``).join('\n'),
     )
@@ -1800,7 +1803,7 @@ export function generateDesignDoc(
   // Shapes
   lines = sections.shapes
   if (tokens.radii.length > 0) {
-    lines.push(zh ? '### 圆角刻度\n' : '### Corner Radius Scale\n')
+    lines.push(docT('shapes.radiusHeading'))
     lines.push(
       tokens.radii
         .map((radius, index) => {
@@ -1810,7 +1813,7 @@ export function generateDesignDoc(
         .join('\n'),
     )
   } else {
-    lines.push(zh ? '未观察到可靠的圆角刻度。' : 'No reliable corner radius scale was observed.')
+    lines.push(docT('shapes.noRadius'))
   }
   const structuralRadii = [
     ...new Map(
@@ -1822,7 +1825,7 @@ export function generateDesignDoc(
     ).values(),
   ].slice(0, 8)
   if (structuralRadii.length > 0) {
-    lines.push(zh ? '\n### 结构圆角\n' : '\n### Structural Shapes\n')
+    lines.push(docT('shapes.structuralHeading'))
     for (const { borderRadius, role } of structuralRadii) {
       lines.push(`- ${role}: \`${borderRadius}\``)
     }
@@ -1839,15 +1842,9 @@ export function generateDesignDoc(
   const proseComponents = [...documentComponents, ...freeformEvidenceComponents]
   if (proseComponents.length > 0) {
     if (designEvidence) {
-      lines.push(
-        zh
-          ? '> 实例数按每个页面的一次代表性捕获统计；优先使用桌面端。其他视口只用于响应式观察，不重复累计实例。\n'
-          : '> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n',
-      )
+      lines.push(docT('components.canonicalNote'))
     }
-    lines.push(
-      zh ? '| 类型 | 实例数 | 置信度 | 代表样式 |' : '| Type | Instances | Confidence | Representative styles |',
-    )
+    lines.push(docT('components.header'))
     lines.push('|---|---:|---:|---|')
     proseComponents.forEach((component) => {
       const styles = usefulComponentStyles(component.styles, tokens)
@@ -1871,11 +1868,7 @@ export function generateDesignDoc(
         component.evidence.includes('component-detector:supplemental:no-instance-provenance'),
       )
     ) {
-      lines.push(
-        zh
-          ? '\n> Detector 补充项：仅为聚合模式，不具备 DOM 实例级 provenance；与 Evidence 重叠的计数未相加。'
-          : '\n> Detector supplement; aggregated pattern without instance-level provenance. Counts overlapping Evidence were not added.',
-      )
+      lines.push(docT('components.detectorNote'))
     }
     const contrastWarnings = componentContrastWarnings(documentComponents, tokens)
     if (contrastWarnings.length > 0) {
@@ -1917,11 +1910,7 @@ export function generateDesignDoc(
       }
     }
   } else {
-    lines.push(
-      zh
-        ? '本次未观察到足够可靠的组件模式；请使用上面的令牌和原页面证据实现组件。'
-        : 'No component pattern was observed with enough confidence; implement components from the tokens and source evidence above.',
-    )
+    lines.push(docT('components.noPatterns'))
   }
 
   lines = sections.dosAndDonts
@@ -1966,16 +1955,10 @@ export function generateDesignDoc(
         return `\`${publicPath}\` (\`${item.value}\`)`
       })
       .slice(0, 12)
-    lines.push(zh ? '\n## 提取置信度\n' : '\n## Extraction Confidence\n')
-    lines.push(
-      zh
-        ? `- 高：${confidenceCounts.high}；中：${confidenceCounts.medium}；低：${confidenceCounts.low}`
-        : `- High: ${confidenceCounts.high}; medium: ${confidenceCounts.medium}; low: ${confidenceCounts.low}`,
-    )
+    lines.push(docT('confidence.heading'))
+    lines.push(docT('confidence.counts', confidenceCounts))
     if (lowConfidence.length > 0) {
-      lines.push(
-        zh ? `- 建议人工确认：${lowConfidence.join('、')}` : `- Review recommended: ${lowConfidence.join(', ')}`,
-      )
+      lines.push(docT('confidence.review', { values: lowConfidence.join(docT('confidence.separator')) }))
     }
   }
 
@@ -2003,7 +1986,7 @@ export function generateDesignDoc(
   return redactUrlsInText(
     renderDesignMdDocument({
       frontMatter,
-      title: zh ? '设计系统' : 'Design System',
+      title: docT('title'),
       sections,
       appendices: [appendixLines.join('\n')],
     }),

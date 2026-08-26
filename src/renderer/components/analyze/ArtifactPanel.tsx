@@ -170,7 +170,7 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
     ),
   }))
 
-  const tokens = result.tokens as Record<string, unknown> | undefined
+  const tokens = result.tokens
   const designMarkdown = splitDesignMarkdown(result.designDoc || '')
   const exportArtifacts = desktopArtifactExports(result)
 
@@ -304,8 +304,8 @@ export function ArtifactPanel({ result, onResultUpdate, onOpenEvidence }: Artifa
           {activeTab === 'overview' && (
             <DesignDnaPanel result={result} onResultUpdate={onResultUpdate} onOpenEvidence={onOpenEvidence} />
           )}
-          {activeTab === 'preview' && tokens && (
-            <TokenPreview tokens={tokens as never} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
+          {activeTab === 'preview' && (
+            <TokenPreview tokens={tokens} darkTokens={result.darkTokens} hasDarkMode={result.hasDarkMode} />
           )}
           {activeTab === 'markdown' && (
             <div data-testid="artifact-content-markdown" className="p-6">

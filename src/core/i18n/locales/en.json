@@ -735,6 +735,93 @@
       "inferredSuffix": " The background comes from the shared-surface assumption for a transparent component; verify it in the real container.",
       "warning": "- `{{name}}`: foreground `{{foreground}}` over {{backgroundKind}} `{{background}}` is {{ratio}}:1, below the {{target}}:1 target for this {{controlKind}}.{{inferredSuffix}}",
       "iconSchemaNote": "- `{{name}}`: foreground `{{foreground}}` over {{backgroundKind}} `{{background}}` is {{ratio}}:1 and meets the 3:1 non-text icon target. The DESIGN.md alpha component field represents it as `textColor`, so a general validator may still apply the 4.5:1 text target."
+    },
+    "designDoc": {
+      "title": "Design System",
+      "extractedFrom": "\nExtracted from: {{url}}",
+      "darkMode": {
+        "classToggleDetection": "toggling {{selector}} and reading computed styles",
+        "mediaDetection": "emulating prefers-color-scheme: dark and reading computed styles",
+        "supported": "\n**Dark Mode:** Supported. Dark tokens were observed by {{detection}}; this does not imply the site loads in dark by default.",
+        "notDetected": "\n**Dark Mode:** Not detected"
+      },
+      "colors": {
+        "dominantHeading": "### Dominant Observed Color Roles\n",
+        "groupHeader": "| Group | Tokens |",
+        "groups": {
+          "action": "Action",
+          "editorial": "Editorial accent",
+          "status": "Status/delta",
+          "decorative": "Decorative",
+          "text": "Text",
+          "surface": "Surface/background",
+          "border": "Border",
+          "declared": "CSS-declared; no rendered use observed",
+          "fallback": "Observed, unassigned role"
+        },
+        "completeHeading": "### Complete Color Tokens\n",
+        "tokenHeader": "| Token | Value | Usage | Confidence |",
+        "contexts": {
+          "action": "action",
+          "status": "status",
+          "background": "background",
+          "text": "text",
+          "border": "border"
+        },
+        "pageCountOne": "{{count}} page",
+        "pageCountOther": "{{count}} pages",
+        "declaredOnly": "CSS-declared; no rendered use observed",
+        "primaryHeading": "\n### Observed Primary Action Pair\n",
+        "primaryPair": "- Observed primary action pair: {{pair}}",
+        "observedContrast": "- Observed contrast: {{ratio}}:1{{warning}}",
+        "contrastWarning": " (below the 4.5:1 normal-text target)",
+        "primaryRecommendation": "- Derived accessible recommendation: `{{value}}` ({{ratio}}:1, target ≥ {{target}}:1; not an observed value)",
+        "statusHeading": "\n### Observed Status and Delta Pairs\n",
+        "darkHeading": "\n### Dark Mode Colors\n",
+        "valueHeader": "| Token | Value |"
+      },
+      "typography": {
+        "families": "**Font families:** {{values}}",
+        "systemDefault": "System default",
+        "fullStacks": "\n**Full font stacks:**",
+        "sizes": "\n**Font sizes:** {{values}}",
+        "weights": "\n**Font weights:** {{values}}",
+        "letterSpacing": "\n**Letter spacing:** {{values}}"
+      },
+      "layout": {
+        "spacingHeading": "### Reusable Spacing Candidates\n",
+        "spacingLevel": "- Level {{level}}: `{{value}}`{{countSuffix}}",
+        "noSpacing": "- No reliable spacing scale was observed.",
+        "geometryNote": "\n> Low-frequency page geometry above 96px is excluded from the reusable scale; representative structural dimensions and responsive changes remain in this document.",
+        "breakpointHeading": "\n### Responsive Breakpoints Declared in CSS\n",
+        "breakpointNote": "> These widths come from CSS media/container queries. Only listed changes were directly observed; an empty cell does not prove that nothing changes at that width.\n",
+        "breakpointHeader": "| Label | Width | Directly observed changes |",
+        "gradientHeading": "\n### Section Gradient Treatments\n"
+      },
+      "elevation": {
+        "shadowHeading": "### Shadows\n",
+        "noShadows": "No stable shadow scale was observed; express depth through borders, surface colors, and content hierarchy.",
+        "zIndexHeading": "\n### Z-Index Layers\n",
+        "zIndexLevel": "- Layer {{level}}: `{{value}}`",
+        "transitionHeading": "\n### Transition Durations\n"
+      },
+      "shapes": {
+        "radiusHeading": "### Corner Radius Scale\n",
+        "noRadius": "No reliable corner radius scale was observed.",
+        "structuralHeading": "\n### Structural Shapes\n"
+      },
+      "components": {
+        "canonicalNote": "> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n",
+        "header": "| Type | Instances | Confidence | Representative styles |",
+        "detectorNote": "\n> Detector supplement; aggregated pattern without instance-level provenance. Counts overlapping Evidence were not added.",
+        "noPatterns": "No component pattern was observed with enough confidence; implement components from the tokens and source evidence above."
+      },
+      "confidence": {
+        "heading": "\n## Extraction Confidence\n",
+        "counts": "- High: {{high}}; medium: {{medium}}; low: {{low}}",
+        "review": "- Review recommended: {{values}}",
+        "separator": ", "
+      }
     }
   },
   "transferGrammar": {

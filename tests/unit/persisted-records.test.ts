@@ -8,8 +8,11 @@ import {
   readCaptureManifest,
   readDarkModeExportData,
   readDesignEvidence,
+  readDesignTokens,
   readFirstScreenshotPath,
   readPageScreenshots,
+  readStringList,
+  readValidationReport,
   referenceCaptureFromRecord,
   toAnalysisSummary,
   toThemeSummary,
@@ -61,6 +64,16 @@ describe('persisted record adapters', () => {
 
     expect(JSON.parse(toThemeSummary(record).tokens_json)).not.toHaveProperty('usageCount')
     expect(JSON.parse(toThemeSummary(record).dark_tokens_json || '{}')).not.toHaveProperty('usageCount')
+  })
+
+  it('decodes typed analysis fields at the persistence boundary', () => {
+    expect(readDesignTokens(JSON.stringify(tokens))).toEqual(tokens)
+    expect(readDesignTokens('{}')).toBeNull()
+    expect(readDesignTokens('{invalid')).toBeNull()
+    expect(readStringList(JSON.stringify(['responsive', 2, 'dark-mode']))).toEqual([])
+    expect(readStringList(JSON.stringify(['responsive', 'dark-mode']))).toEqual(['responsive', 'dark-mode'])
+    expect(readValidationReport(JSON.stringify({ schemaVersion: '1' }))).toEqual({ schemaVersion: '1' })
+    expect(readValidationReport('[]')).toBeNull()
   })
 
   it('reads screenshot paths and tolerates malformed legacy screenshot arrays', () => {

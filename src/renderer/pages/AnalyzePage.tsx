@@ -19,6 +19,7 @@ import { ArtifactPanel } from '../components/analyze/ArtifactPanel'
 import { EvidenceViewer, useEvidenceViewer } from '../components/analyze/EvidenceViewer'
 import { ResultOverview } from '../components/analyze/ResultOverview'
 import { EmptyState } from '../components/ui/EmptyState'
+import { classifyAnalyzeResponse } from '../lib/analysis-response'
 import { type AnalysisResultData, useAnalysisStore } from '../stores/analysis-store'
 import { useFeedbackStore } from '../stores/feedback-store'
 
@@ -90,6 +91,42 @@ export function AnalyzePage() {
     [notify, t],
   )
 
+  const applyAnalysisResponse = useCallback(
+    (targetUrl: string, authMode: AuthMode, response: AnalyzeResponse): AnalysisOutcome => {
+      const current = useAnalysisStore.getState()
+      const classified = classifyAnalyzeResponse(response)
+      setFinishing(false)
+
+      switch (classified.kind) {
+        case 'auth-required':
+          current.setProgress(null)
+          current.setAnalyzing(true)
+          setAuthPrompt({ kind: 'choice', detection: classified.detection, targetUrl })
+          return 'auth-required'
+        case 'cancelled':
+          current.setProgress(null)
+          current.setAnalyzing(false)
+          setAuthPrompt(null)
+          notify(t('analyze.cancelledTip'))
+          return 'cancelled'
+        case 'error':
+          current.setFailure({
+            message: classified.message?.trim() || t('analyze.error'),
+            url: targetUrl,
+            authMode,
+            stage: classified.stage,
+          })
+          return 'error'
+        case 'success':
+          current.setResult(classified.result, targetUrl)
+          setAuthPrompt(null)
+          notifyAnalysisReady(classified.result)
+          return 'complete'
+      }
+    },
+    [notify, notifyAnalysisReady, t],
+  )
+
   useEffect(() => {
     const unsubscribeProgress = window.electronAPI.onAnalysisProgress((p: AnalysisProgress) => {
       const current = useAnalysisStore.getState()
@@ -126,42 +163,6 @@ export function AnalyzePage() {
     let disposed = false
     let pollTimer: number | undefined
 
-    const applyRecoveredResponse = async (targetUrl: string, response: AnalyzeResponse) => {
-      const current = useAnalysisStore.getState()
-      setFinishing(false)
-      if (response.authRequired && response.detection) {
-        current.setProgress(null)
-        current.setAnalyzing(true)
-        setAuthPrompt({ kind: 'choice', detection: response.detection, targetUrl })
-        return
-      }
-      if (response.cancelled) {
-        current.setProgress(null)
-        current.setAnalyzing(false)
-        setAuthPrompt(null)
-        notify(t('analyze.cancelledTip'))
-        return
-      }
-      if (response.error) {
-        current.setFailure({
-          message: response.message?.trim() || t('analyze.error'),
-          url: targetUrl,
-          authMode: 'auto',
-          stage: response.stage,
-        })
-        return
-      }
-      if (!response.tokens || typeof response.cssVariables !== 'string' || typeof response.designDoc !== 'string') {
-        current.setFailure({ message: t('analyze.error'), url: targetUrl, authMode: 'auto' })
-        return
-      }
-
-      const data = response as AnalysisResultData
-      current.setResult(data, targetUrl)
-      setAuthPrompt(null)
-      notifyAnalysisReady(data)
-    }
-
     const recover = async () => {
       try {
         const recovery = await window.electronAPI.recoverAnalysis()
@@ -185,7 +186,7 @@ export function AnalyzePage() {
           return
         }
         if (recovery.status === 'complete') {
-          await applyRecoveredResponse(recovery.url, recovery.response)
+          applyAnalysisResponse(recovery.url, 'auto', recovery.response)
           await window.electronAPI.acknowledgeAnalysis()
           return
         }
@@ -202,7 +203,7 @@ export function AnalyzePage() {
       disposed = true
       if (pollTimer !== undefined) window.clearTimeout(pollTimer)
     }
-  }, [i18n.language, notify, notifyAnalysisReady, t])
+  }, [applyAnalysisResponse, i18n.language])
 
   const runAnalysis = async (targetUrl: string, authMode: AuthMode): Promise<AnalysisOutcome> => {
     try {
@@ -212,36 +213,7 @@ export function AnalyzePage() {
         language: i18n.language,
         depth: analysisDepth,
       })
-      if (res.authRequired && res.detection) {
-        store.setProgress(null)
-        setAuthPrompt({
-          kind: 'choice',
-          detection: res.detection,
-          targetUrl,
-        })
-        return 'auth-required'
-      }
-      if (res.cancelled) {
-        store.setProgress(null)
-        setAuthPrompt(null)
-        notify(t('analyze.cancelledTip'))
-        return 'cancelled'
-      }
-      if (res.error) {
-        store.setFailure({
-          message: res.message?.trim() || t('analyze.error'),
-          url: targetUrl,
-          authMode,
-          stage: res.stage,
-        })
-        return 'error'
-      }
-
-      const data = res as AnalysisResultData
-      store.setResult(data, targetUrl)
-      setAuthPrompt(null)
-      notifyAnalysisReady(data)
-      return 'complete'
+      return applyAnalysisResponse(targetUrl, authMode, res)
     } catch (err) {
       console.error('Analysis failed:', err)
       store.setFailure({

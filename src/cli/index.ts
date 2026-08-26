@@ -3,27 +3,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
 import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
-import {
-  sanitizeDesignTokensForPersistence,
-  sanitizeDiagnosticTextForDisplay,
-  sanitizeUrlForPersistence,
-} from '../core/analyzer/url-privacy.js'
+import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
-import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
-import { generateDesignProfileJson } from '../core/design-context/profile-export.js'
-import {
-  buildDarkModeExportData,
-  generateComponentSpecsJson,
-  generateCssVariables,
-  generateDesignDoc,
-  generateDesignEvidenceJson,
-  generateDtcgJson,
-  generateLocalVisualQa,
-  generatePdfHtml,
-  generateScssVariables,
-  generateTailwindTheme,
-} from '../core/export/index.js'
 import { coreTranslator } from '../core/i18n/index.js'
 import {
   CLI_EXIT_CODES,
@@ -106,46 +89,22 @@ async function main(): Promise<number> {
     process.removeListener('SIGINT', cancelAnalysis)
     if (cancellationDeadline) clearTimeout(cancellationDeadline)
   }
-  const rawDarkModeExport = buildDarkModeExportData(result.darkMode)
-  const darkModeExport = rawDarkModeExport?.darkTokens
-    ? { ...rawDarkModeExport, darkTokens: sanitizeDesignTokensForPersistence(rawDarkModeExport.darkTokens) }
-    : rawDarkModeExport
-
-  const designContext = createDeterministicDesignContext(result.designEvidence, 'en')
-  const profile = designContext.profile
+  const artifacts = buildAnalysisArtifacts(result, { sourceUrl: url, language: 'en' })
   const finalTiming = result.timing
-
-  const exportTokens = sanitizeDesignTokensForPersistence(result.tokens)
-  const exportDarkMode = darkModeExport
-  const cssVars = generateCssVariables(exportTokens, exportDarkMode, result.breakpoints)
-  const tailwind = generateTailwindTheme(exportTokens, exportDarkMode, result.breakpoints)
-  const designDoc = generateDesignDoc(
-    exportTokens,
-    url,
-    result.featureTags,
-    exportDarkMode,
-    result.breakpoints,
-    result.components,
-    'en',
-    result.designEvidence,
-    profile || undefined,
-  )
-  const dtcgJson = generateDtcgJson(exportTokens, exportDarkMode)
-  const evidenceJson = generateDesignEvidenceJson(result.designEvidence)
 
   // JSON stdout mode — pipe-friendly
   if (options.jsonStdout) {
     process.stdout.write(
       JSON.stringify(
-        darkModeExport?.darkTokens
+        artifacts.darkMode?.darkTokens
           ? {
-              ...exportTokens,
+              ...artifacts.tokens,
               darkMode: {
-                method: darkModeExport.method,
-                tokens: darkModeExport.darkTokens,
+                method: artifacts.darkMode.method,
+                tokens: artifacts.darkMode.darkTokens,
               },
             }
-          : exportTokens,
+          : artifacts.tokens,
         null,
         2,
       ),
@@ -171,43 +130,43 @@ async function main(): Promise<number> {
       case 'design.md':
       case 'markdown':
         filename = 'DESIGN.md'
-        content = designDoc
+        content = artifacts.designDoc
         break
       case 'tailwind':
         filename = 'theme.css'
-        content = tailwind
+        content = artifacts.tailwindTheme
         break
       case 'css':
         filename = 'variables.css'
-        content = cssVars
+        content = artifacts.cssVariables
         break
       case 'scss':
         filename = 'variables.scss'
-        content = generateScssVariables(exportTokens, exportDarkMode)
+        content = artifacts.scssVariables
         break
       case 'json':
         filename = 'design-tokens.json'
-        content = dtcgJson
+        content = artifacts.dtcgJson
         break
       case 'evidence':
         filename = 'design-evidence.json'
-        content = evidenceJson
+        content = artifacts.evidenceJson
         break
       case 'profile':
         filename = 'design-profile.json'
-        content = generateDesignProfileJson(profile)
+        content = artifacts.profileJson
         break
       case 'components':
         filename = 'component-specs.json'
-        content = generateComponentSpecsJson(result.designEvidence)
+        content = artifacts.componentSpecsJson
         break
       case 'visual-qa':
         filename = 'visual-qa.json'
-        content = JSON.stringify(generateLocalVisualQa(result.designEvidence), null, 2)
+        content = artifacts.visualQaJson
         break
       case 'pdf':
         filename = 'style-guide.html'
-        content = generatePdfHtml(exportTokens, sanitizeUrlForPersistence(url), result.featureTags, exportDarkMode)
+        content = artifacts.pdfHtml
         break
       default:
         log(`  Unknown format: ${format}`, options.quiet)

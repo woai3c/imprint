@@ -5,14 +5,11 @@ import path from 'node:path'
 
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
-import {
-  type CapturedPageEvidence,
-  buildDesignEvidence,
-  extractPageEvidence,
-  observeSafeInteractions,
-} from '../design-evidence/index.js'
+import { type CapturedPageEvidence, extractPageEvidence, observeSafeInteractions } from '../design-evidence/index.js'
 import { closeContextWithin, closePageWithin, settleWithin } from './analysis-lifecycle.js'
+import { buildAnalysisOutput } from './analysis-output.js'
 import { createAnalysisRequest } from './analysis-request.js'
+import { AnalysisRunState } from './analysis-run-state.js'
 import { detectAuthWall } from './auth-wall.js'
 import { resolveBrowserExecutables } from './browser-finder.js'
 import {
@@ -23,7 +20,6 @@ import {
   markManagedSession,
 } from './browser-session.js'
 import { buildCaptureManifest } from './capture-manifest.js'
-import { clusterColors } from './color-cluster.js'
 import { type ComponentPattern, detectComponents, mergeComponentPatterns } from './component-detect.js'
 import { extractDarkMode } from './dark-mode-detect.js'
 import {
@@ -31,12 +27,7 @@ import {
   AuthenticationCancelledError,
   AuthenticationRequiredError,
 } from './errors.js'
-import {
-  appendExtractionIssueLimitation,
-  appendFailedCaptureHealthLimitations,
-  isPageHealthExtractionIssue,
-} from './extraction-limitations.js'
-import { buildEvidenceBackedClaims, generateFeatureTags } from './feature-tags.js'
+import { appendFailedCaptureHealthLimitations } from './extraction-limitations.js'
 import { navigateWithRecovery } from './navigation.js'
 import { type DiscoveredPage, discoverPages } from './page-discovery.js'
 import { ensurePageHealth } from './page-health.js'
@@ -49,24 +40,23 @@ import {
   mergeMotionTokens,
   mergeResponsiveBreakpoints,
 } from './responsive-motion.js'
+import { captureValidatedOverview, inspectPngDimensions, recordScreenshotDimensionIssue } from './screenshot-capture.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
-import { mergeStyles, mergeStylesWithNormalizedUsage } from './style-merge.js'
-import { buildDesignTokens, normalizeDesignTokenUsageCount } from './token-builder.js'
-import { type TokenEvidenceCapture, buildTokenEvidence } from './token-evidence.js'
+import { mergeStyles } from './style-merge.js'
+import type { TokenEvidenceCapture } from './token-evidence.js'
 import type {
   AnalysisOptions,
   AnalysisProgress,
   AnalysisResult,
-  AnalysisTiming,
   CaptureViewportEnvironment,
   DarkModeResult,
-  DesignToken,
   ExtractedStyles,
   ExtractionIssue,
   InteractionStyles,
   LoginDecision,
   PageScreenshot,
 } from './types.js'
+import { pageIdentityUrl } from './url-identity.js'
 import { sanitizeUrlForPersistence } from './url-privacy.js'
 import { configurePageViewport, mobileUserAgent } from './viewport-emulation.js'
 
@@ -132,28 +122,6 @@ const VIEWPORTS: Record<string, { width: number; height: number }> = {
   desktop: { width: 1440, height: 900 },
   tablet: { width: 768, height: 1024 },
   mobile: { width: 375, height: 812 },
-}
-
-function emptyDesignTokens(): DesignToken {
-  return {
-    colors: {},
-    typography: {
-      fontFamilies: [],
-      fontStacks: [],
-      fontSizes: [],
-      fontWeights: [],
-      lineHeights: [],
-      letterSpacings: [],
-    },
-    spacing: [],
-    radii: [],
-    shadows: [],
-    borders: [],
-    zIndices: [],
-    transitions: [],
-    usageCount: {},
-    evidence: {},
-  }
 }
 
 function pageStructureTraits(snapshot: Awaited<ReturnType<typeof extractPageEvidence>>): Set<string> {
@@ -428,133 +396,6 @@ function extractionReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function inspectPngDimensions(filePath: string): { width: number; height: number } | null {
-  try {
-    const header = Buffer.alloc(24)
-    const descriptor = fs.openSync(filePath, 'r')
-    try {
-      if (fs.readSync(descriptor, header, 0, header.length, 0) !== header.length) return null
-    } finally {
-      fs.closeSync(descriptor)
-    }
-    if (header.toString('ascii', 1, 4) !== 'PNG') return null
-    return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) }
-  } catch {
-    return null
-  }
-}
-
-function recordScreenshotDimensionIssue(
-  issues: ExtractionIssue[],
-  stage: string,
-  filePath: string,
-  expectedWidth: number,
-  expectedHeight: number,
-): boolean {
-  const actual = inspectPngDimensions(filePath)
-  if (!actual) {
-    issues.push({ stage, reason: 'screenshot-dimensions-unreadable' })
-    return false
-  }
-  if (Math.abs(actual.width - expectedWidth) > 4 || Math.abs(actual.height - expectedHeight) > 8) {
-    issues.push({
-      stage,
-      reason: `screenshot-dimensions-mismatch expected=${Math.round(expectedWidth)}x${Math.round(expectedHeight)} actual=${actual.width}x${actual.height}`,
-    })
-    return false
-  }
-  return true
-}
-
-function screenshotDimensionsMatch(
-  filePath: string,
-  expectedWidth: number,
-  expectedHeight: number,
-): { width: number; height: number } | null {
-  const actual = inspectPngDimensions(filePath)
-  if (!actual) return null
-  return Math.abs(actual.width - expectedWidth) <= 4 && Math.abs(actual.height - expectedHeight) <= 8 ? actual : null
-}
-
-async function captureBeyondViewportClip(
-  page: Page,
-  filePath: string,
-  width: number,
-  height: number,
-): Promise<boolean> {
-  let session: Awaited<ReturnType<BrowserContext['newCDPSession']>> | undefined
-  try {
-    session = await page.context().newCDPSession(page)
-    const result = (await session.send('Page.captureScreenshot', {
-      format: 'png',
-      fromSurface: true,
-      captureBeyondViewport: true,
-      clip: { x: 0, y: 0, width, height, scale: 1 },
-    })) as { data?: string }
-    if (!result.data) return false
-    fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'))
-    return true
-  } catch {
-    return false
-  } finally {
-    await session?.detach().catch(() => {})
-  }
-}
-
-async function captureValidatedOverview(
-  page: Page,
-  filePath: string,
-  expectedWidth: number,
-  expectedHeight: number,
-  timeout?: number,
-  preferExactClip = false,
-): Promise<{ dimensions: { width: number; height: number } | null; valid: boolean }> {
-  if (preferExactClip && (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight))) {
-    const dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
-    if (dimensions) return { dimensions, valid: true }
-  }
-
-  await page.screenshot({ path: filePath, fullPage: true, ...(timeout ? { timeout } : {}) })
-  let dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
-  if (dimensions) return { dimensions, valid: true }
-  const initialDimensions = inspectPngDimensions(filePath)
-
-  // Dynamic or horizontally overflowing pages can make a nominal full-page request return the viewport or the full
-  // overflow width. Chromium's document-space capture keeps the requested visible width without changing page layout.
-  if (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight)) {
-    dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
-    if (dimensions) return { dimensions, valid: true }
-  }
-
-  // Keep Playwright's clip as a final compatibility fallback for Chromium builds where CDP capture is unavailable.
-  try {
-    await page.evaluate(() => window.scrollTo(0, 0))
-    await page.waitForTimeout(100)
-    await page.screenshot({
-      path: filePath,
-      clip: { x: 0, y: 0, width: expectedWidth, height: expectedHeight },
-      ...(timeout ? { timeout } : {}),
-    })
-  } catch {
-    return { dimensions: inspectPngDimensions(filePath) || initialDimensions, valid: false }
-  }
-  dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
-  return { dimensions: dimensions || inspectPngDimensions(filePath), valid: Boolean(dimensions) }
-}
-
-function pageIdentityUrl(value: string): string {
-  try {
-    const pageUrl = new URL(value)
-    pageUrl.username = ''
-    pageUrl.password = ''
-    pageUrl.search = ''
-    pageUrl.hash = ''
-    return pageUrl.href
-  } catch {
-    return value.split(/[?#]/, 1)[0]
-  }
-}
-
 async function guardAnalysisExtractionStage<T>(
   issues: ExtractionIssue[],
   stage: string,
@@ -608,55 +449,16 @@ export async function analyze(
   }
   options.finishSignal?.addEventListener('abort', finishForUser, { once: true })
   if (options.finishSignal?.aborted) finishForUser()
-  let userWaitMs = 0
-  const activeElapsedMs = () => Math.max(0, Date.now() - startTime - userWaitMs)
-  let progressAnalyzedPages = 0
-  let progressDiscoveredPages = 1
-  const progressCompletedUrls = new Set<string>()
-  let progressStep = 'progress.launchingBrowser'
-  let progressPercent = 0
-  const reportProgress = (step = progressStep, percent = progressPercent) => {
-    progressStep = step
-    progressPercent = percent
-    onProgress?.({
-      step,
-      percent,
-      analyzedPages: progressAnalyzedPages,
-      discoveredPages: Math.max(progressAnalyzedPages, progressDiscoveredPages),
-      resultReady: acceptingPartialFinish && progressAnalyzedPages > 0,
-      activeElapsedMs: activeElapsedMs(),
-    })
-  }
-  const markPageReady = (pageUrl: string) => {
-    progressCompletedUrls.add(pageIdentityUrl(pageUrl))
-    progressAnalyzedPages = progressCompletedUrls.size
-    reportProgress()
-  }
-  const timing: AnalysisTiming = {
-    browserMs: 0,
-    preparationMs: 0,
-    extractionMs: 0,
-    healthGateMs: 0,
-    screenshotCaptureMs: 0,
-    validationMs: 0,
-    totalMs: 0,
-    imageCount: 0,
-    budgetExceeded: [],
-  }
-  const measure = async <T>(
-    key: 'preparationMs' | 'extractionMs' | 'healthGateMs' | 'screenshotCaptureMs',
-    run: () => Promise<T>,
-  ) => {
-    throwIfAnalysisAborted(analysisSignal)
-    const startedAt = Date.now()
-    try {
-      const result = await run()
-      throwIfAnalysisAborted(analysisSignal)
-      return result
-    } finally {
-      timing[key] = (timing[key] || 0) + (Date.now() - startedAt)
-    }
-  }
+  const runState = new AnalysisRunState({
+    startTime,
+    onProgress,
+    canFinishPartially: () => acceptingPartialFinish,
+    ensureActive: () => throwIfAnalysisAborted(analysisSignal),
+  })
+  const { timing } = runState
+  const reportProgress = runState.reportProgress
+  const markPageReady = runState.markPageReady
+  const measure = runState.measure
   const guardExtractionStage = <T>(issues: ExtractionIssue[], stage: string, fallback: T, run: () => Promise<T>) =>
     guardAnalysisExtractionStage(issues, stage, fallback, run, analysisSignal)
   const analysisId = randomUUID()
@@ -804,7 +606,7 @@ export async function analyze(
         try {
           decision = await options.onLoginRequired({ detection: authDetection, retry }, loginAbortController.signal)
         } finally {
-          userWaitMs += Date.now() - waitStartedAt
+          runState.addUserWait(Date.now() - waitStartedAt)
         }
         if (loginAbortController.signal.aborted) {
           throw new AuthenticationBrowserClosedError()
@@ -873,7 +675,7 @@ export async function analyze(
     }
     if (accessMode === 'managed' && !authDetection.detected) markManagedSession(options.dataDir, url)
     const browserEnvironment = await readRuntimeBrowserEnvironment(runtime.context)
-    timing.browserMs = activeElapsedMs()
+    timing.browserMs = runState.activeElapsedMs
 
     const allStyles: ExtractedStyles[] = []
     const evidenceEligibleStyles: ExtractedStyles[] = []
@@ -1069,7 +871,7 @@ export async function analyze(
       const screenshotPath = analysisAssetPath(`page-1-${vpName}`)
       const evidenceSnapshot = await extractPageEvidence(page, vpName)
       if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
-      timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
+      runState.addTiming('extractionMs', Date.now() - extractionStartedAt)
       let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
@@ -1244,7 +1046,7 @@ export async function analyze(
         // consumed by several high-scoring routes of the same kind.
         discoveredPageCount = discoveredCandidateUrls.size
         selectedPageCount = Math.min(subPageLimit, discoveredCandidateUrls.size)
-        progressDiscoveredPages = 1 + discoveredCandidateUrls.size
+        runState.setDiscoveredPageCount(1 + discoveredCandidateUrls.size)
         reportProgress()
       }
       enqueuePages(discovery.pages)
@@ -1268,8 +1070,8 @@ export async function analyze(
         const i = attemptedSubPageCount - 1
         const subUrl = discoveredPage.url
         reportProgress(
-          `progress.analyzingPage::${progressAnalyzedPages + 1}::${progressDiscoveredPages}`,
-          Math.min(84, 76 + progressAnalyzedPages),
+          `progress.analyzingPage::${runState.analyzedPageCount + 1}::${runState.discoveredPageCount}`,
+          Math.min(84, 76 + runState.analyzedPageCount),
         )
 
         const subPage = await runtime.context.newPage()
@@ -1418,7 +1220,7 @@ export async function analyze(
 
           const screenshotPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}`)
           const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
-          timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - extractionStartedAt)
+          runState.addTiming('extractionMs', Date.now() - extractionStartedAt)
           let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
           const viewportPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}-viewport`)
           await measure('screenshotCaptureMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
@@ -1574,7 +1376,7 @@ export async function analyze(
                 mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () => extractPageEvidence(subPage, 'mobile'))
               }
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
-              timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - mobileExtractionStartedAt)
+              runState.addTiming('extractionMs', Date.now() - mobileExtractionStartedAt)
               const mobileOverviewPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive`)
               const mobileViewportPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive-viewport`)
               await measure('screenshotCaptureMs', () =>
@@ -1675,7 +1477,7 @@ export async function analyze(
                   // Desktop styles already cover this URL. Keep the committed mobile evidence when this optional
                   // viewport-specific pass is too slow or fails independently.
                 } finally {
-                  timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - optionalStyleStartedAt)
+                  runState.addTiming('extractionMs', Date.now() - optionalStyleStartedAt)
                 }
               }
             }
@@ -1692,7 +1494,7 @@ export async function analyze(
           }
           if (reason.includes('adaptive-mobile-budget-exceeded')) {
             analysisLimitations.push('adaptive-mobile-budget-exceeded')
-            timing.budgetExceeded?.push('adaptive-mobile')
+            runState.addBudgetExceeded('adaptive-mobile')
           } else if (reason.includes('adaptive-mobile-page-unusable')) {
             analysisLimitations.push(`capture-excluded-page-health:page-${i + 2}:mobile-adaptive`)
           } else {
@@ -1713,76 +1515,40 @@ export async function analyze(
     throwIfAnalysisAborted(analysisSignal)
     reportProgress('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
-    const mergedStyles = mergeStyles(allStyles)
-    const tokenSelectionStyles = mergeStylesWithNormalizedUsage(
-      allStyles,
-      styleCaptures.map((capture) => pageIdentityUrl(capture.url)),
-    )
-
-    reportProgress('progress.clusteringColors', 90)
-    const clusteredColors = clusterColors(tokenSelectionStyles.colors, tokenSelectionStyles.usageCount)
-
-    reportProgress('progress.generatingTokens', 95)
-    const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
-    tokens.usageCount = normalizeDesignTokenUsageCount(mergedStyles.usageCount)
-    tokens.evidence = buildTokenEvidence(tokens, styleCaptures)
-    let evidenceTokens = emptyDesignTokens()
-    let evidenceMergedStyles = mergeStyles([])
-    if (evidenceEligibleStyles.length > 0) {
-      evidenceMergedStyles = mergeStyles(evidenceEligibleStyles)
-      const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
+    const {
+      tokens,
+      rawStyles: mergedStyles,
+      designEvidence,
+      featureTags,
+    } = buildAnalysisOutput(
+      {
+        analysisId,
+        requestedUrl: url,
+        finalUrl,
+        accessMode,
+        authWallDetected,
+        expectedPageCount: 1 + selectedPageCount,
+        expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
+        expectedCaptureCount: viewportNames.length + selectedPageCount + (adaptiveMobilePlanned ? 1 : 0),
+        styles: allStyles,
+        styleCaptures,
         evidenceEligibleStyles,
-        evidenceEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
-      )
-      const evidenceColors = clusterColors(evidenceSelectionStyles.colors, evidenceSelectionStyles.usageCount)
-      evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
-      evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
-      evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, evidenceEligibleStyleCaptures)
-    }
-    let featureTags = generateFeatureTags(tokens, mergedStyles)
-    extractionIssues
-      .filter((issue) => !isPageHealthExtractionIssue(issue))
-      .slice(0, 8)
-      .forEach((issue) => appendExtractionIssueLimitation(analysisLimitations, issue))
-    const plannedPageCount = 1 + selectedPageCount
-    const plannedCaptureCount = viewportNames.length + selectedPageCount + (adaptiveMobilePlanned ? 1 : 0)
-    let designEvidence = buildDesignEvidence({
-      analysisId,
-      requestedUrl: url,
-      finalUrl,
-      accessMode,
-      authWallDetected,
-      expectedPageCount: plannedPageCount,
-      expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
-      expectedCaptureCount: plannedCaptureCount,
-      screenshotAssetIssueCount: extractionIssues.filter(
-        (issue) =>
-          /:screenshot:overview$/.test(issue.stage) &&
-          /^screenshot-dimensions-(?:mismatch|unreadable)/.test(issue.reason),
-      ).length,
-      tokens: evidenceTokens,
-      featureTags,
-      interactionStyles: allInteractions,
-      breakpoints: evidenceBreakpoints,
-      motion: evidenceMotion,
-      captures: capturedPageEvidence,
-      limitations: analysisLimitations,
-      techStack,
-    })
-    const deterministicClaims = buildEvidenceBackedClaims(evidenceTokens, evidenceMergedStyles, designEvidence)
-    featureTags = [...new Set([...deterministicClaims.map((claim) => claim.label), ...featureTags])].slice(0, 6)
-    designEvidence = {
-      ...designEvidence,
-      featureTags,
-      ...(deterministicClaims.length > 0 ? { deterministicClaims } : {}),
-    }
-    timing.extractionMs = (timing.extractionMs || 0) + (Date.now() - tokenStartedAt)
-    timing.imageCount = designEvidence.pages.reduce((count, page) => count + page.images.length, 0)
-    timing.totalMs = activeElapsedMs()
-    timing.userWaitMs = userWaitMs
-    if ((timing.preparationMs || 0) > 100_000) timing.budgetExceeded?.push('preparation')
-    if ((timing.healthGateMs || 0) > 20_000) timing.budgetExceeded?.push('health-gate')
-    if ((timing.screenshotCaptureMs || 0) > 45_000) timing.budgetExceeded?.push('screenshot-capture')
+        evidenceEligibleStyleCaptures,
+        extractionIssues,
+        limitations: analysisLimitations,
+        interactionStyles: allInteractions,
+        breakpoints: evidenceBreakpoints,
+        motion: evidenceMotion,
+        captures: capturedPageEvidence,
+        techStack,
+      },
+      {
+        onClusteringColors: () => reportProgress('progress.clusteringColors', 90),
+        onGeneratingTokens: () => reportProgress('progress.generatingTokens', 95),
+      },
+    )
+    runState.addTiming('extractionMs', Date.now() - tokenStartedAt)
+    runState.finalizeTiming(designEvidence.pages.reduce((count, page) => count + page.images.length, 0))
     throwIfAnalysisAborted(analysisSignal)
     reportProgress('progress.done', 100)
 

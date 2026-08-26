@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are generated from Conventional Commits by `pnpm release`.
 
+## [0.1.0] - 2026-08-26
+
+### Added
+
+- improve history and compact layouts (desktop) (eec3c36)
+- harden resources and artifact exports (analysis) (a7e6571)
+- compare eligible page subsets (comparison) (e0b5822)
+
+### Changed
+
+- share feature tag localization (i18n) (2e83024)
+- simplify analysis and IPC pipelines (315fb19)
+- consolidate extraction helpers (core) (22e126a)
+
+### Fixed
+
+- stabilize extracted theme previews (templates) (9bff1ec)
+
 ## [0.0.5] - 2026-08-25
 
 ### Added

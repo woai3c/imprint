@@ -37,7 +37,7 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 
 - `pnpm dev` — run the Electron app (electron-forge + Vite)
 - `pnpm build` — package the desktop app (NOT the CLI)
-- `pnpm build:cli` — compile `src/cli`, `src/core`, `src/mcp` to `dist/` via `tsconfig.cli.json`; required before running the `imprint` / `imprint-mcp` bin entries
+- `pnpm build:cli` — compile `src/cli`, `src/core`, and `src/mcp` to `dist/` via `tsconfig.cli.json`; run source builds with `node dist/cli/index.js` or `node dist/mcp/server.js` because this command alone does not install the `imprint` / `imprint-mcp` bin names
 - `pnpm test` — run the Vitest unit suite for core analyzer behavior
 - `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
 - `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge

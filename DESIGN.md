@@ -12,10 +12,10 @@ Imprint generates for analyzed websites.
 Imprint is a deterministic design-context and visual-validation tool for AI coding agents. Its core value is converting
 what a browser actually rendered into stable, traceable evidence, claims, tokens, and implementation artifacts that an
 agent can use without guessing. AI is only a downstream consumer of exported context, not a built-in runtime dependency
-or an authority for source facts. The same captured evidence always produces the same claims, profile, reconstruction
-brief, validation recipe, and exports. One extracted system may guide multiple pages of the same target product, while
-shared CSS Variables or a Tailwind v4 `@theme` provide a single implementation source for recurring visual values.
-Coding and adaptation remain the responsibility of the user's external agent.
+or an authority for source facts. Within the same Imprint version, the same captured evidence produces the same claims,
+profile, reconstruction brief, validation recipe, and exports. One extracted system may guide multiple pages of the same
+target product, while shared CSS Variables or a Tailwind v4 `@theme` provide a single implementation source for recurring
+visual values. Coding and adaptation remain the responsibility of the user's external agent.
 
 ## Design values
 
@@ -208,8 +208,9 @@ runs out, the tab strip scrolls horizontally instead.
 - Limitations belong beside coverage. Each user-relevant limitation maps to one plain-language explanation; limitations
   that resolve to the same explanation are shown once. Internal diagnostics such as page-health details, extraction
   issue payloads, and per-candidate skip records remain in evidence or logs and never become duplicate generic UI rows.
-- Deterministic claims are part of every core result. Identical captured evidence produces an identical Design Profile,
-  reconstruction brief, validation recipe, and compact DESIGN.md observation summary. DESIGN.md keeps only selected
+- Deterministic claims are part of every core result. Within the same Imprint version, identical captured evidence
+  produces an identical Design Profile, reconstruction brief, validation recipe, and compact DESIGN.md observation
+  summary. DESIGN.md keeps only selected
   medium/high-confidence statements that add composition, component semantics, safely executed interaction, or other
   high-value facts not already expressed clearly by its token and evidence tables. Each visible claim keeps a compact,
   human-readable route and viewport scope when the supporting page can be resolved. Relevant token references and their

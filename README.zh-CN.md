@@ -86,7 +86,7 @@ Imprint 记录实际观察结果、保留可追溯性，并为开发者和外部
 | AI 友好文档    | 导出包含证据规则、适用范围和局限的完整 DESIGN.md                            |
 | 代码导出       | Desktop 与源码构建的 CLI/MCP 均可导出 CSS Variables 和 Tailwind v4 `@theme` |
 | Agent 集成     | 当前使用 Desktop 导出物；可安装的本地 CLI/MCP 计划在后续版本发布            |
-| 本地优先存储   | 所有数据保存在本地 SQLite，无需注册账号                                     |
+| 本地优先存储   | 分析记录与生成资源均保存在本机，结构化记录使用 SQLite，无需注册账号         |
 | 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌                        |
 | 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                          |
 | 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性                  |
@@ -95,6 +95,8 @@ Imprint 记录实际观察结果、保留可追溯性，并为开发者和外部
 
 从 [GitHub Releases](https://github.com/woai3c/imprint/releases/latest) 下载最新 Desktop 版本。CLI 与 MCP 的
 正式安装包计划在后续版本发布。
+
+Desktop 分析需要本机安装 Chrome、Edge 或兼容的 Chromium 浏览器。
 
 | 平台    | 架构                  |
 | ------- | --------------------- |
@@ -147,7 +149,8 @@ Imprint 生成的 `DESIGN.md` 遵循目前仍处于 alpha 阶段的
 ## 提取原理
 
 每次分析都会生成确定性的浏览器观察：多视口截图、页面拓扑、归一化区块与组件几何、响应式差异、安全交互观察、
-媒体层、覆盖范围和限制。程序规则再将这些观察转换为稳定的设计指导、Token 和导出物。相同的捕获证据会生成相同结果。
+媒体层、覆盖范围和限制。程序规则再将这些观察转换为稳定的设计指导、Token 和导出物。在相同 Imprint 版本下，
+相同的捕获证据会生成相同结果。
 
 Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外部 Coding Agent 可以通过文件或 MCP 使用分析完成后的
 产物，但不会参与提取，也不能改变来源事实。
@@ -159,13 +162,16 @@ Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外�
 
 ```bash
 pnpm build:cli
-imprint doctor
-imprint doctor --browser-path "/path/to/chrome" --json
-imprint extract https://example.com --pages 8
-imprint extract https://example.com --format css
-imprint extract https://example.com --format tailwind
-imprint extract https://example.com --format json
+node dist/cli/index.js doctor
+node dist/cli/index.js doctor --browser-path "/path/to/chrome" --json
+node dist/cli/index.js extract https://example.com --pages 8
+node dist/cli/index.js extract https://example.com --format css
+node dist/cli/index.js extract https://example.com --format tailwind
+node dist/cli/index.js extract https://example.com --format json
 ```
+
+从源码构建的 MCP 入口是 `node dist/mcp/server.js`，配置支持 MCP 的客户端时应使用该命令。`imprint` 和
+`imprint-mcp` 是软件包安装后的 bin 名称，仅执行 `pnpm build:cli` 不会将它们安装为全局命令。
 
 CLI 提取与 MCP `imprint_extract` 都默认返回 `DESIGN.md`；只有下游需要直接实现产物时，才选择 `css`、
 `tailwind` 或 `json`。
@@ -177,7 +183,7 @@ URL 时还需要能够正常访问目标网站。未来的软件包会安装所�
 MCP 还需要支持 MCP 的 Coding Agent 或客户端。客户端会在本地启动 `imprint-mcp` 进程，并通过 stdin/stdout 与其
 通信。这里的“服务器”只是本地工具进程，不需要远程部署，也不需要由 Imprint 运营服务器。
 
-`imprint doctor` 会检查 Node.js、操作系统、浏览器可执行文件，并实际启动一次无页面导航的 headless 浏览器。
+CLI 的 `doctor` 命令会检查 Node.js、操作系统、浏览器可执行文件，并实际启动一次无页面导航的 headless 浏览器。
 `--browser-path` 可以明确指定 Chrome、Edge 或 Chromium；无效的显式路径会直接失败，不会静默回退。CLI 使用稳定退出码：
 `0` 表示成功，`2` 表示命令或参数错误，`3` 表示运行环境依赖缺失或不可用，`4` 表示捕获或导出失败，`130` 表示 SIGINT 取消。
 

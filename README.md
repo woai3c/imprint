@@ -7,7 +7,7 @@
 
   <p>
     Extract colors, typography, spacing, radii, shadows, and component styles, then reuse the same visual language
-    across multiple pages. Desktop defaults to one self-contained DESIGN.md and also exports CSS Variables,
+    across multiple pages. Desktop defaults to one self-contained DESIGN.md and also exports CSS Variables
     and Tailwind v4 @theme.
     CLI and MCP automation entry points are currently available from source; installable distribution is planned for a
     later release.
@@ -93,7 +93,7 @@ fact. The target product's requirements and final implementation remain the resp
 | AI-ready documentation   | Export a self-contained DESIGN.md with evidence-backed rules, scope, and limitations             |
 | Code export              | Export CSS Variables and Tailwind v4 `@theme` from Desktop or source-built CLI/MCP               |
 | Agent integration        | Use Desktop artifacts now; installable local CLI/MCP distribution is planned for a later release |
-| Local-first storage      | Store project data locally with SQLite                                                           |
+| Local-first storage      | Keep analysis records and generated assets on-device; structured records use SQLite              |
 | Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios       |
 | Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                      |
 | Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states            |
@@ -102,6 +102,8 @@ fact. The target product's requirements and final implementation remain the resp
 
 Download the latest Desktop version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest). CLI and
 MCP installable packages are planned for a later release.
+
+Desktop analysis requires an installed Chrome, Edge, or compatible Chromium browser.
 
 | Platform | Architecture          |
 | -------- | --------------------- |
@@ -157,8 +159,8 @@ Tokens JSON and Design Evidence JSON; these formats are not part of the primary 
 
 Every analysis produces deterministic browser observations: multi-viewport screenshots, page topology, normalized
 section and component geometry, responsive differences, safe interaction observations, media layers, coverage, and
-limitations. Program-owned rules turn those observations into stable guidance, tokens, and exports. Identical captured
-evidence produces identical results.
+limitations. Program-owned rules turn those observations into stable guidance, tokens, and exports. Within the same
+Imprint version, identical captured evidence produces identical results.
 
 Imprint has no built-in model provider, API-key settings, or Agent CLI execution path. External coding agents can consume
 the completed artifacts through files or MCP, but they never participate in extraction or change source facts.
@@ -171,13 +173,17 @@ the completed artifacts through files or MCP, but they never participate in extr
 
 ```bash
 pnpm build:cli
-imprint doctor
-imprint doctor --browser-path "/path/to/chrome" --json
-imprint extract https://example.com --pages 8
-imprint extract https://example.com --format css
-imprint extract https://example.com --format tailwind
-imprint extract https://example.com --format json
+node dist/cli/index.js doctor
+node dist/cli/index.js doctor --browser-path "/path/to/chrome" --json
+node dist/cli/index.js extract https://example.com --pages 8
+node dist/cli/index.js extract https://example.com --format css
+node dist/cli/index.js extract https://example.com --format tailwind
+node dist/cli/index.js extract https://example.com --format json
 ```
+
+The source-built MCP entry point is `node dist/mcp/server.js`; use that command when configuring an MCP-compatible
+client. The shorter `imprint` and `imprint-mcp` commands are package bin names and are not installed globally by
+`pnpm build:cli` alone.
 
 CLI extraction and MCP `imprint_extract` both default to `DESIGN.md`. Select `css`, `tailwind`, or `json` only when the
 consumer needs a direct implementation artifact.
@@ -191,7 +197,7 @@ MCP additionally requires an MCP-compatible coding agent or client. That client 
 and communicates with it over stdin/stdout. The word “server” refers to that local tool process; no remote deployment or
 Imprint-operated server is required.
 
-`imprint doctor` verifies Node.js, the operating system, browser executable access, and an actual headless launch without
+The CLI `doctor` command verifies Node.js, the operating system, browser executable access, and an actual headless launch without
 navigating to a website. `--browser-path` selects an explicit Chrome, Edge, or Chromium executable for both diagnostics
 and extraction; an invalid explicit path fails instead of silently falling back. The CLI uses stable exit codes: `0`
 success, `2` invalid command/options, `3` missing or unusable runtime dependency, `4` capture/export failure, and `130`

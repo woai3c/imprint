@@ -2,7 +2,9 @@ import { AlertTriangle, Moon } from 'lucide-react'
 
 import { useTranslation } from 'react-i18next'
 
+import { localizeFeatureTag } from '../../../core/i18n/feature-tags.js'
 import { getPageScreenshots, getScreenshotUrl } from '../../lib/page-screenshots'
+import { normalizeLanguage } from '../../lib/preferences'
 import type { AnalysisResultData } from '../../stores/analysis-store'
 
 interface ResultOverviewProps {
@@ -13,7 +15,8 @@ interface ResultOverviewProps {
 }
 
 export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLightbox }: ResultOverviewProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const outputLanguage = normalizeLanguage(i18n.resolvedLanguage || i18n.language)
 
   const colorCount = Object.keys(result.tokens.colors).length
   const typeStyleCount = result.tokens.typography.fontSizes.length
@@ -32,7 +35,7 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
   }
 
   return (
-    <div className="flex min-h-0 w-80 shrink-0 flex-col">
+    <div className="flex max-h-40 min-h-0 w-full shrink-0 flex-col lg:max-h-none lg:w-80">
       <div className="scrollbar-hidden flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4">
         {result.completion?.reason && result.completion.reason !== 'complete' && (
           <div
@@ -84,16 +87,14 @@ export function ResultOverview({ result, analyzing, onRetryWithLogin, onOpenLigh
           </h3>
 
           {result.featureTags && result.featureTags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <ul className="mt-3 space-y-1.5 text-xs leading-5 text-muted-foreground">
               {result.featureTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-xs text-muted-foreground"
-                >
-                  {tag}
-                </span>
+                <li key={tag} className="flex items-start gap-2">
+                  <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/60" />
+                  <span>{localizeFeatureTag(tag, outputLanguage)}</span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
 
           {result.designEvidence?.techStack &&

@@ -40,6 +40,7 @@ import {
 } from '../design-evidence/responsive-reliability.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { localizeFeatureTag } from '../i18n/feature-tags.js'
 import { coreT, coreTranslator } from '../i18n/index.js'
 import { type DarkModeExportData, normalizeDarkSelector } from './dark-mode.js'
 import { designMdColorEntries } from './design-md-color-names.js'
@@ -706,7 +707,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ...(source ? { finalUrl: source } : {}),
           ...(evidence ? { accessMode: evidence.source.accessMode } : {}),
         },
-        featureTags: (featureTags || evidence?.featureTags || []).map((tag) => localizedFeatureTag(tag, language)),
+        featureTags: (featureTags || evidence?.featureTags || []).map((tag) => localizeFeatureTag(tag, language)),
         evidence: {
           layer: evidence ? 'observed' : 'tokens',
           ...(evidence
@@ -946,33 +947,6 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/(?<=→\s)\bvisible\b(?=\s*(?:,|$))/g, coreT(language, 'export.reconstruction.terms.visible')],
   ]
   return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
-}
-
-function localizedFeatureTag(tag: string, language: DocLanguage): string {
-  const spacing = tag.match(/^spacing rhythm led by (.+)$/)
-  if (spacing) {
-    const values = spacing[1].replace(/,\s*/g, coreT(language, 'common.listSeparator'))
-    return coreT(language, 'export.featureTags.spacingRhythm', { values })
-  }
-  const keys: Record<string, string> = {
-    'monospace typography': 'monospaceTypography',
-    'serif editorial style': 'serifEditorialStyle',
-    'single-font system': 'singleFontSystem',
-    'monochrome palette': 'monochromePalette',
-    'large-radius rounded style': 'largeRadiusRoundedStyle',
-    'compact-radius surfaces observed': 'compactRadiusSurfaces',
-    'no stable shadow scale observed': 'noStableShadowScale',
-    'layered elevation system': 'layeredElevationSystem',
-    'weight contrast hierarchy': 'weightContrastHierarchy',
-    'extensive CSS variable usage': 'extensiveCssVariableUsage',
-    'section-level gradient and compound-radius treatments observed': 'sectionGradientAndCompoundRadius',
-    'section-level gradient treatments observed': 'sectionGradient',
-    'section-level compound-radius treatments observed': 'sectionCompoundRadius',
-    'single dominant action family with multicolor decorative accents': 'dominantActionWithDecorativeAccents',
-    'neutral palette with a single accent': 'neutralPaletteSingleAccent',
-    'rich color system': 'richColorSystem',
-  }
-  return keys[tag] ? coreT(language, `export.featureTags.${keys[tag]}`) : tag
 }
 
 function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
@@ -1592,7 +1566,7 @@ export function generateDesignDoc(
   if (documentUrl) lines.push(docT('extractedFrom', { url: documentUrl }))
 
   if (documentFeatureTags.length > 0) {
-    const tags = documentFeatureTags.map((tag) => `\`${localizedFeatureTag(tag, language)}\``).join(' · ')
+    const tags = documentFeatureTags.map((tag) => `\`${localizeFeatureTag(tag, language)}\``).join(' · ')
     lines.push(`\n${coreT(language, 'export.featureTags.line', { tags })}`)
   }
 

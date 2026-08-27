@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Harbor Deploy is a local developer deployment console showcase."
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>Overview · Harbor Deploy</title>
+    <link rel="stylesheet" href="./variables.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Harbor Deploy navigation">
+        <div class="sidebar-main">
+          <a class="brand" href="#/overview" aria-label="Harbor Deploy overview">
+            <span class="brand-mark" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            <span class="brand-copy">
+              <strong>Harbor</strong>
+              <span>Deploy</span>
+            </span>
+          </a>
+
+          <div class="workspace-card" aria-label="Current workspace">
+            <span class="workspace-avatar" aria-hidden="true">N</span>
+            <span class="workspace-copy">
+              <strong>Northstar</strong>
+              <span>Engineering</span>
+            </span>
+            <span class="workspace-chevron" aria-hidden="true">⌄</span>
+          </div>
+
+          <nav class="primary-nav" aria-label="Primary">
+            <a class="nav-link" data-route="overview" href="#/overview">
+              <span class="nav-index" aria-hidden="true">01</span>
+              <span>Overview</span>
+            </a>
+            <a class="nav-link" data-route="deployments" href="#/deployments">
+              <span class="nav-index" aria-hidden="true">02</span>
+              <span>Deployments</span>
+            </a>
+            <a class="nav-link" data-route="settings" href="#/settings">
+              <span class="nav-index" aria-hidden="true">03</span>
+              <span>Settings</span>
+            </a>
+          </nav>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="local-indicator">
+            <span class="status-light" aria-hidden="true"></span>
+            <span>
+              <strong>Local showcase</strong>
+              <small>No external services</small>
+            </span>
+          </div>
+          <div class="user-chip" aria-label="Signed in as Nora Reed">
+            <span class="user-avatar" aria-hidden="true">NR</span>
+            <span>
+              <strong>Nora Reed</strong>
+              <small>Platform lead</small>
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="app-frame">
+        <header class="topbar">
+          <div class="breadcrumb" aria-label="Breadcrumb">
+            <span>Northstar</span>
+            <span aria-hidden="true">/</span>
+            <strong id="view-label">Overview</strong>
+          </div>
+          <div class="topbar-meta">
+            <span class="system-state">
+              <span class="status-light" aria-hidden="true"></span>
+              All systems operational
+            </span>
+            <span class="topbar-divider" aria-hidden="true"></span>
+            <span>iad1</span>
+          </div>
+        </header>
+
+        <main id="main-content" tabindex="-1">
+          <div id="app"></div>
+        </main>
+      </div>
+    </div>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <div id="modal-root"></div>
+    <p id="route-status" class="sr-only" aria-live="polite"></p>
+
+    <noscript>
+      <div class="noscript-message">
+        Harbor Deploy needs JavaScript enabled to switch views and use its controls.
+      </div>
+    </noscript>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

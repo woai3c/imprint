@@ -1,0 +1,97 @@
+{
+  "case": "astro-to-harbor-deploy",
+  "caseVersion": 1,
+  "createdAt": "2026-08-27",
+  "source": {
+    "inputMode": "url",
+    "requestedUrl": "https://astro.build/",
+    "observedPages": ["https://astro.build/", "https://astro.build/blog/", "https://astro.build/agencies/"],
+    "screenshotRole": "Evidence captured automatically from the loaded URLs; screenshots were not analysis inputs."
+  },
+  "analysis": {
+    "imprintVersion": "0.1.0",
+    "imprintCommit": "78c1c0671611435a2e3b706a1065d755db74d3be",
+    "analysisId": "455062fb-ed03-4524-9ded-e71933d2fbe5",
+    "entryPoint": "Source-built CLI used to automate this reproducible case; v0.1.0 public distribution remains Desktop.",
+    "command": "node dist/cli/index.js extract https://astro.build/ --pages 3 --viewport all --no-session --format all --output tmp/astro-showcase/analysis",
+    "durationMs": 36810,
+    "environment": {
+      "platform": "macOS arm64",
+      "node": "22.23.2",
+      "browser": "Google Chrome 151.0.7922.174"
+    },
+    "coverage": {
+      "pages": "3/3 complete",
+      "captures": "6/6 complete",
+      "assets": "6/6 valid",
+      "viewports": ["desktop", "tablet", "mobile"],
+      "interactionCandidates": 36,
+      "interactionsSafelyObserved": 3,
+      "interactionsSkipped": 33
+    },
+    "reportedLimitations": [
+      "horizontal-overflow-observed",
+      "some-safe-interactions-skipped",
+      "responsive-section-identity-mismatch"
+    ]
+  },
+  "generation": {
+    "tool": "Codex CLI 0.149.0",
+    "inputs": [
+      "artifacts/DESIGN.md",
+      "artifacts/variables.css",
+      "artifacts/theme.css",
+      "prompt/TASK.md",
+      "prompt/AGENTS.md"
+    ],
+    "sourceScreenshotsProvidedToAgent": false,
+    "remoteAssetsOrDependencies": false,
+    "deployed": false
+  },
+  "verification": {
+    "routes": ["#/overview", "#/deployments", "#/settings"],
+    "desktopViewport": "1440x900",
+    "mobileViewport": "390x844",
+    "browserConsoleWarningsOrErrors": 0,
+    "checks": [
+      "direct hash routes",
+      "search and combined filters",
+      "pagination",
+      "new deployment dialog",
+      "settings dirty and discard state",
+      "responsive layout without horizontal overflow",
+      "HTML5 parse",
+      "CSS parse and exported-token use",
+      "JavaScript syntax"
+    ]
+  },
+  "recording": {
+    "edited": true,
+    "composition": "A real Desktop rerun, an explicit agent-step card, and the verified result screenshots.",
+    "waitingTimeCompressed": true,
+    "english": {
+      "realDesktopAnalysisWaitSeconds": 133,
+      "videoDurationSeconds": 42.195
+    },
+    "zhCN": {
+      "realDesktopAnalysisWaitSeconds": 44,
+      "videoDurationSeconds": 40.195
+    },
+    "provenanceNote": "The recording demonstrates the workflow. The frozen artifacts and hashes in this manifest come from the separate 36.8-second reproducible case run."
+  },
+  "sha256": {
+    "artifacts/DESIGN.md": "7665fcef56a056bbd839309b4794cbead0ffe96c62c105854508560e34bcb240",
+    "artifacts/variables.css": "7bc5907bdaed4cfc4f3af34955c487f8cad853182368094fd9ad059d2f8e93b8",
+    "artifacts/theme.css": "c5aa7595704b33e7f3c470910ea4b1103f1c4c5ee9788eaaabb7faf8502e12e9",
+    "prompt/TASK.md": "2ca3de0b5b011a4d0a6afbf150e894d11e272b3dbbd90aeddbfad9fa06da62f1",
+    "prompt/AGENTS.md": "7c8a279baecde3d2615d986cbf89da7276227514d43f1c96a3736b815b88b028",
+    "result/index.html": "004cb4cd50e4437b495fe9ce5f269a4f5c09c78416bc97682c66b02a561384d8",
+    "result/styles.css": "651a09f84f8746b8dd81abc22836dfe471b5c3f421c3e493753edf5250608894",
+    "result/app.js": "c891eecf14ad30f9225d4fbb4fd10b8885e44df23998d624e2c7dd0bf9eed8ab",
+    "harbor-deploy-sample.zip": "034c47429ba7f3bb47166049dd85f8b84fabe81a034e4fcd83702ac564df0100",
+    "../../media/imprint-astro-case-en.gif": "2c234929668c9c193face0d946b2d49ea45f6f8404c3457677ff71c72297b1f0",
+    "../../media/imprint-astro-case-en.mp4": "6d758e2fc7f40d049320f183d89cb1bac220e7be3caa52864dd0caae0bf0ed6f",
+    "../../media/imprint-astro-case-zh-CN.gif": "572247f549e34d5327394a9ff2c236229bb22b28f5f6891474d5ecf9acd8cae4",
+    "../../media/imprint-astro-case-zh-CN.mp4": "3c18bdf34e0872af0251c4da48a09201eb7f597848a14f7d8d91cb9cca3df80d"
+  }
+}

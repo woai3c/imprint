@@ -5,3 +5,6 @@ out
 pnpm-lock.yaml
 research/competitive-design-md/pages/
 research/competitive-design-md/current/pages/
+docs/showcase/**/artifacts/
+docs/showcase/**/prompt/
+docs/showcase/**/result/

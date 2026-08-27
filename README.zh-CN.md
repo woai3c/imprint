@@ -23,10 +23,10 @@
 </div>
 
 <p align="center">
-  <img src="./docs/media/imprint-analyze-zh-CN.gif" alt="在 Imprint 中分析网站 URL、查看可视预览并复制生成的 DESIGN.md" width="960" />
+  <img src="./docs/media/imprint-astro-case-zh-CN.gif" alt="在 Imprint 中分析 Astro 网站 URL、复制生成的 DESIGN.md，并查看中性的 Harbor Deploy 结果" width="960" />
 </p>
 
-<p align="center"><sub>真实分析 3 个公开页面；本次分析实际等待 74 秒，GIF 中已明确压缩等待时间。</sub></p>
+<p align="center"><sub>真实 Desktop 复跑与已验收的公开案例、真实外部 Codex 结果剪辑在一起；本次分析实际等待 44 秒，GIF 中已明确压缩。<a href="./docs/media/imprint-astro-case-zh-CN.mp4">观看 40 秒 MP4</a>。</sub></p>
 
 ## Imprint 是什么？
 
@@ -114,11 +114,11 @@ Desktop 分析需要本机安装 Chrome、Edge 或兼容的 Chromium 浏览器�
 
 > 实现前先阅读 DESIGN.md。在文档声明的范围内采用“核心设计规则”；只有目标页面出现对应组件和变体时，才使用“场景化组件模式”；“局部设计观察”仅作为相符场景下的参考。复用项目已导出的共享 Token，不要为每个页面分别创建新的色板或间距体系。保留当前产品需求，不要复制来源网站的品牌、文案和受版权保护的内容。
 
-<p align="center">
-  <img src="./docs/media/design-md-agent-workflow-zh-CN.gif" alt="将导出的 DESIGN.md 和产品需求交给外部 Coding Agent" width="960" />
-</p>
+### 公开端到端案例：Astro → Harbor Deploy
 
-<p align="center"><sub>这是一次使用导出 DESIGN.md 和固定产品任务的真实 Codex CLI 执行。Imprint 负责生成设计参考，不负责生成页面；该示例演示使用流程，不代表普遍质量保证。</sub></p>
+[可复现公开案例](./docs/showcase/astro/README.zh-CN.md)包含自动捕获的来源证据、生成的 `DESIGN.md` 与 CSS Variables、
+固定 Agent 任务、中性三页面结果、浏览器验收记录，以及无需安装 Imprint 即可在本地打开的无依赖样例包。Imprint
+生成设计参考，外部 Coding Agent 生成页面；该案例记录一次真实工作流，不代表普遍质量保证。
 
 ### 应该导出哪一种？
 

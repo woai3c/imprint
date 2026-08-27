@@ -25,10 +25,10 @@
 </div>
 
 <p align="center">
-  <img src="./docs/media/imprint-analyze-en.gif" alt="Analyze a website URL, inspect the visual preview, and copy the generated DESIGN.md in Imprint" width="960" />
+  <img src="./docs/media/imprint-astro-case-en.gif" alt="Analyze the Astro website URL in Imprint, copy the generated DESIGN.md, and inspect the neutral Harbor Deploy result" width="960" />
 </p>
 
-<p align="center"><sub>Real Desktop analysis of three public pages. The 79-second analysis wait is visibly time-compressed.</sub></p>
+<p align="center"><sub>A real Desktop analysis rerun joined to the verified public case and its real external Codex result. The 133-second analysis wait is visibly time-compressed. <a href="./docs/media/imprint-astro-case-en.mp4">Watch the 42-second MP4</a>.</sub></p>
 
 ## What is Imprint?
 
@@ -121,11 +121,12 @@ Desktop analysis requires an installed Chrome, Edge, or compatible Chromium brow
 
 > Read DESIGN.md before implementation. Apply its Core Design Rules within their documented scope. Use Contextual Component Patterns only when the target contains the matching component and variant, and treat Local Design Observations as scoped references. Reuse the project's shared exported tokens instead of creating a separate palette or spacing scale for each page. Preserve the existing product requirements, and do not copy copyrighted text or branding from the source website.
 
-<p align="center">
-  <img src="./docs/media/design-md-agent-workflow-en.gif" alt="Give an exported DESIGN.md and product requirements to an external coding agent" width="960" />
-</p>
+### Public end-to-end case: Astro → Harbor Deploy
 
-<p align="center"><sub>This is a real external Codex CLI run using the exported DESIGN.md and a fixed product task. Imprint produced the design reference; it did not generate the page. The example demonstrates the workflow, not a universal quality guarantee.</sub></p>
+The [reproducible public case](./docs/showcase/astro/README.md) includes the captured source evidence, generated
+`DESIGN.md` and CSS variables, exact agent task, neutral three-view result, browser verification record, and a
+dependency-free sample you can open locally without installing Imprint. Imprint produced the design reference; the
+external coding agent produced the page. The example documents one workflow, not a universal quality guarantee.
 
 ### Which format should I export?
 

@@ -16,6 +16,8 @@
   <p>
     <a href="./README.zh-CN.md">简体中文</a>
     ·
+    <a href="https://design-imprint.pages.dev">Website</a>
+    ·
     <a href="https://github.com/woai3c/imprint/releases/latest">Download</a>
     ·
     <a href="#features">Features</a>

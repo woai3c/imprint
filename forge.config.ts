@@ -20,7 +20,9 @@ const appleApiKey = macOSSigningEnabled ? requireEnv('APPLE_API_KEY') : ''
 const appleApiKeyId = macOSSigningEnabled ? requireEnv('APPLE_API_KEY_ID') : ''
 const appleApiIssuer = macOSSigningEnabled ? requireEnv('APPLE_API_ISSUER') : ''
 
-const externalPackages = ['better-sqlite3', 'playwright-core']
+// The Vite plugin packages only its build output, so externalized modules and
+// their runtime dependencies must be copied into the app explicitly.
+const packagedRuntimePackages = ['better-sqlite3', 'bindings', 'file-uri-to-path', 'playwright-core']
 
 function getHeadlessBrowserResources(): string[] {
   if (process.platform !== 'darwin') return []
@@ -45,7 +47,7 @@ function getHeadlessBrowserResources(): string[] {
   return [resourcePath]
 }
 
-function copyNativeModules(
+function copyPackagedRuntimePackages(
   buildPath: string,
   _electronVersion: string,
   _platform: string,
@@ -54,7 +56,7 @@ function copyNativeModules(
 ) {
   try {
     const appNodeModules = path.join(buildPath, 'node_modules')
-    for (const mod of externalPackages) {
+    for (const mod of packagedRuntimePackages) {
       const src = path.dirname(require.resolve(`${mod}/package.json`))
       const dest = path.join(appNodeModules, mod)
       fs.cpSync(src, dest, { recursive: true, dereference: true })
@@ -82,7 +84,7 @@ const config: ForgeConfig = {
       InternalName: 'Imprint',
       ProductName: 'Imprint',
     },
-    afterCopy: [copyNativeModules],
+    afterCopy: [copyPackagedRuntimePackages],
     ...(macOSSigningEnabled
       ? {
           osxSign: {

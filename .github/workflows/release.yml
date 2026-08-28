@@ -183,6 +183,9 @@ jobs:
         if: matrix.platform == 'macos'
         run: pnpm exec electron-forge make --arch=${{ matrix.arch }}
 
+      - name: Smoke test packaged app
+        run: pnpm test:packaged -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+
       - name: Notarize and verify macOS DMG
         if: matrix.platform == 'macos' && steps.macos-signing.outputs.enabled == 'true'
         shell: bash

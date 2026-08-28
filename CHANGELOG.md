@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are generated from Conventional Commits by `pnpm release`.
 
+## [0.1.2] - 2026-08-28
+
+### Fixed
+
+- rebuild packaged native dependencies (desktop) (0997b79)
+
 ## [0.1.1] - 2026-08-28
 
 ### Fixed

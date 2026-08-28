@@ -47,27 +47,21 @@ function getHeadlessBrowserResources(): string[] {
   return [resourcePath]
 }
 
-function copyPackagedRuntimePackages(
-  buildPath: string,
-  _electronVersion: string,
-  _platform: string,
-  _arch: string,
-  callback: (err?: Error | null) => void,
-) {
-  try {
-    const appNodeModules = path.join(buildPath, 'node_modules')
-    for (const mod of packagedRuntimePackages) {
-      const src = path.dirname(require.resolve(`${mod}/package.json`))
-      const dest = path.join(appNodeModules, mod)
-      fs.cpSync(src, dest, { recursive: true, dereference: true })
-    }
-    callback()
-  } catch (err) {
-    callback(err as Error)
+function copyPackagedRuntimePackages(buildPath: string) {
+  const appNodeModules = path.join(buildPath, 'node_modules')
+  for (const mod of packagedRuntimePackages) {
+    const src = path.dirname(require.resolve(`${mod}/package.json`))
+    const dest = path.join(appNodeModules, mod)
+    fs.cpSync(src, dest, { recursive: true, dereference: true })
   }
 }
 
 const config: ForgeConfig = {
+  hooks: {
+    packageAfterCopy: async (_forgeConfig, buildPath) => {
+      copyPackagedRuntimePackages(buildPath)
+    },
+  },
   packagerConfig: {
     appBundleId: 'com.woai3c.imprint',
     appCategoryType: 'public.app-category.developer-tools',
@@ -84,7 +78,6 @@ const config: ForgeConfig = {
       InternalName: 'Imprint',
       ProductName: 'Imprint',
     },
-    afterCopy: [copyPackagedRuntimePackages],
     ...(macOSSigningEnabled
       ? {
           osxSign: {

@@ -1,7 +1,7 @@
 {
   "name": "imprint",
   "productName": "Imprint",
-  "version": "0.1.2",
+  "version": "0.1.1",
   "description": "Extract visual languages from websites and generate reusable design systems for AI",
   "author": "woai3c",
   "license": "MIT",

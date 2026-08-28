@@ -51,7 +51,7 @@ jobs:
       matrix:
         include:
           - id: windows-x64
-            runner: windows-2025
+            runner: windows-2022
             platform: windows
             arch: x64
           - id: macos-arm64

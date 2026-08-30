@@ -10,6 +10,7 @@ import {
   hasConsistentResponsiveSectionIdentity,
   usefulResponsiveChanges,
 } from './responsive-reliability.js'
+import { isContextDependentRadius } from './structural-styles.js'
 import type { DesignEvidence } from './types.js'
 
 const TYPOGRAPHY_REF_GROUPS = {
@@ -119,7 +120,9 @@ function visiblePseudoStyles(
     hasMaterial = true
   }
   if (hasMaterial) {
-    if (styles.borderRadius && /[1-9]/.test(styles.borderRadius)) result.push(['borderRadius', styles.borderRadius])
+    if (styles.borderRadius && !isContextDependentRadius(styles.borderRadius) && /[1-9]/.test(styles.borderRadius)) {
+      result.push(['borderRadius', styles.borderRadius])
+    }
   }
   return result
 }

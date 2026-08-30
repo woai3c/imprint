@@ -79,6 +79,13 @@ describe('component candidate summarization', () => {
     expect(classifyCardStyle({ borderRadius: '6px', boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.15)' })).toBe('outlined-r6')
   })
 
+  test('classifies layout-dependent radius math without inventing a numeric radius', () => {
+    const borderRadius = 'max(0px, min(4px, -999900% + 1.43586e+07px)) / 4px'
+
+    expect(classifyCardStyle({ borderRadius, boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.15)' })).toBe('outlined-rounded')
+    expect(isPillRadius({ borderRadius })).toBe(false)
+  })
+
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {
     const commonStyles = {
       backgroundColor: 'rgb(37, 99, 235)',

@@ -115,4 +115,21 @@ describe('deterministic agent guidance', () => {
     expect(guide).toContain('keep observed component and structural exceptions exact')
     expect(guide).not.toContain('avoid arbitrary pixel values')
   })
+
+  test('uses observed radius frequency instead of treating rare values as equally representative', () => {
+    const guide = generateDosAndDonts({
+      ...tokens,
+      radii: ['4px', '12px', '15px', '16px', '24px'],
+      usageCount: {
+        'radius:4px': 895,
+        'radius:12px': 9,
+        'radius:15px': 138,
+        'radius:16px': 1,
+        'radius:24px': 1,
+      },
+    })
+
+    expect(guide).toContain('Keep border-radius minimal for a sharp, precise aesthetic')
+    expect(guide).not.toContain('Use generous border-radius for a soft, friendly feel')
+  })
 })

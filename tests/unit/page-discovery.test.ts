@@ -25,6 +25,14 @@ describe('page discovery scoring', () => {
     expect(scorePageUrl('/enterprise%252522', baseUrl)).toBeNull()
   })
 
+  test('rejects obvious error routes without excluding articles about HTTP errors', () => {
+    expect(scorePageUrl('/404.html', baseUrl)).toBeNull()
+    expect(scorePageUrl('/not-found', baseUrl)).toBeNull()
+    expect(scorePageUrl('/page-not-found/', baseUrl)).toBeNull()
+    expect(scorePageUrl('/guides/http-404-errors', baseUrl)).not.toBeNull()
+    expect(scorePageUrl('/guides/404/handling', baseUrl)).not.toBeNull()
+  })
+
   test('normalizes tracking parameters and fragments before deduplication', () => {
     const page = scorePageUrl('/features?utm_source=test#hero', baseUrl)
     expect(page?.url).toBe('https://example.com/features')

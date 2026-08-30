@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core'
 
+import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import { normalizeColorValue } from './color-cluster.js'
 
 export type ComponentType = 'button' | 'card' | 'navigation' | 'input' | 'table' | 'modal' | 'list' | 'tab' | 'status'
@@ -70,7 +71,7 @@ const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
 
 function numericDimensions(value: string | undefined): number[] {
   if (!value) return []
-  return [...value.matchAll(/-?\d+(?:\.\d+)?/g)].map((match) => Number.parseFloat(match[0]))
+  return [...value.matchAll(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/gi)].map((match) => Number.parseFloat(match[0]))
 }
 
 function colorAlpha(value: string | undefined): number | undefined {
@@ -187,7 +188,11 @@ export function hasDepthShadow(value: string | undefined): boolean {
 
 export function classifyCardStyle(styles: Readonly<Record<string, string>>): string {
   const radius = Math.max(0, ...numericDimensions(styles.borderRadius))
-  const corner = radius > 0 ? `r${Number(radius.toFixed(2))}` : 'square'
+  const corner = isContextDependentRadius(styles.borderRadius)
+    ? 'rounded'
+    : radius > 0
+      ? `r${Number(radius.toFixed(2))}`
+      : 'square'
   const surface = hasDepthShadow(styles.boxShadow)
     ? 'elevated'
     : hasVisibleBorder(styles.border) || hasCrispEdgeShadow(styles.boxShadow)
@@ -201,6 +206,7 @@ export function isPillRadius(
   context: Pick<ComponentVariantContext, 'heightPx'> = {},
 ): boolean {
   const radius = styles.borderRadius || ''
+  if (isContextDependentRadius(radius)) return false
   const dimensions = numericDimensions(radius)
   const maximumRadius = dimensions.length > 0 ? Math.max(...dimensions) : 0
   if (/%/.test(radius) || maximumRadius >= 999 || maximumRadius >= 64) return true

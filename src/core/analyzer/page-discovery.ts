@@ -27,6 +27,7 @@ const EXCLUDED_PATHS = [
   /\/(?:terms|privacy|legal|cookie|gdpr|tos)(?:\/|$)/i,
   /\/(?:account|profile|settings|checkout|cart|search)(?:\/|$)/i,
   /\/(?:cdn-cgi|wp-admin|wp-content|wp-json|api)(?:\/|$)/i,
+  /\/(?:404|410|not-found|notfound|page-not-found)(?:\.(?:html?|php|aspx?))?$/i,
   /\/(?:tag|author|page)\/[^/]+/i,
   /\/(?:19|20)\d{2}\/(?:0?[1-9]|1[0-2])(?:\/|$)/,
   /\.(?:avif|css|csv|docx?|gif|ico|jpe?g|js|json|mov|mp3|mp4|pdf|png|svg|tar|webm|webp|xml|zip|gz)$/i,

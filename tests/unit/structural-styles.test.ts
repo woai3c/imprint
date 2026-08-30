@@ -21,6 +21,20 @@ describe('structural styles', () => {
     expect(structuralBorderRadius(['48px', '48px', '0px', '0px'])).toBe('48px 48px 0px 0px')
   })
 
+  test('does not promote layout-dependent CSS math into portable structural radii', () => {
+    const contextual = 'max(0px, min(4px, -999900% + 1.43586e+07px)) 4px'
+
+    expect(structuralBorderRadius([contextual, contextual, contextual, contextual])).toBeNull()
+    expect(
+      safeSectionObservedStyles({
+        borderTopLeftRadius: contextual,
+        borderTopRightRadius: contextual,
+        borderBottomRightRadius: contextual,
+        borderBottomLeftRadius: contextual,
+      }),
+    ).toBeUndefined()
+  })
+
   test('keeps uniform length radii in the scalar scale instead of duplicating them as structure', () => {
     expect(
       safeSectionObservedStyles({

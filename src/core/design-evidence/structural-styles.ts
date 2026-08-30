@@ -6,6 +6,11 @@ function normalizeRadiusValue(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+/** Functional radii retain layout-dependent CSS math and are not portable scalar or structural values. */
+export function isContextDependentRadius(value: string | undefined): boolean {
+  return Boolean(value && /[a-z][\w-]*\s*\(/i.test(value))
+}
+
 export function scalarRadiusFromCorners(corners: CornerRadii): string | null {
   const normalized = corners.map(normalizeRadiusValue)
   if (!normalized.every((value) => value === normalized[0])) return null
@@ -15,7 +20,13 @@ export function scalarRadiusFromCorners(corners: CornerRadii): string | null {
 export function structuralBorderRadius(corners: CornerRadii): string | null {
   const normalized = corners.map(normalizeRadiusValue)
   if (normalized.every((value) => /^(?:0|0px|0rem|0em)$/i.test(value))) return null
-  if (normalized.some((value) => !value || value.length > 80 || /[\r\n]|url\s*\(/i.test(value))) return null
+  if (
+    normalized.some(
+      (value) => !value || value.length > 80 || /[\r\n]|url\s*\(/i.test(value) || isContextDependentRadius(value),
+    )
+  ) {
+    return null
+  }
   return normalized.join(' ')
 }
 

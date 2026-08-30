@@ -174,16 +174,31 @@ export function generateDosAndDonts(
         // Percentages and oversized values describe circles/pills, not the corner
         // character of ordinary surfaces. They must not make an otherwise compact
         // system look broadly rounded.
-        return Number.isFinite(value) && value >= 0 && value <= 64 ? [value] : []
+        return Number.isFinite(value) && value >= 0 && value <= 64
+          ? [{ value, count: Math.max(0, tokens.usageCount?.[`radius:${radius}`] || 0) }]
+          : []
       })
-      .sort((first, second) => first - second)
+      .sort((first, second) => first.value - second.value)
     const middle = Math.floor(regularRadii.length / 2)
-    const representativeRadius =
-      regularRadii.length === 0
-        ? undefined
-        : regularRadii.length % 2 === 0
-          ? (regularRadii[middle - 1] + regularRadii[middle]) / 2
-          : regularRadii[middle]
+    const observedRadiusCount = regularRadii.reduce((sum, radius) => sum + radius.count, 0)
+    let representativeRadius: number | undefined
+    if (regularRadii.length > 0 && observedRadiusCount > 0) {
+      const midpoint = observedRadiusCount / 2
+      let cumulative = 0
+      representativeRadius = regularRadii[regularRadii.length - 1].value
+      for (const radius of regularRadii) {
+        cumulative += radius.count
+        if (cumulative >= midpoint) {
+          representativeRadius = radius.value
+          break
+        }
+      }
+    } else if (regularRadii.length > 0) {
+      representativeRadius =
+        regularRadii.length % 2 === 0
+          ? (regularRadii[middle - 1].value + regularRadii[middle].value) / 2
+          : regularRadii[middle].value
+    }
     if (representativeRadius !== undefined && representativeRadius >= 12) {
       lines.push(t('dos.generousRadius'))
     } else if (representativeRadius !== undefined && representativeRadius <= 4) {

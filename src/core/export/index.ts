@@ -38,6 +38,7 @@ import {
   topLevelGridColumnCount,
   usefulResponsiveChanges,
 } from '../design-evidence/responsive-reliability.js'
+import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { localizeFeatureTag } from '../i18n/feature-tags.js'
@@ -905,6 +906,9 @@ function scopedReconstructionGuidance(pageContext: string): string {
 }
 
 function localizeReconstructionFact(value: string, language: DocLanguage): string {
+  const localizedHeight = value.replace(/\b(\d+(?:\.\d+)?px) high\b/gi, (_match, height: string) =>
+    coreT(language, 'export.reconstruction.terms.heightValue', { height }),
+  )
   const replacements: Array<[RegExp, string]> = [
     [/\bdesktop\b/gi, coreT(language, 'export.reconstruction.terms.desktop')],
     [/\btablet\b/gi, coreT(language, 'export.reconstruction.terms.tablet')],
@@ -916,6 +920,7 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\baside\b/gi, coreT(language, 'export.reconstruction.terms.aside')],
     [/\bfeature-group\b/gi, coreT(language, 'export.reconstruction.terms.featureGroup')],
     [/\bhero\b/gi, coreT(language, 'export.reconstruction.terms.hero')],
+    [/\bmedia\b/gi, coreT(language, 'export.reconstruction.terms.media')],
     [/\bbody(?=\s+border-(?:top|right|bottom|left)\b)/gi, coreT(language, 'export.reconstruction.terms.body')],
     [/\bbutton\b/gi, coreT(language, 'export.reconstruction.terms.button')],
     [/\bclick\b/gi, coreT(language, 'export.reconstruction.terms.click')],
@@ -939,14 +944,17 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\bborder-bottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bborderBottom\b/g, coreT(language, 'export.reconstruction.terms.borderBottom')],
     [/\bboxShadow\b/g, coreT(language, 'export.reconstruction.terms.boxShadow')],
+    [/\bfixed\b/gi, coreT(language, 'export.reconstruction.terms.fixed')],
     [/\bsticky\b/gi, coreT(language, 'export.reconstruction.terms.sticky')],
+    [/\boverlay\b/gi, coreT(language, 'export.reconstruction.terms.overlay')],
+    [/\bflow\b/gi, coreT(language, 'export.reconstruction.terms.flow')],
     [/(?<!-)\btop(?=\s+\d)/gi, coreT(language, 'export.reconstruction.terms.top')],
     [/\bfalse(?=\s*→)/g, coreT(language, 'export.reconstruction.terms.false')],
     [/(?<=→\s)\btrue\b(?=\s*(?:,|$))/g, coreT(language, 'export.reconstruction.terms.true')],
     [/\bhidden(?=\s*→)/g, coreT(language, 'export.reconstruction.terms.hidden')],
     [/(?<=→\s)\bvisible\b(?=\s*(?:,|$))/g, coreT(language, 'export.reconstruction.terms.visible')],
   ]
-  return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value)
+  return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), localizedHeight)
 }
 
 function boundedPixelValue(value: string | number | undefined, maximum = 240): string | null {
@@ -973,7 +981,10 @@ function usefulComponentStyles(styles: Readonly<Record<string, string>>, tokens:
     if (!value) return false
     if (property === 'backgroundColor') return !isTransparentColor(value)
     if (property === 'border') return hasVisibleBorder(value)
-    if (property === 'borderRadius' || property === 'padding' || property === 'gap') {
+    if (property === 'borderRadius') {
+      return !isContextDependentRadius(value) && value !== 'normal' && hasNonzeroCssLength(value)
+    }
+    if (property === 'padding' || property === 'gap') {
       return value !== 'normal' && hasNonzeroCssLength(value)
     }
     if (property === 'boxShadow') return hasVisibleShadow(value)

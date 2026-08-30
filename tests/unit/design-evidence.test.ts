@@ -638,6 +638,21 @@ describe('Design Evidence', () => {
     const page = evidence.pages.find((candidate) => candidate.viewport === 'desktop')!
     const section = evidence.sections.find((candidate) => candidate.pageId === page.id)!
     const component = evidence.components.find((candidate) => candidate.pageId === page.id)!
+    const mediaSection: typeof section = {
+      ...structuredClone(section),
+      id: 'section-media-summary',
+      role: 'media',
+      order: 99,
+      layoutMode: 'flow',
+      observedStyles: {},
+      componentRefs: [],
+      interactionRefs: [],
+      mediaLayerRefs: [],
+    }
+    evidence.sections.push(mediaSection)
+    evidence.topology.pages.find((candidate) => candidate.pageId === page.id)!.sectionIds.push(mediaSection.id)
+    section.layoutMode = 'fixed'
+    section.observedStyles = { layout: { height: '56px' } }
     evidence.layoutNodes.push({
       id: 'layout-body-border',
       pageId: page.id,
@@ -670,7 +685,11 @@ describe('Design Evidence', () => {
 
     expect(summary).toContain('页面主体 左边框: 4px solid rgb(209, 217, 224)')
     expect(summary).toContain('按钮 点击: 展开状态 否 → 是, 受控内容可见性 隐藏 → 可见')
-    expect(summary).not.toMatch(/ariaExpanded|controlledVisibility|body border-left/)
+    expect(summary).toContain('媒体')
+    expect(summary).toContain('导航: 固定定位, 高度 56px')
+    expect(summary).not.toMatch(
+      /ariaExpanded|controlledVisibility|body border-left|\bmedia\b|\bfixed\b|\d+(?:\.\d+)?px high\b/,
+    )
     expect(brief).toContain('已执行变化属性: 展开状态 ×1, 受控内容可见性 ×1, 受控内容透明度 ×1')
     expect(brief).toContain('展开状态: 否 → 是; 受控内容可见性: 隐藏 → 可见; 受控内容透明度: 0 → 1')
     expect(brief).not.toMatch(/ariaExpanded|controlledVisibility|controlledOpacity/)

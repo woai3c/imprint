@@ -158,6 +158,12 @@ function formatClaimText(
   aliasRefs: ReadonlyMap<string, string>,
   t: ReturnType<typeof coreTranslator>,
 ): string {
+  const protectedTranslations: string[] = []
+  const protectTranslation = (value: string): string => {
+    const marker = `\uE000${protectedTranslations.length}\uE001`
+    protectedTranslations.push(value)
+    return marker
+  }
   let formatted = [...aliasRefs.entries()].reduce((value, [source, target]) => {
     const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return value.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), target)
@@ -166,12 +172,19 @@ function formatClaimText(
     /\bnode\.([a-z-]+)\.([a-zA-Z-]+)\b/g,
     (match: string, owner: string, property: string) => {
       const combined = translatedTerm(match, t)
-      if (combined !== match) return combined
-      return t('ownedProperty', {
-        owner: translatedTerm(owner, t),
-        property: translatedTerm(property, t),
-      })
+      return protectTranslation(
+        combined !== match
+          ? combined
+          : t('ownedProperty', {
+              owner: translatedTerm(owner, t),
+              property: translatedTerm(property, t),
+            }),
+      )
     },
+  )
+  formatted = formatted.replace(
+    /\b(reflow|reorder|visibility|interaction|mixed|scale)(?=\s*(?:;|:|：|affecting\b|；|，))/g,
+    (change) => protectTranslation(translatedTerm(change, t)),
   )
   const terms = [
     'rect.height',
@@ -184,7 +197,30 @@ function formatClaimText(
     'controlledOpacity',
     'controlledDisplay',
     'controlledHidden',
+    'backgroundColor',
+    'backgroundImage',
+    'textColor',
     'borderColor',
+    'borderTopLeftRadius',
+    'borderTopRightRadius',
+    'borderBottomRightRadius',
+    'borderBottomLeftRadius',
+    'topOffset',
+    'maxWidth',
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft',
+    'gap',
+    'borderTop',
+    'borderRight',
+    'borderBottom',
+    'borderLeft',
+    'boxShadow',
+    'overflowX',
+    'overflowY',
+    'scrollSnapType',
+    'scrollSnapAlign',
     'horizontalPosition',
     'verticalPosition',
     'sequenceIndex',
@@ -194,6 +230,13 @@ function formatClaimText(
     'layoutMode',
     'lineHeight',
     'fontSize',
+    'heading',
+    'body',
+    'label',
+    'metadata',
+    'section',
+    'card-group',
+    'unknown',
     'primary-action',
     'feature-group',
     'safe-active',
@@ -244,12 +287,8 @@ function formatClaimText(
     'elevated',
     'flat',
     'search',
-    'reflow',
-    'reorder',
     'visibility',
-    'interaction',
-    'mixed',
-    'scale',
+    'interactionModel',
     'height',
     'width',
     'position',
@@ -260,6 +299,9 @@ function formatClaimText(
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     formatted = formatted.replace(new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`, 'g'), translatedTerm(term, t))
   }
+  formatted = formatted.replace(/\uE000(\d+)\uE001/g, (marker, index: string) => {
+    return protectedTranslations[Number(index)] ?? marker
+  })
   formatted = formatted.replaceAll(', ', t('listSeparator')).replaceAll(' -> ', t('sequenceArrow'))
   formatted = formatted.replace(
     /\b(size change|visibility change|interaction change|order change)\s+changes?\b/gi,

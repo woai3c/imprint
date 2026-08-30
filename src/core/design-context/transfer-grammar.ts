@@ -43,19 +43,15 @@ function stable(values: readonly string[], limit = Number.POSITIVE_INFINITY): st
 }
 
 function displayedResponsiveProperties(properties: readonly string[]): string[] {
-  return stable(
-    properties.map((property) =>
-      property === 'rect.height'
-        ? 'height'
-        : property === 'rect.width'
-          ? 'width'
-          : property === 'rect.x'
-            ? 'horizontalPosition'
-            : property === 'rect.y'
-              ? 'verticalPosition'
-              : property,
-    ),
-  )
+  const aliases: Readonly<Record<string, string>> = {
+    color: 'textColor',
+    'rect.height': 'height',
+    'rect.width': 'width',
+    'rect.x': 'horizontalPosition',
+    'rect.y': 'verticalPosition',
+    top: 'topOffset',
+  }
+  return stable(properties.map((property) => aliases[property] || property))
 }
 
 function baseReusableClaim(claim: DesignClaim): boolean {

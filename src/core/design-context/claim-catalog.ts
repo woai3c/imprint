@@ -445,15 +445,10 @@ function buildCompositionClaims(
         first.url.localeCompare(second.url) ||
         first.section.id.localeCompare(second.section.id),
     )
-  const sampleLimit = 8
-  const outlierLimit = Math.min(outliers.length, Math.ceil(sampleLimit / 3))
-  const sample = [...inliers.slice(0, sampleLimit - outlierLimit), ...outliers.slice(0, outlierLimit)]
-  const allSectionIds = representatives.map(({ section }) => section.id)
-  const sectionIds = sample.map(({ section }) => section.id)
-  const sampleWidths = sample.map(({ section }) => section.rect.width)
+  const sectionIds = representatives.map(({ section }) => section.id)
   const minimumWidth = Math.min(...widths)
   const maximumWidth = Math.max(...widths)
-  const widthConfidence = numericAgreementConfidence(allSectionIds, widths, evidence, 0.12)
+  const widthConfidence = numericAgreementConfidence(sectionIds, widths, evidence, 0.12)
   const widthStatement =
     widthConfidence === 'high' && outliers.length > 0
       ? t('containerClusterStatement', {
@@ -487,7 +482,7 @@ function buildCompositionClaims(
         scope: assertionScope(sectionIds, evidence),
         evidenceIds: sectionIds,
         property: 'rect.width.page-representatives-percent',
-        value: sampleWidths.map((width) => String(roundedPercent(width))),
+        value: widths.map((width) => String(roundedPercent(width))),
       },
     ],
   })
@@ -497,7 +492,7 @@ function buildCompositionClaims(
       count: anchors.filter((value) => value === dominantAnchor).length,
     }),
     implementation: t('boundedImplementation'),
-    confidence: agreementConfidence(allSectionIds, anchors, evidence),
+    confidence: agreementConfidence(sectionIds, anchors, evidence),
     evidenceIds: sectionIds,
     assertions: [
       {

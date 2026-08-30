@@ -142,6 +142,30 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(designDoc).toContain('radii:\n        - 50%')
   })
 
+  test('does not publish layout-dependent radius math as a reusable component value', () => {
+    const contextualRadius = 'max(0px, min(4px, -999900% + 1.43586e+07px)) / 4px'
+    const designDoc = generateDesignDoc({
+      tokens,
+      components: [
+        {
+          type: 'card',
+          count: 5,
+          selectors: [],
+          styles: {
+            borderRadius: contextualRadius,
+            boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.15)',
+          },
+          confidence: 0.9,
+          evidence: ['computed-style'],
+        },
+      ],
+    })
+
+    expect(designDoc).toContain('| card | 5 | 0.9 |')
+    expect(designDoc).not.toContain('card-outlined-r7')
+    expect(designDoc).not.toContain(contextualRadius)
+  })
+
   test('models an observed pill button with a semantic rounded token and variant-aware guidance', () => {
     const designDoc = generateDesignDoc(
       { ...tokens, radii: ['2px', '3px', '4px', '8px'] },

@@ -360,6 +360,9 @@ describe('deterministic design context', () => {
     expect(statements).toEqual(expect.arrayContaining([expect.stringContaining('Executing click')]))
     expect(statements).toEqual(expect.arrayContaining([expect.stringContaining('Visible transitions were observed')]))
     expect(profile.transferGrammar!.localRules.map((item) => item.category)).toContain('responsive')
+    const boundaries = generateTransferBoundariesMarkdown(profile, tokens, new Map(), evidence)
+    expect(boundaries).toContain('Visible transitions were observed in 1 interaction states')
+    expect(boundaries).not.toContain('interaction change states')
     expect(generateTransferOverviewMarkdown(profile, tokens, new Map(), evidence)).toContain(
       'These six lines show whether each dimension has enough cross-page support',
     )
@@ -527,6 +530,99 @@ describe('deterministic design context', () => {
     expect(markdown).not.toContain('node.')
     expect(boundaries).toContain('直接观察显示方式 / 可见性变化')
     expect(boundaries).not.toContain('变化变化')
+  })
+
+  it('localizes internal responsive style properties in both exported languages', () => {
+    const evidence = createEvidence()
+    evidence.responsiveObservations[0] = {
+      ...evidence.responsiveObservations[0],
+      changedProperties: [
+        'backgroundColor',
+        'borderBottomLeftRadius',
+        'borderTopRightRadius',
+        'interactionModel',
+        'node.body.fontSize',
+        'node.body.lineHeight',
+        'node.heading.lineHeight',
+        'paddingLeft',
+        'top',
+      ],
+    }
+
+    const chineseProfile = createDeterministicDesignContext(evidence, 'zh-CN').profile
+    const chineseMarkdown = generateTransferComponentsMarkdown(chineseProfile, tokens, new Map(), evidence)
+    const englishProfile = createDeterministicDesignContext(evidence, 'en').profile
+    const englishMarkdown = generateTransferComponentsMarkdown(englishProfile, tokens, new Map(), evidence)
+
+    for (const term of [
+      '背景颜色',
+      '左下圆角',
+      '右上圆角',
+      '交互模型',
+      '正文字号',
+      '正文行高',
+      '标题行高',
+      '左内边距',
+      '顶部偏移',
+    ]) {
+      expect(chineseMarkdown).toContain(term)
+    }
+    expect(chineseMarkdown).not.toMatch(
+      /backgroundColor|borderBottomLeftRadius|borderTopRightRadius|interactionModel|heading行高|paddingLeft/,
+    )
+    for (const term of [
+      'background color',
+      'bottom-left radius',
+      'top-right radius',
+      'interaction model',
+      'body text font size',
+      'body text line height',
+      'heading line height',
+      'left padding',
+      'top offset',
+    ]) {
+      expect(englishMarkdown).toContain(term)
+    }
+    expect(englishMarkdown).not.toMatch(
+      /backgroundColor|borderBottomLeftRadius|borderTopRightRadius|interactionModel|paddingLeft|body text text/,
+    )
+  })
+
+  it('does not reinterpret localized English surface prose as a responsive change type', () => {
+    const evidence = createEvidence()
+    evidence.tokens = {
+      ...structuredClone(tokens),
+      borders: ['1px solid #d1d5db'],
+      shadows: ['0px 4px 12px rgba(0, 0, 0, 0.16)'],
+    }
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      tokenRefs: ['color.background', 'shadow.1'],
+      evidenceRefs: ['image-secondary'],
+      observedStyles: {
+        backgroundColor: '#ffffff',
+        boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.16)',
+      },
+    }
+    evidence.sections[0].tokenRefs = ['color.background', 'border.1']
+    evidence.sections[0].observedStyles = {
+      backgroundColor: '#ffffff',
+      borders: { borderTop: '1px solid #d1d5db' },
+    }
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const boundaries = generateTransferBoundariesMarkdown(profile, evidence.tokens, new Map(), evidence)
+
+    expect(boundaries).toContain('mixed edge and depth')
+    expect(boundaries).not.toContain('mixed layout change edge and depth')
   })
 
   it('keeps sampled surface guidance bounded and prints repeated P2 scope guidance once', () => {
@@ -1155,8 +1251,65 @@ describe('deterministic design context', () => {
       first?.claim.assertions?.find((assertion) => assertion.property === 'rect.width.page-representatives-percent')
         ?.value,
     ).toContain('20')
+    expect(first?.claim.evidence).toHaveLength(12)
+    expect(
+      first?.claim.assertions?.find((assertion) => assertion.property === 'rect.width.page-representatives-percent')
+        ?.evidenceIds,
+    ).toHaveLength(12)
     expect(renamed).toMatchObject({ priority: 'P0', claim: { confidence: 'high' } })
     expect(renamed?.claim.statement).toBe(first?.claim.statement)
+  })
+
+  it('fills composition citations when representative widths form separate clusters', () => {
+    const evidence = createEvidence()
+    evidence.pages = []
+    evidence.topology.pages = []
+    evidence.sections = []
+    evidence.components = []
+    evidence.layoutNodes = []
+    evidence.responsiveObservations = []
+    for (let index = 0; index < 8; index += 1) {
+      const pageId = `cluster-page-${index}`
+      const sectionId = `cluster-section-${index}`
+      const imageId = `cluster-image-${index}`
+      evidence.pages.push({
+        id: pageId,
+        url: `https://example.com/cluster-${index}`,
+        viewport: 'desktop',
+        role: 'content',
+        images: [{ id: imageId, kind: 'overview', path: `${imageId}.png`, width: 1440, height: 1200 }],
+      })
+      evidence.topology.pages.push({ pageId, role: 'content', sectionIds: [sectionId] })
+      evidence.sections.push({
+        id: sectionId,
+        pageId,
+        order: 0,
+        role: 'content',
+        rect: { x: 0, y: 0, width: index % 2 === 0 ? 0.45 : 1, height: 0.8 },
+        layoutMode: 'flow',
+        tokenRefs: ['color.background'],
+        componentRefs: [],
+        interactionRefs: [],
+        mediaLayerRefs: [],
+        evidenceRefs: [imageId],
+      })
+    }
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en')
+    const compositionClaim = catalog.claims.find((entry) =>
+      entry.placements.some(
+        (placement) => placement.kind === 'singleton' && placement.slot === 'composition.container',
+      ),
+    )?.claim
+    const widthAssertion = compositionClaim?.assertions?.find(
+      (assertion) => assertion.property === 'rect.width.page-representatives-percent',
+    )
+
+    expect(compositionClaim?.statement).toContain('Across 8 representative pages')
+    expect(compositionClaim?.evidence).toHaveLength(8)
+    expect(widthAssertion).toMatchObject({ scope: 'cross-page' })
+    expect(widthAssertion?.evidenceIds).toHaveLength(8)
+    expect(widthAssertion?.value).toEqual(expect.arrayContaining(['45', '100']))
   })
 
   it('keeps shared semantic colors citable when unrelated palette evidence appears first', () => {

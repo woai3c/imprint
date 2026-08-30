@@ -182,6 +182,14 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     const body = document.body
     const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
     const viewportHeight = Math.max(window.visualViewport?.height || window.innerHeight, 1)
+    const documentStyle = computedFor(body)
+    const horizontalScrollableSide = ['vertical-rl', 'sideways-rl'].includes(documentStyle.writingMode)
+      ? 'left'
+      : ['vertical-lr', 'sideways-lr'].includes(documentStyle.writingMode)
+        ? 'right'
+        : documentStyle.direction === 'rtl'
+          ? 'left'
+          : 'right'
     // Finalized from visible page-level overflow candidates below. Raw scrollWidth can be
     // inflated by off-screen fixed helpers or the contents of intentional scrollers.
     let width = viewportWidth
@@ -355,6 +363,17 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       .filter((element) => !isInsideFixedLayer(element) && isVisible(element) && !isInsideHorizontalContainer(element))
       .flatMap((element) => {
         const rect = element.getBoundingClientRect()
+        const style = computedFor(element)
+        // Screen-reader helpers are commonly rendered as a 1px clipped box far outside
+        // the viewport. They do not create meaningful visual or scrollable overflow.
+        const isClippedOffscreenHelper =
+          rect.width <= 2 &&
+          rect.height <= 2 &&
+          style.position === 'absolute' &&
+          (horizontalScrollableSide === 'left' ? rect.left >= viewportWidth : rect.right <= 0) &&
+          ['hidden', 'clip'].includes(style.overflowX) &&
+          ['hidden', 'clip'].includes(style.overflowY)
+        if (isClippedOffscreenHelper) return []
         const leftOverflow = Math.max(0, -rect.left)
         const rightOverflow = Math.max(0, rect.right - viewportWidth)
         const overflowPx = leftOverflow + rightOverflow

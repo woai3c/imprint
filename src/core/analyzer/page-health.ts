@@ -140,6 +140,14 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       overflowStyleCache.set(element, style)
       return style
     }
+    const documentStyle = overflowStyleFor(document.body)
+    const horizontalScrollableSide = ['vertical-rl', 'sideways-rl'].includes(documentStyle.writingMode)
+      ? 'left'
+      : ['vertical-lr', 'sideways-lr'].includes(documentStyle.writingMode)
+        ? 'right'
+        : documentStyle.direction === 'rtl'
+          ? 'left'
+          : 'right'
     const isInsideHorizontalContainer = (element: Element): boolean => {
       let ancestor = element.parentElement
       while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
@@ -174,6 +182,16 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       ) {
         continue
       }
+      // Screen-reader helpers are commonly rendered as a 1px clipped box far outside
+      // the viewport. They do not create meaningful visual or scrollable overflow.
+      const isClippedOffscreenHelper =
+        rect.width <= 2 &&
+        rect.height <= 2 &&
+        style.position === 'absolute' &&
+        (horizontalScrollableSide === 'left' ? rect.left >= viewportWidth : rect.right <= 0) &&
+        ['hidden', 'clip'].includes(style.overflowX) &&
+        ['hidden', 'clip'].includes(style.overflowY)
+      if (isClippedOffscreenHelper) continue
       if (rect.left < -4 || rect.right > viewportWidth + 4) {
         contentWidth = Math.max(contentWidth, rect.right, viewportWidth - rect.left)
       }

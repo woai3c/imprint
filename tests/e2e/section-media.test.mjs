@@ -218,6 +218,277 @@ test('distinguishes contained horizontal scrollers from page-level overflow', as
   await page.setViewportSize({ width: 1280, height: 800 })
 })
 
+test('ignores tiny screen-reader helpers positioned outside the viewport', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      .screen-reader-helper {
+        position: absolute;
+        left: -10000px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+    <body>
+      <div class="screen-reader-helper">Route change announcement</div>
+      <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+    </body>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.equal(nativeWidth, 375)
+  assert.equal(evidence.horizontalOverflow, false)
+  assert.equal(evidence.contentWidth, 375)
+  assert.equal(evidence.width, 375)
+  assert.deepEqual(evidence.horizontalOverflowSources, [])
+  assert.equal(health.content.width, 375)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    false,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('keeps tiny unclipped elements as real page-level overflow', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      .overflowing-link {
+        position: absolute;
+        left: 500px;
+        width: 2px;
+        height: 2px;
+        overflow: visible;
+        white-space: nowrap;
+      }
+    </style>
+    <body>
+      <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+      <a class="overflowing-link" href="#details">Visible overflowing link</a>
+    </body>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.ok(nativeWidth > 500)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.ok(evidence.contentWidth >= 502)
+  assert.ok(evidence.horizontalOverflowSources.some((source) => source.locator.includes('a:nth-of-type(1)')))
+  assert.ok(health.content.width >= 502)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('keeps tiny clipped elements on the LTR scrollable side as real overflow', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      .overflowing-helper {
+        position: absolute;
+        left: 500px;
+        width: 2px;
+        height: 2px;
+        overflow: hidden;
+      }
+    </style>
+    <body>
+      <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+      <div class="overflowing-helper">Clipped content</div>
+    </body>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.equal(nativeWidth, 502)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.equal(evidence.contentWidth, 502)
+  assert.equal(health.content.width, 502)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('keeps tiny clipped elements on the RTL scrollable side as real overflow', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <html dir="rtl">
+      <head>
+        <style>
+          html, body { margin: 0; }
+          .overflowing-helper {
+            position: absolute;
+            left: -10000px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+      <body>
+        <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+        <div class="overflowing-helper">Clipped content</div>
+      </body>
+    </html>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.equal(nativeWidth, 10_375)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.equal(evidence.contentWidth, 10_375)
+  assert.equal(health.content.width, 10_375)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('uses the body direction to identify the RTL scrollable side', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <html>
+      <head>
+        <style>
+          html, body { margin: 0; }
+          .overflowing-helper {
+            position: absolute;
+            left: -10000px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+      <body dir="rtl">
+        <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+        <div class="overflowing-helper">Clipped content</div>
+      </body>
+    </html>`)
+
+  const directions = await page.evaluate(() => ({
+    html: getComputedStyle(document.documentElement).direction,
+    body: getComputedStyle(document.body).direction,
+  }))
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.deepEqual(directions, { html: 'ltr', body: 'rtl' })
+  assert.equal(nativeWidth, 10_375)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.equal(evidence.contentWidth, 10_375)
+  assert.equal(health.content.width, 10_375)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('uses vertical-rl writing mode to identify the left scrollable side', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      body { writing-mode: vertical-rl; direction: ltr; }
+      .overflowing-helper {
+        position: absolute;
+        left: -10000px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+    <body>
+      <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+      <div class="overflowing-helper">Clipped content</div>
+    </body>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.equal(nativeWidth, 10_375)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.equal(evidence.contentWidth, 10_375)
+  assert.equal(health.content.width, 10_375)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
+test('uses vertical-lr writing mode to identify the right scrollable side', async () => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      body { writing-mode: vertical-lr; direction: rtl; }
+      .overflowing-helper {
+        position: absolute;
+        left: 500px;
+        width: 2px;
+        height: 2px;
+        overflow: hidden;
+      }
+    </style>
+    <body>
+      <main><h1>Article</h1><p>Visible content fits within the viewport.</p></main>
+      <div class="overflowing-helper">Clipped content</div>
+    </body>`)
+
+  const nativeWidth = await page.evaluate(() =>
+    Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  )
+  const evidence = await extractPageEvidence(page, 'mobile')
+  const health = await inspectPageHealth(page, { expectedUrl: page.url() })
+
+  assert.equal(nativeWidth, 502)
+  assert.equal(evidence.horizontalOverflow, true)
+  assert.equal(evidence.contentWidth, 502)
+  assert.equal(health.content.width, 502)
+  assert.equal(
+    health.issues.some((issue) => issue.code === 'horizontal-overflow'),
+    true,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
 test('resets scroll before measuring fixed sections and page-level overflow', async () => {
   await page.setViewportSize({ width: 375, height: 812 })
   await page.setContent(`<!doctype html>

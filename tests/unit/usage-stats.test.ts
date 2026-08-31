@@ -138,4 +138,110 @@ describe('usage statistics', () => {
       'radius:8px': 1,
     })
   })
+
+  test('caps each URL and color-role family to one normalized vote', () => {
+    const observation = (captureId: string, elementRef: string, foreground: string) => ({
+      captureId,
+      elementRef,
+      elementKind: 'button' as const,
+      role: 'primary-action' as const,
+      background: 'rgb(0, 87, 217)',
+      foreground,
+    })
+    const merged = mergeStylesWithNormalizedUsage(
+      [
+        createExtractedStyles({
+          colorRoleObservations: [
+            observation('home|desktop', 'main > button.primary', 'rgb(17, 24, 39)'),
+            observation('home|desktop', 'main > button.primary', 'rgb(17, 24, 39)'),
+          ],
+        }),
+        createExtractedStyles({
+          colorRoleObservations: [
+            observation('home|mobile', 'nav > button.primary', 'rgb(17, 24, 39)'),
+            observation('home|mobile', 'main > a.primary', 'rgb(17, 24, 39)'),
+          ],
+        }),
+        createExtractedStyles({
+          colorRoleObservations: [
+            observation('docs|desktop', 'main > button.primary', 'rgb(255, 255, 255)'),
+            observation('docs|desktop', 'aside > button.primary', 'rgb(255, 255, 255)'),
+          ],
+        }),
+      ],
+      ['https://example.com/', 'https://example.com/', 'https://example.com/docs'],
+    )
+
+    const dark = merged.colorRoleObservations!.filter((observation) => observation.foreground === 'rgb(17, 24, 39)')
+    const light = merged.colorRoleObservations!.filter((observation) => observation.foreground === 'rgb(255, 255, 255)')
+    expect(dark).toHaveLength(3)
+    expect(dark.every((observation) => observation.selectionGroup === 'https://example.com/')).toBe(true)
+    expect(dark.reduce((sum, observation) => sum + observation.selectionWeight!, 0)).toBe(1)
+    expect(light).toHaveLength(2)
+    expect(light.every((observation) => observation.selectionGroup === 'https://example.com/docs')).toBe(true)
+    expect(light.reduce((sum, observation) => sum + observation.selectionWeight!, 0)).toBe(1)
+    expect(merged.colorRoleObservations?.map((observation) => observation.captureId)).toEqual([
+      'home|desktop',
+      'home|mobile',
+      'home|mobile',
+      'docs|desktop',
+      'docs|desktop',
+    ])
+  })
+
+  test('normalizes each text-pair capture before averaging repeated URL viewports', () => {
+    const pair = (captureId: string, foreground: string, count: number) => ({
+      captureId,
+      background: 'rgb(255, 255, 255)',
+      foreground,
+      textRole: 'body' as const,
+      count,
+    })
+    const merged = mergeStylesWithNormalizedUsage(
+      [
+        createExtractedStyles({ textColorPairObservations: [pair('home|desktop', 'rgb(17, 24, 39)', 1)] }),
+        createExtractedStyles({ textColorPairObservations: [pair('home|mobile', 'rgb(17, 24, 39)', 1_000)] }),
+        createExtractedStyles({ textColorPairObservations: [pair('docs|desktop', 'rgb(34, 34, 34)', 10)] }),
+      ],
+      ['https://example.com/', 'https://example.com/', 'https://example.com/docs'],
+    )
+
+    expect(merged.textColorPairObservations).toEqual([
+      expect.objectContaining({ captureId: 'https://example.com/', count: 1 }),
+      expect.objectContaining({ captureId: 'https://example.com/docs', count: 1 }),
+    ])
+  })
+
+  test('averages value-source counts across repeated viewports of one URL', () => {
+    const capture = createExtractedStyles({
+      usageCount: { 'spacing:8px': 2, 'radius:8px': 2 },
+      valueSourceCounts: {
+        'spacing:8px': { 'element:content-spacing': 1, 'element:control-spacing': 1 },
+        'radius:8px': { 'computed:ordinary-radius': 1, 'geometry:circle-or-pill': 1 },
+      },
+    })
+    const merged = mergeStylesWithNormalizedUsage(
+      [capture, structuredClone(capture)],
+      ['https://example.com/', 'https://example.com/'],
+    )
+
+    expect(merged.valueSourceCounts).toEqual({
+      'radius:8px': { 'computed:ordinary-radius': 1, 'geometry:circle-or-pill': 1 },
+      'spacing:8px': { 'element:content-spacing': 1, 'element:control-spacing': 1 },
+    })
+  })
+
+  test('unions normalized length aliases before counting URL-group support', () => {
+    const merged = mergeStylesWithNormalizedUsage(
+      [
+        createExtractedStyles({ usageCount: { 'spacing:0.96px': 60, 'spacing:1px': 40 } }),
+        createExtractedStyles({ usageCount: { 'spacing:1px': 100 } }),
+      ],
+      ['https://example.com/', 'https://example.com/'],
+    )
+
+    expect(merged.usageCount['spacing:1px']).toBeCloseTo(1)
+    expect(merged.usageCount).not.toHaveProperty('spacing:0.96px')
+    expect(merged.usageGroupCounts).toEqual({ 'spacing:1px': 1 })
+  })
 })

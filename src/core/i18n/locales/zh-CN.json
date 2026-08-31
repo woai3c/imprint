@@ -3,7 +3,8 @@
     "and": "与",
     "listSeparator": "、",
     "clauseSeparator": "；",
-    "absent": "缺失"
+    "absent": "缺失",
+    "captureDiagnostics": "{{message}}\n抓取诊断：\n{{details}}"
   },
   "app": {
     "tray": {

@@ -143,8 +143,27 @@ export function sanitizePageCoverageForPersistence(coverage: PageCoverage): Page
   }
 }
 
-export function sanitizeExtractionIssuesForDisplay(issues: ExtractionIssue[]): ExtractionIssue[] {
-  return issues.map((issue) => ({ ...issue, reason: sanitizeDiagnosticTextForDisplay(issue.reason) }))
+export function sanitizeExtractionIssuesForDisplay(
+  issues: readonly ExtractionIssue[],
+  knownUrls: readonly string[] = [],
+): ExtractionIssue[] {
+  return issues.map((issue) => ({
+    stage: sanitizeDiagnosticTextForDisplay(issue.stage, knownUrls),
+    reason: sanitizeDiagnosticTextForDisplay(issue.reason, knownUrls),
+  }))
+}
+
+export function formatExtractionIssueDiagnosticsForDisplay(
+  issues: readonly ExtractionIssue[],
+  knownUrls: readonly string[] = [],
+  limit = 8,
+): string {
+  const lines = new Set<string>()
+  for (const issue of sanitizeExtractionIssuesForDisplay(issues, knownUrls)) {
+    lines.add(`${issue.stage}: ${issue.reason}`)
+    if (lines.size >= Math.max(1, limit)) break
+  }
+  return [...lines].join('\n')
 }
 
 export function sanitizeAuthWallDetectionForDisplay(detection: AuthWallDetection): AuthWallDetection {

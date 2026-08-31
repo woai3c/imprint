@@ -112,7 +112,7 @@ describe('buildAnalysisArtifacts', () => {
     expect(artifacts.finalUrl).toBe('https://example.com/products')
     expect(artifacts.pageCoverage.pages[0].url).toBe('https://example.com/products')
     expect(artifacts.extractionIssues[0]).toEqual({
-      stage: privateUrl,
+      stage: 'https://example.com/products',
       reason: 'Failed at https://example.com/products',
     })
   })

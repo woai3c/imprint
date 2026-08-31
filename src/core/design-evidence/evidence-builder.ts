@@ -5,6 +5,7 @@ import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { PageScreenshot } from '../analyzer/types.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
+import { pageIdentityUrl } from '../analyzer/url-identity.js'
 import { screenshotAssetIssueCount } from './asset-integrity.js'
 import type { InteractionObservationSnapshot } from './interaction-observer.js'
 import type { PageEvidenceSnapshot, PageSectionSnapshot } from './page-extractor.js'
@@ -27,6 +28,8 @@ import type {
 export interface CapturedPageEvidence {
   screenshot: PageScreenshot
   snapshot: PageEvidenceSnapshot
+  /** Supplemental captures inform responsive evidence but do not satisfy the user-requested capture plan. */
+  captureScope?: 'requested' | 'supplemental'
   interactionStyles?: InteractionStyles
   interactionObservations?: InteractionObservationSnapshot[]
   health?: PageHealthReport
@@ -61,6 +64,17 @@ function imageContentHash(filePath: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function containsRect(outer: EvidenceImage['sourceRect'], inner: PageSectionSnapshot['rect']): boolean {
+  if (!outer) return false
+  const tolerance = 1e-9
+  return (
+    inner.x >= outer.x - tolerance &&
+    inner.y >= outer.y - tolerance &&
+    inner.x + inner.width <= outer.x + outer.width + tolerance &&
+    inner.y + inner.height <= outer.y + outer.height + tolerance
+  )
 }
 
 interface InstanceIdRegistry<T extends { key: string }> {
@@ -212,9 +226,10 @@ function buildResponsiveObservations(
   const viewportOrder = ['desktop', 'tablet', 'mobile']
   const byUrl = new Map<string, CapturedPageEvidence[]>()
   for (const capture of captures) {
-    const list = byUrl.get(capture.snapshot.url) || []
+    const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    const list = byUrl.get(identityUrl) || []
     list.push(capture)
-    byUrl.set(capture.snapshot.url, list)
+    byUrl.set(identityUrl, list)
   }
 
   const observations: ResponsiveSectionObservation[] = []
@@ -237,8 +252,8 @@ function buildResponsiveObservations(
       for (const key of new Set([...fromByKey.keys(), ...toByKey.keys()])) {
         const from = fromByKey.get(key)
         const to = toByKey.get(key)
-        const fromCaptureKey = `${fromCapture.snapshot.url}|${fromCapture.snapshot.viewport}`
-        const toCaptureKey = `${toCapture.snapshot.url}|${toCapture.snapshot.viewport}`
+        const fromCaptureKey = `${pageIdentityUrl(fromCapture.snapshot.url)}|${fromCapture.snapshot.viewport}`
+        const toCaptureKey = `${pageIdentityUrl(toCapture.snapshot.url)}|${toCapture.snapshot.viewport}`
         const fromSectionId = sectionIds.get(`${fromCaptureKey}|${key}`)
         const toSectionId = sectionIds.get(`${toCaptureKey}|${key}`)
         if (!from || !to || !fromSectionId || !toSectionId) {
@@ -257,8 +272,8 @@ function buildResponsiveObservations(
             evidenceRefs: [
               ...(fromSectionId ? [fromSectionId] : []),
               ...(toSectionId ? [toSectionId] : []),
-              imageIds.get(fromCaptureKey) || '',
-              imageIds.get(toCaptureKey) || '',
+              imageIds.get(`${fromCaptureKey}|${key}`) || imageIds.get(fromCaptureKey) || '',
+              imageIds.get(`${toCaptureKey}|${key}`) || imageIds.get(toCaptureKey) || '',
             ].filter(Boolean),
           })
           continue
@@ -359,8 +374,8 @@ function buildResponsiveObservations(
           evidenceRefs: [
             fromSectionId,
             toSectionId,
-            imageIds.get(fromCaptureKey) || '',
-            imageIds.get(toCaptureKey) || '',
+            imageIds.get(`${fromCaptureKey}|${key}`) || imageIds.get(fromCaptureKey) || '',
+            imageIds.get(`${toCaptureKey}|${key}`) || imageIds.get(toCaptureKey) || '',
           ].filter(Boolean),
         })
       }
@@ -382,8 +397,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const imageIds = new Map<string, string>()
 
   for (const capture of input.captures) {
-    const captureKey = `${capture.snapshot.url}|${capture.snapshot.viewport}`
-    const pageId = createEvidenceId('page', capture.snapshot.url, capture.snapshot.viewport)
+    const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    const captureKey = `${identityUrl}|${capture.snapshot.viewport}`
+    const pageId = createEvidenceId('page', identityUrl, capture.snapshot.viewport)
     const imageId = createEvidenceId('image', pageId, 'overview')
     const componentIds = createInstanceIdRegistry('component', pageId, capture.snapshot.components)
     const layoutIds = createInstanceIdRegistry('layout', pageId, capture.snapshot.layoutNodes)
@@ -392,19 +408,38 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const pseudoIds = createInstanceIdRegistry('pseudo', pageId, pseudoSnapshots)
     const ariaStateIds = createInstanceIdRegistry('interaction', pageId, capture.snapshot.ariaStates || [])
     const activeInteractionIds = createInstanceIdRegistry('interaction', pageId, capture.interactionObservations || [])
-    const overviewImages =
-      capture.screenshot.valid === false
-        ? []
-        : [
-            {
-              id: imageId,
-              kind: 'overview' as const,
-              path: capture.screenshot.path,
-              width: capture.screenshot.width || capture.snapshot.width,
-              height: capture.screenshot.height || capture.snapshot.height,
-              contentHash: imageContentHash(capture.screenshot.path),
+    const screenshotWidth = capture.screenshot.width || capture.snapshot.width
+    const screenshotHeight = capture.screenshot.height || capture.snapshot.height
+    const hasRecordedScreenshotDimensions =
+      capture.screenshot.width !== undefined && capture.screenshot.height !== undefined
+    const screenshotCoversSnapshot =
+      screenshotWidth + 4 >= capture.snapshot.width && screenshotHeight + 8 >= capture.snapshot.height
+    const hasUsableOverview = capture.screenshot.valid !== false && screenshotCoversSnapshot
+    const hasReadableBoundedImage = hasRecordedScreenshotDimensions && !hasUsableOverview
+    const capturedImage = {
+      id: imageId,
+      path: capture.screenshot.path,
+      width: screenshotWidth,
+      height: screenshotHeight,
+      contentHash: imageContentHash(capture.screenshot.path),
+    }
+    const overviewImages = hasUsableOverview ? [{ ...capturedImage, kind: 'overview' as const }] : []
+    const clippedOverviewImages = hasReadableBoundedImage
+      ? [
+          {
+            ...capturedImage,
+            kind: 'region-crop' as const,
+            sourceRect: {
+              x: 0,
+              y: 0,
+              // Values above 1 preserve the bitmap-to-document scale for oversized mismatches. Clamping would make
+              // a highlight at 800px in a 1600px snapshot render at 1500px in a 3000px screenshot.
+              width: screenshotWidth / Math.max(capture.snapshot.width, 1),
+              height: screenshotHeight / Math.max(capture.snapshot.height, 1),
             },
-          ]
+          },
+        ]
+      : []
     const supplementalImages = (capture.supplementalImages || []).flatMap((candidate, index) => {
       const { valid, ...image } = candidate
       return valid === false
@@ -417,11 +452,45 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
             },
           ]
     })
-    const evidenceImages = [...overviewImages, ...supplementalImages]
-    const citationImageId = evidenceImages[0]?.id
-    if (citationImageId) imageIds.set(captureKey, citationImageId)
+    const evidenceImages = [...overviewImages, ...clippedOverviewImages, ...supplementalImages]
+    const overviewImageId = overviewImages[0]?.id
+    if (overviewImageId) imageIds.set(captureKey, overviewImageId)
     for (const section of capture.snapshot.sections) {
       sectionIds.set(`${captureKey}|${section.key}`, createEvidenceId('section', pageId, section.key))
+    }
+    const supplementalImageSupports = [...clippedOverviewImages, ...supplementalImages].map((image) => ({
+      id: image.id,
+      sourceRect: image.sourceRect,
+      sectionKey: (image as EvidenceImage & { sectionKey?: string }).sectionKey,
+    }))
+    const imageRefsForRect = (rect: PageSectionSnapshot['rect'], sectionKey: string): string[] => {
+      const containingImages = supplementalImageSupports
+        .filter(
+          (image) => (!image.sectionKey || image.sectionKey === sectionKey) && containsRect(image.sourceRect, rect),
+        )
+        .map((image) => image.id)
+      return [...(overviewImageId ? [overviewImageId] : []), ...containingImages]
+    }
+    const imageRefsBySectionKey = new Map<string, string[]>()
+    for (const section of capture.snapshot.sections) {
+      const refs = imageRefsForRect(section.rect, section.key)
+      imageRefsBySectionKey.set(section.key, refs)
+      const boundedImageRef = supplementalImageSupports
+        .filter((image) => refs.includes(image.id))
+        .sort((first, second) => {
+          const firstSectionSpecific = first.sectionKey === section.key ? 1 : 0
+          const secondSectionSpecific = second.sectionKey === section.key ? 1 : 0
+          const firstArea = first.sourceRect
+            ? first.sourceRect.width * first.sourceRect.height
+            : Number.POSITIVE_INFINITY
+          const secondArea = second.sourceRect
+            ? second.sourceRect.width * second.sourceRect.height
+            : Number.POSITIVE_INFINITY
+          return (
+            secondSectionSpecific - firstSectionSpecific || firstArea - secondArea || first.id.localeCompare(second.id)
+          )
+        })[0]?.id
+      if (boundedImageRef || refs[0]) imageIds.set(`${captureKey}|${section.key}`, boundedImageRef || refs[0])
     }
     const pageIdentity = pageIdentityFromMetadata({
       applicationName: capture.snapshot.applicationName,
@@ -464,6 +533,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
 
     for (const section of capture.snapshot.sections) {
       const sectionId = sectionIds.get(`${captureKey}|${section.key}`)!
+      const imageEvidenceRefs = imageRefsBySectionKey.get(section.key) || []
       const sectionComponents = capture.snapshot.components.filter((component) => component.sectionKey === section.key)
       const sectionMedia = capture.snapshot.mediaLayers.filter((media) => media.sectionKey === section.key)
       sections.push({
@@ -478,7 +548,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         componentRefs: sectionComponents.map((component) => componentIds.byItem.get(component)!),
         interactionRefs: [],
         mediaLayerRefs: sectionMedia.map((media) => mediaIds.byItem.get(media)!),
-        evidenceRefs: [imageId],
+        evidenceRefs: imageEvidenceRefs,
         observedStyles: safeSectionObservedStyles(section.styles),
       })
       const snapType = section.styles.scrollSnapType
@@ -495,7 +565,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           before: {},
           after: { scrollSnapType: snapType, scrollSnapAlign: section.styles.scrollSnapAlign || '' },
           changedProperties: ['scrollSnapType', 'scrollSnapAlign'],
-          evidenceRefs: [sectionId, imageId],
+          evidenceRefs: [sectionId, ...imageEvidenceRefs],
         })
         sections[sections.length - 1].interactionRefs.push(id)
       }
@@ -504,6 +574,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     for (const component of capture.snapshot.components) {
       const sectionId = sectionIds.get(`${captureKey}|${component.sectionKey}`)
       if (!sectionId) continue
+      const imageEvidenceRefs = imageRefsForRect(component.rect, component.sectionKey)
       components.push({
         id: componentIds.byItem.get(component)!,
         pageId,
@@ -516,13 +587,14 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         tokenRefs: tokenRefsForStyles(component.styles, tokenIndex),
         stateRefs: [],
         confidence: component.confidence,
-        evidenceRefs: [sectionId, imageId],
+        evidenceRefs: [sectionId, ...imageEvidenceRefs],
       })
     }
 
     for (const ariaState of capture.snapshot.ariaStates || []) {
       const sectionId = sectionIds.get(`${captureKey}|${ariaState.sectionKey}`)
       if (!sectionId) continue
+      const imageEvidenceRefs = imageRefsBySectionKey.get(ariaState.sectionKey) || []
       const id = ariaStateIds.byItem.get(ariaState)!
       interactionObservations.push({
         id,
@@ -535,7 +607,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         before: {},
         after: { [ariaState.attribute]: ariaState.value },
         changedProperties: [ariaState.attribute],
-        evidenceRefs: [sectionId, imageId],
+        evidenceRefs: [sectionId, ...imageEvidenceRefs],
       })
       const section = sections.find((candidate) => candidate.id === sectionId)
       if (section) section.interactionRefs.push(id)
@@ -548,6 +620,12 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       const targetComponentId = observation.targetComponentKey
         ? componentIds.byKey.get(observation.targetComponentKey)?.[0]
         : undefined
+      const targetComponent = targetComponentId
+        ? components.find((candidate) => candidate.id === targetComponentId)
+        : undefined
+      const imageEvidenceRefs = targetComponent
+        ? imageRefsForRect(targetComponent.rect, observation.sectionKey)
+        : imageRefsBySectionKey.get(observation.sectionKey) || []
       interactionObservations.push({
         id,
         pageId,
@@ -560,7 +638,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         after: observation.after,
         changedProperties: observation.changedProperties,
         transition: observation.transition,
-        evidenceRefs: targetComponentId ? [sectionId, imageId, targetComponentId] : [sectionId, imageId],
+        evidenceRefs: [sectionId, ...imageEvidenceRefs, ...(targetComponentId ? [targetComponentId] : [])],
       })
       const section = sections.find((candidate) => candidate.id === sectionId)
       if (section) section.interactionRefs.push(id)
@@ -608,6 +686,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     for (const pseudo of pseudoSnapshots) {
       const sectionId = sectionIds.get(`${captureKey}|${pseudo.sectionKey}`)
       if (!sectionId) continue
+      const imageEvidenceRefs = imageRefsBySectionKey.get(pseudo.sectionKey) || []
       pseudoElements.push({
         id: pseudoIds.byItem.get(pseudo)!,
         pageId,
@@ -615,7 +694,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         target: pseudo.target,
         kind: pseudo.kind,
         styles: pseudo.styles,
-        evidenceRefs: [sectionId, imageId],
+        evidenceRefs: [sectionId, ...imageEvidenceRefs],
       })
     }
 
@@ -643,7 +722,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   }
 
   input.captures.forEach((capture, captureIndex) => {
-    const pageId = createEvidenceId('page', capture.snapshot.url, capture.snapshot.viewport)
+    const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    const pageId = createEvidenceId('page', identityUrl, capture.snapshot.viewport)
+    const overviewImageId = imageIds.get(`${identityUrl}|${capture.snapshot.viewport}`)
     const page = pages.find((candidate) => candidate.id === pageId)
     const firstSection = sections.find((section) => section.pageId === pageId)
     const interactionStyles =
@@ -679,29 +760,35 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           changedProperties: styles.changedProperties || Object.keys(styles.after),
           source: styles.source,
           selector: styles.selector,
-          evidenceRefs: [firstSection.id, page.images[0]?.id].filter(Boolean),
+          // Stylesheet-derived state patterns have no section geometry. Only a full overview can support their image
+          // citation; a section or viewport crop may depict a different target entirely.
+          evidenceRefs: [firstSection.id, ...(overviewImageId ? [overviewImageId] : [])],
         })
         firstSection.interactionRefs.push(id)
       })
     }
   })
 
-  const uniqueUrls = new Set(pages.map((page) => page.url))
+  const uniqueUrls = new Set(pages.map((page) => pageIdentityUrl(page.url)))
   const viewportCoverage = [...new Set(pages.map((page) => page.viewport))]
   const expectedViewports = [...new Set(input.expectedViewports || viewportCoverage)]
   const expectedCaptureCount =
     input.expectedCaptureCount ?? input.expectedPageCount * Math.max(1, expectedViewports.length)
   const expectedViewportSet = new Set(expectedViewports)
+  const requestedCaptures = input.captures.filter((capture) => capture.captureScope !== 'supplemental')
   const capturedExpectedCombinations = new Set(
-    pages.filter((page) => expectedViewportSet.has(page.viewport)).map((page) => `${page.url}|${page.viewport}`),
+    requestedCaptures
+      .filter((capture) => expectedViewportSet.has(capture.snapshot.viewport))
+      .map((capture) => `${pageIdentityUrl(capture.snapshot.url)}|${capture.snapshot.viewport}`),
   ).size
   const fullMatrixExpected = input.expectedPageCount * Math.max(1, expectedViewports.length)
   const viewportsByUrl = new Map<string, Set<string>>()
-  for (const page of pages) {
-    if (!expectedViewportSet.has(page.viewport)) continue
-    const viewports = viewportsByUrl.get(page.url) || new Set<string>()
-    viewports.add(page.viewport)
-    viewportsByUrl.set(page.url, viewports)
+  for (const capture of requestedCaptures) {
+    if (!expectedViewportSet.has(capture.snapshot.viewport)) continue
+    const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    const viewports = viewportsByUrl.get(identityUrl) || new Set<string>()
+    viewports.add(capture.snapshot.viewport)
+    viewportsByUrl.set(identityUrl, viewports)
   }
   const responsivePairedUrls = [...viewportsByUrl.values()].filter((viewports) =>
     expectedViewports.every((viewport) => viewports.has(viewport)),
@@ -757,7 +844,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     const page = pages.find((candidate) => candidate.id === section.pageId)
     if (!page) continue
     const urls = roleUrlCounts.get(section.role) || new Set<string>()
-    urls.add(page.url)
+    urls.add(pageIdentityUrl(page.url))
     roleUrlCounts.set(section.role, urls)
   }
   const crossPagePatternIds = [...roleUrlCounts.entries()]

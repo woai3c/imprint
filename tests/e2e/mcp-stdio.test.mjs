@@ -43,8 +43,16 @@ test(
   'MCP extraction reports operational completion outside the generated design artifact',
   { timeout: 90_000 },
   async (t) => {
-    const server = http.createServer((_request, response) => {
+    const server = http.createServer((request, response) => {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      if (request.url === '/blocked') {
+        response.end(`<!doctype html><style>
+          body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
+          .campaign{position:fixed;inset:0;z-index:99;background:#ff00ff;display:grid;place-items:center}
+        </style><main><h1>Underlying product page</h1><p>Stable design content.</p></main>
+        <div class="campaign" role="dialog" aria-modal="true"><h2>Blocking promotion</h2></div>`)
+        return
+      }
       response.end(`<!doctype html><style>
       body{margin:0;background:#f8fafc;color:#172033;font:16px/1.5 system-ui}main{max-width:720px;margin:48px auto;padding:24px}
     </style><main><h1>MCP fixture</h1><p>Deterministic local content.</p></main>`)
@@ -77,6 +85,20 @@ test(
     assert.ok(Array.isArray(content) && content[0]?.type === 'text')
     const payload = JSON.parse(content[0].text)
     assert.deepEqual(payload.completion, { reason: 'complete' })
+
+    const failure = await client.callTool({
+      name: 'imprint_extract',
+      arguments: {
+        url: `http://127.0.0.1:${address.port}/blocked`,
+        format: 'tokens',
+        useSession: false,
+        maxPages: 1,
+      },
+    })
+    assert.equal(failure.isError, true)
+    assert.ok(Array.isArray(failure.content) && failure.content[0]?.type === 'text')
+    assert.match(failure.content[0].text, /Capture diagnostics:/)
+    assert.match(failure.content[0].text, /health:large-overlay/)
   },
 )
 

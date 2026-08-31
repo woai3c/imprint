@@ -534,6 +534,28 @@ describe('reference capture comparison', () => {
     })
   })
 
+  it('does not report responsive drift when computed grid widths change but column counts stay the same', () => {
+    const reference = capture('reference')
+    const target = capture('target')
+    addMobileEvidence(reference, 2)
+    addMobileEvidence(target, 2)
+    reference.evidence!.responsiveObservations[0].changes.gridTemplateColumns = {
+      from: '565.188px 376.797px',
+      to: '277px',
+    }
+    target.evidence!.responsiveObservations[0].changes.gridTemplateColumns = {
+      from: '550.797px 367.203px',
+      to: '261px',
+    }
+
+    const responsive = compareReferenceCaptures(reference, target).categories.find(
+      (category) => category.category === 'responsive',
+    )!
+
+    expect(responsive.status).toBe('unchanged')
+    expect(responsive.changes).toEqual([])
+  })
+
   it('does not invent layout, interaction, or responsive changes for equal observed evidence', () => {
     const reference = capture('reference')
     const target = capture('target')

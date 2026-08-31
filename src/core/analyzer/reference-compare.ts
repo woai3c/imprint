@@ -876,7 +876,15 @@ function responsiveObservationValue(
   if (!section || useful.length === 0) return null
   const properties = useful.map(([property]) => property)
   const value = `${displayedResponsiveChangeType(observation.changeType, properties)} · ${useful
-    .map(([property, values]) => `${property}: ${values.from ?? '—'} → ${values.to ?? '—'}`)
+    .map(([property, values]) => {
+      const display = (candidate: string | number | undefined): string | number => {
+        if (property === 'gridTemplateColumns' || property === 'childGridTemplateColumns') {
+          return topLevelGridColumnCount(candidate) ?? candidate ?? '—'
+        }
+        return candidate ?? '—'
+      }
+      return `${property}: ${display(values.from)} → ${display(values.to)}`
+    })
     .join(', ')}`
   return {
     value,

@@ -1,4 +1,5 @@
 import type { AuthWallDetection } from './auth-wall.js'
+import type { ExtractionIssue } from './types.js'
 
 export class AuthenticationRequiredError extends Error {
   readonly code = 'AUTH_REQUIRED'
@@ -30,7 +31,7 @@ export class AuthenticationBrowserClosedError extends Error {
 export class NoUsableCapturesError extends Error {
   readonly code = 'NO_USABLE_CAPTURES'
 
-  constructor() {
+  constructor(readonly extractionIssues: readonly ExtractionIssue[] = []) {
     super('No usable page captures were produced')
     this.name = 'NoUsableCapturesError'
   }

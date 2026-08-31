@@ -41,16 +41,16 @@ starting another scenario so that separate categories are not mixed together.
 
 ## Scenarios
 
-| Variant             | Exact source override                     | Expected changed category      |
-| ------------------- | ----------------------------------------- | ------------------------------ |
-| `reference`         | None                                      | None                           |
-| `custom`            | None until manually edited                | Depends on the single edit     |
-| `colors`            | Primary color `#2457d6` → `#c43d2f`       | Colors                         |
-| `typography`        | Main heading `40px` → `52px`              | Typography                     |
-| `spacing`           | Button horizontal padding `20px` → `36px` | Spacing                        |
-| `radii`             | Shared corner radius `8px` → `20px`       | Radii                          |
-| `layout-responsive` | Feature grid desktop columns `3` → `2`    | Layout and responsive behavior |
-| `interaction`       | Observed hover offset `-2px` → `-8px`     | Interaction states             |
+| Variant             | Exact source override                  | Expected changed category      |
+| ------------------- | -------------------------------------- | ------------------------------ |
+| `reference`         | None                                   | None                           |
+| `custom`            | None until manually edited             | Depends on the single edit     |
+| `colors`            | Primary color `#2457d6` → `#c43d2f`    | Colors                         |
+| `typography`        | Main heading `40px` → `52px`           | Typography                     |
+| `spacing`           | Global spacing token `16px` → `20px`   | Spacing                        |
+| `radii`             | Shared corner radius `8px` → `20px`    | Radii                          |
+| `layout-responsive` | Feature grid desktop columns `3` → `2` | Layout and responsive behavior |
+| `interaction`       | Observed hover offset `-2px` → `-8px`  | Interaction states             |
 
 The `prospective-*` variants belong to pinned prospective corpora. Each stable variant declares computed-style-
 equivalent overrides and each all-categories variant changes all seven supported categories. They are acceptance

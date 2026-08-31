@@ -2,6 +2,7 @@ import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
 import { hasVisibleShadow } from './component-detect.js'
 import type { ColorRoleObservation, ColorTokenCandidate, DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
+import { normalizeComputedLength, normalizeLengthUsageKey } from './value-normalization.js'
 
 interface ParsedColor {
   channels: [number, number, number]
@@ -62,6 +63,23 @@ export function colorContrast(first: string, second: string): number | null {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
+function colorRoleSelectionWeight(observation: ColorRoleObservation): number {
+  const weight = observation.selectionWeight
+  return weight !== undefined && Number.isFinite(weight) && weight > 0 ? weight : 1
+}
+
+function colorRoleSelectionGroup(observation: ColorRoleObservation): string {
+  return observation.selectionGroup || observation.captureId
+}
+
+function colorRoleGroupSupport(observations: readonly ColorRoleObservation[]): number {
+  return new Set(observations.map(colorRoleSelectionGroup)).size
+}
+
+function colorRoleGroupWeight(observations: readonly ColorRoleObservation[]): number {
+  return observations.reduce((sum, observation) => sum + colorRoleSelectionWeight(observation), 0)
+}
+
 function buildPrimaryActionColorRole(
   primary: string | undefined,
   styles: Pick<ExtractedStyles, 'colorRoleObservations'>,
@@ -85,11 +103,21 @@ function buildPrimaryActionColorRole(
     observations.push(observation)
     pairs.set(key, observations)
   }
-  const selected = [...pairs.values()].sort((first, second) => {
+  const selected = [...pairs.entries()].sort(([firstKey, first], [secondKey, second]) => {
     const firstPrimary = first.some((observation) => observation.role === 'primary-action') ? 1 : 0
     const secondPrimary = second.some((observation) => observation.role === 'primary-action') ? 1 : 0
-    return secondPrimary - firstPrimary || second.length - first.length
-  })[0]
+    const firstForeground = first[0].foreground ? normalizeColorValue(first[0].foreground) : null
+    const secondForeground = second[0].foreground ? normalizeColorValue(second[0].foreground) : null
+    const firstContrast = firstForeground ? colorContrast(firstForeground, normalizedPrimary) : null
+    const secondContrast = secondForeground ? colorContrast(secondForeground, normalizedPrimary) : null
+    return (
+      secondPrimary - firstPrimary ||
+      colorRoleGroupSupport(second) - colorRoleGroupSupport(first) ||
+      colorRoleGroupWeight(second) - colorRoleGroupWeight(first) ||
+      (secondContrast ?? -1) - (firstContrast ?? -1) ||
+      firstKey.localeCompare(secondKey)
+    )
+  })[0][1]
   const observedForeground = selected[0].foreground
     ? normalizeColorValue(selected[0].foreground) || selected[0].foreground
     : undefined
@@ -167,7 +195,12 @@ function buildSemanticColorPairs(
         pairGroup.push(observation)
         pairGroups.set(key, pairGroup)
       }
-      const selected = [...pairGroups.values()].sort((first, second) => second.length - first.length)[0]
+      const selected = [...pairGroups.entries()].sort(
+        ([firstKey, first], [secondKey, second]) =>
+          colorRoleGroupSupport(second) - colorRoleGroupSupport(first) ||
+          colorRoleGroupWeight(second) - colorRoleGroupWeight(first) ||
+          firstKey.localeCompare(secondKey),
+      )[0][1]
       const background = selected[0]?.background ? normalizeColorValue(selected[0].background) : undefined
       const foreground = selected[0]?.foreground ? normalizeColorValue(selected[0].foreground) : undefined
       return [
@@ -198,15 +231,23 @@ function hasObservedActionBackground(observations: readonly ColorRoleObservation
 }
 
 function observedTextOnlyAccent(observations: readonly ColorRoleObservation[] | undefined): string | undefined {
-  const frequency = new Map<string, number>()
+  const candidates = new Map<string, { captures: Set<string>; weight: number }>()
   for (const observation of observations || []) {
     if (!['action', 'primary-action'].includes(observation.role) || observation.background || !observation.foreground)
       continue
     const foreground = normalizeColorValue(observation.foreground)
     if (!foreground || isNeutralColor(foreground)) continue
-    frequency.set(foreground, (frequency.get(foreground) || 0) + 1)
+    const candidate = candidates.get(foreground) || { captures: new Set<string>(), weight: 0 }
+    candidate.captures.add(colorRoleSelectionGroup(observation))
+    candidate.weight += colorRoleSelectionWeight(observation)
+    candidates.set(foreground, candidate)
   }
-  return [...frequency.entries()].sort((first, second) => second[1] - first[1])[0]?.[0]
+  return [...candidates.entries()].sort(
+    ([firstColor, first], [secondColor, second]) =>
+      second.captures.size - first.captures.size ||
+      second.weight - first.weight ||
+      firstColor.localeCompare(secondColor),
+  )[0]?.[0]
 }
 
 function observedSecondaryActionBackground(
@@ -214,23 +255,44 @@ function observedSecondaryActionBackground(
   primary: string,
 ): string | undefined {
   const normalizedPrimary = normalizeColorValue(primary)
-  const elementsByBackground = new Map<string, Set<string>>()
+  const candidates = new Map<
+    string,
+    { captures: Set<string>; elementsByCapture: Map<string, Set<string>>; weight: number }
+  >()
   for (const observation of observations || []) {
     if (observation.role !== 'action' || !observation.background) continue
     const background = normalizeColorValue(observation.background)
     if (!background || background === normalizedPrimary || isNeutralColor(background)) continue
-    const elements = elementsByBackground.get(background) || new Set<string>()
+    const candidate = candidates.get(background) || {
+      captures: new Set<string>(),
+      elementsByCapture: new Map<string, Set<string>>(),
+      weight: 0,
+    }
+    candidate.captures.add(colorRoleSelectionGroup(observation))
+    const elements = candidate.elementsByCapture.get(observation.captureId) || new Set<string>()
     elements.add(observation.elementRef)
-    elementsByBackground.set(background, elements)
+    candidate.elementsByCapture.set(observation.captureId, elements)
+    candidate.weight += colorRoleSelectionWeight(observation)
+    candidates.set(background, candidate)
   }
-  const repeated = [...elementsByBackground]
-    .map(([background, elements]) => [background, elements.size] as const)
-    .filter(([, count]) => count >= 2)
-  return repeated.sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))[0]?.[0]
+  return [...candidates.entries()]
+    .filter(
+      ([, candidate]) =>
+        candidate.captures.size >= 2 ||
+        [...candidate.elementsByCapture.values()].some((elements) => elements.size >= 2),
+    )
+    .sort(
+      ([firstColor, first], [secondColor, second]) =>
+        second.captures.size - first.captures.size ||
+        second.weight - first.weight ||
+        Math.max(...[...second.elementsByCapture.values()].map((elements) => elements.size)) -
+          Math.max(...[...first.elementsByCapture.values()].map((elements) => elements.size)) ||
+        firstColor.localeCompare(secondColor),
+    )[0]?.[0]
 }
 
 function observedDestructiveActionColor(observations: readonly ColorRoleObservation[] | undefined): string | undefined {
-  const scores = new Map<string, number>()
+  const candidates = new Map<string, { captures: Set<string>; score: number }>()
   for (const observation of observations || []) {
     if (observation.role !== 'destructive-action') continue
     for (const [value, weight] of [
@@ -243,12 +305,15 @@ function observedDestructiveActionColor(observations: readonly ColorRoleObservat
       // Native controls often inherit ordinary neutral foregrounds, fills, and borders from the page or user agent.
       // A destructive label alone is not enough evidence to reinterpret those defaults as the system's danger color.
       if (isNeutralColor(normalized)) continue
-      scores.set(normalized, (scores.get(normalized) || 0) + weight)
+      const candidate = candidates.get(normalized) || { captures: new Set<string>(), score: 0 }
+      candidate.captures.add(colorRoleSelectionGroup(observation))
+      candidate.score += weight * colorRoleSelectionWeight(observation)
+      candidates.set(normalized, candidate)
     }
   }
-  return [...scores.entries()].sort(
-    ([firstValue, firstScore], [secondValue, secondScore]) =>
-      secondScore - firstScore || firstValue.localeCompare(secondValue),
+  return [...candidates.entries()].sort(
+    ([firstValue, first], [secondValue, second]) =>
+      second.captures.size - first.captures.size || second.score - first.score || firstValue.localeCompare(secondValue),
   )[0]?.[0]
 }
 
@@ -425,16 +490,6 @@ function numericSort(values: string[]): string[] {
   return values.sort((first, second) => Number.parseFloat(first) - Number.parseFloat(second))
 }
 
-function normalizeComputedLength(value: string): string {
-  const match = value.trim().match(/^(-?\d*\.?\d+)px$/i)
-  if (!match) return value
-  const amount = Number.parseFloat(match[1])
-  if (!Number.isFinite(amount)) return value
-  const nearestHalfPixel = Math.round(amount * 2) / 2
-  const normalized = Math.abs(amount - nearestHalfPixel) <= 0.1 ? nearestHalfPixel : Number(amount.toFixed(3))
-  return `${Object.is(normalized, -0) ? 0 : normalized}px`
-}
-
 function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<string, number> {
   const normalized = new Map<string, number>()
   for (const [value, count] of frequency) {
@@ -518,7 +573,9 @@ function normalizedUsageGroupCount(styles: ExtractedStyles, category: string, va
   let groups = 0
   for (const [key, count] of Object.entries(styles.usageGroupCounts || {})) {
     if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
-    if (Number.isFinite(count) && count > 0) groups += count
+    // Current analysis normalizes before counting distinct URL groups. Legacy/raw inputs can still contain multiple
+    // aliases for one normalized value without group identities, so use the conservative maximum instead of summing.
+    if (Number.isFinite(count) && count > 0) groups = Math.max(groups, count)
   }
   return groups
 }
@@ -599,8 +656,7 @@ function inferredSpacingRhythm(values: readonly string[]): string[] {
 export function normalizeDesignTokenUsageCount(usageCount: Readonly<Record<string, number>>): Record<string, number> {
   const normalized: Record<string, number> = {}
   for (const [key, count] of Object.entries(usageCount)) {
-    const match = /^(spacing|radius):(.*)$/.exec(key)
-    const normalizedKey = match ? `${match[1]}:${normalizeComputedLength(match[2])}` : key
+    const normalizedKey = normalizeLengthUsageKey(key)
     normalized[normalizedKey] = (normalized[normalizedKey] || 0) + count
   }
   return normalized

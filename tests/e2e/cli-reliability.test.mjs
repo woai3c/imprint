@@ -112,6 +112,51 @@ test('CLI keeps JSON stdout parseable during a real extraction', { skip: !browse
   assert.match(result.stderr, /\[imprint\] headless browser resolved:/)
 })
 
+test(
+  'CLI reports the sanitized reason when every capture is rejected',
+  { skip: !browserPath, timeout: 90_000 },
+  async (t) => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(`<!doctype html><style>
+      body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
+      .campaign{position:fixed;inset:0;z-index:99;background:#ff00ff;display:grid;place-items:center}
+    </style><main><h1>Underlying product page</h1><p>Stable design content.</p></main>
+    <div class="campaign" role="dialog" aria-modal="true"><h2>Blocking promotion</h2></div>`)
+    })
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    t.after(() => new Promise((resolve) => server.close(resolve)))
+    const address = server.address()
+    assert.ok(address && typeof address === 'object')
+
+    const result = await collectChild(
+      spawn(
+        process.execPath,
+        [
+          cliPath,
+          'extract',
+          `http://127.0.0.1:${address.port}`,
+          '--no-session',
+          '--browser-path',
+          browserPath,
+          '--pages',
+          '1',
+          '--json-stdout',
+          '--quiet',
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      ),
+    )
+
+    assert.equal(result.code, 4, result.stderr)
+    assert.match(result.stderr, /Capture diagnostics:/)
+    assert.match(result.stderr, /health:large-overlay/)
+  },
+)
+
 test('CLI maps SIGINT to cancellation exit code 130', { skip: !browserPath, timeout: 20_000 }, async () => {
   const child = spawn(
     process.execPath,

@@ -22,4 +22,14 @@ describe('core i18n', () => {
       '本次分析覆盖 示例 的 3 个已观察页面。',
     )
   })
+
+  test('localizes capture diagnostic framing while preserving diagnostic codes', () => {
+    const details = 'page-1:desktop:health:large-overlay: error'
+    expect(coreT('en', 'common.captureDiagnostics', { message: 'Capture failed.', details })).toBe(
+      `Capture failed.\nCapture diagnostics:\n${details}`,
+    )
+    expect(coreT('zh-CN', 'common.captureDiagnostics', { message: '抓取失败。', details })).toBe(
+      `抓取失败。\n抓取诊断：\n${details}`,
+    )
+  })
 })

@@ -960,6 +960,12 @@ describe('Design Evidence', () => {
     expect(first.pages[0].images.map((image) => image.kind)).toEqual(['overview', 'region-crop'])
     expect(first.components).toHaveLength(2)
     expect(first.components[0].evidenceRefs).toContain(first.components[0].sectionId)
+    const desktopRegion = first.pages[0].images.find((image) => image.kind === 'region-crop')!
+    expect(first.components[0].evidenceRefs).toContain(desktopRegion.id)
+    expect(first.sections.find((section) => section.role === 'hero')?.evidenceRefs).toContain(desktopRegion.id)
+    expect(
+      first.responsiveObservations.some((observation) => observation.evidenceRefs.includes(desktopRegion.id)),
+    ).toBe(true)
     expect(first.components[0].tokenRefs).toEqual(
       expect.arrayContaining(['color.primary', 'radius.1', 'spacing.1', 'spacing.2']),
     )
@@ -1068,6 +1074,46 @@ describe('Design Evidence', () => {
     expect(brief).toContain('Responsive comparison pairs: 1/1 selected URLs')
   })
 
+  it('uses one page identity when responsive captures differ only by query or fragment', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 375)
+    desktop.url = 'https://example.com/?theme=light#top'
+    mobile.url = 'https://example.com/?theme=dark#menu'
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-url-identity',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      expectedCaptureCount: 2,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+
+    expect(evidence.responsiveObservations.length).toBeGreaterThan(0)
+    expect(evidence.coverage).toMatchObject({
+      pageCoverage: 'complete',
+      urlCoverage: { requested: 1, captured: 1 },
+      captureCoverage: {
+        expected: 2,
+        captured: 2,
+        status: 'complete',
+        responsivePairs: { expectedUrls: 1, capturedUrls: 1, status: 'complete' },
+      },
+    })
+    expect(evidence.topology.crossPagePatternIds).toEqual([])
+    expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
+  })
+
   it('accounts for observed role sizes outside the reusable typography scale', () => {
     const evidence = buildFixtureEvidence()
     evidence.layoutNodes.forEach((node) => {
@@ -1160,6 +1206,48 @@ describe('Design Evidence', () => {
     expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
   })
 
+  it('does not let a supplemental capture fill a missing requested viewport slot', () => {
+    const captures = [
+      ['https://example.com/', 'desktop', 1440],
+      ['https://example.com/article', 'desktop', 1440],
+      ['https://example.com/article', 'mobile', 375],
+    ] as const
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-missing-requested-mobile',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      expectedViewports: ['desktop', 'mobile'],
+      expectedCaptureCount: 3,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: captures.map(([url, viewport, width], index) => {
+        const snapshot = createSnapshot(viewport, width)
+        snapshot.url = url
+        return {
+          screenshot: { url, path: `capture-${index}.png`, viewport },
+          snapshot,
+          ...(index === 2 ? { captureScope: 'supplemental' as const } : {}),
+        }
+      }),
+    })
+
+    expect(evidence.coverage.viewportCoverage).toEqual(['desktop', 'mobile'])
+    expect(evidence.coverage.captureCoverage).toMatchObject({
+      expected: 3,
+      captured: 2,
+      status: 'partial',
+      requestedViewports: ['desktop', 'mobile'],
+      fullMatrix: { expected: 4, captured: 2, status: 'partial' },
+      responsivePairs: { expectedUrls: 2, capturedUrls: 0, status: 'partial' },
+    })
+    expect(evidence.limitations).toContain('fewer-page-viewports-than-requested')
+  })
+
   it('does not count a supplemental viewport as part of the requested capture matrix', () => {
     const captures = [
       ['https://example.com/', 'desktop', 1440],
@@ -1182,7 +1270,11 @@ describe('Design Evidence', () => {
       captures: captures.map(([url, viewport, width], index) => {
         const snapshot = createSnapshot(viewport, width)
         snapshot.url = url
-        return { screenshot: { url, path: `capture-${index}.png`, viewport }, snapshot }
+        return {
+          screenshot: { url, path: `capture-${index}.png`, viewport },
+          snapshot,
+          ...(index === 2 ? { captureScope: 'supplemental' as const } : {}),
+        }
       }),
     })
 
@@ -1425,6 +1517,7 @@ describe('Design Evidence', () => {
               width: 375,
               height: 812,
               valid: true,
+              sourceRect: { x: 0, y: 0, width: 1, height: 0.1 },
             },
           ],
         },
@@ -1433,8 +1526,38 @@ describe('Design Evidence', () => {
 
     expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 1, captured: 1, status: 'complete' })
     expect(evidence.coverage.assetCoverage).toEqual({ expected: 1, valid: 0, status: 'partial', issueCount: 1 })
-    expect(evidence.pages[0].images).toHaveLength(1)
-    expect(evidence.pages[0].images[0].kind).toBe('viewport-crop')
+    expect(evidence.pages[0].images).toHaveLength(2)
+    const partialOverview = evidence.pages[0].images.find((image) => image.path === 'mobile.png')!
+    const viewportCrop = evidence.pages[0].images.find((image) => image.path === 'mobile-viewport.png')!
+    expect(partialOverview.kind).toBe('region-crop')
+    expect(partialOverview.sourceRect?.height).toBeCloseTo(812 / 1600)
+    expect(viewportCrop.kind).toBe('viewport-crop')
+    const evidenceIds = new Set([
+      ...evidence.pages.flatMap((page) => [page.id, ...page.images.map((image) => image.id)]),
+      ...evidence.sections.map((section) => section.id),
+      ...evidence.components.map((component) => component.id),
+      ...evidence.layoutNodes.map((node) => node.id),
+      ...evidence.mediaLayers.map((media) => media.id),
+      ...evidence.pseudoElements.map((pseudo) => pseudo.id),
+      ...evidence.interactionObservations.map((observation) => observation.id),
+      ...evidence.responsiveObservations.map((observation) => observation.id),
+    ])
+    const danglingEvidenceRefs = [
+      ...evidence.sections.flatMap((section) => section.evidenceRefs),
+      ...evidence.components.flatMap((component) => component.evidenceRefs),
+      ...evidence.pseudoElements.flatMap((pseudo) => pseudo.evidenceRefs),
+      ...evidence.interactionObservations.flatMap((observation) => observation.evidenceRefs),
+      ...evidence.responsiveObservations.flatMap((observation) => observation.evidenceRefs),
+      ...evidence.topology.globalLayers.flatMap((layer) => layer.evidenceRefs),
+    ].filter((id) => !evidenceIds.has(id))
+    expect(danglingEvidenceRefs).toEqual([])
+    const navigation = evidence.sections.find((section) => section.role === 'navigation')!
+    const hero = evidence.sections.find((section) => section.role === 'hero')!
+    expect(navigation.evidenceRefs).toEqual(expect.arrayContaining([partialOverview.id, viewportCrop.id]))
+    expect(hero.evidenceRefs).toContain(partialOverview.id)
+    expect(hero.evidenceRefs).not.toContain(viewportCrop.id)
+    expect(evidence.components[0].evidenceRefs).toContain(partialOverview.id)
+    expect(evidence.components[0].evidenceRefs).not.toContain(viewportCrop.id)
     expect(generateDesignEvidenceBrief(evidence)).toContain(
       'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
     )
@@ -1444,6 +1567,215 @@ describe('Design Evidence', () => {
       'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
     )
   })
+
+  it('cites a section crop only for entities fully contained by its source rectangle', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.components.push({
+      ...snapshot.components[0],
+      key: 'hero:1:button:inside-crop',
+      rect: { x: 0.2, y: 0.15, width: 0.2, height: 0.04 },
+    })
+    snapshot.components.push({
+      ...snapshot.components[0],
+      key: 'hero:1:button:barely-outside-crop',
+      rect: { x: 0.84, y: 0.15, width: 0.011, height: 0.04 },
+    })
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-partial-section-crop',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: {
+            url: snapshot.url,
+            path: 'overview.png',
+            viewport: 'desktop',
+            valid: false,
+          },
+          snapshot,
+          supplementalImages: [
+            {
+              kind: 'region-crop',
+              path: 'hero-partial.png',
+              width: 1008,
+              height: 160,
+              valid: true,
+              sourceRect: { x: 0.15, y: 0.12, width: 0.7, height: 0.1 },
+              sectionKey: 'hero:1',
+            },
+          ],
+        },
+      ],
+    })
+
+    const cropId = evidence.pages[0].images[0].id
+    const hero = evidence.sections.find((section) => section.role === 'hero')!
+    const outside = evidence.components.find((component) => component.rect.y === 0.3)!
+    const inside = evidence.components.find((component) => component.rect.y === 0.15)!
+    const barelyOutside = evidence.components.find((component) => component.rect.x === 0.84)!
+    expect(evidence.pages[0].images[0].sectionId).toBe(hero.id)
+    expect(hero.evidenceRefs).not.toContain(cropId)
+    expect(outside.evidenceRefs).not.toContain(cropId)
+    expect(inside.evidenceRefs).toContain(cropId)
+    expect(barelyOutside.evidenceRefs).not.toContain(cropId)
+  })
+
+  it('retains a readable horizontal mismatch as bounded image evidence', () => {
+    const snapshot = createSnapshot('mobile', 1032)
+    snapshot.components = [
+      {
+        ...snapshot.components[0],
+        key: 'hero:1:button:inside-horizontal-crop',
+        rect: { x: 0.05, y: 0.3, width: 0.1, height: 0.04 },
+      },
+      {
+        ...snapshot.components[0],
+        key: 'hero:1:button:outside-horizontal-crop',
+        rect: { x: 0.7, y: 0.3, width: 0.1, height: 0.04 },
+      },
+    ]
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-horizontal-overview-crop',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: {
+            url: snapshot.url,
+            path: 'mobile-clipped.png',
+            viewport: 'mobile',
+            width: 375,
+            height: snapshot.height,
+            valid: false,
+          },
+          snapshot,
+        },
+      ],
+    })
+
+    const image = evidence.pages[0].images[0]
+    const inside = evidence.components.find((component) => component.rect.x === 0.05)!
+    const outside = evidence.components.find((component) => component.rect.x === 0.7)!
+    expect(image).toMatchObject({
+      kind: 'region-crop',
+      sourceRect: { x: 0, y: 0, height: 1 },
+    })
+    expect(image.sourceRect?.width).toBeCloseTo(375 / 1032)
+    expect(inside.evidenceRefs).toContain(image.id)
+    expect(outside.evidenceRefs).not.toContain(image.id)
+    expect(evidence.sections.every((section) => !section.evidenceRefs.includes(image.id))).toBe(true)
+  })
+
+  it('retains a readable vertical mismatch as bounded image evidence', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    snapshot.components = [
+      {
+        ...snapshot.components[0],
+        key: 'hero:1:button:inside-vertical-crop',
+        rect: { x: 0.2, y: 0.3, width: 0.2, height: 0.04 },
+      },
+      {
+        ...snapshot.components[0],
+        key: 'hero:1:button:outside-vertical-crop',
+        rect: { x: 0.2, y: 0.8, width: 0.2, height: 0.04 },
+      },
+    ]
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-vertical-overview-crop',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: {
+            url: snapshot.url,
+            path: 'desktop-clipped.png',
+            viewport: 'desktop',
+            width: snapshot.width,
+            height: 900,
+            valid: false,
+          },
+          snapshot,
+        },
+      ],
+    })
+
+    const image = evidence.pages[0].images[0]
+    const inside = evidence.components.find((component) => component.rect.y === 0.3)!
+    const outside = evidence.components.find((component) => component.rect.y === 0.8)!
+    expect(image).toMatchObject({
+      kind: 'region-crop',
+      sourceRect: { x: 0, y: 0, width: 1 },
+    })
+    expect(image.sourceRect?.height).toBeCloseTo(900 / 1600)
+    expect(inside.evidenceRefs).toContain(image.id)
+    expect(outside.evidenceRefs).not.toContain(image.id)
+  })
+
+  it.each([
+    { name: 'horizontal', width: 2880, height: 1600, widthRatio: 2, heightRatio: 1 },
+    { name: 'vertical', width: 1440, height: 3000, widthRatio: 1, heightRatio: 1.875 },
+  ])(
+    'retains a readable $name oversize mismatch with its bitmap scale',
+    ({ name, width, height, widthRatio, heightRatio }) => {
+      const snapshot = createSnapshot('desktop', 1440)
+      const evidence = buildDesignEvidence({
+        analysisId: `analysis-${name}-oversize-overview`,
+        requestedUrl: 'https://example.com',
+        finalUrl: 'https://example.com/',
+        accessMode: 'anonymous',
+        expectedPageCount: 1,
+        tokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures: [
+          {
+            screenshot: {
+              url: snapshot.url,
+              path: `${name}-oversize.png`,
+              viewport: 'desktop',
+              width,
+              height,
+              valid: false,
+            },
+            snapshot,
+          },
+        ],
+      })
+
+      const image = evidence.pages[0].images[0]
+      expect(image).toMatchObject({
+        kind: 'region-crop',
+        sourceRect: { x: 0, y: 0 },
+      })
+      expect(image.sourceRect?.width).toBeCloseTo(widthRatio)
+      expect(image.sourceRect?.height).toBeCloseTo(heightRatio)
+      expect(evidence.sections[0].evidenceRefs).toContain(image.id)
+      expect(evidence.components[0].evidenceRefs).toContain(image.id)
+    },
+  )
 
   it('does not infer responsive visibility from a horizontally clipped capture', () => {
     const desktop = createSnapshot('desktop', 1440)

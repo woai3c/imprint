@@ -15,13 +15,17 @@ import * as readline from 'node:readline'
 import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
 import { NoUsableCapturesError, analyze } from '../core/analyzer/index.js'
-import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
+import {
+  formatExtractionIssueDiagnosticsForDisplay,
+  sanitizeDiagnosticTextForDisplay,
+  sanitizeUrlForPersistence,
+} from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import { compareDesignProfiles } from '../core/design-context/profile-compare.js'
 import { isCurrentDesignProfile } from '../core/design-context/types.js'
 import type { DesignProfile } from '../core/design-context/types.js'
-import { coreTranslator } from '../core/i18n/index.js'
+import { coreT, coreTranslator } from '../core/i18n/index.js'
 
 interface JsonRpcRequest {
   jsonrpc: '2.0'
@@ -321,13 +325,20 @@ async function handleRequest(request: JsonRpcRequest & { id: string | number }) 
         } catch (error) {
           if (controller.signal.aborted) return
           if (error instanceof ProtocolError) throw error
-          const message =
-            error instanceof NoUsableCapturesError
-              ? mcpT('errors.noUsableCaptures')
-              : sanitizeDiagnosticTextForDisplay(
-                  error instanceof Error ? error.message : String(error),
-                  diagnosticUrlsFromParams(args),
-                )
+          const diagnosticUrls = diagnosticUrlsFromParams(args)
+          let message: string
+          if (error instanceof NoUsableCapturesError) {
+            const baseMessage = mcpT('errors.noUsableCaptures')
+            const details = formatExtractionIssueDiagnosticsForDisplay(error.extractionIssues, diagnosticUrls)
+            message = details
+              ? coreT('en', 'common.captureDiagnostics', { message: baseMessage, details })
+              : baseMessage
+          } else {
+            message = sanitizeDiagnosticTextForDisplay(
+              error instanceof Error ? error.message : String(error),
+              diagnosticUrls,
+            )
+          }
           result = {
             content: [
               {

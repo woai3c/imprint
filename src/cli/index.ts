@@ -5,9 +5,13 @@ import path from 'node:path'
 
 import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
 import { BrowserExecutableError, NoUsableCapturesError, analyze } from '../core/analyzer/index.js'
-import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
+import {
+  formatExtractionIssueDiagnosticsForDisplay,
+  sanitizeDiagnosticTextForDisplay,
+  sanitizeUrlForPersistence,
+} from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
-import { coreTranslator } from '../core/i18n/index.js'
+import { coreT, coreTranslator } from '../core/i18n/index.js'
 import {
   CLI_EXIT_CODES,
   CliCancellationError,
@@ -250,7 +254,9 @@ main()
       exitCode = CLI_EXIT_CODES.cancelled
       message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
     } else if (error instanceof NoUsableCapturesError) {
-      message = cliT('errors.noUsableCaptures')
+      const baseMessage = cliT('errors.noUsableCaptures')
+      const details = formatExtractionIssueDiagnosticsForDisplay(error.extractionIssues, diagnosticInputUrls)
+      message = details ? coreT('en', 'common.captureDiagnostics', { message: baseMessage, details }) : baseMessage
     } else {
       message = cliT('errors.runtime', {
         message: error instanceof Error ? error.message : String(error),

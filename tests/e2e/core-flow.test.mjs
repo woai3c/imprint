@@ -59,6 +59,12 @@ const authFixture = Buffer.from(`<!doctype html>
   </body>
 </html>`)
 
+const blockedFixture = Buffer.from(`<!doctype html><style>
+  body{margin:0;font-family:system-ui;background:#f8fafc;color:#172033}main{max-width:900px;margin:auto;padding:64px}
+  .campaign{position:fixed;inset:0;z-index:99;background:#ff00ff;display:grid;place-items:center}
+</style><main><h1>Underlying product page</h1><p>Stable design content.</p></main>
+<div class="campaign" role="dialog" aria-modal="true"><h2>Blocking promotion</h2></div>`)
+
 before(async () => {
   await fs.rm(failureScreenshotPath, { force: true })
 
@@ -84,11 +90,13 @@ before(async () => {
             .replace('</section>\n      <form', '</section></div>\n      <form'),
         )
       : fixture
-    const body = authenticationRequired
-      ? authFixture
-      : request.url?.startsWith('/comparison')
-        ? comparisonBody
-        : fixture
+    const body = request.url?.startsWith('/blocked')
+      ? blockedFixture
+      : authenticationRequired
+        ? authFixture
+        : request.url?.startsWith('/comparison')
+          ? comparisonBody
+          : fixture
     const responseHeaders = {
       'cache-control': 'no-store',
       'content-length': body.length,
@@ -556,6 +564,17 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-result').getAttribute('data-access-mode'), 'anonymous')
     assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 2)
+
+    const blockedResponse = await page.evaluate(async (url) => {
+      return window.electronAPI.analyzeUrl(url, {
+        viewports: ['desktop'],
+        maxPages: 1,
+        authMode: 'anonymous',
+      })
+    }, `${fixtureUrl}blocked`)
+    assert.equal(blockedResponse.error, true)
+    assert.match(blockedResponse.message || '', /Capture diagnostics:/)
+    assert.match(blockedResponse.message || '', /health:large-overlay/)
 
     t.diagnostic('Intentionally triggering a connection failure to verify the durable error and retry UI')
     const failureUrl = `${fixtureUrl}failure`

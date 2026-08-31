@@ -368,10 +368,10 @@ describe('Google DESIGN.md alpha compatibility', () => {
       $extensions: { 'com.imprint.candidates': { colors: typeof candidateColors } }
     }
 
-    expect(extension.candidateSummary.declaredColors).toEqual({ total: 20, included: 12, omitted: 8 })
-    expect(extension.candidates.declaredColors).toHaveLength(12)
-    expect(extension.candidates.declaredColors[0]).toMatchObject({ sourceCount: 8, omittedSources: 2 })
-    expect(extension.candidates.declaredColors[0].sources).toHaveLength(6)
+    expect(extension.candidateSummary.declaredColors).toEqual({ total: 20, included: 8, omitted: 12 })
+    expect(extension.candidates.declaredColors).toHaveLength(8)
+    expect(extension.candidates.declaredColors[0]).toMatchObject({ sourceCount: 8, omittedSources: 4 })
+    expect(extension.candidates.declaredColors[0].sources).toHaveLength(4)
     expect(designDoc).not.toContain('| `--color-observed-100000` |')
     expect(dtcg.$extensions['com.imprint.candidates'].colors).toHaveLength(20)
     expect(dtcg.$extensions['com.imprint.candidates'].colors[0].sources).toHaveLength(8)

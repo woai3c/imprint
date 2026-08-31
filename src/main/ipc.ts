@@ -11,6 +11,7 @@ import {
 } from '../core/analyzer/index.js'
 import { routeIdentityFromUrl } from '../core/analyzer/reference-compare.js'
 import {
+  formatExtractionIssueDiagnosticsForDisplay,
   sanitizeAuthWallDetectionForDisplay,
   sanitizeDesignEvidenceForPersistence,
   sanitizeDiagnosticTextForDisplay,
@@ -283,7 +284,11 @@ export function registerIpcHandlers() {
         }
         if (err instanceof NoUsableCapturesError) {
           const language = (options?.language || getSettings().language).startsWith('zh') ? 'zh-CN' : 'en'
-          const message = coreT(language, 'analyzer.errors.noUsableCaptures')
+          const baseMessage = coreT(language, 'analyzer.errors.noUsableCaptures')
+          const details = formatExtractionIssueDiagnosticsForDisplay(err.extractionIssues, [url])
+          const message = details
+            ? coreT(language, 'common.captureDiagnostics', { message: baseMessage, details })
+            : baseMessage
           log.info('analysis', `no usable captures: url=${displayUrl}`)
           return completeRun({ error: true, message, stage: analysisStage })
         }

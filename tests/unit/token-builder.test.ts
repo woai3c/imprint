@@ -5,6 +5,7 @@ import {
   demoteWeakSemanticBorderTokens,
 } from '../../src/core/analyzer/analysis-output.js'
 import { clusterColors } from '../../src/core/analyzer/color-cluster.js'
+import { mergeStylesWithNormalizedUsage } from '../../src/core/analyzer/style-merge.js'
 import { buildDesignTokens } from '../../src/core/analyzer/token-builder.js'
 import { buildTokenEvidence } from '../../src/core/analyzer/token-evidence.js'
 import { generateDesignDoc } from '../../src/core/export/index.js'
@@ -130,6 +131,64 @@ describe('design token builder', () => {
     const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
 
     expect(result.spacing).toEqual(['8px', '16px'])
+  })
+
+  test('does not sum legacy normalized aliases into false cross-page spacing support', () => {
+    const styles = createExtractedStyles({
+      spacings: ['0.96px', '1px', '8px'],
+      usageCount: {
+        'spacing:0.96px': 60,
+        'spacing:1px': 40,
+        'spacing:8px': 20,
+      },
+      usageGroupCounts: {
+        'spacing:0.96px': 1,
+        'spacing:1px': 1,
+        'spacing:8px': 1,
+      },
+      valueSourceCounts: {
+        'spacing:0.96px': { 'element:structural-spacing': 60 },
+        'spacing:1px': { 'element:structural-spacing': 40 },
+        'spacing:8px': { 'element:content-spacing': 20 },
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['8px'])
+  })
+
+  test('does not let a repeated viewport satisfy spacing and radius source thresholds', () => {
+    const capture = createExtractedStyles({
+      spacings: ['8px'],
+      radii: ['8px'],
+      usageCount: { 'spacing:8px': 2, 'radius:8px': 2 },
+      valueSources: {
+        'spacing:8px': ['element:content-spacing', 'element:control-spacing'],
+        'radius:8px': ['computed:ordinary-radius', 'geometry:circle-or-pill'],
+      },
+      valueSourceCounts: {
+        'spacing:8px': { 'element:content-spacing': 1, 'element:control-spacing': 1 },
+        'radius:8px': { 'computed:ordinary-radius': 1, 'geometry:circle-or-pill': 1 },
+      },
+    })
+    const colors = { palette: [], backgrounds: [], texts: [], accents: [] }
+    const build = (urls: string[]) => {
+      const captures = urls.map(() => structuredClone(capture))
+      const merged = mergeStylesWithNormalizedUsage(captures, urls)
+      return buildDesignTokens(merged, colors, merged)
+    }
+
+    const single = build(['https://example.com/'])
+    const repeated = build(['https://example.com/', 'https://example.com/'])
+    const crossPage = build(['https://example.com/', 'https://example.com/docs'])
+
+    expect(single.spacing).not.toContain('8px')
+    expect(single.radii).not.toContain('8px')
+    expect(repeated.spacing).toEqual(single.spacing)
+    expect(repeated.radii).toEqual(single.radii)
+    expect(crossPage.spacing).toContain('8px')
+    expect(crossPage.radii).toContain('8px')
   })
 
   test('stops typography scales after the observed frequency coverage is represented', () => {
@@ -475,6 +534,74 @@ describe('design token builder', () => {
     expect(result.colors.accent).toBe('rgba(0, 102, 255, 0.1)')
   })
 
+  test('does not let a repeated viewport flip the observed primary-action foreground', () => {
+    const observation = (captureId: string, elementRef: string, foreground: string) => ({
+      captureId,
+      elementRef,
+      elementKind: 'button' as const,
+      role: 'primary-action' as const,
+      background: 'rgb(0, 87, 217)',
+      foreground,
+    })
+    const capture = (...colorRoleObservations: ReturnType<typeof observation>[]) =>
+      createExtractedStyles({
+        usageCount: { 'primaryActionBackgroundColor:rgb(0, 87, 217)': colorRoleObservations.length },
+        colorRoleObservations,
+      })
+    const homeDesktop = capture(
+      observation('https://example.com/|1440x900', 'body > button.primary', 'rgb(17, 24, 39)'),
+    )
+    const homeMobile = capture(
+      observation('https://example.com/|375x812', 'nav > button.primary', 'rgb(17, 24, 39)'),
+      observation('https://example.com/|375x812', 'main > a.primary', 'rgb(17, 24, 39)'),
+      observation('https://example.com/|375x812', 'footer > button.primary', 'rgb(17, 24, 39)'),
+      observation('https://example.com/|375x812', 'aside > a.primary', 'rgb(17, 24, 39)'),
+    )
+    const docsDesktop = capture(
+      observation('https://example.com/docs|1440x900', 'main > button.primary', 'rgb(255, 255, 255)'),
+      observation('https://example.com/docs|1440x900', 'aside > button.primary', 'rgb(255, 255, 255)'),
+    )
+    const colors = { palette: [], backgrounds: ['#ffffff'], texts: ['#111827'], accents: ['#0057d9'] }
+    const build = (styles: ReturnType<typeof createExtractedStyles>[], urls: string[]) => {
+      const merged = mergeStylesWithNormalizedUsage(styles, urls)
+      return { merged, tokens: buildDesignTokens(merged, colors, merged) }
+    }
+
+    const base = build([homeDesktop, docsDesktop], ['https://example.com/', 'https://example.com/docs'])
+    const repeated = build(
+      [homeDesktop, homeMobile, docsDesktop],
+      ['https://example.com/', 'https://example.com/', 'https://example.com/docs'],
+    )
+
+    expect(repeated.merged.colorRoleObservations).toHaveLength(7)
+    expect(repeated.merged.colorRoleObservations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          captureId: 'https://example.com/|1440x900',
+          selectionGroup: 'https://example.com/',
+          selectionWeight: 0.5,
+        }),
+        expect.objectContaining({
+          captureId: 'https://example.com/|375x812',
+          selectionGroup: 'https://example.com/',
+          selectionWeight: 0.125,
+        }),
+        expect.objectContaining({
+          captureId: 'https://example.com/docs|1440x900',
+          selectionGroup: 'https://example.com/docs',
+          selectionWeight: 0.5,
+        }),
+      ]),
+    )
+    expect(base.tokens.colorRoles?.primaryAction?.observedForeground).toBe('#ffffff')
+    expect(repeated.tokens.colorRoles?.primaryAction?.observedForeground).toBe(
+      base.tokens.colorRoles?.primaryAction?.observedForeground,
+    )
+    expect(repeated.tokens.colorRoles?.primaryAction?.provenance).toEqual(
+      expect.arrayContaining([expect.objectContaining({ captureId: 'https://example.com/docs|1440x900' })]),
+    )
+  })
+
   test('does not promote a text-and-border-only color to the global accent role', () => {
     const styles = createExtractedStyles({
       usageCount: {
@@ -567,6 +694,51 @@ describe('design token builder', () => {
     expect(tokens.colors.background).toBe('#ffffff')
     expect(tokens.colors.foreground).toBe('#111827')
     expect(tokens.colors['muted-foreground']).toBeUndefined()
+  })
+
+  test('does not let an extra viewport from one URL outvote foreground evidence from another URL', () => {
+    const capture = (captureId: string, foreground: string, count: number) =>
+      createExtractedStyles({
+        textColorPairObservations: [
+          {
+            captureId,
+            background: 'rgb(255, 255, 255)',
+            foreground,
+            textRole: 'body',
+            count,
+          },
+        ],
+      })
+    const homeDesktop = capture('https://example.com/|1440x900', 'rgb(17, 24, 39)', 1)
+    const homeMobile = capture('https://example.com/|375x812', 'rgb(17, 24, 39)', 1_000)
+    const docsDesktop = capture('https://example.com/docs|1440x900', 'rgb(34, 34, 34)', 10)
+    const guideDesktop = capture('https://example.com/guide|1440x900', 'rgb(34, 34, 34)', 20)
+    const colors = {
+      palette: [],
+      backgrounds: ['#ffffff'],
+      texts: ['#222222', '#111827'],
+      accents: [],
+    }
+    const build = (styles: ReturnType<typeof createExtractedStyles>[], urls: string[]) => {
+      const merged = mergeStylesWithNormalizedUsage(styles, urls)
+      return { merged, tokens: buildDesignTokens(merged, colors, merged) }
+    }
+
+    const base = build(
+      [homeDesktop, docsDesktop, guideDesktop],
+      ['https://example.com/', 'https://example.com/docs', 'https://example.com/guide'],
+    )
+    const repeated = build(
+      [homeDesktop, homeMobile, docsDesktop, guideDesktop],
+      ['https://example.com/', 'https://example.com/', 'https://example.com/docs', 'https://example.com/guide'],
+    )
+
+    expect(
+      repeated.merged.textColorPairObservations?.find((observation) => observation.captureId === 'https://example.com/')
+        ?.count,
+    ).toBeCloseTo(1)
+    expect(base.tokens.colors.foreground).toBe('#222222')
+    expect(repeated.tokens.colors.foreground).toBe(base.tokens.colors.foreground)
   })
 
   test('does not pair a foreground from a different observed surface', () => {

@@ -3,7 +3,8 @@
     "and": " and ",
     "listSeparator": ", ",
     "clauseSeparator": "; ",
-    "absent": "absent"
+    "absent": "absent",
+    "captureDiagnostics": "{{message}}\nCapture diagnostics:\n{{details}}"
   },
   "app": {
     "tray": {

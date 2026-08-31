@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import {
+  formatExtractionIssueDiagnosticsForDisplay,
   redactUrlsInText,
   sanitizeDesignEvidenceForPersistence,
   sanitizeDesignTokensForPersistence,
@@ -47,6 +48,24 @@ describe('URL privacy', () => {
     )
     expect(sanitizeDiagnosticTextForDisplay(diagnostic)).not.toContain('synthetic')
     expect(sanitizeDiagnosticTextForDisplay(diagnostic)).not.toContain('fragment')
+  })
+
+  it('formats bounded, deduplicated, and sanitized capture diagnostics', () => {
+    const requestUrl = 'https://user:secret@example.com/private?token=secret'
+    const diagnostics = formatExtractionIssueDiagnosticsForDisplay(
+      [
+        { stage: 'page-1:desktop:health:large-overlay', reason: `blocked at ${requestUrl}` },
+        { stage: 'page-1:desktop:health:large-overlay', reason: `blocked at ${requestUrl}` },
+        { stage: 'page-1:desktop:navigation', reason: 'navigation failed' },
+      ],
+      [requestUrl],
+      2,
+    )
+
+    expect(diagnostics).toBe(
+      'page-1:desktop:health:large-overlay: blocked at https://example.com/private\npage-1:desktop:navigation: navigation failed',
+    )
+    expect(diagnostics).not.toContain('secret')
   })
 
   it('redacts token provenance page URLs', () => {

@@ -294,7 +294,7 @@ test(
   async () => {
     const finishController = new AbortController()
     const result = await analyze(
-      origin,
+      `${origin}/automatic-entry`,
       {
         viewports: ['desktop'],
         maxPages: 1,
@@ -309,6 +309,7 @@ test(
     )
 
     assert.equal(result.completion.reason, 'complete')
+    assert.equal(result.pageCoverage.analyzed, 1)
   },
 )
 
@@ -436,16 +437,19 @@ test(
     assert.equal(JSON.stringify(dismissed.tokens.colors).includes('255, 0, 255'), false)
     assert.equal(JSON.stringify(dismissed.designEvidence.tokens.colors).includes('255, 0, 255'), false)
 
-    const isolated = await analyze(`${origin}/campaign-stuck`, {
-      viewports: ['desktop'],
-      maxPages: 1,
-      useSession: false,
-      pageDiscovery: 'links',
-      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-campaign-stuck-e2e-')),
-    })
-    assert.equal(isolated.designEvidence.pages.length, 0)
-    assert.deepEqual(isolated.designEvidence.tokens.colors, {})
-    assert.ok(isolated.extractionIssues.some((issue) => issue.stage.includes('health:large-overlay')))
+    await assert.rejects(
+      analyze(`${origin}/campaign-stuck`, {
+        viewports: ['desktop'],
+        maxPages: 1,
+        useSession: false,
+        pageDiscovery: 'links',
+        dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-campaign-stuck-e2e-')),
+      }),
+      (error) =>
+        error instanceof NoUsableCapturesError &&
+        error.code === 'NO_USABLE_CAPTURES' &&
+        error.extractionIssues.some((issue) => issue.stage.includes('health:large-overlay')),
+    )
   },
 )
 

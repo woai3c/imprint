@@ -270,8 +270,8 @@ interface ExportColorCandidate {
 }
 
 const CONFIDENCE_RANK: Record<TokenConfidence, number> = { low: 0, medium: 1, high: 2 }
-const DESIGN_MD_CANDIDATE_PREVIEW_LIMIT = 12
-const DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT = 6
+const DESIGN_MD_CANDIDATE_PREVIEW_LIMIT = 8
+const DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT = 4
 
 function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
   const portableValues = new Set(

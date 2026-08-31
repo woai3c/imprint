@@ -1487,6 +1487,7 @@ export async function analyze(
               capturedPageEvidence.push({
                 screenshot: mobilePageScreenshot,
                 snapshot: mobileSnapshot,
+                captureScope: 'supplemental',
                 interactionStyles: { hover: [], focus: [], active: [], disabled: [] },
                 health: mobileHealth,
                 supplementalImages,
@@ -1553,7 +1554,7 @@ export async function analyze(
     options.finishSignal?.removeEventListener('abort', finishForUser)
 
     throwIfAnalysisAborted(analysisSignal)
-    if (capturedPageEvidence.length === 0) throw new NoUsableCapturesError()
+    if (capturedPageEvidence.length === 0) throw new NoUsableCapturesError(extractionIssues)
     reportProgress('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const {

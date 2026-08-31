@@ -112,7 +112,7 @@ export interface PageScreenshot {
   viewport: string
   width?: number
   height?: number
-  /** False when the encoded image does not match the intended capture geometry. */
+  /** False when the encoded image does not match the intended capture geometry; dimensions may still bound a crop. */
   valid?: boolean
 }
 
@@ -152,6 +152,10 @@ export interface TextColorPairObservation {
 
 export interface ColorRoleObservation {
   captureId: string
+  /** Normalized URL identity used during token selection. Raw extractor observations omit it. */
+  selectionGroup?: string
+  /** Token-selection weight after repeated captures and elements of one URL are normalized. */
+  selectionWeight?: number
   background?: string
   foreground?: string
   borderColor?: string

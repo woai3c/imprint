@@ -104,6 +104,7 @@ describe('deterministic agent guidance', () => {
     expect(guide).not.toContain('defined palette')
     expect(guide).not.toContain('spacing scale')
     expect(guide).not.toContain('font weights outside')
+    expect(guide).not.toContain("### Don'ts")
   })
 
   test('keeps rounded icon-button variants separate from compact ordinary surfaces', () => {

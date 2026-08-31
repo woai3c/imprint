@@ -238,24 +238,26 @@ export function generateDosAndDonts(
     lines.push(t('dos.recurringSpacing'))
   }
 
-  lines.push('')
-  lines.push(t('donts.heading'))
-  lines.push('')
+  const donts: string[] = []
   if (Object.keys(tokens.colors).length > 0) {
     const hasDerivedAccessibilityColor = Boolean(tokens.colorRoles?.primaryAction?.recommendedOnPrimary)
-    lines.push(t(hasDerivedAccessibilityColor ? 'donts.derivedColors' : 'donts.newColors'))
+    donts.push(t(hasDerivedAccessibilityColor ? 'donts.derivedColors' : 'donts.newColors'))
   }
   if (tokens.spacing.length > 0) {
-    lines.push(t('donts.spacingSystems'))
+    donts.push(t('donts.spacingSystems'))
   }
 
   if (tokens.typography.fontFamilies.length === 1) {
-    lines.push(t('donts.fontFamilies'))
+    donts.push(t('donts.fontFamilies'))
   }
 
   const weights = tokens.typography.fontWeights
   if (weights.length > 0 && weights.length <= 3) {
-    lines.push(t('donts.fontWeights', { weights: weights.join(', ') }))
+    donts.push(t('donts.fontWeights', { weights: weights.join(', ') }))
+  }
+
+  if (donts.length > 0) {
+    lines.push('', t('donts.heading'), '', ...donts)
   }
 
   lines.push('')

@@ -4,7 +4,7 @@ import { parse } from 'yaml'
 
 import type { ComponentPattern } from '../../src/core/analyzer/component-detect.js'
 import type { DesignToken } from '../../src/core/analyzer/types.js'
-import { buildDesignMdColorTokens, generateDesignDoc } from '../../src/core/export/index.js'
+import { buildDesignMdColorTokens, generateDesignDoc, generateDtcgJson } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
   colors: {
@@ -279,7 +279,7 @@ describe('Google DESIGN.md alpha compatibility', () => {
 
     expect(designDoc).toContain('name: observed-8491a5')
     expect(designDoc).not.toContain('observed-8491a5: "#8491a5"')
-    expect(designDoc).toContain('`--color-observed-8491a5`')
+    expect(designDoc).not.toContain('`--color-observed-8491a5`')
     expect(designDoc).toContain('Observed Unassigned Colors (Evidence Appendix)')
     expect(designDoc).not.toContain('`--color-palette-5`')
     expect(designDoc).not.toContain('`colors.palette-5`')
@@ -308,15 +308,13 @@ describe('Google DESIGN.md alpha compatibility', () => {
     }
 
     const designDoc = generateDesignDoc(declaredTokens, 'https://example.com/')
-    const declaredGroup = designDoc.split('\n').find((line) => line.includes('CSS-declared; no rendered use observed'))
     const actionGroup = designDoc.split('\n').find((line) => line.startsWith('| Action |'))
 
-    expect(declaredGroup).toContain('`--color-observed-3f45ff`')
     expect(actionGroup || '').not.toContain('`--color-observed-3f45ff`')
-    expect(designDoc).toContain(
-      '| `--color-observed-3f45ff` | `#3f45ff` | CSS-declared; no rendered use observed | semantic low · observation high · 3 pages |',
-    )
+    expect(designDoc).not.toContain('`--color-observed-3f45ff`')
     expect(designDoc).toContain('declaredColors:')
+    expect(designDoc).toContain('observations: 3')
+    expect(designDoc).not.toContain('declarations: 3')
     expect(designDoc.split('\nx-imprint:', 1)[0]).not.toContain('observed-3f45ff:')
   })
 
@@ -339,9 +337,44 @@ describe('Google DESIGN.md alpha compatibility', () => {
 
     const designDoc = generateDesignDoc(declaredTokens, 'https://example.com/')
 
-    expect(designDoc).toContain('semantic low · observation medium · 1 page')
+    expect(designDoc).toContain('semanticConfidence: low')
     expect(designDoc).toContain('measurementConfidence: medium')
-    expect(designDoc).not.toContain('semantic low · observation high · 1 page')
+    expect(designDoc).not.toContain('measurementConfidence: high')
+  })
+
+  test('bounds candidate previews while retaining complete Tokens JSON evidence', () => {
+    const candidateColors = Array.from({ length: 20 }, (_, index) => ({
+      value: `#${(0x100000 + index).toString(16)}`,
+      kind: 'declared-only' as const,
+      observationCount: 20 - index,
+      pageCount: 1,
+      captureCount: 1,
+      sources: Array.from({ length: 8 }, (_source, sourceIndex) => `css-variable:--candidate-${index}-${sourceIndex}`),
+    }))
+    const candidateTokens: DesignToken = {
+      ...tokens,
+      candidates: { colors: candidateColors },
+    }
+
+    const designDoc = generateDesignDoc(candidateTokens, 'https://example.com/')
+    const frontMatter = parse(designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
+      'x-imprint': Array<{
+        candidateSummary: { declaredColors: { total: number; included: number; omitted: number } }
+        candidates: { declaredColors: Array<{ sources: string[]; sourceCount?: number; omittedSources?: number }> }
+      }>
+    }
+    const extension = frontMatter['x-imprint'][0]
+    const dtcg = JSON.parse(generateDtcgJson(candidateTokens)) as {
+      $extensions: { 'com.imprint.candidates': { colors: typeof candidateColors } }
+    }
+
+    expect(extension.candidateSummary.declaredColors).toEqual({ total: 20, included: 12, omitted: 8 })
+    expect(extension.candidates.declaredColors).toHaveLength(12)
+    expect(extension.candidates.declaredColors[0]).toMatchObject({ sourceCount: 8, omittedSources: 2 })
+    expect(extension.candidates.declaredColors[0].sources).toHaveLength(6)
+    expect(designDoc).not.toContain('| `--color-observed-100000` |')
+    expect(dtcg.$extensions['com.imprint.candidates'].colors).toHaveLength(20)
+    expect(dtcg.$extensions['com.imprint.candidates'].colors[0].sources).toHaveLength(8)
   })
 
   test('uses rendered evidence instead of a CSS variable name when grouping an observed color', () => {

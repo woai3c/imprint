@@ -15,6 +15,7 @@ function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
       'com.imprint.borders': tokens.borders,
       ...(tokens.evidence ? { 'com.imprint.tokenEvidence': tokens.evidence } : {}),
       ...(tokens.colorRoles ? { 'com.imprint.colorRoles': tokens.colorRoles } : {}),
+      ...(tokens.candidates ? { 'com.imprint.candidates': tokens.candidates } : {}),
     },
   }
 

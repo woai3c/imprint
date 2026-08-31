@@ -270,6 +270,8 @@ interface ExportColorCandidate {
 }
 
 const CONFIDENCE_RANK: Record<TokenConfidence, number> = { low: 0, medium: 1, high: 2 }
+const DESIGN_MD_CANDIDATE_PREVIEW_LIMIT = 12
+const DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT = 6
 
 function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
   const portableValues = new Set(
@@ -343,6 +345,24 @@ function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
       second.observationCount - first.observationCount ||
       first.value.localeCompare(second.value),
   )
+}
+
+function designDocCandidatePreview(candidate: ExportColorCandidate): Record<string, unknown> {
+  const sources = candidate.sources.slice(0, DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT)
+  return {
+    name: candidate.publicName,
+    value: candidate.value,
+    observations: candidate.observationCount,
+    ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
+    ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
+    sources,
+    ...(candidate.sources.length > sources.length
+      ? { sourceCount: candidate.sources.length, omittedSources: candidate.sources.length - sources.length }
+      : {}),
+    measurementConfidence: candidate.measurementConfidence,
+    semanticConfidence: 'low',
+    reuseScope: candidate.kind === 'declared-only' ? 'declared-only' : 'unknown',
+  }
 }
 
 function designMdTypographyTokens(tokens: DesignToken): Record<string, Record<string, string | number>> {
@@ -956,35 +976,42 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
         ...(colorRoleSummary ? { colorRoles: colorRoleSummary } : {}),
         ...(colorCandidates.length > 0
           ? {
-              candidates: {
+              candidateSummary: {
+                scope: 'preview',
+                previewLimitPerKind: DESIGN_MD_CANDIDATE_PREVIEW_LIMIT,
+                fullEvidenceArtifact: 'tokens-json',
                 ...(declaredColorCandidates.length > 0
                   ? {
-                      declaredColors: declaredColorCandidates.map((candidate) => ({
-                        name: candidate.publicName,
-                        value: candidate.value,
-                        declarations: candidate.observationCount,
-                        ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
-                        ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
-                        sources: candidate.sources,
-                        measurementConfidence: candidate.measurementConfidence,
-                        semanticConfidence: 'low',
-                        reuseScope: 'declared-only',
-                      })),
+                      declaredColors: {
+                        total: declaredColorCandidates.length,
+                        included: Math.min(DESIGN_MD_CANDIDATE_PREVIEW_LIMIT, declaredColorCandidates.length),
+                        omitted: Math.max(0, declaredColorCandidates.length - DESIGN_MD_CANDIDATE_PREVIEW_LIMIT),
+                      },
                     }
                   : {}),
                 ...(observedColorCandidates.length > 0
                   ? {
-                      observedUnassignedColors: observedColorCandidates.map((candidate) => ({
-                        name: candidate.publicName,
-                        value: candidate.value,
-                        observations: candidate.observationCount,
-                        ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
-                        ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
-                        sources: candidate.sources,
-                        measurementConfidence: candidate.measurementConfidence,
-                        semanticConfidence: 'low',
-                        reuseScope: 'unknown',
-                      })),
+                      observedUnassignedColors: {
+                        total: observedColorCandidates.length,
+                        included: Math.min(DESIGN_MD_CANDIDATE_PREVIEW_LIMIT, observedColorCandidates.length),
+                        omitted: Math.max(0, observedColorCandidates.length - DESIGN_MD_CANDIDATE_PREVIEW_LIMIT),
+                      },
+                    }
+                  : {}),
+              },
+              candidates: {
+                ...(declaredColorCandidates.length > 0
+                  ? {
+                      declaredColors: declaredColorCandidates
+                        .slice(0, DESIGN_MD_CANDIDATE_PREVIEW_LIMIT)
+                        .map(designDocCandidatePreview),
+                    }
+                  : {}),
+                ...(observedColorCandidates.length > 0
+                  ? {
+                      observedUnassignedColors: observedColorCandidates
+                        .slice(0, DESIGN_MD_CANDIDATE_PREVIEW_LIMIT)
+                        .map(designDocCandidatePreview),
                     }
                   : {}),
               },
@@ -1878,38 +1905,32 @@ export function generateDesignDoc(
 
   if (declaredColorEntries.length > 0) {
     lines.push(docT('colors.declaredHeading'))
-    lines.push(docT('colors.declaredNote'))
-    lines.push(docT('colors.tokenHeader'))
-    lines.push('|-------|-------|-------|------------|')
-    for (const candidate of declaredColorEntries) {
-      const semanticConfidence = 'low'
-      lines.push(
-        `| \`--color-${candidate.publicName}\` | \`${candidate.value}\` | ${docT('colors.declaredOnly')} | ${docT(
-          'colors.declaredConfidence',
-          {
-            semantic: semanticConfidence,
-            measurement: candidate.measurementConfidence,
-            pages: docT(candidate.pageCount === 1 ? 'colors.pageCountOne' : 'colors.pageCountOther', {
-              count: candidate.pageCount || 0,
-            }),
-          },
-        )} |`,
-      )
-    }
+    lines.push(
+      docT(
+        declaredColorEntries.length > DESIGN_MD_CANDIDATE_PREVIEW_LIMIT
+          ? 'colors.declaredPreviewNote'
+          : 'colors.declaredCompleteNote',
+        {
+          total: declaredColorEntries.length,
+          included: Math.min(DESIGN_MD_CANDIDATE_PREVIEW_LIMIT, declaredColorEntries.length),
+        },
+      ),
+    )
   }
 
   if (observedColorCandidateEntries.length > 0) {
     lines.push(docT('colors.observedCandidateHeading'))
-    lines.push(docT('colors.observedCandidateNote'))
-    lines.push(docT('colors.candidateHeader'))
-    lines.push('|-------|-------|-------------|-------|')
-    for (const candidate of observedColorCandidateEntries) {
-      lines.push(
-        `| \`--color-${candidate.publicName}\` | \`${candidate.value}\` | ${candidate.observationCount} | ${
-          candidate.pageCount || 0
-        } |`,
-      )
-    }
+    lines.push(
+      docT(
+        observedColorCandidateEntries.length > DESIGN_MD_CANDIDATE_PREVIEW_LIMIT
+          ? 'colors.observedCandidatePreviewNote'
+          : 'colors.observedCandidateCompleteNote',
+        {
+          total: observedColorCandidateEntries.length,
+          included: Math.min(DESIGN_MD_CANDIDATE_PREVIEW_LIMIT, observedColorCandidateEntries.length),
+        },
+      ),
+    )
   }
 
   const primaryActionRole = tokens.colorRoles?.primaryAction

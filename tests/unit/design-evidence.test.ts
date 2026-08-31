@@ -9,7 +9,7 @@ import {
   generateDesignEvidenceJson,
 } from '../../src/core/design-evidence/index.js'
 import type { PageEvidenceSnapshot } from '../../src/core/design-evidence/page-extractor.js'
-import { generateDesignDoc } from '../../src/core/export/index.js'
+import { generateDesignDoc, validateDesignDocSemantics } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
   colors: {
@@ -469,6 +469,7 @@ describe('Design Evidence', () => {
         targetId: 'synthetic-target-id',
         driver: 'hover',
         safety: 'passive',
+        source: 'computed-probed',
         trigger: { kind: 'css-pseudo-class:hover' },
         before: { color: 'rgb(17, 24, 39)', 'background-color': 'rgb(255, 255, 255)' },
         after: { color: 'rgb(37, 99, 235)', 'background-color': 'rgb(248, 250, 252)' },
@@ -483,7 +484,7 @@ describe('Design Evidence', () => {
 
     expect(brief).toContain('代表性状态值')
     expect(brief).toContain('color: rgb(17, 24, 39) → rgb(37, 99, 235)')
-    expect(brief).toContain('计算样式观察（未点击）')
+    expect(brief).toContain('浏览器计算样式探测（已执行状态，未点击）')
     expect(brief).not.toContain('synthetic-target-id')
     expect(summary).not.toContain('color rgb(17, 24, 39) → rgb(37, 99, 235)')
   })
@@ -493,6 +494,7 @@ describe('Design Evidence', () => {
     const declaredFocusStyles = Array.from({ length: 12 }, (_, index) => ({
       before: {},
       after: { 'outline-color': `var(--focus-${index})` },
+      source: 'declared-applicable' as const,
     }))
     const computedFocusStyle = {
       before: {
@@ -506,6 +508,7 @@ describe('Design Evidence', () => {
         'outline-color': 'rgb(37, 99, 235)',
       },
       changedProperties: ['outline-color'],
+      source: 'computed-probed' as const,
     }
     const evidence = buildDesignEvidence({
       analysisId: 'computed-interaction-priority',
@@ -551,6 +554,7 @@ describe('Design Evidence', () => {
         targetId: 'synthetic-target-id',
         driver: 'hover',
         safety: 'passive',
+        source: 'declared-applicable',
         trigger: { kind: 'css-pseudo-class:hover' },
         before: {},
         after: { 'background-color': 'rgb(248, 250, 252)' },
@@ -563,7 +567,7 @@ describe('Design Evidence', () => {
 
     expect(brief).toContain('background-color: rgb(248, 250, 252)')
     expect(brief).not.toContain('undefined')
-    expect(brief).toContain('计算样式观察（未点击）')
+    expect(brief).toContain('适用于当前 DOM 的样式声明（未执行状态）')
   })
 
   it('localizes deterministic reconstruction prose in a Chinese document', () => {
@@ -1054,12 +1058,33 @@ describe('Design Evidence', () => {
       expect.arrayContaining([expect.objectContaining({ driver: 'hover', safety: 'passive' })]),
     )
     const brief = generateDesignEvidenceBrief(evidence)
-    expect(brief).toContain('Declared states: hover ×1')
-    expect(brief).toContain('Passively declared properties: color ×1')
+    expect(brief).toContain('Non-click states: hover ×1')
+    expect(brief).toContain('Non-click evidence properties: color ×1')
     expect(brief).not.toContain('`target-')
     expect(brief).not.toContain('unknown →')
     expect(brief).not.toContain('rect.width')
-    expect(brief).toContain('Coverage: 1/1 selected URLs observed; page×viewport captures 2/2 (complete)')
+    expect(brief).toContain('Coverage: 1/1 selected URLs observed; adaptive capture plan 2/2 (complete)')
+    expect(brief).toContain('Full selected URL × requested viewport matrix: 2/2 captured (complete)')
+    expect(brief).toContain('Responsive comparison pairs: 1/1 selected URLs')
+  })
+
+  it('accounts for observed role sizes outside the reusable typography scale', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.layoutNodes.forEach((node) => {
+      const page = evidence.pages.find((candidate) => candidate.id === node.pageId)
+      node.tokenRefs = node.tokenRefs.filter((ref) => !ref.startsWith('typography.font-size.'))
+      node.observedTypography = {
+        ...node.observedTypography,
+        fontSize: page?.viewport === 'mobile' ? '36px' : '48px',
+      }
+    })
+
+    const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)
+
+    expect(document).toContain('**Reusable font-size scale:** 1rem, 2rem')
+    expect(document).toContain('**Observed role-specific size exceptions:**')
+    expect(document).toContain('- `display`: `36px`, `48px`')
+    expect(document).toContain('do not generalize them as new global steps')
   })
 
   it('reports URL coverage separately from missing page×viewport captures', () => {
@@ -1086,7 +1111,21 @@ describe('Design Evidence', () => {
     expect(evidence.coverage.pageCoverage).toBe('complete')
     expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 2, captured: 1, status: 'partial' })
     expect(evidence.limitations).toContain('fewer-page-viewports-than-requested')
-    expect(generateDesignEvidenceBrief(evidence)).toContain('page×viewport captures 1/2 (partial)')
+    expect(generateDesignEvidenceBrief(evidence)).toContain('adaptive capture plan 1/2 (partial)')
+    expect(generateDesignEvidenceBrief(evidence)).toContain('Responsive comparison pairs: 0/1 selected URLs')
+  })
+
+  it('rejects contradictory structured coverage before exporting DESIGN.md', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.coverage.captureCoverage!.fullMatrix!.status = 'partial'
+
+    const integrity = validateDesignDocSemantics(tokens, evidence)
+
+    expect(integrity.valid).toBe(false)
+    expect(integrity.errors).toContain('capture-matrix:status-partial-but-2-of-2')
+    expect(() => generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'en', evidence)).toThrow(
+      'DESIGN.md semantic integrity failed',
+    )
   })
 
   it('uses the analyzer adaptive capture plan instead of a page×viewport Cartesian product', () => {
@@ -1221,6 +1260,27 @@ describe('Design Evidence', () => {
     expect(evidence.responsiveObservations.some((observation) => observation.sectionId === desktopHero.id)).toBe(false)
     expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
     expect(generateDesignEvidenceBrief(evidence, 'en')).toContain('different semantic section roles across viewports')
+  })
+
+  it('labels breakpoint discovery as partial when stylesheet rules were unreadable', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.limitations.push('breakpoint-stylesheets-unreadable')
+
+    const brief = generateDesignEvidenceBrief(evidence, 'en')
+    const document = generateDesignDoc(
+      tokens,
+      undefined,
+      undefined,
+      undefined,
+      evidence.breakpoints,
+      [],
+      'en',
+      evidence,
+    )
+
+    expect(brief).toContain('declared breakpoint list is partial')
+    expect(document).toContain('Breakpoint discovery is partial')
+    expect(document).toContain('Do not treat this table as the complete declared breakpoint set')
   })
 
   it('records horizontal overflow instead of treating off-screen mobile content as responsive hiding', () => {
@@ -1604,8 +1664,8 @@ describe('Design Evidence', () => {
     )
     expect(evidence.coverage.accessRestrictions).toEqual(['managed-access', 'auth-wall-resolved-by-managed-access'])
     const brief = generateDesignEvidenceBrief(evidence, 'zh-CN')
-    expect(brief).toContain('被动状态观察：2 条（未执行用户操作，与概览口径一致）')
-    expect(brief).toContain('2 条被动状态观察（未执行用户操作）')
+    expect(brief).toContain('非点击状态证据：2 条')
+    expect(brief).toContain('2 条其他被动观察')
     expect(brief).toContain('安全主动观察：0 条')
     expect(brief).not.toContain('驱动类型: click')
   })

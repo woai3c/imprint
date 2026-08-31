@@ -412,13 +412,21 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     ].filter((element) => {
       if (!isVisible(element)) return false
       const tag = element.tagName
-      if ((tag === 'HEADER' || tag === 'FOOTER') && element.parentElement?.closest('article, li')) return false
-      if (
-        (tag === 'HEADER' || tag === 'FOOTER') &&
-        element.parentElement?.closest('main, section, [role="main"], [role="region"]')
-      ) {
-        return false
-      }
+      const role = element.getAttribute('role')
+      const pageEdgeLandmark = tag === 'HEADER' || tag === 'FOOTER' || role === 'banner' || role === 'contentinfo'
+      const containingLandmark = element.parentElement?.closest(
+        'article, li, main, section, aside, nav, header, footer, [role="main"], [role="region"], [role="complementary"], [role="navigation"], [role="banner"], [role="contentinfo"]',
+      )
+      if (pageEdgeLandmark && containingLandmark) return false
+      const repeatedLandmarkSelector =
+        tag === 'NAV' || role === 'navigation'
+          ? 'nav, [role="navigation"]'
+          : tag === 'ASIDE' || role === 'complementary'
+            ? 'aside, [role="complementary"]'
+            : tag === 'MAIN' || role === 'main'
+              ? 'main, [role="main"]'
+              : null
+      if (repeatedLandmarkSelector && element.parentElement?.closest(repeatedLandmarkSelector)) return false
       return true
     })
     const landmarkSet = new Set<Element>(semanticSectionCandidates)

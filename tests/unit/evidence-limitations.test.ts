@@ -36,4 +36,13 @@ describe('evidence limitation summaries', () => {
       },
     ])
   })
+
+  test('shows partial CSSOM coverage as a specific breakpoint limitation', () => {
+    expect(summarizeEvidenceLimitations(['breakpoint-stylesheets-unreadable'])).toEqual([
+      {
+        limitation: 'breakpoint-stylesheets-unreadable',
+        translationKey: 'partialBreakpoints',
+      },
+    ])
+  })
 })

@@ -9,6 +9,7 @@ const LIMITATION_KEYS: Record<string, string> = {
   'no-major-media-detected': 'noMedia',
   'no-classified-media-regions': 'noMediaClassification',
   'extraction-stage-degraded': 'extractionDegraded',
+  'breakpoint-stylesheets-unreadable': 'partialBreakpoints',
 }
 
 const DIAGNOSTIC_LIMITATION_PREFIXES = ['page-health:', 'skipped:', 'skipped-interaction:', 'extraction-issue:']

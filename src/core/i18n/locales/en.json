@@ -115,7 +115,7 @@
       },
       "alignment": {
         "heading": "### Alignment",
-        "scale": "- Align repeated blocks to shared edges; size and space with the scale steps, never off-scale values",
+        "scale": "- Align repeated blocks to shared edges; use scale steps for recurring patterns and preserve documented local exceptions exactly",
         "text": "- Keep text columns on one inline start within a section"
       },
       "repetition": {
@@ -124,7 +124,7 @@
         "fontSizeCount": "{{count}} font sizes",
         "radiusCount": "{{count}} radii",
         "shadowCount": "{{count}} shadows",
-        "scale": "- Reuse the extracted scale exactly ({{counts}}) — never invent near-duplicate values",
+        "scale": "- Reuse the extracted scale for recurring patterns ({{counts}}); keep documented role or component exceptions scoped and exact",
         "coherence": "- Coherence comes from repeating the same tokens, not from decorating individual elements"
       },
       "contrast": {
@@ -144,6 +144,7 @@
       "compactPillRadius": "- ✅ Use compact radii on ordinary surfaces; preserve observed pill and circular button variants separately",
       "compactRadius": "- ✅ Keep border-radius minimal for a sharp, precise aesthetic",
       "shadows": "- ✅ Use elevation (shadows) to create visual hierarchy",
+      "componentScopedShadows": "- ✅ Reuse depth shadows only on directly observed component variants; keep base surfaces flat or edge-led as observed",
       "noShadowScale": "- ✅ No stable shadow scale was observed; prefer observed borders and background shifts for hierarchy",
       "observedResponsive": "- ✅ Preserve the observed responsive behavior across viewports",
       "declaredBreakpoints": "- Breakpoints were declared, but responsive behavior was not observed in this capture",
@@ -161,7 +162,9 @@
   "designEvidence": {
     "coverage": {
       "assetLine": "Screenshot assets: {{valid}}/{{expected}} dimension-valid ({{status}}; {{issues}} issues)",
-      "scopeLine": "Coverage: {{capturedUrls}}/{{selectedUrls}} selected URLs observed; page×viewport captures {{capturedCaptures}}/{{expectedCaptures}} ({{captureStatus}}); {{sections}} section observations and {{components}} component observations across captures (not page instance counts)",
+      "scopeLine": "Coverage: {{capturedUrls}}/{{selectedUrls}} selected URLs observed; adaptive capture plan {{capturedCaptures}}/{{expectedCaptures}} ({{captureStatus}}); {{sections}} section observations and {{components}} component observations across captures (not page instance counts)",
+      "matrixLine": "Full selected URL × requested viewport matrix: {{captured}}/{{expected}} captured ({{status}}); adaptive sampling may intentionally cover fewer combinations.",
+      "responsivePairLine": "Responsive comparison pairs: {{captured}}/{{expected}} selected URLs have every requested viewport ({{status}}).",
       "status": {
         "complete": "complete",
         "partial": "partial"
@@ -173,7 +176,21 @@
       "adaptiveMobileBudgetExceeded": "The supplemental mobile capture exceeded its reserved time budget and was not retained.",
       "adaptiveMobileSkippedBudget": "A later supplemental mobile capture was skipped because the analysis time budget had been exhausted.",
       "adaptiveMobileHorizontalOverflow": "Page {{page}} supplemental mobile capture overflowed horizontally ({{viewport}}px viewport, {{content}}px content width).",
-      "responsiveSectionIdentityMismatch": "A repeated DOM path had different semantic section roles across viewports, so that pair was excluded from responsive claims."
+      "responsiveSectionIdentityMismatch": "A repeated DOM path had different semantic section roles across viewports, so that pair was excluded from responsive claims.",
+      "breakpointStylesheetsUnreadable": "Some stylesheet rules were inaccessible to the browser CSSOM, so the declared breakpoint list is partial; observed responsive changes remain valid."
+    },
+    "stateEvidence": {
+      "overview": "- State evidence: {{patterns}} deduped patterns; {{computed}} browser-computed probes; {{declared}} applicable declarations not executed; {{passive}} other passive observations; {{active}} safe active observations; {{skipped}} skipped candidates",
+      "passiveSummary_one": "- Non-click state evidence: {{count}} observation (a computed probe, directly observed state, or applicable declaration)",
+      "passiveSummary_other": "- Non-click state evidence: {{count}} observations (computed probes, directly observed states, or applicable declarations)",
+      "nonClickStates": "- Non-click states",
+      "nonClickProperties": "- Non-click evidence properties",
+      "safeActiveSummary_one": "- Safe active observation: {{count}}",
+      "safeActiveSummary_other": "- Safe active observations: {{count}}",
+      "safeActive": "safe active observation",
+      "computedProbed": "browser-computed state probe (state executed without click)",
+      "declaredApplicable": "applicable stylesheet declaration (state not executed)",
+      "passive": "passive state observation"
     }
   },
   "profileExport": {
@@ -452,7 +469,7 @@
       "alignmentScale": "- Size and space in multiples of {{unit}}; never use off-scale values",
       "alignmentSidebar": "- Repeated blocks share one inline start and column width (sidebar {{sidebarWidth}})",
       "repetition": "Repetition",
-      "semanticSteps": "- Reuse existing semantic token steps (colors, font sizes, radii, shadows); never invent near-duplicates",
+      "semanticSteps": "- Reuse semantic token steps for recurring patterns; preserve documented role or component exceptions without generalizing them",
       "radiusSteps": "- Derive all radii from `--radius-md` ({{radius}}) — sm/lg/xl",
       "contrast": "Contrast",
       "textContrast": "- Body text uses `--color-foreground`, secondary text `--color-muted-foreground`; hierarchy comes from contrast, not font-size stacking",
@@ -786,6 +803,7 @@
         "groupHeader": "| Group | Tokens |",
         "groups": {
           "action": "Action",
+          "destructive": "Destructive action",
           "editorial": "Editorial accent",
           "status": "Status/delta",
           "decorative": "Decorative",
@@ -795,10 +813,12 @@
           "declared": "CSS-declared; no rendered use observed",
           "fallback": "Observed, unassigned role"
         },
-        "completeHeading": "### Complete Color Tokens\n",
+        "completeHeading": "### Core Portable Color Tokens\n",
         "tokenHeader": "| Token | Value | Usage | Confidence |",
+        "groupOmitted": "(+{{count}} more; see the complete table)",
         "contexts": {
           "action": "action",
+          "destructive": "destructive action",
           "status": "status",
           "background": "background",
           "text": "text",
@@ -807,6 +827,12 @@
         "pageCountOne": "{{count}} page",
         "pageCountOther": "{{count}} pages",
         "declaredOnly": "CSS-declared; no rendered use observed",
+        "declaredHeading": "\n### Declared-only Color Candidates (Evidence Appendix)\n",
+        "declaredNote": "> These values are retained as declaration evidence, but are excluded from the portable color system until a rendered role uses them.\n",
+        "declaredConfidence": "semantic {{semantic}} · observation {{measurement}} · {{pages}}",
+        "observedCandidateHeading": "\n### Observed Unassigned Colors (Evidence Appendix)\n",
+        "observedCandidateNote": "> These colors were rendered, but no reusable semantic role was established. They are retained for traceability and excluded from the portable color system.\n",
+        "candidateHeader": "| Candidate | Value | Observations | Pages |",
         "primaryHeading": "\n### Observed Primary Action Pair\n",
         "primaryPair": "- Observed primary action pair: {{pair}}",
         "observedContrast": "- Observed contrast: {{ratio}}:1{{warning}}",
@@ -820,7 +846,10 @@
         "families": "**Font families:** {{values}}",
         "systemDefault": "System default",
         "fullStacks": "\n**Full font stacks:**",
-        "sizes": "\n**Font sizes:** {{values}}",
+        "sizes": "\n**Reusable font-size scale:** {{values}}",
+        "roleExceptionsHeading": "\n**Observed role-specific size exceptions:**",
+        "roleExceptionsNote": "> These exact values were observed for the listed text roles but are not promoted into the reusable scale. Preserve them only in matching cited contexts; do not generalize them as new global steps.",
+        "roleException": "- `{{role}}`: {{values}}",
         "weights": "\n**Font weights:** {{values}}",
         "letterSpacing": "\n**Letter spacing:** {{values}}"
       },
@@ -831,6 +860,7 @@
         "geometryNote": "\n> Low-frequency page geometry above 96px is excluded from the reusable scale; representative structural dimensions and responsive changes remain in this document.",
         "breakpointHeading": "\n### Responsive Breakpoints Declared in CSS\n",
         "breakpointNote": "> These widths come from CSS media/container queries. Only listed changes were directly observed; an empty cell does not prove that nothing changes at that width.\n",
+        "breakpointPartialNote": "> Breakpoint discovery is partial because some stylesheet rules were inaccessible through CSSOM. Do not treat this table as the complete declared breakpoint set.\n",
         "breakpointHeader": "| Label | Width | Directly observed changes |",
         "gradientHeading": "\n### Section Gradient Treatments\n"
       },
@@ -886,8 +916,8 @@
       },
       "observedColorRole": "observed color token `{{ref}}`",
       "colorImplementation": "Keep each cited semantic color in its named role; do not replace it with a decorative, status, or low-frequency observed color.",
-      "typographyStatement": "Use {{stacks}} as the observed primary stack(s), with the captured sizes {{sizes}} and weights {{weights}}.",
-      "typographyImplementation": "Map large-format text, heading, body, label, and metadata to the closest observed role; do not introduce an unrelated type family or an unlisted size.",
+      "typographyStatement": "Use {{stacks}} as the observed primary stack(s), with the reusable captured sizes {{sizes}} and weights {{weights}}.",
+      "typographyImplementation": "Map large-format text, heading, body, label, and metadata to the matching observed role. Preserve cited role-specific size exceptions exactly, but do not introduce an unrelated type family or an unobserved size.",
       "shapeStatement": "Ordinary radius candidates are {{ordinary}}. {{special}}",
       "shapeWithoutSharedRadiusStatement": "No ordinary radius reached reusable cross-page coverage. {{special}}",
       "specialShapeValues": "Component evidence also contains pill or circular treatments with these radius values: {{values}}.",

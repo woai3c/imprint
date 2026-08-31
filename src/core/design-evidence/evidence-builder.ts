@@ -677,6 +677,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           before: styles.before,
           after: styles.after,
           changedProperties: styles.changedProperties || Object.keys(styles.after),
+          source: styles.source,
+          selector: styles.selector,
           evidenceRefs: [firstSection.id, page.images[0]?.id].filter(Boolean),
         })
         firstSection.interactionRefs.push(id)
@@ -693,6 +695,17 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const capturedExpectedCombinations = new Set(
     pages.filter((page) => expectedViewportSet.has(page.viewport)).map((page) => `${page.url}|${page.viewport}`),
   ).size
+  const fullMatrixExpected = input.expectedPageCount * Math.max(1, expectedViewports.length)
+  const viewportsByUrl = new Map<string, Set<string>>()
+  for (const page of pages) {
+    if (!expectedViewportSet.has(page.viewport)) continue
+    const viewports = viewportsByUrl.get(page.url) || new Set<string>()
+    viewports.add(page.viewport)
+    viewportsByUrl.set(page.url, viewports)
+  }
+  const responsivePairedUrls = [...viewportsByUrl.values()].filter((viewports) =>
+    expectedViewports.every((viewport) => viewports.has(viewport)),
+  ).length
   const limitations: string[] = []
   limitations.push(...(input.limitations || []))
   if (uniqueUrls.size < input.expectedPageCount) limitations.push('fewer-pages-than-requested')
@@ -786,6 +799,20 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       captured: Math.min(expectedCaptureCount, capturedExpectedCombinations),
       status: capturedExpectedCombinations >= expectedCaptureCount ? ('complete' as const) : ('partial' as const),
       requestedViewports: expectedViewports,
+      fullMatrix: {
+        expected: fullMatrixExpected,
+        captured: Math.min(fullMatrixExpected, capturedExpectedCombinations),
+        status: capturedExpectedCombinations >= fullMatrixExpected ? ('complete' as const) : ('partial' as const),
+      },
+      ...(expectedViewports.length > 1
+        ? {
+            responsivePairs: {
+              expectedUrls: input.expectedPageCount,
+              capturedUrls: Math.min(input.expectedPageCount, responsivePairedUrls),
+              status: responsivePairedUrls >= input.expectedPageCount ? ('complete' as const) : ('partial' as const),
+            },
+          }
+        : {}),
     },
     assetCoverage: {
       expected: pages.length,

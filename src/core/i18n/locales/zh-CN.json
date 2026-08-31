@@ -115,7 +115,7 @@
       },
       "alignment": {
         "heading": "### 对齐",
-        "scale": "- 重复模块对齐到统一边线；尺寸与间距只取刻度值，不产生刻度外的任意值",
+        "scale": "- 重复模块对齐到统一边线；重复模式使用刻度值，已记录的局部例外保持精确",
         "text": "- 同一区块内文本列保持统一起始边"
       },
       "repetition": {
@@ -124,7 +124,7 @@
         "fontSizeCount": "{{count}} 个字号",
         "radiusCount": "{{count}} 档圆角",
         "shadowCount": "{{count}} 级阴影",
-        "scale": "- 严格复用提取刻度（{{counts}}），不发明近似值",
+        "scale": "- 重复模式复用提取刻度（{{counts}}）；已记录的角色或组件例外只在对应作用域内保持精确",
         "coherence": "- 一致性来自重复复用令牌，而非装饰单个元素"
       },
       "contrast": {
@@ -144,6 +144,7 @@
       "compactPillRadius": "- ✅ 普通表面使用小圆角；胶囊和圆形按钮按已观察变体单独复用",
       "compactRadius": "- ✅ 保持小圆角，维持锐利精确的气质",
       "shadows": "- ✅ 用阴影层级建立视觉层次",
+      "componentScopedShadows": "- ✅ 深度阴影仅复用于直接观察到的组件变体；基础表面按观察结果保持扁平或以边界分层",
       "noShadowScale": "- ✅ 未观察到稳定的阴影刻度；优先使用已观察到的边框与背景色变化建立层次",
       "observedResponsive": "- ✅ 保留已观察到的响应式行为及其视口差异",
       "declaredBreakpoints": "- 已声明断点，但本次捕获未观察到响应式行为",
@@ -161,7 +162,9 @@
   "designEvidence": {
     "coverage": {
       "assetLine": "截图资源：{{valid}}/{{expected}} 个尺寸有效（{{status}}；{{issues}} 个问题）",
-      "scopeLine": "覆盖：已观察 {{capturedUrls}}/{{selectedUrls}} 个自动选定页面；页面×视口捕获 {{capturedCaptures}}/{{expectedCaptures}}（{{captureStatus}}）；{{sections}} 个区块观察、{{components}} 个跨捕获组件观察（不是页面实例数）",
+      "scopeLine": "覆盖：已观察 {{capturedUrls}}/{{selectedUrls}} 个自动选定页面；自适应捕获计划 {{capturedCaptures}}/{{expectedCaptures}}（{{captureStatus}}）；{{sections}} 个区块观察、{{components}} 个跨捕获组件观察（不是页面实例数）",
+      "matrixLine": "完整的“选定页面 × 请求视口”矩阵：已捕获 {{captured}}/{{expected}}（{{status}}）；自适应采样可能有意减少组合数。",
+      "responsivePairLine": "响应式对照配对：{{captured}}/{{expected}} 个选定页面具备全部请求视口（{{status}}）。",
       "status": {
         "complete": "完整",
         "partial": "部分"
@@ -173,7 +176,21 @@
       "adaptiveMobileBudgetExceeded": "移动端补充捕获超出预留时间预算，因此未被保留。",
       "adaptiveMobileSkippedBudget": "分析时间预算已耗尽，后续移动端补充捕获被跳过。",
       "adaptiveMobileHorizontalOverflow": "第 {{page}} 个页面的移动端补充捕获出现横向溢出（视口 {{viewport}}px，内容宽度 {{content}}px）。",
-      "responsiveSectionIdentityMismatch": "同一 DOM 路径在不同视口中具有不同的语义区块角色，因此该配对已从响应式声明中排除。"
+      "responsiveSectionIdentityMismatch": "同一 DOM 路径在不同视口中具有不同的语义区块角色，因此该配对已从响应式声明中排除。",
+      "breakpointStylesheetsUnreadable": "部分样式表规则无法通过浏览器 CSSOM 读取，因此声明断点列表并不完整；已观察到的响应式变化仍然有效。"
+    },
+    "stateEvidence": {
+      "overview": "- 状态证据：{{patterns}} 个去重模式；{{computed}} 条浏览器计算样式探测；{{declared}} 条适用但未执行的样式声明；{{passive}} 条其他被动观察；{{active}} 条安全主动观察；{{skipped}} 个跳过候选",
+      "passiveSummary_one": "- 非点击状态证据：{{count}} 条（包括计算样式探测、直接观察状态或适用的样式声明）",
+      "passiveSummary_other": "- 非点击状态证据：{{count}} 条（包括计算样式探测、直接观察状态或适用的样式声明）",
+      "nonClickStates": "- 非点击状态",
+      "nonClickProperties": "- 非点击证据属性",
+      "safeActiveSummary_one": "- 安全主动观察：{{count}} 条",
+      "safeActiveSummary_other": "- 安全主动观察：{{count}} 条",
+      "safeActive": "安全主动实测",
+      "computedProbed": "浏览器计算样式探测（已执行状态，未点击）",
+      "declaredApplicable": "适用于当前 DOM 的样式声明（未执行状态）",
+      "passive": "被动状态观察"
     }
   },
   "profileExport": {
@@ -452,7 +469,7 @@
       "alignmentScale": "- 尺寸与间距只取 {{unit}} 的整数倍，不产生刻度外的任意值",
       "alignmentSidebar": "- 重复模块共享统一的起始边与栏宽（侧栏 {{sidebarWidth}}）",
       "repetition": "重复",
-      "semanticSteps": "- 只复用语义令牌的既有档位（颜色、字号、圆角、阴影），不发明近似值",
+      "semanticSteps": "- 重复模式复用语义令牌档位；已记录的角色或组件例外保持精确，但不要将其全局化",
       "radiusSteps": "- 圆角一律从 `--radius-md`（{{radius}}）派生 sm/lg/xl",
       "contrast": "对比",
       "textContrast": "- 正文用 `--color-foreground`，次要信息用 `--color-muted-foreground`；层级来自对比，而非堆砌字号",
@@ -786,6 +803,7 @@
         "groupHeader": "| 分组 | 令牌 |",
         "groups": {
           "action": "操作",
+          "destructive": "破坏性操作",
           "editorial": "编辑强调",
           "status": "状态/趋势",
           "decorative": "装饰",
@@ -795,10 +813,12 @@
           "declared": "仅 CSS 声明，未观察到渲染用途",
           "fallback": "已观察但未分配语义"
         },
-        "completeHeading": "### 完整颜色令牌\n",
+        "completeHeading": "### 核心便携颜色令牌\n",
         "tokenHeader": "| 令牌 | 值 | 用途 | 置信度 |",
+        "groupOmitted": "（另有 {{count}} 个，见完整表格）",
         "contexts": {
           "action": "操作",
+          "destructive": "破坏性操作",
           "status": "状态",
           "background": "背景",
           "text": "文字",
@@ -807,6 +827,12 @@
         "pageCountOne": "{{count}}页",
         "pageCountOther": "{{count}}页",
         "declaredOnly": "仅 CSS 声明；未观察到渲染用途",
+        "declaredHeading": "\n### 仅声明颜色候选（证据附录）\n",
+        "declaredNote": "> 这些值只作为声明证据保留；在观察到实际渲染角色之前，不进入便携颜色系统。\n",
+        "declaredConfidence": "语义 {{semantic}} · 观测 {{measurement}} · {{pages}}",
+        "observedCandidateHeading": "\n### 已观察但未分配语义的颜色（证据附录）\n",
+        "observedCandidateNote": "> 这些颜色已经实际渲染，但尚未建立可复用的语义角色。它们仅用于追溯证据，不进入便携颜色系统。\n",
+        "candidateHeader": "| 候选 | 值 | 观察次数 | 页面数 |",
         "primaryHeading": "\n### 已观察的主操作配色\n",
         "primaryPair": "- 已观察的主操作配色：{{pair}}",
         "observedContrast": "- 已观察对比度：{{ratio}}:1{{warning}}",
@@ -820,7 +846,10 @@
         "families": "**字体族：** {{values}}",
         "systemDefault": "系统默认",
         "fullStacks": "\n**完整字体栈：**",
-        "sizes": "\n**字号：** {{values}}",
+        "sizes": "\n**可复用字号阶梯：** {{values}}",
+        "roleExceptionsHeading": "\n**已观察的角色级字号例外：**",
+        "roleExceptionsNote": "> 下列精确值已在对应文字角色中观察到，但未提升为可复用阶梯。仅在相符的证据场景中保留，不要把它们扩展为新的全局档位。",
+        "roleException": "- `{{role}}`：{{values}}",
         "weights": "\n**字重：** {{values}}",
         "letterSpacing": "\n**字间距：** {{values}}"
       },
@@ -831,6 +860,7 @@
         "geometryNote": "\n> 超过 96px 的低频页面几何不进入可复用刻度；有代表性的结构尺寸与响应式变化已保留在本文档中。",
         "breakpointHeading": "\n### CSS 中声明的响应式断点\n",
         "breakpointNote": "> 下列宽度来自 CSS media/container query；只有列出的变化才经过直接观察，空白不代表页面在该宽度没有变化。\n",
+        "breakpointPartialNote": "> 部分样式表规则无法通过 CSSOM 读取，因此断点发现并不完整；不要把本表视为全部已声明断点。\n",
         "breakpointHeader": "| 标签 | 宽度 | 直接观察到的变化 |",
         "gradientHeading": "\n### 区块渐变处理\n"
       },
@@ -886,8 +916,8 @@
       },
       "observedColorRole": "已观察颜色令牌 `{{ref}}`",
       "colorImplementation": "每个已引用语义色只承担其命名角色；不要用装饰色、状态色或低频观察色替代。",
-      "typographyStatement": "主要使用 {{stacks}} 字体栈；采用已捕获的字号 {{sizes}} 和字重 {{weights}}。",
-      "typographyImplementation": "展示文字、标题、正文、标签和元数据应映射到最接近的已观察角色；不要加入无关字体或刻度外字号。",
+      "typographyStatement": "主要使用 {{stacks}} 字体栈；采用已捕获的可复用字号 {{sizes}} 和字重 {{weights}}。",
+      "typographyImplementation": "展示文字、标题、正文、标签和元数据应映射到相符的已观察角色；角色级字号例外按引用证据保持精确，但不要加入无关字体或未观察字号。",
       "shapeStatement": "普通圆角候选为 {{ordinary}}。{{special}}",
       "shapeWithoutSharedRadiusStatement": "没有普通圆角达到可复用的跨页面覆盖。{{special}}",
       "specialShapeValues": "组件证据中还观察到胶囊形或圆形处理，相关半径值为 {{values}}。",

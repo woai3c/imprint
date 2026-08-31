@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
 import { computeInteractionStateMetrics } from '../../../core/design-evidence/interaction-metrics'
+import { formatPageSectionTopology } from '../../../core/design-evidence/topology-summary'
 import type { DesignEvidence } from '../../../core/design-evidence/types'
 import { summarizeEvidenceLimitations } from './evidence-limitations'
 
@@ -43,9 +44,23 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
           tooltip: passiveTooltip,
         }
       : null,
-    stateMetrics.passiveObservations > 0
+    stateMetrics.computedProbedObservations > 0
       ? {
-          text: t('analyze.overview.statesPassiveObservations', { count: stateMetrics.passiveObservations }),
+          text: t('analyze.overview.statesComputedProbes', { count: stateMetrics.computedProbedObservations }),
+          tooltip: passiveTooltip,
+        }
+      : null,
+    stateMetrics.declaredApplicableObservations > 0
+      ? {
+          text: t('analyze.overview.statesDeclaredApplicable', {
+            count: stateMetrics.declaredApplicableObservations,
+          }),
+          tooltip: passiveTooltip,
+        }
+      : null,
+    stateMetrics.otherPassiveObservations > 0
+      ? {
+          text: t('analyze.overview.statesPassiveObservations', { count: stateMetrics.otherPassiveObservations }),
           tooltip: passiveTooltip,
         }
       : null,
@@ -108,9 +123,9 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
           {evidence.topology.pages.map((topologyPage) => {
             const page = evidence.pages.find((candidate) => candidate.id === topologyPage.pageId)
             if (!page) return null
-            const roles = topologyPage.sectionIds
-              .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
-              .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown')
+            const topology = formatPageSectionTopology(evidence, topologyPage.pageId, (role) =>
+              t(`analyze.overview.sectionRoles.${role}`, { defaultValue: role }),
+            )
             return (
               <article key={topologyPage.pageId} className="rounded-lg bg-secondary/45 p-3">
                 <div className="flex items-center gap-2 text-xs">
@@ -129,15 +144,10 @@ export function DesignEvidencePanel({ evidence }: DesignEvidencePanelProps) {
                   )}
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                  {roles.length > 0 ? (
-                    roles.map((role, index) => (
-                      <span key={`${role}-${index}`} className="contents">
-                        {index > 0 && <span className="text-xs text-muted-foreground">→</span>}
-                        <span className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground">
-                          {t(`analyze.overview.sectionRoles.${role}`, { defaultValue: role })}
-                        </span>
-                      </span>
-                    ))
+                  {topology ? (
+                    <span className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground">
+                      {topology}
+                    </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">{t('analyze.overview.noSections')}</span>
                   )}

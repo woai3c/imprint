@@ -11,6 +11,7 @@ import {
   usefulResponsiveChanges,
 } from './responsive-reliability.js'
 import { isContextDependentRadius } from './structural-styles.js'
+import { formatPageSectionTopology } from './topology-summary.js'
 import type { DesignEvidence } from './types.js'
 
 const TYPOGRAPHY_REF_GROUPS = {
@@ -51,16 +52,6 @@ function incrementValue(values: Map<string, number>, value: string): void {
 
 function displaySectionRole(role: string | undefined): string {
   return !role || role === 'unknown' ? 'content' : role
-}
-
-function compactRoles(roles: string[]): string[] {
-  const groups: Array<{ role: string; count: number }> = []
-  for (const role of roles) {
-    const last = groups[groups.length - 1]
-    if (last?.role === role) last.count += 1
-    else groups.push({ role, count: 1 })
-  }
-  return groups.map(({ role, count }) => (count > 1 ? `${role} ×${count}` : role))
 }
 
 function canonicalPageIds(evidence: DesignEvidence): Set<string> {
@@ -224,6 +215,7 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
   const captureCoverage = evidence.coverage.captureCoverage
   const assetCoverage = resolveScreenshotAssetCoverage(evidence)
   const coverageT = coreTranslator(language, 'designEvidence.coverage')
+  const stateT = coreTranslator(language, 'designEvidence.stateEvidence')
   const termT = coreTranslator(language, 'profileExport')
   const term = (value: string): string => {
     const aliases: Record<string, string> = {
@@ -261,6 +253,24 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       components: evidence.components.length,
     })}`,
   )
+  if (captureCoverage?.fullMatrix) {
+    lines.push(
+      `- ${coverageT('matrixLine', {
+        captured: captureCoverage.fullMatrix.captured,
+        expected: captureCoverage.fullMatrix.expected,
+        status: coverageT(`status.${captureCoverage.fullMatrix.status}`),
+      })}`,
+    )
+  }
+  if (captureCoverage?.responsivePairs) {
+    lines.push(
+      `- ${coverageT('responsivePairLine', {
+        captured: captureCoverage.responsivePairs.capturedUrls,
+        expected: captureCoverage.responsivePairs.expectedUrls,
+        status: coverageT(`status.${captureCoverage.responsivePairs.status}`),
+      })}`,
+    )
+  }
   if (assetCoverage) {
     lines.push(
       `- ${coverageT('assetLine', {
@@ -272,9 +282,14 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
     )
   }
   lines.push(
-    zh
-      ? `- 状态证据：${stateMetrics.dedupedStatePatterns} 个去重状态模式、${stateMetrics.passiveObservations} 条被动状态观察（未执行用户操作）、${stateMetrics.safeActiveObservations} 条安全主动观察、${stateMetrics.skippedCandidates} 个跳过候选`
-      : `- State evidence: ${stateMetrics.dedupedStatePatterns} deduped state patterns, ${stateMetrics.passiveObservations} passive state observations (no user action), ${stateMetrics.safeActiveObservations} safe active observations, ${stateMetrics.skippedCandidates} skipped candidates`,
+    stateT('overview', {
+      patterns: stateMetrics.dedupedStatePatterns,
+      computed: stateMetrics.computedProbedObservations,
+      declared: stateMetrics.declaredApplicableObservations,
+      passive: stateMetrics.otherPassiveObservations,
+      active: stateMetrics.safeActiveObservations,
+      skipped: stateMetrics.skippedCandidates,
+    }),
   )
   lines.push(
     zh
@@ -297,11 +312,9 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
           : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
       )
     }
-    const roles = topologyPage.sectionIds
-      .map((sectionId) => evidence.sections.find((section) => section.id === sectionId)?.role)
-      .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown')
-    if (roles.length === 0) continue
-    lines.push(`- \`${page.viewport}\` ${page.url}: ${compactRoles(roles).join(' → ')}`)
+    const topology = formatPageSectionTopology(evidence, page.id, (role) => term(displaySectionRole(role)))
+    if (!topology) continue
+    lines.push(`- \`${page.viewport}\` ${page.url}: ${topology}`)
   }
 
   const structuralFacts = evidence.sections.flatMap((section) => {
@@ -397,21 +410,13 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
         counts.set(prop, (counts.get(prop) || 0) + 1)
       }
     }
-    lines.push(
-      zh
-        ? `- 被动状态观察：${passiveObservations.length} 条（未执行用户操作，与概览口径一致）`
-        : `- Passive state observations: ${passiveObservations.length} (no user action executed; same metric as the overview)`,
-    )
+    lines.push(stateT('passiveSummary', { count: passiveObservations.length }))
     const passiveSummary = [...passiveCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([state, count]) => `${state} ×${count}`)
       .join(', ')
-    if (passiveSummary) lines.push(`- ${zh ? '声明状态' : 'Declared states'}: ${passiveSummary}`)
-    lines.push(
-      zh
-        ? `- 安全主动观察：${activeObservations.length} 条`
-        : `- Safe active observations: ${activeObservations.length}`,
-    )
+    if (passiveSummary) lines.push(`${stateT('nonClickStates')}: ${passiveSummary}`)
+    lines.push(stateT('safeActiveSummary', { count: activeObservations.length }))
     const activeDriverSummary = [...activeDriverCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([driver, count]) => `${driver} ×${count}`)
@@ -423,7 +428,7 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       .map(([prop, count]) => `${term(prop)} ×${count}`)
       .join(', ')
     if (passivePropSummary) {
-      lines.push(`- ${zh ? '被动声明属性' : 'Passively declared properties'}: ${passivePropSummary}`)
+      lines.push(`${stateT('nonClickProperties')}: ${passivePropSummary}`)
     }
     const activePropSummary = [...activePropertyCounts.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -445,7 +450,13 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
           return changes.length > 0
             ? [
                 [
-                  [observation.safety, observation.driver, observation.trigger.kind, changes.join('|')].join('|'),
+                  [
+                    observation.safety,
+                    observation.source || '',
+                    observation.driver,
+                    observation.trigger.kind,
+                    changes.join('|'),
+                  ].join('|'),
                   observation,
                 ] as const,
               ]
@@ -473,12 +484,12 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       if (!values) continue
       const observationKind =
         observation.safety === 'safe-active'
-          ? zh
-            ? '安全主动实测'
-            : 'safe active observation'
-          : zh
-            ? '计算样式观察（未点击）'
-            : 'computed-state observation (no click)'
+          ? stateT('safeActive')
+          : observation.source === 'computed-probed'
+            ? stateT('computedProbed')
+            : observation.source === 'declared-applicable'
+              ? stateT('declaredApplicable')
+              : stateT('passive')
       lines.push(`  - \`${observation.driver}\` · ${observationKind}: ${values}`)
     }
   }
@@ -610,6 +621,7 @@ function humanizeLimitation(key: string, zh: boolean): string | null {
   if (key === 'fewer-pages-than-requested') return t('selectedPagesIncomplete')
   if (key === 'fewer-page-viewports-than-requested') return t('plannedCapturesIncomplete')
   if (key === 'responsive-section-identity-mismatch') return t('responsiveSectionIdentityMismatch')
+  if (key === 'breakpoint-stylesheets-unreadable') return t('breakpointStylesheetsUnreadable')
   const label = LIMITATION_LABELS[key]
   if (label) return zh ? label.zh : label.en
   if (key.startsWith('page-health:') || key.startsWith('skipped:') || key.startsWith('skipped-interaction:'))

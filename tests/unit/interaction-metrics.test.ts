@@ -57,8 +57,16 @@ describe('Interaction state metrics', () => {
   it('keeps deduped patterns and passive observations as separate metrics', () => {
     const interactionStyles = {
       hover: [
-        { before: { color: '#111827' }, after: { color: '#2563eb' } },
-        { before: { 'background-color': '#ffffff' }, after: { 'background-color': '#eff6ff' } },
+        {
+          before: { color: '#111827' },
+          after: { color: '#2563eb' },
+          source: 'computed-probed' as const,
+        },
+        {
+          before: { 'background-color': '#ffffff' },
+          after: { 'background-color': '#eff6ff' },
+          source: 'declared-applicable' as const,
+        },
       ],
       focus: [{ before: { 'outline-color': 'transparent' }, after: { 'outline-color': '#2563eb' } }],
       active: [],
@@ -89,11 +97,21 @@ describe('Interaction state metrics', () => {
       ],
     })
 
+    evidence.interactionStyles.hover.push({
+      before: { 'background-color': '#ffffff' },
+      after: { 'background-color': '#eff6ff' },
+      source: 'declared-applicable',
+      selector: '.same-pattern-different-selector:hover',
+    })
+
     const metrics = computeInteractionStateMetrics(evidence)
     // The deduped patterns are counted once from stylesheet extraction ...
     expect(metrics.dedupedStatePatterns).toBe(4)
     // ... while each page records its own passive observations for the same patterns.
     expect(metrics.passiveObservations).toBe(8)
+    expect(metrics.computedProbedObservations).toBe(2)
+    expect(metrics.declaredApplicableObservations).toBe(2)
+    expect(metrics.otherPassiveObservations).toBe(4)
     expect(metrics.safeActiveObservations).toBe(0)
     expect(metrics.skippedCandidates).toBe(0)
   })
@@ -139,5 +157,8 @@ describe('Interaction state metrics', () => {
     expect(metrics.skippedCandidates).toBe(0)
     expect(metrics.dedupedStatePatterns).toBe(0)
     expect(metrics.passiveObservations).toBe(0)
+    expect(metrics.computedProbedObservations).toBe(0)
+    expect(metrics.declaredApplicableObservations).toBe(0)
+    expect(metrics.otherPassiveObservations).toBe(0)
   })
 })

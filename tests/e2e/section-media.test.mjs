@@ -92,6 +92,34 @@ test('recovers real content sections from layered app shells', async () => {
   }
 })
 
+test('keeps nested landmark headers and navigation scoped to their owner', async () => {
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      body > header { height: 64px; background: #fff; }
+      main { min-height: 900px; display: grid; grid-template-columns: 1fr 280px; }
+      article { padding: 32px; }
+      aside { padding: 24px; background: #f5f5f5; }
+      aside header { height: 48px; }
+      nav { min-height: 48px; }
+    </style>
+    <body>
+      <header>Global header</header>
+      <nav><div role="navigation"><a href="#one">One</a><a href="#two">Two</a></div></nav>
+      <main>
+        <article><h1>Article heading</h1><p>Article content with enough text to form the main region.</p></article>
+        <aside><header>Sidebar heading</header><p>Related content</p></aside>
+      </main>
+    </body>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const roles = evidence.sections.map((section) => section.role)
+
+  assert.equal(roles.filter((role) => role === 'header').length, 1)
+  assert.equal(roles.filter((role) => role === 'navigation').length, 1)
+  assert.ok(roles.includes('aside'))
+})
+
 test('a feed that fills the whole main landmark keeps its feature-group role', async () => {
   await page.setContent(`<!doctype html>
     <body>

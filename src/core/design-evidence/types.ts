@@ -176,6 +176,8 @@ export interface InteractionObservation {
   before: Record<string, string>
   after: Record<string, string>
   changedProperties: string[]
+  source?: 'computed-probed' | 'declared-applicable'
+  selector?: string
   transition?: {
     duration?: string
     easing?: string
@@ -221,10 +223,21 @@ export interface EvidenceCoverage {
     captured: number
   }
   captureCoverage?: {
+    /** Adaptive capture plan completion, not the full URL × viewport matrix. */
     expected: number
     captured: number
     status: 'complete' | 'partial'
     requestedViewports: string[]
+    fullMatrix?: {
+      expected: number
+      captured: number
+      status: 'complete' | 'partial'
+    }
+    responsivePairs?: {
+      expectedUrls: number
+      capturedUrls: number
+      status: 'complete' | 'partial'
+    }
   }
   assetCoverage?: {
     expected: number

@@ -358,8 +358,10 @@
       "noSections": "No clear sections identified",
       "statesTitle": "Interaction & responsive",
       "statesPassive": "{{count}} deduped interaction state patterns (hover, focus, active, disabled)",
-      "statesPassiveObservations": "{{count}} passive CSS state observations (no user action performed)",
-      "statesPassiveTooltip": "Passive states come from CSS declarations only — no clicks or input were performed. This describes how the data was captured, not a confidence level.",
+      "statesComputedProbes": "{{count}} browser-computed state probes",
+      "statesDeclaredApplicable": "{{count}} applicable state declarations (not executed)",
+      "statesPassiveObservations": "{{count}} other passive state observations",
+      "statesPassiveTooltip": "State evidence distinguishes browser-computed probes, applicable declarations that were not executed, and other directly observed passive states.",
       "stateLabels": {
         "hover": "Hover",
         "focus": "Focus",
@@ -402,6 +404,7 @@
         "noMedia": "No major image or video regions were found on the captured pages.",
         "noMediaClassification": "The purpose of media regions could not be determined.",
         "extractionDegraded": "At least one extraction stage degraded, so the result may be incomplete.",
+        "partialBreakpoints": "Some stylesheet rules could not be read, so the declared breakpoint list is partial. Observed layout changes remain valid.",
         "unknown": "Some data could not be captured."
       }
     },

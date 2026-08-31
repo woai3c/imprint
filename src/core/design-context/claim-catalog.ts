@@ -336,16 +336,18 @@ function representativeOwnersAcrossUrls<T extends { id: string; pageId: string }
   pageById: ReadonlyMap<string, EvidencePage>,
   signatureFor: (owner: T) => string,
   limit = 8,
+  groupFor: (owner: T) => string = () => '',
 ): T[] {
-  const byUrl = new Map<string, T[]>()
+  const buckets = new Map<string, { url: string; values: T[] }>()
   for (const owner of owners) {
     const url = pageById.get(owner.pageId)?.url
     if (!url) continue
-    const values = byUrl.get(url) || []
-    values.push(owner)
-    byUrl.set(url, values)
+    const key = `${url}\u0000${groupFor(owner)}`
+    const bucket = buckets.get(key) || { url, values: [] }
+    bucket.values.push(owner)
+    buckets.set(key, bucket)
   }
-  const representatives = [...byUrl.entries()].map(([url, values]) => {
+  const representatives = [...buckets.values()].map(({ url, values }) => {
     const signatureCounts = new Map<string, number>()
     for (const owner of values) {
       const signature = signatureFor(owner)
@@ -359,14 +361,16 @@ function representativeOwnersAcrossUrls<T extends { id: string; pageId: string }
       .sort((first, second) => first.id.localeCompare(second.id))[0]
     return { owner, signature, url }
   })
-  const crossUrlFrequency = new Map<string, number>()
-  representatives.forEach(({ signature }) =>
-    crossUrlFrequency.set(signature, (crossUrlFrequency.get(signature) || 0) + 1),
-  )
+  const signatureUrls = new Map<string, Set<string>>()
+  representatives.forEach(({ signature, url }) => {
+    const urls = signatureUrls.get(signature) || new Set<string>()
+    urls.add(url)
+    signatureUrls.set(signature, urls)
+  })
   return representatives
     .sort(
       (first, second) =>
-        (crossUrlFrequency.get(second.signature) || 0) - (crossUrlFrequency.get(first.signature) || 0) ||
+        (signatureUrls.get(second.signature)?.size || 0) - (signatureUrls.get(first.signature)?.size || 0) ||
         first.signature.localeCompare(second.signature) ||
         first.url.localeCompare(second.url),
     )
@@ -582,14 +586,19 @@ function buildVisualClaims(
       (node.observedTypography || node.tokenRefs.some((ref) => ref.startsWith('typography.'))),
   )
   if (typographyOwners.length > 0) {
-    const sample = representativeOwnersAcrossUrls(typographyOwners, pageById, (node) =>
-      JSON.stringify([
-        node.textRole || node.role,
-        stableList(node.tokenRefs.filter((ref) => ref.startsWith('typography.'))),
-        node.observedTypography || {},
-      ]),
+    const sample = representativeOwnersAcrossUrls(
+      typographyOwners,
+      pageById,
+      (node) =>
+        JSON.stringify([
+          node.textRole || node.role,
+          stableList(node.tokenRefs.filter((ref) => ref.startsWith('typography.'))),
+          node.observedTypography || {},
+        ]),
+      24,
+      (node) => node.textRole || node.role,
     )
-    const typographyRefs = ownerTokenRefs(sample, 'typography.')
+    const typographyRefs = ownerTokenRefs(sample, 'typography.', 24)
     const evidenceIds = sample.map((node) => node.id)
     builder.add('visual-typography', [{ kind: 'singleton', slot: 'visual.typography' }], {
       statement: t('typographyStatement', {
@@ -728,7 +737,17 @@ function buildSectionClaims(
       title: t('sectionTitle', { role }),
       distinctiveness: t('sectionDistinctiveness', { role, count: samples.length }),
     })
-    const stablePositions = stableList(samples.map((section) => String(section.order + 1)))
+    const siblingSectionsFor = (section: SectionEvidence) =>
+      sections
+        .filter(
+          (candidate) => candidate.pageId === section.pageId && candidate.parentSectionId === section.parentSectionId,
+        )
+        .sort((first, second) => first.order - second.order)
+    const stablePositions = stableList(
+      samples.map((section) =>
+        String(siblingSectionsFor(section).findIndex((candidate) => candidate.id === section.id) + 1),
+      ),
+    )
     if (stablePositions.length === 1) {
       builder.add(`section-${role}-rhythm`, [{ kind: 'section', role, bucket: 'contentRhythm' }], {
         statement: t('sectionRhythmStatement', {
@@ -752,9 +771,8 @@ function buildSectionClaims(
       })
     }
     const transitions = items.flatMap((section) => {
-      const next = sections
-        .filter((candidate) => candidate.pageId === section.pageId)
-        .find((candidate) => candidate.order === section.order + 1)
+      const siblings = siblingSectionsFor(section)
+      const next = siblings[siblings.findIndex((candidate) => candidate.id === section.id) + 1]
       return next && next.role !== 'unknown' ? [{ section, next }] : []
     })
     if (transitions.length > 0) {
@@ -1306,11 +1324,13 @@ export function buildDeterministicClaimCatalog(evidence: DesignEvidence, languag
   })
 
   const sequences = [...sectionsByPage.values()]
-    .map((sequence) =>
-      sequence
+    .map((sequence) => {
+      const sectionIds = new Set(sequence.map((section) => section.id))
+      return sequence
+        .filter((section) => !section.parentSectionId || !sectionIds.has(section.parentSectionId))
         .filter((section) => section.role !== 'unknown')
-        .filter((section, index, values) => index === 0 || values[index - 1].role !== section.role),
-    )
+        .filter((section, index, values) => index === 0 || values[index - 1].role !== section.role)
+    })
     .filter((sequence) => sequence.length > 0)
   if (sequences.length > 0) {
     const sequenceGroups = new Map<string, SectionEvidence[][]>()

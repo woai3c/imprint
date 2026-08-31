@@ -122,6 +122,24 @@ test('discards an interaction observation when restoring the control leaves page
   await page.close()
 })
 
+test('blocks a disclosure click that attempts to replace the main document', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })
+  await page.setContent(`<!doctype html>
+    <main>
+      <button aria-expanded="false" aria-controls="panel" onclick="location.href='/navigated'">Details</button>
+      <section id="panel" hidden>Panel</section>
+    </main>`)
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const originalUrl = page.url()
+
+  const observations = await observeSafeInteractions(page, evidence, 1, 3_000)
+
+  assert.deepEqual(observations, [])
+  assert.equal(page.url(), originalUrl)
+  await page.close()
+})
+
 test('extracts the painted input wrapper and does not assume every root route is a landing page', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })

@@ -26,19 +26,17 @@ function diffProperties(before: Record<string, string>, after: Record<string, st
 async function settleBeforeDeadline<T>(operation: Promise<T>, deadline: number, fallback: T): Promise<T> {
   const remaining = deadline - Date.now()
   if (remaining <= 0) return fallback
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), remaining)
-      }),
-    ])
-  } catch {
-    return fallback
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
+  return new Promise<T>((resolve) => {
+    let settled = false
+    const finish = (value: T) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(fallback), remaining)
+    void operation.then(finish, () => finish(fallback))
+  })
 }
 
 async function readTargetState(
@@ -46,9 +44,7 @@ async function readTargetState(
   candidate: PageInteractionCandidateSnapshot,
   deadline = Number.POSITIVE_INFINITY,
 ): Promise<Record<string, string> | null> {
-  const remaining = deadline - Date.now()
-  if (remaining <= 0) return null
-  return Promise.race([
+  return settleBeforeDeadline(
     page.evaluate((input) => {
       const target = document.querySelector(input.locator)
       if (!(target instanceof HTMLElement)) return null
@@ -72,8 +68,9 @@ async function readTargetState(
         controlledOpacity: controlledStyle?.opacity || '',
       }
     }, candidate),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), remaining)),
-  ])
+    deadline,
+    null,
+  )
 }
 
 async function waitForTargetMotion(
@@ -108,32 +105,43 @@ async function clickCandidate(
   const locator = page.locator(candidate.locator)
   if ((await settleBeforeDeadline(locator.count(), deadline, 0)) !== 1) return false
   let unsafeSideEffect = false
+  let mainFrameNavigated = false
   const handleRequest = (request: { method(): string }) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) unsafeSideEffect = true
   }
   const blockWriteRequest = async (route: Route) => {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
+    const request = route.request()
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
       unsafeSideEffect = true
-      await route.abort()
+      await route.abort().catch(() => {})
       return
     }
-    await route.continue()
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) {
+      unsafeSideEffect = true
+      await route.abort().catch(() => {})
+      return
+    }
+    await route.continue().catch(() => {})
   }
   const handleDownload = () => {
     unsafeSideEffect = true
   }
   const handlePopup = (popup: Page) => {
     unsafeSideEffect = true
-    void popup.close()
+    void popup.close().catch(() => {})
   }
   const handleDialog = (dialog: { dismiss(): Promise<void> }) => {
     unsafeSideEffect = true
-    void dialog.dismiss()
+    void dialog.dismiss().catch(() => {})
+  }
+  const handleFrameNavigation = (frame: ReturnType<Page['mainFrame']>) => {
+    if (frame === page.mainFrame()) mainFrameNavigated = true
   }
   page.on('request', handleRequest)
   page.on('download', handleDownload)
   page.on('popup', handlePopup)
   page.on('dialog', handleDialog)
+  page.on('framenavigated', handleFrameNavigation)
   let routeRegistered = false
 
   try {
@@ -154,16 +162,17 @@ async function clickCandidate(
     page.off('download', handleDownload)
     page.off('popup', handlePopup)
     page.off('dialog', handleDialog)
+    page.off('framenavigated', handleFrameNavigation)
     if (routeRegistered) {
       await settleBeforeDeadline(page.unroute('**/*', blockWriteRequest), deadline, undefined)
     }
   }
 
-  if (page.url() !== originalUrl || unsafeSideEffect) {
+  if (page.url() !== originalUrl || mainFrameNavigated || unsafeSideEffect) {
     const recoveryBudget = Math.min(750, Math.max(1, deadline - Date.now()))
     if (page.url() !== originalUrl) {
       await page.goBack({ waitUntil: 'domcontentloaded', timeout: recoveryBudget }).catch(() => {})
-    } else {
+    } else if (mainFrameNavigated) {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: recoveryBudget }).catch(() => {})
     }
     return false
@@ -234,8 +243,10 @@ export async function observeSafeInteractions(
 ): Promise<InteractionObservationSnapshot[]> {
   const observations: InteractionObservationSnapshot[] = []
   const deadline = Date.now() + totalBudgetMs
+  const observedUrl = page.url()
 
   for (const candidate of snapshot.interactionCandidates.slice(0, maxActions)) {
+    if (page.isClosed() || page.url() !== observedUrl) break
     if (deadline - Date.now() < 1_500) break
     const candidateDeadline = Math.min(deadline, Date.now() + 1_800)
     const before = await readTargetState(page, candidate, candidateDeadline)

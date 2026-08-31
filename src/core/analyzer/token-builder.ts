@@ -277,6 +277,48 @@ function isNeutralColor(value: string): boolean {
   return colorChroma <= 24 || colorChroma / Math.max(1, maximum) <= 0.12
 }
 
+function observedForegroundsForBackground(
+  background: string | undefined,
+  observations: ExtractedStyles['textColorPairObservations'],
+): string[] {
+  const normalizedBackground = background ? normalizeColorValue(background) : null
+  if (!normalizedBackground || !observations) return []
+  const groups = new Map<
+    string,
+    { foreground: string; count: number; roleWeight: number; captures: Set<string>; contrast: number | null }
+  >()
+  const roleWeights = { body: 4, heading: 3, label: 2, other: 1 } as const
+  for (const observation of observations) {
+    if (normalizeColorValue(observation.background) !== normalizedBackground) continue
+    const foreground = normalizeColorValue(observation.foreground)
+    if (!foreground) continue
+    const count = Number.isFinite(observation.count) && observation.count > 0 ? observation.count : 1
+    const group = groups.get(foreground) || {
+      foreground,
+      count: 0,
+      roleWeight: 0,
+      captures: new Set<string>(),
+      contrast: colorContrast(foreground, normalizedBackground),
+    }
+    group.count += count
+    group.roleWeight += count * roleWeights[observation.textRole]
+    group.captures.add(observation.captureId)
+    groups.set(foreground, group)
+  }
+  const candidates = [...groups.values()]
+  const readableCandidates = candidates.filter((candidate) => candidate.contrast !== null && candidate.contrast >= 3)
+  return (readableCandidates.length > 0 ? readableCandidates : candidates)
+    .sort(
+      (first, second) =>
+        second.captures.size - first.captures.size ||
+        second.roleWeight - first.roleWeight ||
+        second.count - first.count ||
+        (second.contrast || 0) - (first.contrast || 0) ||
+        first.foreground.localeCompare(second.foreground),
+    )
+    .map((candidate) => candidate.foreground)
+}
+
 function secondarySurface(background: string, surface: string, foreground: string | undefined): string {
   const backgroundLuminance = colorLuminance(background)
   const surfaceLuminance = colorLuminance(surface)
@@ -527,7 +569,7 @@ function pairedLineHeightFrequency(styles: ExtractedStyles): Map<string, number>
 export function buildDesignTokens(
   styles: ExtractedStyles,
   clusteredColors: ClusteredColors,
-  roleStyles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations'> = styles,
+  roleStyles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations' | 'textColorPairObservations'> = styles,
 ): DesignToken {
   // Build color map
   const colors: Record<string, string> = {}
@@ -540,21 +582,28 @@ export function buildDesignTokens(
       colorsAreRelated(clusteredColors.backgrounds[0], clusteredColors.backgrounds[1])
     ) {
       colors['surface'] = clusteredColors.backgrounds[1]
-      colors['secondary'] = secondarySurface(
-        clusteredColors.backgrounds[0],
-        clusteredColors.backgrounds[1],
-        clusteredColors.texts[0],
-      )
     }
   }
 
   // Assign text colors
   if (clusteredColors.texts.length > 0) {
-    colors['foreground'] = clusteredColors.texts[0]
-    const mutedForeground = clusteredColors.texts
-      .slice(1)
+    const observedForegrounds = observedForegroundsForBackground(
+      colors['background'],
+      roleStyles.textColorPairObservations,
+    )
+    const foreground =
+      observedForegrounds[0] ||
+      (roleStyles.textColorPairObservations === undefined ? clusteredColors.texts[0] : undefined)
+    if (foreground) colors['foreground'] = foreground
+    const mutedCandidates =
+      roleStyles.textColorPairObservations === undefined ? clusteredColors.texts : observedForegrounds.slice(1)
+    const mutedForeground = mutedCandidates
+      .filter((candidate) => normalizeColorValue(candidate) !== normalizeColorValue(foreground || ''))
       .find((candidate) => isMutedTextCandidate(colors['background'], colors['foreground'], candidate))
     if (mutedForeground) colors['muted-foreground'] = mutedForeground
+  }
+  if (colors['background'] && colors['surface']) {
+    colors['secondary'] = secondarySurface(colors['background'], colors['surface'], colors['foreground'])
   }
 
   // A primary action is optional. Generic palette, decorative, border, and text-only

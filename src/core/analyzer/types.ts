@@ -137,6 +137,15 @@ export interface ExtractedStyles {
   /** Per-value source frequencies retained for scope-aware token promotion. */
   valueSourceCounts?: Record<string, Record<string, number>>
   colorRoleObservations?: ColorRoleObservation[]
+  textColorPairObservations?: TextColorPairObservation[]
+}
+
+export interface TextColorPairObservation {
+  captureId: string
+  background: string
+  foreground: string
+  textRole: 'body' | 'heading' | 'label' | 'other'
+  count: number
 }
 
 export interface ColorRoleObservation {

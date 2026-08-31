@@ -411,6 +411,89 @@ describe('design token builder', () => {
     expect(tokens.colors['muted-foreground']).toBe('#57606a')
   })
 
+  test('selects the global foreground from text observed on the chosen background', () => {
+    const styles = createExtractedStyles({
+      textColorPairObservations: [
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(255, 255, 255)',
+          foreground: 'rgb(255, 255, 255)',
+          textRole: 'other',
+          count: 100,
+        },
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(255, 255, 255)',
+          foreground: 'rgb(17, 24, 39)',
+          textRole: 'body',
+          count: 6,
+        },
+        {
+          captureId: 'https://example.com/docs|1440x900',
+          background: 'rgb(255, 255, 255)',
+          foreground: 'rgb(17, 24, 39)',
+          textRole: 'body',
+          count: 4,
+        },
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(255, 255, 255)',
+          foreground: 'rgb(209, 209, 209)',
+          textRole: 'body',
+          count: 200,
+        },
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(17, 24, 39)',
+          foreground: 'rgb(255, 255, 255)',
+          textRole: 'heading',
+          count: 50,
+        },
+      ],
+    })
+
+    const tokens = buildDesignTokens(styles, {
+      palette: [],
+      backgrounds: ['#ffffff'],
+      texts: ['#ffffff', '#111827'],
+      accents: [],
+    })
+
+    expect(tokens.colors.background).toBe('#ffffff')
+    expect(tokens.colors.foreground).toBe('#111827')
+    expect(tokens.colors['muted-foreground']).toBeUndefined()
+  })
+
+  test('does not pair a foreground from a different observed surface', () => {
+    const styles = createExtractedStyles({
+      textColorPairObservations: [
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(255, 255, 255)',
+          foreground: 'rgb(0, 0, 0)',
+          textRole: 'body',
+          count: 30,
+        },
+        {
+          captureId: 'https://example.com/|1440x900',
+          background: 'rgb(97, 31, 105)',
+          foreground: 'rgb(255, 255, 255)',
+          textRole: 'heading',
+          count: 4,
+        },
+      ],
+    })
+
+    const tokens = buildDesignTokens(styles, {
+      palette: [],
+      backgrounds: ['#611f69'],
+      texts: ['#000000', '#ffffff'],
+      accents: [],
+    })
+
+    expect(tokens.colors.foreground).toBe('#ffffff')
+  })
+
   test('keeps an action border from replacing the structural border role', () => {
     const styles = createExtractedStyles({
       usageCount: {

@@ -52,6 +52,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     valueSources: {},
     valueSourceCounts: {},
     colorRoleObservations: [],
+    textColorPairObservations: [],
   }
 
   for (const styles of stylesList) {
@@ -74,6 +75,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       merged.valueSourceCounts![key] = mergedSourceCounts
     }
     merged.colorRoleObservations!.push(...(styles.colorRoleObservations || []))
+    merged.textColorPairObservations!.push(...(styles.textColorPairObservations || []))
   }
 
   for (const field of DEDUPED_ARRAY_FIELDS) {
@@ -87,6 +89,21 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       ]),
     ).values(),
   ]
+  const textColorPairs = new Map<string, NonNullable<ExtractedStyles['textColorPairObservations']>[number]>()
+  for (const observation of merged.textColorPairObservations || []) {
+    const key = JSON.stringify([
+      observation.captureId,
+      observation.background,
+      observation.foreground,
+      observation.textRole,
+    ])
+    const existing = textColorPairs.get(key)
+    textColorPairs.set(key, {
+      ...observation,
+      count: (existing?.count || 0) + observation.count,
+    })
+  }
+  merged.textColorPairObservations = [...textColorPairs.values()]
 
   return merged
 }

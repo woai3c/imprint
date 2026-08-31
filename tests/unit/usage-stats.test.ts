@@ -27,6 +27,21 @@ describe('usage statistics', () => {
 
     expect(merged.colorRoleObservations).toHaveLength(2)
   })
+
+  test('aggregates repeated text and background pair observations within one capture', () => {
+    const pair = {
+      captureId: 'https://example.com|1440x900',
+      background: 'rgb(255, 255, 255)',
+      foreground: 'rgb(17, 24, 39)',
+      textRole: 'body' as const,
+    }
+    const merged = mergeStyles([
+      createExtractedStyles({ textColorPairObservations: [{ ...pair, count: 2 }] }),
+      createExtractedStyles({ textColorPairObservations: [{ ...pair, count: 3 }] }),
+    ])
+
+    expect(merged.textColorPairObservations).toEqual([{ ...pair, count: 5 }])
+  })
   test('uses category counts instead of deduplicated fallback arrays', () => {
     const styles = createExtractedStyles({
       fontSizes: ['12px', '16px'],

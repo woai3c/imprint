@@ -140,6 +140,40 @@ test('blocks a disclosure click that attempts to replace the main document', asy
   await page.close()
 })
 
+test('extracts foreground and effective background as observed pairs', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; background:rgb(255, 255, 255); color:rgb(17, 24, 39); }
+      main { padding:32px; }
+      .inverse { padding:24px; background:rgb(17, 24, 39); color:rgb(255, 255, 255); }
+      .translucent { padding:24px; background:rgb(0 0 0 / 50%); color:rgb(255, 255, 255); }
+    </style>
+    <main><p>Body text on the page canvas.</p><section class="inverse"><span>Inverse text.</span></section>
+      <section class="translucent"><span>Text on a composited surface.</span></section></main>`)
+
+  const styles = await extractStyles(page)
+
+  assert.ok(
+    styles.textColorPairObservations.some(
+      (pair) => pair.background === 'rgb(255, 255, 255)' && pair.foreground === 'rgb(17, 24, 39)',
+    ),
+  )
+  assert.ok(
+    styles.textColorPairObservations.some(
+      (pair) => pair.background === 'rgb(17, 24, 39)' && pair.foreground === 'rgb(255, 255, 255)',
+    ),
+  )
+  assert.ok(
+    styles.textColorPairObservations.some(
+      (pair) =>
+        /^rgb\((?:127|128), (?:127|128), (?:127|128)\)$/.test(pair.background) &&
+        pair.foreground === 'rgb(255, 255, 255)',
+    ),
+  )
+  await page.close()
+})
+
 test('extracts the painted input wrapper and does not assume every root route is a landing page', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })

@@ -30,6 +30,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       valueSources: {},
       valueSourceCounts: {},
       colorRoleObservations: [],
+      textColorPairObservations: [],
     }
 
     const countUsage = (category: string, value: string, amount = 1) => {
@@ -85,6 +86,57 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         colorCache.set(input, null)
         return null
       }
+    }
+
+    interface BrowserColor {
+      red: number
+      green: number
+      blue: number
+      alpha: number
+    }
+    const parseNormalizedColor = (value: string): BrowserColor | null => {
+      const match = value.match(
+        /^rgba?\(\s*(\d*\.?\d+)\s*(?:,\s*|\s+)(\d*\.?\d+)\s*(?:,\s*|\s+)(\d*\.?\d+)(?:\s*(?:,|\/)\s*(\d*\.?\d+))?\s*\)$/i,
+      )
+      if (!match) return null
+      return {
+        red: Number.parseFloat(match[1]),
+        green: Number.parseFloat(match[2]),
+        blue: Number.parseFloat(match[3]),
+        alpha: match[4] === undefined ? 1 : Number.parseFloat(match[4]),
+      }
+    }
+    const compositeColor = (foreground: BrowserColor, background: BrowserColor): BrowserColor => {
+      const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha)
+      if (alpha <= 0) return { red: 255, green: 255, blue: 255, alpha: 1 }
+      return {
+        red: (foreground.red * foreground.alpha + background.red * background.alpha * (1 - foreground.alpha)) / alpha,
+        green:
+          (foreground.green * foreground.alpha + background.green * background.alpha * (1 - foreground.alpha)) / alpha,
+        blue:
+          (foreground.blue * foreground.alpha + background.blue * background.alpha * (1 - foreground.alpha)) / alpha,
+        alpha,
+      }
+    }
+    const effectiveBackgroundFor = (element: Element): string | null => {
+      const layers: BrowserColor[] = []
+      let current: Element | null = element
+      while (current) {
+        const computed = getComputedStyle(current)
+        if (computed.backgroundImage !== 'none' || computed.mixBlendMode !== 'normal' || computed.filter !== 'none') {
+          return null
+        }
+        const normalized = normalizeObservedColor(computed.backgroundColor)
+        const parsed = normalized ? parseNormalizedColor(normalized) : null
+        if (parsed) {
+          layers.push(parsed)
+          if (parsed.alpha >= 0.999) break
+        }
+        current = current.parentElement
+      }
+      let composite: BrowserColor = { red: 255, green: 255, blue: 255, alpha: 1 }
+      for (const layer of layers.reverse()) composite = compositeColor(layer, composite)
+      return `rgb(${Math.round(composite.red)}, ${Math.round(composite.green)}, ${Math.round(composite.blue)})`
     }
 
     const colorProbe = document.createElement('span')
@@ -351,6 +403,11 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       }
     }
 
+    const textColorPairFrequency = new Map<
+      string,
+      { background: string; foreground: string; textRole: 'body' | 'heading' | 'label' | 'other'; count: number }
+    >()
+
     for (const el of elements) {
       const computed = getComputedStyle(el)
 
@@ -381,6 +438,38 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const roleCandidate = roleCandidateFor(el, computed, rect)
       const linkRoot = el.matches('a, [role="link"]')
       const selectedRoot = el.matches('[aria-current], [aria-selected="true"], [data-state="active"]')
+
+      const hasDirectText = [...el.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.replace(/\s+/g, ' ').trim()),
+      )
+      const textPairEligible =
+        hasDirectText &&
+        rect.width >= 2 &&
+        rect.height >= 2 &&
+        Number.parseFloat(computed.fontSize || '0') >= 8 &&
+        (computed.clip === 'auto' || computed.clip === '') &&
+        (computed.clipPath === 'none' || computed.clipPath === '') &&
+        !el.closest('[hidden], [aria-hidden="true"], [inert]')
+      if (color && textPairEligible) {
+        const background = effectiveBackgroundFor(el)
+        if (background) {
+          const textRole = semanticTextRole
+            ? ('heading' as const)
+            : interactive || el.closest('a, button, label, [role="button"], [role="link"]')
+              ? ('label' as const)
+              : el.matches('p, li, dd, dt, blockquote, figcaption, td, th')
+                ? ('body' as const)
+                : ('other' as const)
+          const key = `${background}|${color}|${textRole}`
+          const existing = textColorPairFrequency.get(key)
+          textColorPairFrequency.set(key, {
+            background,
+            foreground: color,
+            textRole,
+            count: (existing?.count || 0) + 1,
+          })
+        }
+      }
 
       if (color) {
         styles.textColors.push(color)
@@ -414,7 +503,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
         const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
         const visibleAreaShare = (visibleWidth * visibleHeight) / viewportArea
-        if (visibleAreaShare > 0) countUsage('bgArea', bgColor, visibleAreaShare)
+        const effectiveBackground = visibleAreaShare > 0 ? effectiveBackgroundFor(el) : null
+        if (effectiveBackground) countUsage('bgArea', effectiveBackground, visibleAreaShare)
       }
 
       if (roleCandidate) {
@@ -650,6 +740,12 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         countUsage('shadow', shadow)
       }
     }
+
+    const captureId = `${location.href}|${window.innerWidth}x${window.innerHeight}`
+    styles.textColorPairObservations = [...textColorPairFrequency.values()]
+      .sort((first, second) => second.count - first.count)
+      .slice(0, 80)
+      .map((observation) => ({ captureId, ...observation }))
 
     return styles
   }, ROLE_CANDIDATE_RULES)

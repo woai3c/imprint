@@ -9,7 +9,9 @@ import {
   hasVisibleShadow,
   isContextDependentColor,
   isPillRadius,
+  isReusableComponentPattern,
   isTransparentColor,
+  resolveComponentReuseEvidence,
   summarizeComponentVariants,
 } from '../analyzer/component-detect.js'
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
@@ -396,7 +398,9 @@ function isZeroDimension(value: string): boolean {
 
 function observedPillRadius(components: readonly ComponentVariantPattern[]): string | undefined {
   return components.flatMap((component) => {
-    if (component.type !== 'button' || !isPillRadius(component.styles)) return []
+    if (component.type !== 'button' || !isReusableComponentPattern(component) || !isPillRadius(component.styles)) {
+      return []
+    }
     const radius = component.styles.borderRadius
     if (!radius) return []
     const dimension = singleDimensionFromShorthand(radius)
@@ -417,7 +421,7 @@ function designMdComponentTokens(
     typeof value.fontSize === 'string' ? ([[name, value.fontSize]] as const) : [],
   )
 
-  components.forEach((component) => {
+  components.filter(isReusableComponentPattern).forEach((component) => {
     const properties: Record<string, string> = {}
     const backgroundColor = component.styles.backgroundColor
     if (backgroundColor && !isContextDependentColor(backgroundColor)) {
@@ -465,6 +469,11 @@ interface DesignDocFrontMatterInput {
     name: string
     type: string
     count: number
+    confidence: number
+    reuseConfidence?: number
+    styleObservationCount?: number
+    pageCount?: number
+    reuseScope?: ComponentPattern['reuseScope']
     semanticRole?: string
     elementKinds?: string[]
   }>
@@ -564,6 +573,7 @@ function resolveDesignDocComponents(
           ),
           role: component.role,
           elementKind: component.elementKind,
+          pageId: component.pageId,
           ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
           ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
         },
@@ -614,6 +624,8 @@ function resolveDesignDocComponents(
           ...(primaryAction.observedForeground ? { color: primaryAction.observedForeground } : {}),
         },
         confidence: 0.9,
+        styleObservationCount: new Set(provenance.map((item) => `${item.captureId}|${item.elementRef}`)).size,
+        pageCount: new Set(provenance.map((item) => item.captureId)).size,
         evidence: ['color-role:primary-action', ...provenance.map((item) => item.elementRef)],
         elementKinds: [...new Set(provenance.map((item) => item.elementKind))].sort(),
         semanticRole: 'primary-action',
@@ -630,6 +642,10 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
   type: string
   count: number
   confidence: number
+  reuseConfidence: number
+  styleObservationCount: number
+  pageCount: number
+  reuseScope: NonNullable<ComponentPattern['reuseScope']>
   styles: Record<string, string>
   elementKinds: string[]
   sampleSize?: { width: number; height: number }
@@ -645,6 +661,19 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
     groups.set(name, group)
   }
   return [...groups.entries()].map(([name, components]) => {
+    const styleGroups = new Map<string, DesignEvidence['components']>()
+    for (const component of components) {
+      const signature = JSON.stringify(
+        Object.fromEntries(Object.entries(component.styles).sort(([first], [second]) => first.localeCompare(second))),
+      )
+      const matches = styleGroups.get(signature) || []
+      matches.push(component)
+      styleGroups.set(signature, matches)
+    }
+    const representativeComponents = [...styleGroups.entries()].sort(
+      ([firstSignature, first], [secondSignature, second]) =>
+        second.length - first.length || firstSignature.localeCompare(secondSignature),
+    )[0]?.[1]
     const measured = components
       .flatMap((component) => {
         const page = pageById.get(component.pageId)
@@ -657,14 +686,27 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
       })
       .sort((first, second) => first.width * first.height - second.width * second.height)
     const sampleSize = measured[Math.floor(measured.length / 2)]
+    const confidence =
+      Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) / 100
+    const representativeStyles = representativeComponents?.[0]?.styles || {}
+    const matchingComponents = representativeComponents || []
+    const reuse = resolveComponentReuseEvidence({
+      type: 'status',
+      count: components.length,
+      selectors: [],
+      styles: representativeStyles,
+      confidence,
+      evidence: [],
+      styleObservationCount: matchingComponents.length,
+      pageCount: new Set(matchingComponents.map((component) => component.pageId)).size,
+    })
     return {
       name,
       type: components[0]?.type || name,
       count: components.length,
-      confidence:
-        Math.round((components.reduce((sum, component) => sum + component.confidence, 0) / components.length) * 100) /
-        100,
-      styles: components[0]?.styles || {},
+      confidence,
+      ...reuse,
+      styles: representativeStyles,
       elementKinds: [...new Set(components.flatMap((component) => component.elementKind || []))],
       ...(sampleSize ? { sampleSize } : {}),
     }
@@ -874,13 +916,40 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                   : {}),
                 patterns: componentSummary.length,
                 instances: componentSummary.reduce((total, component) => total + component.count, 0),
-                details: componentSummary.map((component) => ({
-                  name: component.name,
-                  type: component.type,
-                  count: component.count,
-                  ...(component.semanticRole ? { semanticRole: component.semanticRole } : {}),
-                  ...(component.elementKinds?.length ? { elementKinds: component.elementKinds } : {}),
-                })),
+                reusablePatterns: componentSummary.filter((component) =>
+                  isReusableComponentPattern({
+                    ...component,
+                    type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
+                      ? (component.type as ComponentType)
+                      : 'status',
+                    selectors: [],
+                    styles: {},
+                    evidence: [],
+                  }),
+                ).length,
+                details: componentSummary.map((component) => {
+                  const reuse = resolveComponentReuseEvidence({
+                    ...component,
+                    type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
+                      ? (component.type as ComponentType)
+                      : 'status',
+                    selectors: [],
+                    styles: {},
+                    evidence: [],
+                  })
+                  return {
+                    name: component.name,
+                    type: component.type,
+                    count: component.count,
+                    identityConfidence: component.confidence,
+                    reuseConfidence: reuse.reuseConfidence,
+                    reuseScope: reuse.reuseScope,
+                    matchingStyleInstances: reuse.styleObservationCount,
+                    pageCount: reuse.pageCount,
+                    ...(component.semanticRole ? { semanticRole: component.semanticRole } : {}),
+                    ...(component.elementKinds?.length ? { elementKinds: component.elementKinds } : {}),
+                  }
+                }),
               },
             }
           : {}),
@@ -2036,8 +2105,16 @@ export function generateDesignDoc(
       lines.push(docT('components.canonicalNote'))
     }
     lines.push(docT('components.header'))
-    lines.push('|---|---:|---:|---|')
+    lines.push('|---|---:|---:|---:|---|---|')
     proseComponents.forEach((component) => {
+      const reuse = resolveComponentReuseEvidence({
+        ...component,
+        type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
+          ? (component.type as ComponentType)
+          : 'status',
+        selectors: [],
+        evidence: [],
+      })
       const styles = usefulComponentStyles(component.styles, tokens)
         .map(([property, value]) => `\`${property}: ${value}\``)
         .join('<br>')
@@ -2052,7 +2129,11 @@ export function generateDesignDoc(
       ]
         .filter(Boolean)
         .join('<br>')
-      lines.push(`| ${component.name} | ${component.count} | ${component.confidence} | ${representative || '-'} |`)
+      lines.push(
+        `| ${component.name} | ${component.count} | ${component.confidence} | ${reuse.reuseConfidence} | ${docT(
+          `components.reuseScopes.${reuse.reuseScope}`,
+        )} | ${representative || '-'} |`,
+      )
     })
     if (
       documentComponents.some((component) =>

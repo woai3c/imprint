@@ -865,8 +865,8 @@ describe('Design Evidence', () => {
 
     expect(document).toContain('| tab | 1 |')
     expect(document).toContain('| status | 1 |')
-    expect(frontMatter.components).not.toHaveProperty('tab')
-    expect(frontMatter.components).not.toHaveProperty('status')
+    expect(frontMatter.components || {}).not.toHaveProperty('tab')
+    expect(frontMatter.components || {}).not.toHaveProperty('status')
   })
 
   it('exports structural section radii and gradient evidence without adding compound radii to the scalar scale', () => {
@@ -1772,11 +1772,11 @@ describe('Design Evidence', () => {
     const observedLineHeightBrief = generateDesignEvidenceBrief(evidenceWithoutLineHeightRefs)
     const designFrontMatter = parse(designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
       version: string
-      components: Record<string, Record<string, string>>
+      components?: Record<string, Record<string, string>>
       'x-imprint': Array<{
         schema: string
         evidence: { pageCount: number; captureCount: number }
-        componentSummary: { source: string; patterns: number; instances: number }
+        componentSummary: { source: string; patterns: number; instances: number; reusablePatterns: number }
       }>
     }
     expect(json.schemaVersion).toBe('1')
@@ -1787,15 +1787,15 @@ describe('Design Evidence', () => {
     expect(designDoc).toContain('## Design Evidence Overview')
     expect(designFrontMatter).toMatchObject({
       version: 'alpha',
-      components: { 'button-primary': expect.any(Object) },
       'x-imprint': [
         {
           schema: 'imprint.design-system/2',
           evidence: { pageCount: 1, captureCount: 2 },
-          componentSummary: { source: 'design-evidence', patterns: 2, instances: 2 },
+          componentSummary: { source: 'design-evidence', patterns: 2, instances: 2, reusablePatterns: 0 },
         },
       ],
     })
+    expect(designFrontMatter.components).toBeUndefined()
     expect(designDoc).toContain('| button-primary | 1 | 0.98 |')
     expect(designDoc).toContain('| tab | 1 | 0.98 |')
     expect(designDoc).not.toContain('No component pattern was observed with enough confidence')

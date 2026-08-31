@@ -657,6 +657,7 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         ].filter((color): color is string => Boolean(color)),
         role: component.role,
         elementKind: component.elementKind,
+        pageId: component.pageId,
         ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
         ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
       }

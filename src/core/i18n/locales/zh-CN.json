@@ -881,7 +881,12 @@
       },
       "components": {
         "canonicalNote": "> 实例数按每个页面的一次代表性捕获统计；优先使用桌面端。其他视口只用于响应式观察，不重复累计实例。\n",
-        "header": "| 类型 | 实例数 | 置信度 | 代表样式 |",
+        "header": "| 类型 | 实例数 | 身份置信度 | 复用置信度 | 复用范围 | 代表样式 |",
+        "reuseScopes": {
+          "isolated": "孤立观察",
+          "page-repeated": "单页重复",
+          "cross-page": "跨页观察"
+        },
         "detectorNote": "\n> Detector 补充项：仅为聚合模式，不具备 DOM 实例级 provenance；与 Evidence 重叠的计数未相加。",
         "noPatterns": "本次未观察到足够可靠的组件模式；请使用上面的令牌和原页面证据实现组件。"
       },

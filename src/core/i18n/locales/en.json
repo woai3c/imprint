@@ -881,7 +881,12 @@
       },
       "components": {
         "canonicalNote": "> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n",
-        "header": "| Type | Instances | Confidence | Representative styles |",
+        "header": "| Type | Instances | Identity confidence | Reuse confidence | Reuse scope | Representative styles |",
+        "reuseScopes": {
+          "isolated": "isolated observation",
+          "page-repeated": "repeated on one page",
+          "cross-page": "observed across pages"
+        },
         "detectorNote": "\n> Detector supplement; aggregated pattern without instance-level provenance. Counts overlapping Evidence were not added.",
         "noPatterns": "No component pattern was observed with enough confidence; implement components from the tokens and source evidence above."
       },

@@ -10,6 +10,7 @@ import {
   hasVisibleShadow,
   isOutlinedButton,
   isPillRadius,
+  isReusableComponentPattern,
   mergeComponentPatterns,
   summarizeComponentCandidates,
   summarizeComponentVariants,
@@ -125,6 +126,8 @@ describe('component candidate summarization', () => {
     })
     expect(button.selectors).toContain('button')
     expect(button.evidence).toEqual(['aria-role', 'class-name', 'interactive-behavior', 'native-element'])
+    expect(button).toMatchObject({ styleObservationCount: 2, pageCount: 1, reuseConfidence: 0.47 })
+    expect(isReusableComponentPattern(button)).toBe(false)
   })
 
   test('reports visual card evidence separately from standardized selectors', () => {
@@ -141,6 +144,8 @@ describe('component candidate summarization', () => {
       type: 'card',
       count: 1,
       confidence: 0.78,
+      reuseConfidence: 0.25,
+      reuseScope: 'isolated',
       selectors: [],
     })
   })
@@ -550,5 +555,38 @@ describe('component candidate summarization', () => {
 
     expect(merged[0]).toMatchObject({ type: 'button', count: 3, confidence: 0.77, styles: { borderRadius: '4px' } })
     expect(merged[0].evidence).toEqual(['aria-role', 'native-element'])
+  })
+
+  test('separates identity confidence from repeated-style reuse evidence', () => {
+    const [isolated] = summarizeComponentCandidates([
+      { type: 'button', confidence: 0.98, evidence: ['native-element'], styles: { borderRadius: '8px' } },
+    ])
+    const [repeated] = summarizeComponentVariants([
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['button-one'],
+        styles: { borderRadius: '8px' },
+        pageId: 'page-one',
+      },
+      {
+        type: 'button',
+        confidence: 0.98,
+        evidence: ['button-two'],
+        styles: { borderRadius: '8px' },
+        pageId: 'page-two',
+      },
+    ])
+
+    expect(isolated).toMatchObject({ confidence: 0.98, reuseConfidence: 0.25, reuseScope: 'isolated' })
+    expect(isReusableComponentPattern(isolated)).toBe(false)
+    expect(repeated).toMatchObject({
+      confidence: 0.98,
+      reuseConfidence: 0.85,
+      reuseScope: 'cross-page',
+      styleObservationCount: 2,
+      pageCount: 2,
+    })
+    expect(isReusableComponentPattern(repeated)).toBe(true)
   })
 })

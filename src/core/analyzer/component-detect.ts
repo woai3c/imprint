@@ -19,6 +19,13 @@ export interface ComponentPattern {
   styles: Record<string, string>
   confidence: number
   evidence: string[]
+  /** Confidence that the representative style is reusable, separate from component identity confidence. */
+  reuseConfidence?: number
+  /** Instances whose complete observed style matches the representative style. */
+  styleObservationCount?: number
+  /** Canonical pages on which the representative style was observed. */
+  pageCount?: number
+  reuseScope?: 'isolated' | 'page-repeated' | 'cross-page'
   elementKinds?: string[]
   semanticRole?: string
   sampleSize?: { width: number; height: number }
@@ -34,6 +41,7 @@ export interface ComponentVariantContext {
   widthPx?: number
   heightPx?: number
   elementKind?: string
+  pageId?: string
 }
 
 export interface ComponentVariantCandidate extends ComponentCandidate, ComponentVariantContext {}
@@ -41,6 +49,13 @@ export interface ComponentVariantCandidate extends ComponentCandidate, Component
 export interface ComponentVariantPattern extends ComponentPattern {
   name: string
   variant?: ComponentVariant
+}
+
+export interface ResolvedComponentReuseEvidence {
+  reuseConfidence: number
+  styleObservationCount: number
+  pageCount: number
+  reuseScope: NonNullable<ComponentPattern['reuseScope']>
 }
 
 const COMPONENT_ORDER: ComponentType[] = [
@@ -329,23 +344,46 @@ function representativeDetailScore(styles: Record<string, string>): number {
   return score
 }
 
-function selectRepresentativeStyles(
+interface RepresentativeStyleGroup {
+  styles: Record<string, string>
+  count: number
+  pageCount: number
+}
+
+function styleSignature(styles: Record<string, string>): string {
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(styles).sort(([first], [second]) => first.localeCompare(second))),
+  )
+}
+
+function selectRepresentativeStyleGroup(
   type: ComponentType,
-  candidates: ComponentCandidate[],
+  candidates: Array<ComponentCandidate & { pageId?: string }>,
   prioritizeSemanticRank = true,
-): Record<string, string> {
-  const groups = new Map<string, { count: number; candidate: ComponentCandidate; rank: number; detail: number }>()
+): RepresentativeStyleGroup {
+  const groups = new Map<
+    string,
+    {
+      count: number
+      candidate: ComponentCandidate & { pageId?: string }
+      pageIds: Set<string>
+      rank: number
+      detail: number
+    }
+  >()
 
   for (const candidate of candidates) {
-    const key = JSON.stringify(candidate.styles)
+    const key = styleSignature(candidate.styles)
     const existing = groups.get(key)
     if (existing) {
       existing.count += 1
+      if (candidate.pageId) existing.pageIds.add(candidate.pageId)
       if (candidate.confidence > existing.candidate.confidence) existing.candidate = candidate
     } else {
       groups.set(key, {
         count: 1,
         candidate,
+        pageIds: new Set(candidate.pageId ? [candidate.pageId] : []),
         rank: prioritizeSemanticRank ? representativeStyleRank(type, candidate.styles) : 0,
         detail: representativeDetailScore(candidate.styles),
       })
@@ -358,9 +396,49 @@ function selectRepresentativeStyles(
       b.count - a.count ||
       b.detail - a.detail ||
       b.candidate.confidence - a.candidate.confidence ||
-      JSON.stringify(a.candidate.styles).localeCompare(JSON.stringify(b.candidate.styles)),
+      styleSignature(a.candidate.styles).localeCompare(styleSignature(b.candidate.styles)),
   )[0]
-  return representative?.candidate.styles || {}
+  return {
+    styles: representative?.candidate.styles || {},
+    count: representative?.count || 0,
+    pageCount: representative ? Math.max(1, representative.pageIds.size) : 0,
+  }
+}
+
+function reuseEvidence(
+  identityConfidence: number,
+  totalCount: number,
+  styleObservationCount: number,
+  pageCount: number,
+): Pick<ComponentPattern, 'reuseConfidence' | 'reuseScope'> {
+  const agreement = totalCount > 0 ? styleObservationCount / totalCount : 0
+  const support =
+    styleObservationCount <= 1
+      ? 0.25
+      : pageCount >= 2
+        ? Math.min(1, 0.75 + pageCount * 0.05)
+        : Math.min(0.8, 0.5 + styleObservationCount * 0.1)
+  return {
+    reuseConfidence: Math.round(Math.min(identityConfidence, agreement * support) * 100) / 100,
+    reuseScope: styleObservationCount <= 1 ? 'isolated' : pageCount >= 2 ? 'cross-page' : 'page-repeated',
+  }
+}
+
+export function resolveComponentReuseEvidence(pattern: ComponentPattern): ResolvedComponentReuseEvidence {
+  const styleObservationCount = pattern.styleObservationCount ?? pattern.count
+  const pageCount = pattern.pageCount || 1
+  const inferred = reuseEvidence(pattern.confidence, pattern.count, styleObservationCount, pageCount)
+  return {
+    reuseConfidence: pattern.reuseConfidence ?? inferred.reuseConfidence ?? 0,
+    styleObservationCount,
+    pageCount,
+    reuseScope: pattern.reuseScope || inferred.reuseScope || 'isolated',
+  }
+}
+
+export function isReusableComponentPattern(pattern: ComponentPattern): boolean {
+  const reuse = resolveComponentReuseEvidence(pattern)
+  return reuse.styleObservationCount >= 2 && reuse.reuseConfidence >= 0.55
 }
 
 export function summarizeComponentCandidates(candidates: ComponentCandidate[]): ComponentPattern[] {
@@ -371,12 +449,17 @@ export function summarizeComponentCandidates(candidates: ComponentCandidate[]): 
     if (matches.length === 0) continue
 
     const confidence = matches.reduce((sum, candidate) => sum + candidate.confidence, 0) / matches.length
+    const roundedConfidence = Math.round(confidence * 100) / 100
+    const representative = selectRepresentativeStyleGroup(type, matches)
     patterns.push({
       type,
       count: matches.length,
       selectors: COMPONENT_SELECTORS[type],
-      styles: selectRepresentativeStyles(type, matches),
-      confidence: Math.round(confidence * 100) / 100,
+      styles: representative.styles,
+      confidence: roundedConfidence,
+      styleObservationCount: representative.count,
+      pageCount: representative.pageCount,
+      ...reuseEvidence(roundedConfidence, matches.length, representative.count, representative.pageCount),
       evidence: [...new Set(matches.flatMap((candidate) => candidate.evidence))].sort(),
     })
   }
@@ -473,6 +556,8 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       if (group.candidates.length === 0) return []
       const confidence =
         group.candidates.reduce((sum, candidate) => sum + candidate.confidence, 0) / group.candidates.length
+      const roundedConfidence = Math.round(confidence * 100) / 100
+      const representative = selectRepresentativeStyleGroup(group.type, group.candidates, group.variant === undefined)
       const measuredCandidates = group.candidates
         .filter((candidate): candidate is ComponentVariantCandidate & { widthPx: number; heightPx: number } =>
           Boolean(candidate.widthPx && candidate.heightPx),
@@ -484,8 +569,11 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
           type: group.type,
           count: group.candidates.length,
           selectors: COMPONENT_SELECTORS[group.type],
-          styles: selectRepresentativeStyles(group.type, group.candidates, group.variant === undefined),
-          confidence: Math.round(confidence * 100) / 100,
+          styles: representative.styles,
+          confidence: roundedConfidence,
+          styleObservationCount: representative.count,
+          pageCount: representative.pageCount,
+          ...reuseEvidence(roundedConfidence, group.candidates.length, representative.count, representative.pageCount),
           evidence: [...new Set(group.candidates.flatMap((candidate) => candidate.evidence))].sort(),
           name:
             group.semanticRole ||
@@ -524,16 +612,28 @@ export function mergeComponentPatterns(patternGroups: ComponentPattern[][]): Com
         second.count - first.count ||
         representativeDetailScore(second.styles) - representativeDetailScore(first.styles) ||
         second.confidence - first.confidence ||
-        JSON.stringify(first.styles).localeCompare(JSON.stringify(second.styles)),
+        styleSignature(first.styles).localeCompare(styleSignature(second.styles)),
     )[0]
     const confidence = patterns.reduce((sum, pattern) => sum + pattern.confidence * pattern.count, 0) / count
+    const matchingPatterns = patterns.filter(
+      (pattern) => styleSignature(pattern.styles) === styleSignature(representative.styles),
+    )
+    const styleObservationCount = matchingPatterns.reduce(
+      (sum, pattern) => sum + (pattern.styleObservationCount ?? pattern.count),
+      0,
+    )
+    const pageCount = matchingPatterns.reduce((sum, pattern) => sum + (pattern.pageCount || 1), 0)
+    const roundedConfidence = Math.round(confidence * 100) / 100
     return [
       {
         type,
         count,
         selectors: [...new Set(patterns.flatMap((pattern) => pattern.selectors))],
         styles: representative.styles,
-        confidence: Math.round(confidence * 100) / 100,
+        confidence: roundedConfidence,
+        styleObservationCount,
+        pageCount,
+        ...reuseEvidence(roundedConfidence, count, styleObservationCount, pageCount),
         evidence: [...new Set(patterns.flatMap((pattern) => pattern.evidence))].sort(),
       },
     ]

@@ -736,7 +736,6 @@ export async function analyze(
     let evidenceMotion: MotionToken[] = []
     let techStack: import('../design-evidence/types.js').TechStackInfo | undefined
     let adaptiveMobileCaptured = false
-    let adaptiveMobilePlanned = false
 
     for (let i = 0; i < viewportNames.length; i++) {
       throwIfAnalysisAborted(analysisSignal)
@@ -1339,9 +1338,6 @@ export async function analyze(
             evidenceSnapshot.role !== 'unknown' && evidenceSnapshot.role !== entryRole,
             ['product', 'pricing', 'account', 'workspace'].includes(evidenceSnapshot.role),
           ]
-          if (!adaptiveMobileCaptured && mainViewportName !== 'mobile' && adaptiveSignals.some(Boolean)) {
-            adaptiveMobilePlanned = true
-          }
           const shouldCaptureMobile =
             !adaptiveMobileCaptured &&
             mainViewportName !== 'mobile' &&
@@ -1573,8 +1569,10 @@ export async function analyze(
         accessMode,
         authWallDetected,
         expectedPageCount: 1 + selectedPageCount,
-        expectedViewports: adaptiveMobilePlanned ? [...new Set([...viewportNames, 'mobile'])] : viewportNames,
-        expectedCaptureCount: viewportNames.length + selectedPageCount + (adaptiveMobilePlanned ? 1 : 0),
+        // Adaptive mobile captures are supplemental evidence, not user-requested matrix entries. A successful or
+        // failed supplemental capture must not turn an otherwise complete requested capture plan into partial coverage.
+        expectedViewports: viewportNames,
+        expectedCaptureCount: viewportNames.length + selectedPageCount,
         styles: allStyles,
         styleCaptures,
         evidenceEligibleStyles,

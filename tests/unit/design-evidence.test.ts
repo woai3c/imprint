@@ -1160,6 +1160,44 @@ describe('Design Evidence', () => {
     expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
   })
 
+  it('does not count a supplemental viewport as part of the requested capture matrix', () => {
+    const captures = [
+      ['https://example.com/', 'desktop', 1440],
+      ['https://example.com/article', 'desktop', 1440],
+      ['https://example.com/article', 'mobile', 375],
+    ] as const
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-supplemental-mobile',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      expectedViewports: ['desktop'],
+      expectedCaptureCount: 2,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: captures.map(([url, viewport, width], index) => {
+        const snapshot = createSnapshot(viewport, width)
+        snapshot.url = url
+        return { screenshot: { url, path: `capture-${index}.png`, viewport }, snapshot }
+      }),
+    })
+
+    expect(evidence.pages).toHaveLength(3)
+    expect(evidence.coverage.captureCoverage).toMatchObject({
+      expected: 2,
+      captured: 2,
+      status: 'complete',
+      requestedViewports: ['desktop'],
+      fullMatrix: { expected: 2, captured: 2, status: 'complete' },
+    })
+    expect(evidence.coverage.captureCoverage?.responsivePairs).toBeUndefined()
+    expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
+  })
+
   it('counts unique requested URL and viewport combinations for capture coverage', () => {
     const desktop = createSnapshot('desktop', 1440)
     const duplicateDesktop = createSnapshot('desktop', 1440)

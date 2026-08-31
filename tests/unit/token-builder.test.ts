@@ -191,6 +191,24 @@ describe('design token builder', () => {
     expect(result.spacing).toEqual(['6px', '8.5px', '12px', '16px', '20px', '24px', '32px'])
   })
 
+  test('does not refill the spacing hard cap from low-frequency rhythm values', () => {
+    const values = ['2px', '4px', '6px', '8px', '10px', '12px', '16px', '20px', '24px', '32px', '40px', '48px']
+    const styles = createExtractedStyles({
+      spacings: values,
+      usageCount: Object.fromEntries(
+        values.map((value, index) => [`spacing:${value}`, index < 4 ? 1_000 - index * 100 : 2]),
+      ),
+      valueSourceCounts: Object.fromEntries(
+        values.map((value) => [`spacing:${value}`, { 'element:content-spacing': 2 }]),
+      ),
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['2px', '4px', '6px', '8px', '10px', '12px', '16px'])
+    expect(result.spacing).toHaveLength(7)
+  })
+
   test('omits transparent and zero-geometry shadows from the reusable shadow scale', () => {
     const visibleShadow = '0 8px 24px rgb(0 0 0 / 18%)'
     const transparentShadow = '0 8px 24px rgb(0 0 0 / 0%)'

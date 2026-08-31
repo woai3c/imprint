@@ -814,14 +814,17 @@ export function buildDesignTokens(
     .filter((value) => isStableFoundationSpacing(value) || hasStrongCrossPageStructuralSpacing(styles, value))
     .filter(uniqueFilter())
   const coveredSpacings = selectFrequencyCoverage(spacingFreq, reusableSpacingCandidates, 4, 12, 0.9)
-  const spacings = [
-    ...coveredSpacings,
-    ...inferredSpacingRhythm(reusableSpacingCandidates),
+  // Frequency coverage is the primary scale. Preserve only a few additional cross-page structural or rhythm values;
+  // adding the entire inferred rhythm would simply refill the hard cap and undo the evidence-based stopping rule.
+  const supplementalSpacings = [
     ...reusableSpacingCandidates.filter((value) => hasStrongCrossPageStructuralSpacing(styles, value)),
+    ...inferredSpacingRhythm(reusableSpacingCandidates),
   ]
+    .filter((value) => !coveredSpacings.includes(value))
     .filter(uniqueFilter())
-    .sort((first, second) => (spacingFreq.get(second) || 0) - (spacingFreq.get(first) || 0))
-    .slice(0, 12)
+    .slice(0, Math.min(3, Math.max(0, 12 - coveredSpacings.length)))
+  const spacings = [...coveredSpacings, ...supplementalSpacings]
+    .filter(uniqueFilter())
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Radii

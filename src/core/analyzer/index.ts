@@ -27,6 +27,7 @@ import {
   AuthenticationBrowserClosedError,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
+  NoUsableCapturesError,
 } from './errors.js'
 import { appendFailedCaptureHealthLimitations } from './extraction-limitations.js'
 import { navigateWithRecovery } from './navigation.js'
@@ -100,6 +101,7 @@ export {
   AuthenticationBrowserClosedError,
   AuthenticationCancelledError,
   AuthenticationRequiredError,
+  NoUsableCapturesError,
 } from './errors.js'
 export type {
   AnalysisCompletion,
@@ -1555,6 +1557,7 @@ export async function analyze(
     options.finishSignal?.removeEventListener('abort', finishForUser)
 
     throwIfAnalysisAborted(analysisSignal)
+    if (capturedPageEvidence.length === 0) throw new NoUsableCapturesError()
     reportProgress('progress.analyzingPatterns', 85)
     const tokenStartedAt = Date.now()
     const {

@@ -15,7 +15,8 @@
   "analyzer": {
     "errors": {
       "browserNotFound": "Chrome, Edge, or Chromium was not found. Install a supported browser or configure an explicit executable path.",
-      "invalidBrowserPath": "The configured browser path is not an accessible executable file: {{path}}"
+      "invalidBrowserPath": "The configured browser path is not an accessible executable file: {{path}}",
+      "noUsableCaptures": "No usable page content could be captured. The site may be unavailable, blocked, or still loading. Try again or use managed access if sign-in is required."
     }
   },
   "cli": {
@@ -35,6 +36,7 @@
       "browserNotFound": "No supported Chrome, Edge, or Chromium installation was found. Run `imprint doctor` or provide --browser-path.",
       "invalidBrowserPath": "--browser-path is not an accessible executable file: {{path}}",
       "cancelled": "Analysis cancelled.",
+      "noUsableCaptures": "No usable page content could be captured. The site may be unavailable, blocked, or still loading.",
       "runtime": "Analysis failed: {{message}}"
     },
     "completion": {
@@ -71,6 +73,7 @@
       "invalidToolCall": "tools/call requires a tool name and object arguments",
       "unknownTool": "Unknown tool: {{name}}",
       "methodNotFound": "Method not found: {{method}}",
+      "noUsableCaptures": "No usable page content could be captured. The site may be unavailable, blocked, or still loading.",
       "toolExecution": "Tool execution failed: {{message}}",
       "internal": "Internal server error"
     }

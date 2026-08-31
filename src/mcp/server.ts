@@ -14,7 +14,7 @@ import * as readline from 'node:readline'
 
 import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
 import { compareDesigns } from '../core/analyzer/design-compare.js'
-import { analyze } from '../core/analyzer/index.js'
+import { NoUsableCapturesError, analyze } from '../core/analyzer/index.js'
 import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
@@ -321,10 +321,13 @@ async function handleRequest(request: JsonRpcRequest & { id: string | number }) 
         } catch (error) {
           if (controller.signal.aborted) return
           if (error instanceof ProtocolError) throw error
-          const message = sanitizeDiagnosticTextForDisplay(
-            error instanceof Error ? error.message : String(error),
-            diagnosticUrlsFromParams(args),
-          )
+          const message =
+            error instanceof NoUsableCapturesError
+              ? mcpT('errors.noUsableCaptures')
+              : sanitizeDiagnosticTextForDisplay(
+                  error instanceof Error ? error.message : String(error),
+                  diagnosticUrlsFromParams(args),
+                )
           result = {
             content: [
               {

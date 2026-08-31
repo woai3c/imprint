@@ -26,3 +26,12 @@ export class AuthenticationBrowserClosedError extends Error {
     this.name = 'AuthenticationBrowserClosedError'
   }
 }
+
+export class NoUsableCapturesError extends Error {
+  readonly code = 'NO_USABLE_CAPTURES'
+
+  constructor() {
+    super('No usable page captures were produced')
+    this.name = 'NoUsableCapturesError'
+  }
+}

@@ -15,7 +15,8 @@
   "analyzer": {
     "errors": {
       "browserNotFound": "未找到 Chrome、Edge 或 Chromium。请安装受支持的浏览器，或配置明确的可执行文件路径。",
-      "invalidBrowserPath": "配置的浏览器路径不是可访问的可执行文件：{{path}}"
+      "invalidBrowserPath": "配置的浏览器路径不是可访问的可执行文件：{{path}}",
+      "noUsableCaptures": "未能捕获可用的页面内容。网站可能暂时不可用、阻止了访问或仍在加载；请重试。如果需要登录，请使用登录访问。"
     }
   },
   "cli": {
@@ -35,6 +36,7 @@
       "browserNotFound": "未找到受支持的 Chrome、Edge 或 Chromium。请运行 `imprint doctor` 或提供 --browser-path。",
       "invalidBrowserPath": "--browser-path 不是可访问的可执行文件：{{path}}",
       "cancelled": "分析已取消。",
+      "noUsableCaptures": "未能捕获可用的页面内容。网站可能暂时不可用、阻止了访问或仍在加载。",
       "runtime": "分析失败：{{message}}"
     },
     "completion": {
@@ -71,6 +73,7 @@
       "invalidToolCall": "tools/call 必须包含工具名称和对象参数",
       "unknownTool": "未知工具：{{name}}",
       "methodNotFound": "未找到方法：{{method}}",
+      "noUsableCaptures": "未能捕获可用的页面内容。网站可能暂时不可用、阻止了访问或仍在加载。",
       "toolExecution": "工具执行失败：{{message}}",
       "internal": "服务器内部错误"
     }

@@ -8,7 +8,7 @@ import { after, before, test } from 'node:test'
 import { chromium } from 'playwright-core'
 
 import { findHeadlessBrowser } from '../../dist/core/analyzer/browser-finder.js'
-import { analyze } from '../../dist/core/analyzer/index.js'
+import { NoUsableCapturesError, analyze } from '../../dist/core/analyzer/index.js'
 import { discoverPages } from '../../dist/core/analyzer/page-discovery.js'
 
 let browser
@@ -79,6 +79,12 @@ before(async () => {
     if (request.url === '/fallback-entry/fail') {
       response.statusCode = 503
       response.end('<!doctype html><main><h1>Temporarily unavailable</h1></main>')
+      return
+    }
+    if (request.url === '/unavailable') {
+      response.statusCode = 503
+      response.end(`<!doctype html><main><h1>Service unavailable</h1>
+        <p>This page intentionally contains enough text to complete navigation while its HTTP status excludes it from evidence.</p></main>`)
       return
     }
     if (request.url === '/fallback-entry/success-one' || request.url === '/fallback-entry/success-two') {
@@ -247,6 +253,18 @@ test('the default analysis bound can complete more than the former five-page lim
   assert.equal(result.captureManifest.request.maxPages, 8)
   assert.equal(result.pageCoverage.analyzed, 7)
   assert.equal(result.completion.reason, 'complete')
+})
+
+test('rejects an analysis that produced no usable page captures', { timeout: 60_000 }, async () => {
+  await assert.rejects(
+    analyze(`${origin}/unavailable`, {
+      viewports: ['desktop'],
+      maxPages: 1,
+      useSession: false,
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-empty-page-e2e-')),
+    }),
+    (error) => error instanceof NoUsableCapturesError && error.code === 'NO_USABLE_CAPTURES',
+  )
 })
 
 test('finishing early keeps every page that was already completed', { timeout: 120_000 }, async () => {

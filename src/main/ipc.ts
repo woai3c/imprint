@@ -6,6 +6,7 @@ import {
   AuthenticationRequiredError,
   CORE_ANALYSIS_REQUEST_DEFAULTS,
   type LoginDecision,
+  NoUsableCapturesError,
   createAnalysisRequest,
 } from '../core/analyzer/index.js'
 import { routeIdentityFromUrl } from '../core/analyzer/reference-compare.js'
@@ -19,6 +20,7 @@ import {
 import { generateAgentContextBundle } from '../core/design-context/agent-context.js'
 import { generateReconstructionBrief } from '../core/design-context/reconstruction-brief.js'
 import { createValidationRecipe, validateRecipe } from '../core/design-context/validation-recipe.js'
+import { coreT } from '../core/i18n/index.js'
 import { type AnalysisRecoveryResponse, type AnalyzeOptions, type AnalyzeResponse } from '../shared/ipc-contract.js'
 import { collectAnalysisAssets, removeGeneratedAssets } from './analysis-assets.js'
 import { registerAnalysisHistoryIpcHandlers } from './analysis-history-ipc.js'
@@ -278,6 +280,12 @@ export function registerIpcHandlers() {
         if (err instanceof AuthenticationCancelledError) {
           log.info('analysis', `cancelled at login decision: url=${displayUrl}`)
           return completeRun({ cancelled: true })
+        }
+        if (err instanceof NoUsableCapturesError) {
+          const language = (options?.language || getSettings().language).startsWith('zh') ? 'zh-CN' : 'en'
+          const message = coreT(language, 'analyzer.errors.noUsableCaptures')
+          log.info('analysis', `no usable captures: url=${displayUrl}`)
+          return completeRun({ error: true, message, stage: analysisStage })
         }
         const message = sanitizeDiagnosticTextForDisplay(err instanceof Error ? err.message : String(err))
         log.error('analysis', `failed during ${analysisStage}: url=${displayUrl} error=${message}`)

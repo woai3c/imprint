@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { buildAnalysisArtifacts } from '../core/analysis-artifacts.js'
-import { BrowserExecutableError, analyze } from '../core/analyzer/index.js'
+import { BrowserExecutableError, NoUsableCapturesError, analyze } from '../core/analyzer/index.js'
 import { sanitizeDiagnosticTextForDisplay, sanitizeUrlForPersistence } from '../core/analyzer/url-privacy.js'
 import { getDefaultDataDir } from '../core/data-dir.js'
 import { coreTranslator } from '../core/i18n/index.js'
@@ -249,6 +249,8 @@ main()
     } else if (isCancellationError(error)) {
       exitCode = CLI_EXIT_CODES.cancelled
       message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
+    } else if (error instanceof NoUsableCapturesError) {
+      message = cliT('errors.noUsableCaptures')
     } else {
       message = cliT('errors.runtime', {
         message: error instanceof Error ? error.message : String(error),

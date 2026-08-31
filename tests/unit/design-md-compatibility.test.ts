@@ -251,10 +251,11 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(parsed.components.navigation).not.toHaveProperty('backgroundColor')
   })
 
-  test('uses stable value-based IDs for fallback colors', () => {
+  test('keeps fallback colors out of portable tokens while preserving stable candidate IDs', () => {
     const raw = { ...tokens, colors: { ...tokens.colors, 'palette-5': '#8491a5' } }
 
-    expect(buildDesignMdColorTokens(raw)).toHaveProperty('observed-8491a5', '#8491a5')
+    expect(buildDesignMdColorTokens(raw)).not.toHaveProperty('observed-8491a5')
+    expect(generateDesignDoc(raw, 'https://example.com/')).toContain('name: observed-8491a5')
   })
 
   test('uses the same public fallback color name in machine and prose layers', () => {
@@ -276,9 +277,10 @@ describe('Google DESIGN.md alpha compatibility', () => {
     }
     const designDoc = generateDesignDoc(raw, 'https://example.com/')
 
-    expect(designDoc).toContain('observed-8491a5: "#8491a5"')
+    expect(designDoc).toContain('name: observed-8491a5')
+    expect(designDoc).not.toContain('observed-8491a5: "#8491a5"')
     expect(designDoc).toContain('`--color-observed-8491a5`')
-    expect(designDoc).toContain('`colors.observed-8491a5` (`#8491a5`)')
+    expect(designDoc).toContain('Observed Unassigned Colors (Evidence Appendix)')
     expect(designDoc).not.toContain('`--color-palette-5`')
     expect(designDoc).not.toContain('`colors.palette-5`')
   })
@@ -312,8 +314,34 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(declaredGroup).toContain('`--color-observed-3f45ff`')
     expect(actionGroup || '').not.toContain('`--color-observed-3f45ff`')
     expect(designDoc).toContain(
-      '| `--color-observed-3f45ff` | `#3f45ff` | CSS-declared; no rendered use observed | high · 3 pages |',
+      '| `--color-observed-3f45ff` | `#3f45ff` | CSS-declared; no rendered use observed | semantic low · observation high · 3 pages |',
     )
+    expect(designDoc).toContain('declaredColors:')
+    expect(designDoc.split('\nx-imprint:', 1)[0]).not.toContain('observed-3f45ff:')
+  })
+
+  test('does not report one declaration from one page as high measurement confidence', () => {
+    const declaredTokens: DesignToken = {
+      ...tokens,
+      candidates: {
+        colors: [
+          {
+            value: '#3f45ff',
+            kind: 'declared-only',
+            observationCount: 1,
+            pageCount: 1,
+            captureCount: 1,
+            sources: ['css-variable:--brand-color'],
+          },
+        ],
+      },
+    }
+
+    const designDoc = generateDesignDoc(declaredTokens, 'https://example.com/')
+
+    expect(designDoc).toContain('semantic low · observation medium · 1 page')
+    expect(designDoc).toContain('measurementConfidence: medium')
+    expect(designDoc).not.toContain('semantic low · observation high · 1 page')
   })
 
   test('uses rendered evidence instead of a CSS variable name when grouping an observed color', () => {

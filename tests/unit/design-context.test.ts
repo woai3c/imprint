@@ -15,7 +15,7 @@ import {
 } from '../../src/core/design-context/profile-export.js'
 import { isCurrentDesignProfile } from '../../src/core/design-context/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
-import { generateDesignDoc } from '../../src/core/export/index.js'
+import { generateDesignDoc, validateDesignDocSemantics } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
   colors: { background: '#ffffff', foreground: '#111827', primary: '#2563eb' },
@@ -725,6 +725,113 @@ describe('deterministic design context', () => {
     expect(surface?.claim.statement).not.toContain('shadow-led')
   })
 
+  it('keeps a minority depth shadow out of the global surface guidance', () => {
+    const evidence = createEvidence()
+    const depthShadow = 'rgba(0, 0, 0, 0.18) 0px 8px 24px 0px'
+    evidence.tokens = { ...structuredClone(tokens), shadows: [depthShadow] }
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      viewport: 'desktop',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.topology.pages[1] = {
+      ...evidence.topology.pages[1],
+      pageId: 'page-secondary',
+      sectionIds: ['section-secondary'],
+    }
+    evidence.sections[0].tokenRefs = ['color.background', 'shadow.1']
+    evidence.sections[0].observedStyles = { backgroundColor: '#ffffff', boxShadow: depthShadow }
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      tokenRefs: ['color.background'],
+      observedStyles: { backgroundColor: '#ffffff' },
+      evidenceRefs: ['image-secondary'],
+    }
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const surface = profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')
+    const document = generateDesignDoc({
+      tokens: evidence.tokens,
+      url: evidence.source.requestedUrl,
+      designEvidence: evidence,
+      designProfile: profile,
+    })
+
+    expect(surface?.priority).toBe('P2')
+    expect(document).toContain('depth shadows only on directly observed component variants')
+    expect(document).not.toContain('Use elevation (shadows) to create visual hierarchy')
+  })
+
+  it('does not globalize a minority shadow merely because the mixed surface dimension is P0', () => {
+    const evidence = createEvidence()
+    const depthShadow = 'rgba(0, 0, 0, 0.18) 0px 8px 24px 0px'
+    evidence.tokens = { ...structuredClone(tokens), shadows: [depthShadow] }
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      viewport: 'desktop',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.sections[0].tokenRefs = ['color.background', 'shadow.1']
+    evidence.sections[0].observedStyles = { backgroundColor: '#ffffff', boxShadow: depthShadow }
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      tokenRefs: ['color.background'],
+      observedStyles: { backgroundColor: '#ffffff' },
+      evidenceRefs: ['image-secondary'],
+    }
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const surface = profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'surface')!
+    surface.priority = 'P0'
+    surface.claim.tokenRefs = [...new Set([...(surface.claim.tokenRefs || []), 'shadow.1'])]
+
+    const integrity = validateDesignDocSemantics(evidence.tokens, evidence, profile)
+    const document = generateDesignDoc({
+      tokens: evidence.tokens,
+      url: evidence.source.requestedUrl,
+      designEvidence: evidence,
+      designProfile: profile,
+    })
+
+    expect(surface.claim.assertions).toContainEqual(
+      expect.objectContaining({ property: 'observed-surface-counts', value: ['owners:2', 'bordered:0', 'shadowed:1'] }),
+    )
+    expect(integrity.surfaceShadowScope).toBe('component-only')
+    expect(document).toContain('depth shadows only on directly observed component variants')
+    expect(document).not.toContain('Use elevation (shadows) to create visual hierarchy')
+  })
+
+  it('rejects declared-only colors referenced by a P0 foundation claim', () => {
+    const evidence = createEvidence()
+    evidence.tokens = {
+      ...structuredClone(tokens),
+      colors: { ...tokens.colors, 'palette-1': '#7c3aed' },
+      usageCount: {
+        'declaredColor:rgb(124, 58, 237)': 2,
+        'brandTokenColor:rgb(124, 58, 237)': 2,
+      },
+    }
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const color = profile.transferGrammar!.styleCoordinates.find((coordinate) => coordinate.dimension === 'color')!
+    color.priority = 'P0'
+    color.claim.tokenRefs = ['color.palette-1']
+
+    const integrity = validateDesignDocSemantics(evidence.tokens, evidence, profile)
+
+    expect(integrity.valid).toBe(false)
+    expect(integrity.errors).toContain(
+      `foundation-claim:${color.claim.catalogId || 'uncataloged'}:declared-only-color(color.palette-1)`,
+    )
+  })
+
   it('prioritizes shared semantic color roles over earlier low-level observed colors', () => {
     const evidence = createEvidence()
     evidence.tokens = {
@@ -1095,6 +1202,102 @@ describe('deterministic design context', () => {
     expect(coordinates.find((coordinate) => coordinate.dimension === 'typography')?.priority).toBe('P0')
     expect(coordinates.find((coordinate) => coordinate.dimension === 'shape')?.priority).toBe('P0')
     expect(coordinates.find((coordinate) => coordinate.dimension === 'surface')?.priority).toBe('P0')
+  })
+
+  it('keeps shared heading typography alongside more frequent body typography', () => {
+    const evidence = createEvidence()
+    evidence.pages[1] = {
+      ...evidence.pages[1],
+      id: 'page-secondary',
+      url: 'https://example.com/secondary',
+      images: [{ ...evidence.pages[1].images[0], id: 'image-secondary' }],
+    }
+    evidence.topology.pages[1].pageId = 'page-secondary'
+    evidence.sections[1] = {
+      ...evidence.sections[1],
+      id: 'section-secondary',
+      pageId: 'page-secondary',
+      evidenceRefs: ['image-secondary'],
+    }
+    evidence.topology.pages[1].sectionIds = ['section-secondary']
+    const nodesFor = (pageId: string, sectionId: string) => [
+      ...Array.from({ length: 8 }, (_value, index) => ({
+        id: `body-${pageId}-${index}`,
+        pageId,
+        sectionId,
+        role: 'body' as const,
+        rect: { x: 0.1, y: 0.1, width: 0.7, height: 0.05 },
+        textRole: 'body' as const,
+        tokenRefs: ['typography.font-stack.1', 'typography.font-size.1', 'typography.font-weight.1'],
+        observedTypography: { fontFamily: 'Inter, sans-serif', fontSize: '16px', fontWeight: '400' },
+        traits: [],
+      })),
+      {
+        id: `heading-${pageId}`,
+        pageId,
+        sectionId,
+        role: 'heading' as const,
+        rect: { x: 0.1, y: 0.02, width: 0.7, height: 0.08 },
+        textRole: 'heading' as const,
+        tokenRefs: ['typography.font-stack.1', 'typography.font-size.2', 'typography.font-weight.2'],
+        observedTypography: { fontFamily: 'Inter, sans-serif', fontSize: '32px', fontWeight: '700' },
+        traits: [],
+      },
+    ]
+    evidence.layoutNodes = [
+      ...nodesFor('page-desktop', 'section-desktop'),
+      ...nodesFor('page-secondary', 'section-secondary'),
+    ]
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en')
+    const typography = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'singleton' && placement.slot === 'visual.typography'),
+    )?.claim
+    const coordinate = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.styleCoordinates.find(
+      (item) => item.dimension === 'typography',
+    )
+
+    expect(typography?.tokenRefs).toEqual(
+      expect.arrayContaining(['typography.font-size.2', 'typography.font-weight.2']),
+    )
+    expect(coordinate?.claim.tokenRefs).toEqual(
+      expect.arrayContaining(['typography.font-size.2', 'typography.font-weight.2']),
+    )
+    expect(coordinate?.claim.statement).toContain('32px')
+    expect(coordinate?.claim.statement).toContain('700')
+  })
+
+  it('does not turn nested sections into sibling sequence claims', () => {
+    const evidence = createEvidence()
+    const root = evidence.sections[0]
+    root.role = 'content'
+    const child = {
+      ...structuredClone(root),
+      id: 'section-child-hero',
+      role: 'hero' as const,
+      order: 1,
+      parentSectionId: root.id,
+    }
+    const footer = {
+      ...structuredClone(root),
+      id: 'section-footer',
+      role: 'footer' as const,
+      order: 2,
+    }
+    evidence.sections.push(child, footer)
+    evidence.topology.pages[0].sectionIds = [root.id, child.id, footer.id]
+
+    const catalog = buildDeterministicClaimCatalog(evidence, 'en')
+    const sequence = catalog.claims.find((entry) =>
+      entry.placements.some((placement) => placement.kind === 'attention-sequence'),
+    )?.claim
+    const orderedAssertions = sequence?.assertions?.filter((assertion) => assertion.predicate === 'ordered-before')
+
+    expect(orderedAssertions).toEqual([expect.objectContaining({ target: 'content', value: 'footer' })])
+    expect(sequence?.statement).not.toContain('content -> hero')
+    expect(catalog.claims.flatMap((entry) => entry.claim.assertions || [])).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ target: 'content', value: 'hero' })]),
+    )
   })
 
   it('uses every captured canonical URL as the P0 denominator instead of the eight displayed references', () => {

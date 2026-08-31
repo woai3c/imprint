@@ -40,7 +40,13 @@ const UI_COLOR_CATEGORIES = new Set([
   'bgArea',
   'textColor',
 ])
-const STATUS_COLOR_CATEGORIES = new Set(['statusBackgroundColor', 'statusForegroundColor', 'statusColor'])
+const STATUS_COLOR_CATEGORIES = new Set([
+  'statusBackgroundColor',
+  'statusForegroundColor',
+  'statusColor',
+  'destructiveActionBackgroundColor',
+  'destructiveActionForegroundColor',
+])
 
 function parseColorChannels(value: string): ColorChannels | null {
   const hex = value.trim().match(/^#([0-9a-f]{6}|[0-9a-f]{3})$/i)
@@ -308,13 +314,7 @@ export function buildEvidenceBackedClaims(
   }))
   const actionFamilies = hueFamiliesForCategories(
     styles,
-    new Set([
-      'primaryActionBackgroundColor',
-      'actionBackgroundColor',
-      'primaryActionColor',
-      'actionColor',
-      'brandTokenColor',
-    ]),
+    new Set(['primaryActionBackgroundColor', 'actionBackgroundColor', 'primaryActionColor', 'actionColor']),
   )
   const statusFamilies = hueFamiliesForCategories(styles, STATUS_COLOR_CATEGORIES)
   const decorativeFamilies = decorativeHueFamilies(styles)

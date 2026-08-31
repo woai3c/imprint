@@ -1,5 +1,5 @@
 import { coreTranslator } from '../i18n/index.js'
-import { isPillRadius } from './component-detect.js'
+import { hasDepthShadow, isPillRadius } from './component-detect.js'
 import type { ComponentVariantPattern } from './component-detect.js'
 import type { DesignToken } from './types.js'
 
@@ -28,7 +28,7 @@ export function generateAgentGuide(tokens: DesignToken, url?: string, language: 
   lines.push(`- Background: var(--color-${tokens.colors['surface'] ? 'surface' : 'background'})`)
   lines.push(`- Text: var(--color-foreground)`)
   lines.push(`- Border radius: var(--radius-${tokens.radii.length > 1 ? 'md' : 'sm'})`)
-  if (tokens.shadows.length > 0) {
+  if (tokens.shadows.some(hasDepthShadow)) {
     lines.push(`- Shadow: var(--shadow-sm)`)
   }
   lines.push(`- Padding: var(--spacing-${Math.min(4, tokens.spacing.length)})`)
@@ -138,6 +138,7 @@ export function generateDosAndDonts(
   responsiveEvidence: {
     hasDeclaredBreakpoints?: boolean
     hasObservedResponsiveBehavior?: boolean
+    surfaceShadowScope?: 'foundation' | 'component-only' | 'none'
   } = {},
 ): string {
   const t = coreTranslator(language, 'agentGuide')
@@ -216,8 +217,12 @@ export function generateDosAndDonts(
   }
 
   // Shadow-specific
-  if (tokens.shadows.length > 0) {
+  const hasObservedDepthShadow = tokens.shadows.some(hasDepthShadow)
+  const surfaceShadowScope = responsiveEvidence.surfaceShadowScope || (hasObservedDepthShadow ? 'foundation' : 'none')
+  if (hasObservedDepthShadow && surfaceShadowScope === 'foundation') {
     lines.push(t('dos.shadows'))
+  } else if (hasObservedDepthShadow && surfaceShadowScope === 'component-only') {
+    lines.push(t('dos.componentScopedShadows'))
   } else {
     lines.push(t('dos.noShadowScale'))
   }

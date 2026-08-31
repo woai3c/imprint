@@ -46,6 +46,16 @@ describe('deterministic agent guidance', () => {
     expect(guide).not.toContain("Don't add box-shadows")
   })
 
+  test('keeps component-only depth shadows out of the base surface rule', () => {
+    const guide = generateDosAndDonts({ ...tokens, shadows: ['0 8px 24px rgb(0 0 0 / 18%)'] }, 'en', [], {
+      surfaceShadowScope: 'component-only',
+    })
+
+    expect(guide).toContain('depth shadows only on directly observed component variants')
+    expect(guide).toContain('keep base surfaces flat or edge-led as observed')
+    expect(guide).not.toContain('Use elevation (shadows) to create visual hierarchy')
+  })
+
   test('does not claim observed responsive behavior from a single viewport', () => {
     const guide = generateDosAndDonts(tokens)
 

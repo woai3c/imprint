@@ -14,7 +14,8 @@ import {
 } from '../analyzer/component-detect.js'
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
 import { colorContrast } from '../analyzer/token-builder.js'
-import type { DesignToken } from '../analyzer/types.js'
+import { measurementConfidenceFor } from '../analyzer/token-evidence.js'
+import type { DesignToken, TokenConfidence } from '../analyzer/types.js'
 import {
   redactUrlsInText,
   sanitizeDesignEvidenceForPersistence,
@@ -40,10 +41,12 @@ import {
 } from '../design-evidence/responsive-reliability.js'
 import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
+import { formatPageSectionTopology } from '../design-evidence/topology-summary.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { localizeFeatureTag } from '../i18n/feature-tags.js'
 import { coreT, coreTranslator } from '../i18n/index.js'
 import { type DarkModeExportData, normalizeDarkSelector } from './dark-mode.js'
+import { isDeclaredOnlyColor, isPortableColor, validateDesignDocSemantics } from './design-doc-integrity.js'
 import { designMdColorEntries } from './design-md-color-names.js'
 import {
   FONT_SIZE_NAMES,
@@ -56,6 +59,7 @@ import {
 } from './token-names.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
+export { validateDesignDocSemantics }
 export { buildComponentSpecs, generateComponentSpecsJson } from './component-specs.js'
 export type { ComponentSpec } from './component-specs.js'
 export { buildDarkModeExportData, restoreDarkModeExportData } from './dark-mode.js'
@@ -77,13 +81,15 @@ function usageForColor(tokens: DesignToken, category: string, value: string): nu
   }, 0)
 }
 
-const RENDERED_COLOR_USAGE_CATEGORIES = [
+const OBSERVED_COLOR_USAGE_CATEGORIES = [
   'primaryActionBackgroundColor',
   'primaryActionForegroundColor',
   'primaryActionColor',
   'actionBackgroundColor',
   'actionForegroundColor',
   'actionColor',
+  'destructiveActionBackgroundColor',
+  'destructiveActionForegroundColor',
   'selectedColor',
   'accentColor',
   'linkColor',
@@ -91,34 +97,28 @@ const RENDERED_COLOR_USAGE_CATEGORIES = [
   'statusForegroundColor',
   'statusColor',
   'bgColor',
-  'bgArea',
   'textColor',
   'borderColor',
   'structuralBorderColor',
 ] as const
 
-function renderedColorUsageCount(tokens: DesignToken, value: string): number {
-  return RENDERED_COLOR_USAGE_CATEGORIES.reduce((total, category) => total + usageForColor(tokens, category, value), 0)
-}
-
-function isDeclaredOnlyColor(tokens: DesignToken, value: string): boolean {
-  if (renderedColorUsageCount(tokens, value) > 0) return false
-  return usageForColor(tokens, 'declaredColor', value) + usageForColor(tokens, 'brandTokenColor', value) > 0
+function observedColorUsageCount(tokens: DesignToken, value: string): number {
+  return OBSERVED_COLOR_USAGE_CATEGORIES.reduce((total, category) => total + usageForColor(tokens, category, value), 0)
 }
 
 function observedColorGroups(
   tokens: DesignToken,
   publicNames: ReadonlyMap<string, string>,
-): Array<{ label: string; names: string[] }> {
+): Array<{ label: string; names: string[]; omittedCount: number }> {
   const groups = new Map<string, Array<{ name: string; score: number }>>([
     ['action', []],
+    ['destructive', []],
     ['editorial', []],
     ['status', []],
     ['decorative', []],
     ['text', []],
     ['surface', []],
     ['border', []],
-    ['declared', []],
     ['fallback', []],
   ])
   const roleCategories = {
@@ -129,6 +129,7 @@ function observedColorGroups(
       'actionColor',
       'selectedColor',
     ],
+    destructive: ['destructiveActionBackgroundColor', 'destructiveActionForegroundColor'],
     editorial: ['actionForegroundColor', 'linkColor'],
     status: ['statusBackgroundColor', 'statusForegroundColor', 'statusColor'],
     decorative: ['accentColor', 'bgColor'],
@@ -155,10 +156,22 @@ function observedColorGroups(
     if (/^(?:dark-)?palette-\d+$/.test(name)) return 0
     return 1
   }
-  const rolePriority = ['action', 'editorial', 'status', 'decorative', 'text', 'surface', 'border', 'fallback'] as const
+  const rolePriority = [
+    'action',
+    'destructive',
+    'editorial',
+    'status',
+    'decorative',
+    'text',
+    'surface',
+    'border',
+    'fallback',
+  ] as const
   for (const aliases of colorValues.values()) {
-    const value = aliases[0].value
-    const sources = new Set(aliases.flatMap(({ name }) => tokens.evidence?.[`colors.${name}`]?.sources || []))
+    const portableAliases = aliases.filter(({ name, value }) => isPortableColor(tokens, name, value))
+    if (portableAliases.length === 0) continue
+    const value = portableAliases[0].value
+    const sources = new Set(portableAliases.flatMap(({ name }) => tokens.evidence?.[`colors.${name}`]?.sources || []))
     const scores = Object.fromEntries(
       rolePriority.map((role) => [
         role,
@@ -176,7 +189,7 @@ function observedColorGroups(
           second.score - first.score || rolePriority.indexOf(first.role) - rolePriority.indexOf(second.role),
       )[0]
     if (!dominantRole) continue
-    const canonical = [...aliases].sort((first, second) => {
+    const canonical = [...portableAliases].sort((first, second) => {
       const firstEvidence = tokens.evidence?.[`colors.${first.name}`]?.observationCount || 0
       const secondEvidence = tokens.evidence?.[`colors.${second.name}`]?.observationCount || 0
       return (
@@ -185,9 +198,9 @@ function observedColorGroups(
         first.name.localeCompare(second.name)
       )
     })[0]
-    const semanticRole = (
+    const namedSemanticRole = (
       [
-        [/danger|warning|success|status|delta|badge/i, 'status'],
+        [/warning|success|status|delta|badge/i, 'status'],
         [/^editorial-accent$/i, 'editorial'],
         [/^decorative-accent$/i, 'decorative'],
         [/^accent$/i, tokens.colors.primary ? 'action' : 'decorative'],
@@ -197,15 +210,15 @@ function observedColorGroups(
         [/^(?:primary|action)(?:-|$)/i, 'action'],
       ] as const
     ).find(([pattern]) => pattern.test(canonical.name))?.[1]
-    const assignedRole = isDeclaredOnlyColor(tokens, value)
-      ? 'declared'
-      : semanticRole || (dominantRole.score > 0 ? dominantRole.role : 'fallback')
+    const semanticRole = /^danger(?:-|$)/i.test(canonical.name)
+      ? scores.destructive > 0
+        ? 'destructive'
+        : 'status'
+      : namedSemanticRole
+    const assignedRole = semanticRole || (dominantRole.score > 0 ? dominantRole.role : 'fallback')
     groups.get(assignedRole)?.push({
       name: publicNames.get(canonical.name) || canonical.name,
-      score:
-        assignedRole === 'declared'
-          ? Math.max(1, usageForColor(tokens, 'declaredColor', value) + usageForColor(tokens, 'brandTokenColor', value))
-          : Math.max(1, scores[assignedRole]),
+      score: Math.max(1, scores[assignedRole]),
     })
   }
   return [...groups].flatMap(([label, entries]) =>
@@ -217,6 +230,7 @@ function observedColorGroups(
               .sort((first, second) => second.score - first.score)
               .slice(0, 6)
               .map(({ name }) => name),
+            omittedCount: Math.max(0, entries.length - 6),
           },
         ]
       : [],
@@ -236,7 +250,96 @@ function designMdScaleValue(value: string): string | number | undefined {
 
 export function buildDesignMdColorTokens(tokens: DesignToken, fallbackPrefix = 'observed'): Record<string, string> {
   return Object.fromEntries(
-    designMdColorEntries(tokens, fallbackPrefix).map(({ publicName, value }) => [publicName, value]),
+    designMdColorEntries(tokens, fallbackPrefix)
+      .filter(({ sourceName, value }) => isPortableColor(tokens, sourceName, value))
+      .map(({ publicName, value }) => [publicName, value]),
+  )
+}
+
+interface ExportColorCandidate {
+  publicName: string
+  value: string
+  kind: 'declared-only' | 'observed-unassigned'
+  observationCount: number
+  pageCount?: number
+  captureCount?: number
+  sources: string[]
+  measurementConfidence: TokenConfidence
+}
+
+const CONFIDENCE_RANK: Record<TokenConfidence, number> = { low: 0, medium: 1, high: 2 }
+
+function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
+  const portableValues = new Set(
+    Object.entries(tokens.colors).flatMap(([name, value]) => {
+      const normalized = normalizeColorValue(value)
+      return normalized && isPortableColor(tokens, name, value) ? [normalized] : []
+    }),
+  )
+  const candidates = new Map<string, ExportColorCandidate>()
+  const add = (
+    candidate: Omit<ExportColorCandidate, 'publicName' | 'measurementConfidence'> & {
+      measurementConfidence?: TokenConfidence
+    },
+  ) => {
+    const normalized = normalizeColorValue(candidate.value)
+    if (!normalized || portableValues.has(normalized)) return
+    const publicName = designMdColorEntries({ colors: { 'palette-1': normalized } })[0]?.publicName
+    if (!publicName) return
+    const key = `${candidate.kind}:${normalized}`
+    const existing = candidates.get(key)
+    const measurementConfidence =
+      candidate.measurementConfidence ||
+      measurementConfidenceFor(
+        candidate.pageCount || 0,
+        candidate.captureCount || 0,
+        candidate.observationCount,
+        new Set(candidate.sources),
+      )
+    candidates.set(key, {
+      publicName,
+      value: normalized,
+      kind: candidate.kind,
+      observationCount: Math.max(existing?.observationCount || 0, candidate.observationCount),
+      pageCount: Math.max(existing?.pageCount || 0, candidate.pageCount || 0) || undefined,
+      captureCount: Math.max(existing?.captureCount || 0, candidate.captureCount || 0) || undefined,
+      sources: [...new Set([...(existing?.sources || []), ...candidate.sources])].sort(),
+      measurementConfidence:
+        existing && CONFIDENCE_RANK[existing.measurementConfidence] > CONFIDENCE_RANK[measurementConfidence]
+          ? existing.measurementConfidence
+          : measurementConfidence,
+    })
+  }
+  for (const candidate of tokens.candidates?.colors || []) add(candidate)
+  for (const { sourceName, value } of designMdColorEntries(tokens)) {
+    const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
+    if (isDeclaredOnlyColor(tokens, value)) {
+      add({
+        value,
+        kind: 'declared-only',
+        observationCount: tokenEvidence?.observationCount || usageForColor(tokens, 'declaredColor', value),
+        pageCount: tokenEvidence?.pageCount,
+        captureCount: tokenEvidence?.captureCount,
+        sources: tokenEvidence?.sources || [],
+        measurementConfidence: tokenEvidence?.measurementConfidence,
+      })
+    } else if (!isPortableColor(tokens, sourceName, value)) {
+      add({
+        value,
+        kind: 'observed-unassigned',
+        observationCount: tokenEvidence?.observationCount || observedColorUsageCount(tokens, value),
+        pageCount: tokenEvidence?.pageCount,
+        captureCount: tokenEvidence?.captureCount,
+        sources: tokenEvidence?.sources || [],
+        measurementConfidence: tokenEvidence?.measurementConfidence,
+      })
+    }
+  }
+  return [...candidates.values()].sort(
+    (first, second) =>
+      first.kind.localeCompare(second.kind) ||
+      second.observationCount - first.observationCount ||
+      first.value.localeCompare(second.value),
   )
 }
 
@@ -568,10 +671,24 @@ function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefine
   })
 }
 
+function portableTokenEvidenceEntries(
+  tokens: DesignToken,
+): Array<[string, NonNullable<DesignToken['evidence']>[string]]> {
+  return Object.entries(tokens.evidence || {}).filter(([path]) => {
+    const colorName = /^colors\.(.+)$/.exec(path)?.[1]
+    const value = colorName ? tokens.colors[colorName] : undefined
+    return !value || !colorName || isPortableColor(tokens, colorName, value)
+  })
+}
+
 function tokenConfidenceSummary(tokens: DesignToken): Record<'high' | 'medium' | 'low', number> | undefined {
-  if (!tokens.evidence || Object.keys(tokens.evidence).length === 0) return undefined
-  return Object.values(tokens.evidence).reduce(
-    (counts, item) => ({ ...counts, [item.confidence]: counts[item.confidence] + 1 }),
+  const entries = portableTokenEvidenceEntries(tokens)
+  if (entries.length === 0) return undefined
+  return entries.reduce(
+    (counts, [, item]) => {
+      const confidence = item.semanticConfidence || item.confidence
+      return { ...counts, [confidence]: counts[confidence] + 1 }
+    },
     { high: 0, medium: 0, low: 0 },
   )
 }
@@ -631,6 +748,9 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
   } = input
   const source = evidence?.source.finalUrl || url
   const colors = buildDesignMdColorTokens(tokens)
+  const colorCandidates = exportColorCandidates(tokens)
+  const declaredColorCandidates = colorCandidates.filter((candidate) => candidate.kind === 'declared-only')
+  const observedColorCandidates = colorCandidates.filter((candidate) => candidate.kind === 'observed-unassigned')
   const typography = designMdTypographyTokens(tokens)
   const rounded: Record<string, string> = Object.fromEntries(
     tokens.radii.flatMap((value, index) =>
@@ -765,6 +885,42 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
             }
           : {}),
         ...(colorRoleSummary ? { colorRoles: colorRoleSummary } : {}),
+        ...(colorCandidates.length > 0
+          ? {
+              candidates: {
+                ...(declaredColorCandidates.length > 0
+                  ? {
+                      declaredColors: declaredColorCandidates.map((candidate) => ({
+                        name: candidate.publicName,
+                        value: candidate.value,
+                        declarations: candidate.observationCount,
+                        ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
+                        ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
+                        sources: candidate.sources,
+                        measurementConfidence: candidate.measurementConfidence,
+                        semanticConfidence: 'low',
+                        reuseScope: 'declared-only',
+                      })),
+                    }
+                  : {}),
+                ...(observedColorCandidates.length > 0
+                  ? {
+                      observedUnassignedColors: observedColorCandidates.map((candidate) => ({
+                        name: candidate.publicName,
+                        value: candidate.value,
+                        observations: candidate.observationCount,
+                        ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
+                        ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
+                        sources: candidate.sources,
+                        measurementConfidence: candidate.measurementConfidence,
+                        semanticConfidence: 'low',
+                        reuseScope: 'unknown',
+                      })),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
         ...(resolvedBreakpoints.length > 0
           ? {
               responsive: {
@@ -1083,18 +1239,6 @@ function reconstructionRole(role: string | undefined): string {
   return !role || role === 'unknown' ? 'content' : role
 }
 
-function compactRoleSequence(roles: readonly string[]): string[] {
-  const compacted: string[] = []
-  for (let index = 0; index < roles.length;) {
-    const role = roles[index]
-    let count = 1
-    while (roles[index + count] === role) count += 1
-    compacted.push(count > 1 ? `${role} ×${count}` : role)
-    index += count
-  }
-  return compacted
-}
-
 function isVisiblePseudoValue(property: string, value: string | undefined): boolean {
   if (!value) return false
   if (property === 'backgroundColor') return !isTransparentColor(value)
@@ -1380,12 +1524,11 @@ function reconstructionSummary(
     (observedTitle
       ? resolveDesignSystemName({ url: evidence.source.finalUrl, title: observedTitle })
       : new URL(evidence.source.finalUrl).hostname)
-  const canonicalTopology = evidence.topology.pages.find((page) => page.pageId === desktopPage?.id)
-  const sectionRoles = compactRoleSequence(
-    canonicalTopology?.sectionIds
-      .map((id) => evidence.sections.find((section) => section.id === id)?.role)
-      .filter((role): role is NonNullable<typeof role> => Boolean(role) && role !== 'unknown') || [],
-  )
+  const sectionHierarchy = desktopPage
+    ? formatPageSectionTopology(evidence, desktopPage.id, (role) =>
+        localizeReconstructionFact(reconstructionRole(role), language),
+      )
+    : ''
   const allSignatureFacts = reconstructionSignatureFacts(evidence)
   const recurringStructureFacts = allSignatureFacts.filter(
     (fact) => fact.pageCount !== undefined && fact.kind !== 'interaction',
@@ -1422,9 +1565,7 @@ function reconstructionSummary(
     coreT(language, 'export.reconstruction.heading'),
     '',
     `- **${label(multiPage ? 'siteThesis' : 'pageThesis')}:** ${scope}`,
-    sectionRoles?.length
-      ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionRoles.map((role) => localizeReconstructionFact(role, language)).join(' → ')}`
-      : '',
+    sectionHierarchy ? `- **${label(multiPage ? 'entryHierarchy' : 'sectionHierarchy')}:** ${sectionHierarchy}` : '',
     signatureFacts.length
       ? `- **${label('keyStructure')}:** ${signatureFacts.map((fact) => `\`${readableFact(fact)}\``).join(' · ')}`
       : '',
@@ -1519,6 +1660,10 @@ export function generateDesignDoc(
       )
     }
   }
+  const semanticIntegrity = validateDesignDocSemantics(tokens, designEvidence, designProfile)
+  if (!semanticIntegrity.valid) {
+    throw new Error(`DESIGN.md semantic integrity failed: ${semanticIntegrity.errors.slice(0, 8).join('; ')}`)
+  }
   const docT = coreTranslator(language, 'export.designDoc')
   const documentUrl = sanitizeUrlForPersistence(url || designEvidence?.source.requestedUrl || '') || undefined
   const documentFeatureTags = (featureTags || designEvidence?.featureTags || []).filter(
@@ -1558,8 +1703,16 @@ export function generateDesignDoc(
     evidence: designEvidence,
     profile: designProfile,
   })
-  const publicColorEntries = designMdColorEntries(tokens)
-  const publicColorNames = new Map(publicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
+  const allPublicColorEntries = designMdColorEntries(tokens)
+  const publicColorEntries = allPublicColorEntries.filter(({ sourceName, value }) =>
+    isPortableColor(tokens, sourceName, value),
+  )
+  const colorCandidateEntries = exportColorCandidates(tokens)
+  const declaredColorEntries = colorCandidateEntries.filter((candidate) => candidate.kind === 'declared-only')
+  const observedColorCandidateEntries = colorCandidateEntries.filter(
+    (candidate) => candidate.kind === 'observed-unassigned',
+  )
+  const publicColorNames = new Map(allPublicColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
   const evidenceColorEntries = designMdColorEntries(evidenceTokens)
   const evidenceColorNames = new Map(evidenceColorEntries.map((entry) => [entry.sourceName, entry.publicName]))
   if (designProfile?.transferGrammar) {
@@ -1599,8 +1752,9 @@ export function generateDesignDoc(
     lines.push(docT('colors.groupHeader'))
     lines.push('|---|---|')
     for (const group of colorGroups) {
+      const omitted = group.omittedCount > 0 ? ` ${docT('colors.groupOmitted', { count: group.omittedCount })}` : ''
       lines.push(
-        `| ${docT(`colors.groups.${group.label}`)} | ${group.names.map((name) => `\`--color-${name}\``).join(', ')} |`,
+        `| ${docT(`colors.groups.${group.label}`)} | ${group.names.map((name) => `\`--color-${name}\``).join(', ')}${omitted} |`,
       )
     }
     lines.push('')
@@ -1622,14 +1776,19 @@ export function generateDesignDoc(
       'selectedColor',
       'linkColor',
     ].reduce((total, category) => total + usageForColor(tokens, category, value), 0)
+    const destructiveCount = ['destructiveActionBackgroundColor', 'destructiveActionForegroundColor'].reduce(
+      (total, category) => total + usageForColor(tokens, category, value),
+      0,
+    )
     const statusCount = ['statusBackgroundColor', 'statusForegroundColor', 'statusColor'].reduce(
       (total, category) => total + usageForColor(tokens, category, value),
       0,
     )
-    const renderedCount = Math.max(bgCount + textCount + borderCount, actionCount, statusCount)
+    const renderedCount = Math.max(bgCount + textCount + borderCount, actionCount, destructiveCount, statusCount)
     const declaredOnly = isDeclaredOnlyColor(tokens, value)
     const contexts = [
       actionCount > 0 ? docT('colors.contexts.action') : null,
+      destructiveCount > 0 ? docT('colors.contexts.destructive') : null,
       statusCount > 0 ? docT('colors.contexts.status') : null,
       bgCount > 0 ? docT('colors.contexts.background') : null,
       textCount > 0 ? docT('colors.contexts.text') : null,
@@ -1646,6 +1805,42 @@ export function generateDesignDoc(
     lines.push(
       `| \`--color-${publicName}\` | \`${value}\` | ${renderedCount > 0 ? `${renderedCount}× (${context})` : declaredOnly ? docT('colors.declaredOnly') : '-'} | ${confidence} |`,
     )
+  }
+
+  if (declaredColorEntries.length > 0) {
+    lines.push(docT('colors.declaredHeading'))
+    lines.push(docT('colors.declaredNote'))
+    lines.push(docT('colors.tokenHeader'))
+    lines.push('|-------|-------|-------|------------|')
+    for (const candidate of declaredColorEntries) {
+      const semanticConfidence = 'low'
+      lines.push(
+        `| \`--color-${candidate.publicName}\` | \`${candidate.value}\` | ${docT('colors.declaredOnly')} | ${docT(
+          'colors.declaredConfidence',
+          {
+            semantic: semanticConfidence,
+            measurement: candidate.measurementConfidence,
+            pages: docT(candidate.pageCount === 1 ? 'colors.pageCountOne' : 'colors.pageCountOther', {
+              count: candidate.pageCount || 0,
+            }),
+          },
+        )} |`,
+      )
+    }
+  }
+
+  if (observedColorCandidateEntries.length > 0) {
+    lines.push(docT('colors.observedCandidateHeading'))
+    lines.push(docT('colors.observedCandidateNote'))
+    lines.push(docT('colors.candidateHeader'))
+    lines.push('|-------|-------|-------------|-------|')
+    for (const candidate of observedColorCandidateEntries) {
+      lines.push(
+        `| \`--color-${candidate.publicName}\` | \`${candidate.value}\` | ${candidate.observationCount} | ${
+          candidate.pageCount || 0
+        } |`,
+      )
+    }
   }
 
   const primaryActionRole = tokens.colorRoles?.primaryAction
@@ -1711,6 +1906,14 @@ export function generateDesignDoc(
     })
   }
   lines.push(docT('typography.sizes', { values: tokens.typography.fontSizes.join(', ') }))
+  const roleSizeExceptions = semanticIntegrity.typographyRoleExceptions
+  if (roleSizeExceptions.length > 0) {
+    lines.push(docT('typography.roleExceptionsHeading'))
+    lines.push(docT('typography.roleExceptionsNote'))
+    roleSizeExceptions.forEach(({ role, values }) => {
+      lines.push(docT('typography.roleException', { role, values: values.map((value) => `\`${value}\``).join(', ') }))
+    })
+  }
   lines.push(docT('typography.weights', { values: tokens.typography.fontWeights.join(', ') }))
   if (tokens.typography.letterSpacings?.length > 0) {
     lines.push(docT('typography.letterSpacing', { values: tokens.typography.letterSpacings.join(', ') }))
@@ -1739,6 +1942,9 @@ export function generateDesignDoc(
   if (documentBreakpoints.length > 0) {
     lines.push(docT('layout.breakpointHeading'))
     lines.push(docT('layout.breakpointNote'))
+    if (designEvidence?.limitations.includes('breakpoint-stylesheets-unreadable')) {
+      lines.push(docT('layout.breakpointPartialNote'))
+    }
     lines.push(docT('layout.breakpointHeader'))
     lines.push('|-------|-------|-------|')
     documentBreakpoints.forEach((breakpoint) => {
@@ -1901,9 +2107,10 @@ export function generateDesignDoc(
   lines = sections.dosAndDonts
   lines.push(
     withoutCanonicalHeading(
-      generateDosAndDonts(tokens, language, documentComponents, {
+      generateDosAndDonts(evidenceTokens, language, documentComponents, {
         hasDeclaredBreakpoints: (designEvidence?.breakpoints.length || 0) > 0,
         hasObservedResponsiveBehavior: (designEvidence?.responsiveObservations.length || 0) > 0,
+        surfaceShadowScope: semanticIntegrity.surfaceShadowScope,
       }),
     ),
   )
@@ -1926,14 +2133,18 @@ export function generateDesignDoc(
     lines.push(generateDesignProfileMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence))
   }
 
-  if (tokens.evidence && Object.keys(tokens.evidence).length > 0) {
-    const evidenceValues = Object.values(tokens.evidence)
+  const portableEvidenceEntries = portableTokenEvidenceEntries(tokens)
+  if (portableEvidenceEntries.length > 0) {
+    const evidenceValues = portableEvidenceEntries.map(([, item]) => item)
     const confidenceCounts = evidenceValues.reduce(
-      (counts, item) => ({ ...counts, [item.confidence]: counts[item.confidence] + 1 }),
+      (counts, item) => {
+        const confidence = item.semanticConfidence || item.confidence
+        return { ...counts, [confidence]: counts[confidence] + 1 }
+      },
       { high: 0, medium: 0, low: 0 },
     )
-    const lowConfidence = Object.entries(tokens.evidence)
-      .filter(([, item]) => item.confidence === 'low')
+    const lowConfidence = portableEvidenceEntries
+      .filter(([, item]) => (item.semanticConfidence || item.confidence) === 'low')
       .map(([tokenPath, item]) => {
         const colorName = /^colors\.(.+)$/.exec(tokenPath)?.[1]
         const publicPath = colorName ? `colors.${publicColorNames.get(colorName) || colorName}` : tokenPath

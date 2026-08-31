@@ -174,6 +174,25 @@ test('extracts foreground and effective background as observed pairs', async () 
   await page.close()
 })
 
+test('counts real text metrics and distinct gap axes without computed-style aliases', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      body { margin:0; font:400 16px/24px system-ui; }
+      .grid { display:grid; gap:13px; }
+      code { font:inherit; padding:1.728px; }
+    </style>
+    <main><div class="grid"><div><span>One</span></div><div><span>Two</span></div></div>
+      <pre><code>const value = true</code></pre></main>`)
+
+  const styles = await extractStyles(page)
+
+  assert.equal(styles.usageCount['spacing:13px'], 1)
+  assert.equal(styles.usageCount['fontSize:16px'], 3)
+  assert.equal(styles.valueSourceCounts['spacing:1.728px']['element:specialized-spacing'], 4)
+  await page.close()
+})
+
 test('extracts the painted input wrapper and does not assume every root route is a landing page', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })

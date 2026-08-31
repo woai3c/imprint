@@ -444,6 +444,32 @@ function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<s
   return normalized
 }
 
+function selectFrequencyCoverage(
+  frequency: ReadonlyMap<string, number>,
+  candidates: readonly string[],
+  minimum: number,
+  limit: number,
+  targetCoverage: number,
+): string[] {
+  const entries = candidates
+    .map((value) => [value, frequency.get(value) || 0] as const)
+    .filter(([, count]) => count > 0)
+    .sort(
+      ([firstValue, firstCount], [secondValue, secondCount]) =>
+        secondCount - firstCount || firstValue.localeCompare(secondValue, 'en'),
+    )
+  const total = entries.reduce((sum, [, count]) => sum + count, 0)
+  const selected: string[] = []
+  let covered = 0
+  for (const [value, count] of entries) {
+    if (selected.length >= limit) break
+    if (selected.length >= minimum && total > 0 && covered / total >= targetCoverage) break
+    selected.push(value)
+    covered += count
+  }
+  return selected
+}
+
 function prioritizedTypographyValues(
   styles: ExtractedStyles,
   general: ReadonlyMap<string, number>,
@@ -451,10 +477,13 @@ function prioritizedTypographyValues(
   headingCategory: 'headingFontSize' | 'headingFontWeight',
   limit: number,
   normalize: (frequency: ReadonlyMap<string, number>) => ReadonlyMap<string, number> = (frequency) => frequency,
+  minimumGeneral = 2,
+  targetCoverage = 0.94,
 ): string[] {
   const display = sortByFrequency(normalize(frequencyForCategory(styles, displayCategory))).slice(0, 1)
   const headings = sortByFrequency(normalize(frequencyForCategory(styles, headingCategory))).slice(0, 3)
-  return [...display, ...headings, ...sortByFrequency(general)].filter(uniqueFilter()).slice(0, limit)
+  const frequent = selectFrequencyCoverage(general, sortByFrequency(general), minimumGeneral, limit, targetCoverage)
+  return [...display, ...headings, ...frequent].filter(uniqueFilter()).slice(0, limit)
 }
 
 function normalizedValueSources(styles: ExtractedStyles, category: 'spacing' | 'radius', value: string): Set<string> {
@@ -484,19 +513,47 @@ function normalizedValueSourceCounts(
   return counts
 }
 
+function normalizedUsageGroupCount(styles: ExtractedStyles, category: string, value: string): number {
+  const prefix = `${category}:`
+  let groups = 0
+  for (const [key, count] of Object.entries(styles.usageGroupCounts || {})) {
+    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
+    if (Number.isFinite(count) && count > 0) groups += count
+  }
+  return groups
+}
+
 function hasReusableSpacingScope(styles: ExtractedStyles, value: string): boolean {
   const counts = normalizedValueSourceCounts(styles, 'spacing', value)
   if (counts.size === 0) {
     const sources = normalizedValueSources(styles, 'spacing', value)
-    return sources.size === 0 || [...sources].some((source) => source !== 'element:control-spacing')
+    return (
+      sources.size === 0 ||
+      [...sources].some((source) => !['element:control-spacing', 'element:specialized-spacing'].includes(source))
+    )
   }
   const control = counts.get('element:control-spacing') || 0
+  const specialized = counts.get('element:specialized-spacing') || 0
+  const structural = counts.get('element:structural-spacing') || 0
   const reusable = [...counts.entries()].reduce(
-    (total, [source, count]) => total + (source === 'element:control-spacing' ? 0 : count),
+    (total, [source, count]) =>
+      total + (['element:control-spacing', 'element:specialized-spacing'].includes(source) ? 0 : count),
     0,
   )
-  if (control === 0) return reusable > 0
-  return reusable >= 2 && reusable / (control + reusable) >= 0.25
+  const local = control + specialized
+  if (styles.usageGroupCounts && Number.parseFloat(value) < 2) {
+    const groupCount = normalizedUsageGroupCount(styles, 'spacing', value)
+    return groupCount >= 2 && structural >= 2 && structural / Math.max(reusable + local, 1) >= 0.25
+  }
+  if (local === 0) return reusable > 0
+  return reusable >= 2 && reusable / (local + reusable) >= 0.25
+}
+
+function hasStrongCrossPageStructuralSpacing(styles: ExtractedStyles, value: string): boolean {
+  if (!styles.usageGroupCounts) return false
+  const counts = normalizedValueSourceCounts(styles, 'spacing', value)
+  const structural = counts.get('element:structural-spacing') || 0
+  return structural >= 2 && normalizedUsageGroupCount(styles, 'spacing', value) >= 2
 }
 
 function hasReusableRadiusScope(styles: ExtractedStyles, value: string): boolean {
@@ -513,6 +570,30 @@ function hasReusableRadiusScope(styles: ExtractedStyles, value: string): boolean
 
 function isScalarLength(value: string): boolean {
   return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em)$/i.test(value.trim())
+}
+
+function isStableFoundationSpacing(value: string): boolean {
+  const match = value.trim().match(/^(\d*\.?\d+)(px|rem|em)$/i)
+  if (!match) return false
+  if (match[2].toLowerCase() !== 'px') return true
+  const amount = Number.parseFloat(match[1])
+  return Number.isFinite(amount) && Math.abs(amount * 2 - Math.round(amount * 2)) <= 0.01
+}
+
+function inferredSpacingRhythm(values: readonly string[]): string[] {
+  const numeric = values.flatMap((value) => {
+    const match = value.match(/^(\d*\.?\d+)px$/i)
+    return match ? [[value, Number.parseFloat(match[1])] as const] : []
+  })
+  let best: { step: number; values: string[] } | undefined
+  for (const step of [8, 6, 5, 4, 3, 2]) {
+    const aligned = numeric.filter(([, amount]) => Math.abs(amount / step - Math.round(amount / step)) <= 0.01)
+    if (aligned.length >= 4 && aligned.length / Math.max(numeric.length, 1) >= 0.45) {
+      const alignedValues = aligned.map(([value]) => value)
+      if (!best || alignedValues.length > best.values.length) best = { step, values: alignedValues }
+    }
+  }
+  return best?.values || []
 }
 
 export function normalizeDesignTokenUsageCount(usageCount: Readonly<Record<string, number>>): Record<string, number> {
@@ -695,7 +776,16 @@ export function buildDesignTokens(
   // reusable scale so one intended size cannot become two tokens.
   const fontSizeFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'fontSize', styles.fontSizes))
   const sortedFontSizes = numericSort(
-    prioritizedTypographyValues(styles, fontSizeFreq, 'displayFontSize', 'headingFontSize', 8, normalizeLengthFrequency)
+    prioritizedTypographyValues(
+      styles,
+      fontSizeFreq,
+      'displayFontSize',
+      'headingFontSize',
+      8,
+      normalizeLengthFrequency,
+      3,
+      0.92,
+    )
       .map(pxToRem)
       .filter(uniqueFilter()),
   )
@@ -708,18 +798,29 @@ export function buildDesignTokens(
   const pairedLineHeights = pairedLineHeightFrequency(styles)
   const lineHeightFreq =
     pairedLineHeights.size > 0 ? pairedLineHeights : frequencyForCategory(styles, 'lineHeight', styles.lineHeights)
-  const sortedLineHeights = numericSort(sortByFrequency(lineHeightFreq).filter(uniqueFilter()).slice(0, 5))
+  const sortedLineHeights = numericSort(
+    selectFrequencyCoverage(lineHeightFreq, sortByFrequency(lineHeightFreq), 2, 5, 0.94).filter(uniqueFilter()),
+  )
 
   // Spacing - extract unique values, sort numerically
   const spacingFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'spacing', styles.spacings))
-  const spacings = sortByFrequency(spacingFreq)
+  const reusableSpacingCandidates = sortByFrequency(spacingFreq)
     .filter((v) => {
       if (!isScalarLength(v)) return false
       const num = parseFloat(v)
       return !isNaN(num) && num > 0 && num <= 96
     })
     .filter((value) => hasReusableSpacingScope(styles, value))
+    .filter((value) => isStableFoundationSpacing(value) || hasStrongCrossPageStructuralSpacing(styles, value))
     .filter(uniqueFilter())
+  const coveredSpacings = selectFrequencyCoverage(spacingFreq, reusableSpacingCandidates, 4, 12, 0.9)
+  const spacings = [
+    ...coveredSpacings,
+    ...inferredSpacingRhythm(reusableSpacingCandidates),
+    ...reusableSpacingCandidates.filter((value) => hasStrongCrossPageStructuralSpacing(styles, value)),
+  ]
+    .filter(uniqueFilter())
+    .sort((first, second) => (spacingFreq.get(second) || 0) - (spacingFreq.get(first) || 0))
     .slice(0, 12)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 

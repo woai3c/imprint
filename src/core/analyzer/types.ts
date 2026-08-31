@@ -133,6 +133,8 @@ export interface ExtractedStyles {
   zIndices: string[]
   transitions: string[]
   usageCount: Record<string, number>
+  /** Number of distinct normalized URL groups that observed each usage key during token selection. */
+  usageGroupCounts?: Record<string, number>
   valueSources?: Record<string, string[]>
   /** Per-value source frequencies retained for scope-aware token promotion. */
   valueSourceCounts?: Record<string, Record<string, number>>

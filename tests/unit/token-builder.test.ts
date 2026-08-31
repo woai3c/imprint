@@ -104,6 +104,93 @@ describe('design token builder', () => {
     expect(result.radii).toEqual(['8px'])
   })
 
+  test('keeps specialized and single-page subpixel spacing out of the foundation scale', () => {
+    const styles = createExtractedStyles({
+      spacings: ['1px', '1.728px', '8px', '16px'],
+      usageCount: {
+        'spacing:1px': 20,
+        'spacing:1.728px': 170,
+        'spacing:8px': 80,
+        'spacing:16px': 30,
+      },
+      usageGroupCounts: {
+        'spacing:1px': 1,
+        'spacing:1.728px': 1,
+        'spacing:8px': 3,
+        'spacing:16px': 2,
+      },
+      valueSourceCounts: {
+        'spacing:1px': { 'element:structural-spacing': 20 },
+        'spacing:1.728px': { 'element:specialized-spacing': 170 },
+        'spacing:8px': { 'element:content-spacing': 80 },
+        'spacing:16px': { 'element:structural-spacing': 30 },
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['8px', '16px'])
+  })
+
+  test('stops typography scales after the observed frequency coverage is represented', () => {
+    const styles = createExtractedStyles({
+      fontSizes: ['12px', '13px', '14px', '15px', '16px', '17px', '18px'],
+      lineHeights: ['18px', '20px', '24px', '30px', '40px'],
+      usageCount: {
+        'fontSize:16px': 100,
+        'fontSize:14px': 30,
+        'fontSize:12px': 10,
+        'fontSize:13px': 1,
+        'fontSize:15px': 1,
+        'fontSize:17px': 1,
+        'fontSize:18px': 1,
+        'lineHeight:24px': 100,
+        'lineHeight:20px': 30,
+        'lineHeight:18px': 1,
+        'lineHeight:30px': 1,
+        'lineHeight:40px': 1,
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.typography.fontSizes).toEqual(['0.75rem', '0.875rem', '1rem'])
+    expect(result.typography.lineHeights).toEqual(['20px', '24px'])
+  })
+
+  test('retains an observed spacing rhythm without promoting computed fractional tails', () => {
+    const styles = createExtractedStyles({
+      spacings: ['6px', '8.5px', '11.2px', '12px', '16px', '20px', '21.177px', '24px', '32px'],
+      usageCount: {
+        'spacing:6px': 80,
+        'spacing:8.5px': 70,
+        'spacing:11.2px': 65,
+        'spacing:12px': 60,
+        'spacing:16px': 50,
+        'spacing:20px': 4,
+        'spacing:21.177px': 45,
+        'spacing:24px': 3,
+        'spacing:32px': 2,
+      },
+      usageGroupCounts: Object.fromEntries(
+        ['6px', '8.5px', '11.2px', '12px', '16px', '20px', '21.177px', '24px', '32px'].map((value) => [
+          `spacing:${value}`,
+          1,
+        ]),
+      ),
+      valueSourceCounts: Object.fromEntries(
+        ['6px', '8.5px', '11.2px', '12px', '16px', '20px', '21.177px', '24px', '32px'].map((value) => [
+          `spacing:${value}`,
+          { 'element:content-spacing': 10 },
+        ]),
+      ),
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['6px', '8.5px', '12px', '16px', '20px', '24px', '32px'])
+  })
+
   test('omits transparent and zero-geometry shadows from the reusable shadow scale', () => {
     const visibleShadow = '0 8px 24px rgb(0 0 0 / 18%)'
     const transparentShadow = '0 8px 24px rgb(0 0 0 / 0%)'

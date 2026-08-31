@@ -49,6 +49,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     zIndices: [],
     transitions: [],
     usageCount: {},
+    usageGroupCounts: {},
     valueSources: {},
     valueSourceCounts: {},
     colorRoleObservations: [],
@@ -62,6 +63,9 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     Object.assign(merged.cssVariables, styles.cssVariables)
     for (const [key, count] of Object.entries(styles.usageCount)) {
       merged.usageCount[key] = (merged.usageCount[key] || 0) + count
+    }
+    for (const [key, count] of Object.entries(styles.usageGroupCounts || {})) {
+      merged.usageGroupCounts![key] = (merged.usageGroupCounts![key] || 0) + count
     }
     for (const [key, sources] of Object.entries(styles.valueSources || {})) {
       merged.valueSources![key] = [...new Set([...(merged.valueSources![key] || []), ...sources])]
@@ -119,6 +123,7 @@ export function mergeStylesWithNormalizedUsage(
 ): ExtractedStyles {
   const merged = mergeStyles(stylesList)
   const normalizedUsage: Record<string, number> = {}
+  const usageGroupCounts: Record<string, number> = {}
   const groupedUsage = new Map<string, Map<string, number>>()
   const groupedCategoryCounts = new Map<string, number>()
 
@@ -155,6 +160,7 @@ export function mergeStylesWithNormalizedUsage(
       const category = key.slice(0, separator)
       const divisor = groupedCategoryCounts.get(`${groupKey}\u0000${category}`) || 1
       normalizedUsage[key] = (normalizedUsage[key] || 0) + count / divisor
+      usageGroupCounts[key] = (usageGroupCounts[key] || 0) + 1
     }
   }
 
@@ -162,6 +168,9 @@ export function mergeStylesWithNormalizedUsage(
     ...merged,
     usageCount: Object.fromEntries(
       Object.entries(normalizedUsage).sort(([first], [second]) => first.localeCompare(second)),
+    ),
+    usageGroupCounts: Object.fromEntries(
+      Object.entries(usageGroupCounts).sort(([first], [second]) => first.localeCompare(second)),
     ),
   }
 }

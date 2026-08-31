@@ -427,14 +427,15 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const structuralRoot = el.matches(
         'body, main, section, article, header, footer, nav, aside, [role="main"], [role="region"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]',
       )
+      const headingOwner = el.matches('h1, h2, h3, h4, h5, h6, [role="heading"]')
+        ? el
+        : el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]')
       const semanticTextRole =
-        (el.textContent || '').trim().length === 0
+        (el.textContent || '').trim().length === 0 || !headingOwner
           ? null
-          : el.matches('h1, [role="heading"][aria-level="1"]')
+          : headingOwner.matches('h1, [role="heading"][aria-level="1"]')
             ? 'display'
-            : el.matches('h2, h3, h4, h5, h6, [role="heading"]')
-              ? 'heading'
-              : null
+            : 'heading'
       const roleCandidate = roleCandidateFor(el, computed, rect)
       const linkRoot = el.matches('a, [role="link"]')
       const selectedRoot = el.matches('[aria-current], [aria-selected="true"], [data-state="active"]')
@@ -633,7 +634,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Font sizes
       const fontSize = computed.fontSize
-      if (fontSize) {
+      if (fontSize && hasDirectText) {
         styles.fontSizes.push(fontSize)
         countUsage('fontSize', fontSize)
         if (semanticTextRole) countUsage(`${semanticTextRole}FontSize`, fontSize)
@@ -641,7 +642,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Font weights
       const fontWeight = computed.fontWeight
-      if (fontWeight) {
+      if (fontWeight && hasDirectText) {
         styles.fontWeights.push(fontWeight)
         countUsage('fontWeight', fontWeight)
         if (semanticTextRole) countUsage(`${semanticTextRole}FontWeight`, fontWeight)
@@ -649,7 +650,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Line heights
       const lineHeight = computed.lineHeight
-      if (lineHeight && lineHeight !== 'normal') {
+      if (hasDirectText && lineHeight && lineHeight !== 'normal') {
         styles.lineHeights.push(lineHeight)
         countUsage('lineHeight', lineHeight)
         if (fontSize) countUsage('typeMetric', `${fontSize}|${lineHeight}`)
@@ -657,7 +658,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Letter spacing
       const letterSpacing = computed.letterSpacing
-      if (letterSpacing && letterSpacing !== 'normal' && letterSpacing !== '0px') {
+      if (hasDirectText && letterSpacing && letterSpacing !== 'normal' && letterSpacing !== '0px') {
         styles.letterSpacings.push(letterSpacing)
         countUsage('letterSpacing', letterSpacing)
       }
@@ -681,7 +682,21 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         }
       }
 
-      // Spacing (margin and padding)
+      // Spacing (margin and padding). `gap` is a shorthand alias of row/column gap in computed styles, so count each
+      // distinct axis value once per element instead of counting the same authored decision up to three times.
+      const spacingSource = interactive
+        ? 'element:control-spacing'
+        : el.closest('pre, code, kbd, samp, math, [role="code"]')
+          ? 'element:specialized-spacing'
+          : structuralRoot
+            ? 'element:structural-spacing'
+            : 'element:content-spacing'
+      const recordSpacing = (value: string) => {
+        if (!value || value === '0px' || value === 'auto' || value === 'normal') return
+        styles.spacings.push(value)
+        countUsage('spacing', value)
+        addValueSource('spacing', value, spacingSource)
+      }
       for (const prop of [
         'marginTop',
         'marginBottom',
@@ -691,25 +706,10 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         'paddingBottom',
         'paddingLeft',
         'paddingRight',
-        'gap',
-        'rowGap',
-        'columnGap',
       ] as const) {
-        const val = computed[prop as keyof CSSStyleDeclaration] as string
-        if (val && val !== '0px' && val !== 'auto' && val !== 'normal') {
-          styles.spacings.push(val)
-          countUsage('spacing', val)
-          addValueSource(
-            'spacing',
-            val,
-            interactive
-              ? 'element:control-spacing'
-              : structuralRoot
-                ? 'element:structural-spacing'
-                : 'element:content-spacing',
-          )
-        }
+        recordSpacing(computed[prop as keyof CSSStyleDeclaration] as string)
       }
+      for (const gap of new Set([computed.rowGap, computed.columnGap])) recordSpacing(gap)
 
       // Border radius
       const radiusCorners = [

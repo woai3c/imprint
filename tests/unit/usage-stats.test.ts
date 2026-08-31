@@ -132,5 +132,10 @@ describe('usage statistics', () => {
     expect(merged.usageCount['radius:4px']).toBeCloseTo(0.9)
     expect(merged.usageCount['radius:8px']).toBeCloseTo(0.1)
     expect(merged.usageCount['radius:12px']).toBeCloseTo(1)
+    expect(merged.usageGroupCounts).toEqual({
+      'radius:12px': 1,
+      'radius:4px': 1,
+      'radius:8px': 1,
+    })
   })
 })

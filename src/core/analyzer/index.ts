@@ -41,7 +41,12 @@ import {
   mergeMotionTokens,
   mergeResponsiveBreakpoints,
 } from './responsive-motion.js'
-import { captureValidatedOverview, inspectPngDimensions, recordScreenshotDimensionIssue } from './screenshot-capture.js'
+import {
+  SCREENSHOT_CAPTURE_TIMEOUT_MS,
+  captureValidatedOverview,
+  captureValidatedViewport,
+  recordScreenshotDimensionIssue,
+} from './screenshot-capture.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
 import { mergeStyles } from './style-merge.js'
 import type { TokenEvidenceCapture } from './token-evidence.js'
@@ -381,6 +386,30 @@ async function switchManagedRuntimeToHeadless(
 
 function mergeInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
   mergeInteractionStylePatterns(target, source)
+}
+
+function retainAvailableScreenshot(
+  screenshots: string[],
+  pageScreenshots: PageScreenshot[],
+  overview: PageScreenshot,
+  supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']>,
+): void {
+  if (overview.valid !== false) {
+    screenshots.push(overview.path)
+    pageScreenshots.push(overview)
+    return
+  }
+  const viewport = supplementalImages.find((image) => image.kind === 'viewport-crop' && image.valid !== false)
+  if (!viewport) return
+  screenshots.push(viewport.path)
+  pageScreenshots.push({
+    url: overview.url,
+    path: viewport.path,
+    viewport: overview.viewport,
+    width: viewport.width,
+    height: viewport.height,
+    valid: true,
+  })
 }
 
 function extractionReason(error: unknown): string {
@@ -877,20 +906,24 @@ export async function analyze(
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
       if (i === 0 || vpName !== 'desktop') {
         const viewportPath = analysisAssetPath(`page-1-${vpName}-viewport`)
-        await measure('screenshotCaptureMs', () => page.screenshot({ path: viewportPath, fullPage: false }))
-        const viewportValid = recordScreenshotDimensionIssue(
-          extractionIssues,
-          `${stagePrefix}:screenshot:viewport`,
-          viewportPath,
-          viewport.width,
-          viewport.height,
+        const viewportCapture = await measure('screenshotCaptureMs', () =>
+          captureValidatedViewport(page, viewportPath, viewport.width, viewport.height),
         )
+        if (!viewportCapture.valid) {
+          recordScreenshotDimensionIssue(
+            extractionIssues,
+            `${stagePrefix}:screenshot:viewport`,
+            viewportPath,
+            viewport.width,
+            viewport.height,
+          )
+        }
         supplementalImages.push({
           kind: 'viewport-crop',
           path: viewportPath,
-          width: viewport.width,
-          height: viewport.height,
-          valid: viewportValid,
+          width: viewportCapture.dimensions?.width || viewport.width,
+          height: viewportCapture.dimensions?.height || viewport.height,
+          valid: viewportCapture.valid,
           sourceRect: {
             x: 0,
             y: 0,
@@ -944,7 +977,9 @@ export async function analyze(
           }
           const regionPath = analysisAssetPath(`page-1-${vpName}-region-${sectionIndex + 1}`)
           try {
-            await measure('screenshotCaptureMs', () => page.screenshot({ path: regionPath, clip }))
+            await measure('screenshotCaptureMs', () =>
+              page.screenshot({ path: regionPath, clip, timeout: SCREENSHOT_CAPTURE_TIMEOUT_MS }),
+            )
             const regionValid = recordScreenshotDimensionIssue(
               extractionIssues,
               `${stagePrefix}:screenshot:region`,
@@ -980,7 +1015,6 @@ export async function analyze(
           evidenceSnapshot.height,
         )
       }
-      screenshots.push(screenshotPath)
       const pageScreenshot = {
         url: page.url(),
         path: screenshotPath,
@@ -996,7 +1030,7 @@ export async function analyze(
           () => observeSafeInteractions(page, evidenceSnapshot, 4, 6_000),
         )
       }
-      pageScreenshots.push(pageScreenshot)
+      retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
       capturedPageEvidence.push({
         screenshot: pageScreenshot,
         snapshot: evidenceSnapshot,
@@ -1224,14 +1258,33 @@ export async function analyze(
           runState.addTiming('extractionMs', Date.now() - extractionStartedAt)
           let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
           const viewportPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}-viewport`)
-          await measure('screenshotCaptureMs', () => subPage.screenshot({ path: viewportPath, fullPage: false }))
-          const viewportValid = recordScreenshotDimensionIssue(
-            extractionIssues,
-            `${stagePrefix}:screenshot:viewport`,
-            viewportPath,
-            mainViewport.width,
-            mainViewport.height,
+          const viewportCapture = await measure('screenshotCaptureMs', () =>
+            captureValidatedViewport(subPage, viewportPath, mainViewport.width, mainViewport.height),
           )
+          if (!viewportCapture.valid) {
+            recordScreenshotDimensionIssue(
+              extractionIssues,
+              `${stagePrefix}:screenshot:viewport`,
+              viewportPath,
+              mainViewport.width,
+              mainViewport.height,
+            )
+          }
+          const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = [
+            {
+              kind: 'viewport-crop',
+              path: viewportPath,
+              width: viewportCapture.dimensions?.width || mainViewport.width,
+              height: viewportCapture.dimensions?.height || mainViewport.height,
+              valid: viewportCapture.valid,
+              sourceRect: {
+                x: 0,
+                y: 0,
+                width: Math.min(1, mainViewport.width / evidenceSnapshot.width),
+                height: Math.min(1, mainViewport.height / evidenceSnapshot.height),
+              },
+            },
+          ]
           const overviewCapture = await measure('screenshotCaptureMs', () =>
             captureValidatedOverview(subPage, screenshotPath, evidenceSnapshot.width, evidenceSnapshot.height),
           )
@@ -1244,7 +1297,6 @@ export async function analyze(
               evidenceSnapshot.height,
             )
           }
-          screenshots.push(screenshotPath)
           const pageScreenshot = {
             url: subPage.url(),
             path: screenshotPath,
@@ -1260,28 +1312,14 @@ export async function analyze(
               () => observeSafeInteractions(subPage, evidenceSnapshot, 4, 6_000),
             )
           }
-          pageScreenshots.push(pageScreenshot)
+          retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
           capturedPageEvidence.push({
             screenshot: pageScreenshot,
             snapshot: evidenceSnapshot,
             interactionStyles: pageInteractionStyles,
             interactionObservations,
             health,
-            supplementalImages: [
-              {
-                kind: 'viewport-crop',
-                path: viewportPath,
-                width: mainViewport.width,
-                height: mainViewport.height,
-                valid: viewportValid,
-                sourceRect: {
-                  x: 0,
-                  y: 0,
-                  width: Math.min(1, mainViewport.width / evidenceSnapshot.width),
-                  height: Math.min(1, mainViewport.height / evidenceSnapshot.height),
-                },
-              },
-            ],
+            supplementalImages,
           })
           successfulSubPageCount += 1
           markPageReady(subPage.url())
@@ -1380,13 +1418,15 @@ export async function analyze(
               runState.addTiming('extractionMs', Date.now() - mobileExtractionStartedAt)
               const mobileOverviewPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive`)
               const mobileViewportPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive-viewport`)
-              await measure('screenshotCaptureMs', () =>
+              const mobileViewportCapture = await measure('screenshotCaptureMs', () =>
                 runWithinDeadline(adaptiveDeadline, () =>
-                  subPage.screenshot({
-                    path: mobileViewportPath,
-                    fullPage: false,
-                    timeout: Math.max(1, adaptiveDeadline - Date.now()),
-                  }),
+                  captureValidatedViewport(
+                    subPage,
+                    mobileViewportPath,
+                    VIEWPORTS.mobile.width,
+                    VIEWPORTS.mobile.height,
+                    Math.max(1, adaptiveDeadline - Date.now()),
+                  ),
                 ),
               )
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
@@ -1405,13 +1445,15 @@ export async function analyze(
                   ),
                 ),
               )
-              const mobileViewportValid = recordScreenshotDimensionIssue(
-                extractionIssues,
-                `${mobileStagePrefix}:screenshot:viewport`,
-                mobileViewportPath,
-                VIEWPORTS.mobile.width,
-                VIEWPORTS.mobile.height,
-              )
+              if (!mobileViewportCapture.valid) {
+                recordScreenshotDimensionIssue(
+                  extractionIssues,
+                  `${mobileStagePrefix}:screenshot:viewport`,
+                  mobileViewportPath,
+                  VIEWPORTS.mobile.width,
+                  VIEWPORTS.mobile.height,
+                )
+              }
               if (!mobileOverviewCapture.valid) {
                 recordScreenshotDimensionIssue(
                   extractionIssues,
@@ -1421,36 +1463,35 @@ export async function analyze(
                   mobileSnapshot.height,
                 )
               }
-              const screenshotDimensions = inspectPngDimensions(mobileOverviewPath)
               const mobilePageScreenshot = {
                 url: subPage.url(),
                 path: mobileOverviewPath,
                 viewport: 'mobile',
-                ...(screenshotDimensions || {}),
+                ...(mobileOverviewCapture.dimensions || {}),
                 valid: mobileOverviewCapture.valid,
               }
-              screenshots.push(mobileOverviewPath)
-              pageScreenshots.push(mobilePageScreenshot)
+              const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = [
+                {
+                  kind: 'viewport-crop',
+                  path: mobileViewportPath,
+                  width: mobileViewportCapture.dimensions?.width || VIEWPORTS.mobile.width,
+                  height: mobileViewportCapture.dimensions?.height || VIEWPORTS.mobile.height,
+                  valid: mobileViewportCapture.valid,
+                  sourceRect: {
+                    x: 0,
+                    y: 0,
+                    width: Math.min(1, VIEWPORTS.mobile.width / mobileSnapshot.width),
+                    height: Math.min(1, VIEWPORTS.mobile.height / mobileSnapshot.height),
+                  },
+                },
+              ]
+              retainAvailableScreenshot(screenshots, pageScreenshots, mobilePageScreenshot, supplementalImages)
               capturedPageEvidence.push({
                 screenshot: mobilePageScreenshot,
                 snapshot: mobileSnapshot,
                 interactionStyles: { hover: [], focus: [], active: [], disabled: [] },
                 health: mobileHealth,
-                supplementalImages: [
-                  {
-                    kind: 'viewport-crop',
-                    path: mobileViewportPath,
-                    width: VIEWPORTS.mobile.width,
-                    height: VIEWPORTS.mobile.height,
-                    valid: mobileViewportValid,
-                    sourceRect: {
-                      x: 0,
-                      y: 0,
-                      width: Math.min(1, VIEWPORTS.mobile.width / mobileSnapshot.width),
-                      height: Math.min(1, VIEWPORTS.mobile.height / mobileSnapshot.height),
-                    },
-                  },
-                ],
+                supplementalImages,
               })
               adaptiveMobileCaptured = true
               adaptiveHealthIssueStartIndex = undefined

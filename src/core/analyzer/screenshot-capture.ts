@@ -4,6 +4,13 @@ import type { BrowserContext, Page } from 'playwright-core'
 
 import type { ExtractionIssue } from './types.js'
 
+export const SCREENSHOT_CAPTURE_TIMEOUT_MS = 10_000
+
+export interface ScreenshotCaptureResult {
+  dimensions: { width: number; height: number } | null
+  valid: boolean
+}
+
 export function inspectPngDimensions(filePath: string): { width: number; height: number } | null {
   try {
     const header = Buffer.alloc(24)
@@ -84,13 +91,22 @@ export async function captureValidatedOverview(
   expectedHeight: number,
   timeout?: number,
   preferExactClip = false,
-): Promise<{ dimensions: { width: number; height: number } | null; valid: boolean }> {
+): Promise<ScreenshotCaptureResult> {
   if (preferExactClip && (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight))) {
     const dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
     if (dimensions) return { dimensions, valid: true }
   }
 
-  await page.screenshot({ path: filePath, fullPage: true, ...(timeout ? { timeout } : {}) })
+  try {
+    await page.screenshot({
+      path: filePath,
+      fullPage: true,
+      timeout: timeout ?? SCREENSHOT_CAPTURE_TIMEOUT_MS,
+    })
+  } catch {
+    // Playwright waits for web fonts before taking a screenshot. A stalled font must not discard otherwise usable
+    // DOM and computed-style evidence; the Chromium and clip fallbacks below do not depend on that wait.
+  }
   let dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
   if (dimensions) return { dimensions, valid: true }
   const initialDimensions = inspectPngDimensions(filePath)
@@ -109,11 +125,36 @@ export async function captureValidatedOverview(
     await page.screenshot({
       path: filePath,
       clip: { x: 0, y: 0, width: expectedWidth, height: expectedHeight },
-      ...(timeout ? { timeout } : {}),
+      timeout: timeout ?? SCREENSHOT_CAPTURE_TIMEOUT_MS,
     })
   } catch {
     return { dimensions: inspectPngDimensions(filePath) || initialDimensions, valid: false }
   }
   dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+  return { dimensions: dimensions || inspectPngDimensions(filePath), valid: Boolean(dimensions) }
+}
+
+export async function captureValidatedViewport(
+  page: Page,
+  filePath: string,
+  expectedWidth: number,
+  expectedHeight: number,
+  timeout?: number,
+): Promise<ScreenshotCaptureResult> {
+  if (await captureBeyondViewportClip(page, filePath, expectedWidth, expectedHeight)) {
+    const dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
+    if (dimensions) return { dimensions, valid: true }
+  }
+
+  try {
+    await page.screenshot({
+      path: filePath,
+      fullPage: false,
+      timeout: timeout ?? SCREENSHOT_CAPTURE_TIMEOUT_MS,
+    })
+  } catch {
+    return { dimensions: inspectPngDimensions(filePath), valid: false }
+  }
+  const dimensions = screenshotDimensionsMatch(filePath, expectedWidth, expectedHeight)
   return { dimensions: dimensions || inspectPngDimensions(filePath), valid: Boolean(dimensions) }
 }

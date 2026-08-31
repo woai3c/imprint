@@ -69,6 +69,55 @@ describe('token evidence', () => {
     })
   })
 
+  test('counts the structural border alias once when it describes the same computed border', () => {
+    const borderTokens: DesignToken = { ...tokens, colors: { border: '#b5bac2' } }
+    const styles = createExtractedStyles({
+      usageCount: {
+        'borderColor:rgb(181, 186, 194)': 1,
+        'structuralBorderColor:rgb(181, 186, 194)': 1,
+      },
+      valueSources: {
+        'borderColor:rgb(181, 186, 194)': ['computed:border'],
+        'structuralBorderColor:rgb(181, 186, 194)': ['element:structure'],
+      },
+    })
+
+    const evidence = buildTokenEvidence(borderTokens, [{ url: 'https://example.com/', viewport: 'desktop', styles }])
+
+    expect(evidence['colors.border']).toMatchObject({ observationCount: 1, confidence: 'low' })
+  })
+
+  test('separates declaration measurement confidence from semantic reuse confidence', () => {
+    const declaredTokens: DesignToken = { ...tokens, colors: { 'palette-1': '#7c3aed' } }
+    const declaredStyles = createExtractedStyles({
+      usageCount: {
+        'declaredColor:rgb(124, 58, 237)': 1,
+        'brandTokenColor:rgb(124, 58, 237)': 1,
+      },
+      valueSources: {
+        'declaredColor:rgb(124, 58, 237)': ['css-variable:--brand-primary'],
+        'brandTokenColor:rgb(124, 58, 237)': ['css-variable:--brand-primary'],
+      },
+    })
+
+    const evidence = buildTokenEvidence(declaredTokens, [
+      { url: 'https://example.com/', viewport: 'desktop', styles: declaredStyles },
+      { url: 'https://example.com/about', viewport: 'desktop', styles: declaredStyles },
+      { url: 'https://example.com/docs', viewport: 'desktop', styles: declaredStyles },
+    ])
+
+    expect(evidence['colors.palette-1']).toMatchObject({
+      confidence: 'low',
+      measurementConfidence: 'high',
+      semanticConfidence: 'low',
+      reuseScope: 'declared-only',
+      eligiblePageCount: 3,
+      pageSupportRatio: 1,
+    })
+    expect(evidence['colors.palette-1'].reasons).toContain('declared-only')
+    expect(evidence['colors.palette-1'].reasons).not.toContain('computed-style')
+  })
+
   test('preserves token evidence in structured and human-readable exports', () => {
     const evidence = buildTokenEvidence(tokens, [
       { url: 'https://example.com/?session=secret', viewport: 'desktop', styles: observedStyles() },
@@ -122,12 +171,14 @@ describe('token evidence', () => {
         'bgColor:#64748b': 3,
       },
     })
-    const dominantRoles = designDoc.split('### Complete Color Tokens')[0]
+    const dominantRoles = designDoc.split('### Core Portable Color Tokens')[0]
 
     expect(dominantRoles).toMatch(/\| Surface\/background \|[^\n]*`--color-surface`[^\n]*\|/)
-    expect(dominantRoles).toContain('| Decorative | `--color-observed-64748b` |')
+    expect(dominantRoles).not.toContain('`--color-observed-64748b`')
     expect(dominantRoles).toContain('| Status/delta | `--color-danger` |')
     expect(dominantRoles).toContain('| Border | `--color-border-subtle` |')
     expect(dominantRoles).not.toContain('| Action/accent | `--color-surface`')
+    expect(designDoc).toContain('Observed Unassigned Colors (Evidence Appendix)')
+    expect(designDoc).toContain('| `--color-observed-64748b` | `#64748b` | 3 |')
   })
 })

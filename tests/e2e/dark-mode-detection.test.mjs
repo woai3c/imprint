@@ -5,8 +5,12 @@ import { chromium } from 'playwright-core'
 
 import { findHeadlessBrowser } from '../../dist/core/analyzer/browser-finder.js'
 import { extractDarkMode } from '../../dist/core/analyzer/dark-mode-detect.js'
-import { detectBreakpoints, selectRepresentativeBreakpointWidths } from '../../dist/core/analyzer/responsive-motion.js'
-import { extractStyles } from '../../dist/core/analyzer/style-extractor.js'
+import {
+  detectBreakpoints,
+  detectBreakpointsWithCoverage,
+  selectRepresentativeBreakpointWidths,
+} from '../../dist/core/analyzer/responsive-motion.js'
+import { extractInteractionStyles, extractStyles } from '../../dist/core/analyzer/style-extractor.js'
 
 let browser
 let context
@@ -96,6 +100,58 @@ test('does not report ordinary element minimum widths as responsive breakpoints'
     <main><section class="grid-shell">Fixed component constraints</section></main>`)
 
   assert.deepEqual(await detectBreakpoints(page), [])
+})
+
+test('reports readable stylesheet coverage for breakpoint discovery', async () => {
+  await page.setContent(`<!doctype html>
+    <style>@media (min-width: 48rem) { main { display: grid; } }</style>
+    <main>CSSOM coverage fixture</main>`)
+
+  const detection = await detectBreakpointsWithCoverage(page)
+
+  assert.deepEqual(detection.breakpoints, [{ width: 768, label: 'tablet-sm', layoutChanges: [] }])
+  assert.equal(detection.readableStylesheetCount, 1)
+  assert.equal(detection.unreadableStylesheetCount, 0)
+})
+
+test('keeps only interaction declarations applicable to the current DOM and media state', async () => {
+  await page.setContent(`<!doctype html>
+    <style>
+      .present:hover, .missing:hover { color: rgb(0, 128, 0); }
+      .missing-only:hover { background-color: rgb(255, 0, 0); }
+      @media (min-width: 1200px) { .present:hover { background-color: rgb(255, 255, 0); } }
+    </style>
+    <button class="present">Applicable control</button>`)
+
+  const interactions = await extractInteractionStyles(page)
+  const declarations = interactions.hover.filter((observation) => observation.source === 'declared-applicable')
+
+  assert.ok(declarations.some((observation) => observation.selector === '.present:hover'))
+  assert.ok(declarations.every((observation) => !observation.selector?.includes('.missing')))
+  assert.ok(declarations.every((observation) => observation.after['background-color'] !== 'rgb(255, 255, 0)'))
+  assert.ok(interactions.hover.some((observation) => observation.source === 'computed-probed'))
+})
+
+test('does not claim container-query declarations are applicable without element-level condition evidence', async () => {
+  await page.setContent(`<!doctype html>
+    <style>
+      .shell { container-type: inline-size; width: 200px; }
+      @container (min-width: 400px) {
+        :root { --brand-primary: rgb(255, 0, 0); }
+        .present:hover { color: rgb(255, 0, 0); }
+      }
+      @container (max-width: 300px) { .present:hover { background-color: rgb(0, 128, 0); } }
+    </style>
+    <div class="shell"><button class="present">Container control</button></div>`)
+
+  const interactions = await extractInteractionStyles(page)
+  const styles = await extractStyles(page)
+  const declarations = interactions.hover.filter((observation) => observation.source === 'declared-applicable')
+
+  assert.equal(declarations.length, 0)
+  assert.ok(interactions.hover.some((observation) => observation.source === 'computed-probed'))
+  assert.equal(styles.cssVariables['--brand-primary'], undefined)
+  assert.equal(styles.usageCount['declaredColor:rgb(255, 0, 0)'], undefined)
 })
 
 test('clusters adjacent media-query boundaries and caps each viewport category', () => {

@@ -264,8 +264,8 @@ export function clusterColors(
   const backgrounds = prioritizeRelatedRoleColors(roleColors(usageCount, 'bgArea', 'bgColor', 12))
   const texts = prioritizeMutedTextColors(roleColors(usageCount, 'textColor'))
 
-  // Explicit semantic evidence is ordered before raw DOM frequency. Otherwise a decorative color repeated across many
-  // nodes can outrank a site's declared brand token even though the repetition is an implementation detail.
+  // Explicit rendered semantic evidence is ordered before raw DOM frequency. Declared-only custom properties remain
+  // evidence candidates, but cannot become portable action colors until a rendered role uses the same value.
   const primaryActionBackgrounds = roleFrequency(accentUsageCount, 'primaryActionBackgroundColor', 'primaryActionColor')
   const actionBackgrounds = roleFrequency(accentUsageCount, 'actionBackgroundColor', 'actionColor')
   const actionForegrounds = combinedRoleFrequency(accentUsageCount, [
@@ -276,6 +276,8 @@ export function clusterColors(
     'statusBackgroundColor',
     'statusForegroundColor',
     'statusColor',
+    'destructiveActionBackgroundColor',
+    'destructiveActionForegroundColor',
   ])
   const accentFrequency = new Map<string, number>()
   addFrequency(accentFrequency, primaryActionBackgrounds, 20)
@@ -289,7 +291,6 @@ export function clusterColors(
   const accents: string[] = []
   appendDistinctColors(accents, usableAccentColors(primaryActionBackgrounds))
   appendDistinctColors(accents, usableAccentColors(actionBackgrounds))
-  appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'brandTokenColor')))
   appendDistinctColors(accents, usableAccentColors(categoryFrequency(accentUsageCount, 'selectedColor')))
   appendDistinctColors(accents, usableAccentColors(accentFrequency))
 
@@ -297,7 +298,6 @@ export function clusterColors(
     [
       ...primaryActionBackgrounds.keys(),
       ...actionBackgrounds.keys(),
-      ...categoryFrequency(accentUsageCount, 'brandTokenColor').keys(),
       ...categoryFrequency(accentUsageCount, 'selectedColor').keys(),
     ].flatMap((color) => {
       const normalized = normalizeColorValue(color)

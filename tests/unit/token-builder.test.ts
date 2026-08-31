@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'vitest'
 
+import {
+  colorCandidateObservationCount,
+  demoteWeakSemanticBorderTokens,
+} from '../../src/core/analyzer/analysis-output.js'
+import { clusterColors } from '../../src/core/analyzer/color-cluster.js'
 import { buildDesignTokens } from '../../src/core/analyzer/token-builder.js'
+import { buildTokenEvidence } from '../../src/core/analyzer/token-evidence.js'
 import { generateDesignDoc } from '../../src/core/export/index.js'
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
@@ -40,6 +46,80 @@ describe('design token builder', () => {
     const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
 
     expect(result.spacing).toEqual(['4px', '8px'])
+  })
+
+  test('keeps control-only spacing and geometry-only radii out of global scales', () => {
+    const styles = createExtractedStyles({
+      spacings: ['4px', '16px'],
+      radii: ['6px', '15px', '9999px'],
+      usageCount: {
+        'spacing:4px': 30,
+        'spacing:16px': 8,
+        'radius:6px': 5,
+        'radius:15px': 40,
+        'radius:9999px': 3,
+      },
+      valueSources: {
+        'spacing:4px': ['element:control-spacing'],
+        'spacing:16px': ['element:content-spacing'],
+        'radius:6px': ['computed:ordinary-radius'],
+        'radius:15px': ['geometry:circle-or-pill'],
+        'radius:9999px': ['geometry:circle-or-pill'],
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['16px'])
+    expect(result.radii).toEqual(['6px'])
+  })
+
+  test('uses source proportions instead of one incidental reusable occurrence', () => {
+    const styles = createExtractedStyles({
+      spacings: ['7px', '16px'],
+      radii: ['8px', '15px'],
+      usageCount: {
+        'spacing:7px': 101,
+        'spacing:16px': 10,
+        'radius:8px': 10,
+        'radius:15px': 101,
+      },
+      valueSources: {
+        'spacing:7px': ['element:control-spacing', 'element:content-spacing'],
+        'spacing:16px': ['element:control-spacing', 'element:structural-spacing'],
+        'radius:8px': ['geometry:circle-or-pill', 'computed:ordinary-radius'],
+        'radius:15px': ['geometry:circle-or-pill', 'computed:ordinary-radius'],
+      },
+      valueSourceCounts: {
+        'spacing:7px': { 'element:control-spacing': 100, 'element:content-spacing': 1 },
+        'spacing:16px': { 'element:control-spacing': 5, 'element:structural-spacing': 5 },
+        'radius:8px': { 'geometry:circle-or-pill': 5, 'computed:ordinary-radius': 5 },
+        'radius:15px': { 'geometry:circle-or-pill': 100, 'computed:ordinary-radius': 1 },
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.spacing).toEqual(['16px'])
+    expect(result.radii).toEqual(['8px'])
+  })
+
+  test('omits transparent and zero-geometry shadows from the reusable shadow scale', () => {
+    const visibleShadow = '0 8px 24px rgb(0 0 0 / 18%)'
+    const transparentShadow = '0 8px 24px rgb(0 0 0 / 0%)'
+    const zeroGeometryShadow = '0 0 0 rgb(0 0 0 / 18%)'
+    const styles = createExtractedStyles({
+      shadows: [transparentShadow, zeroGeometryShadow, visibleShadow],
+      usageCount: {
+        [`shadow:${transparentShadow}`]: 50,
+        [`shadow:${zeroGeometryShadow}`]: 40,
+        [`shadow:${visibleShadow}`]: 2,
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.shadows).toEqual([visibleShadow])
   })
 
   test('selects typography and effects using usageCount', () => {
@@ -101,6 +181,40 @@ describe('design token builder', () => {
     const tokens = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
 
     expect(tokens.typography.fontSizes).toEqual(['0.75rem', '1rem'])
+  })
+
+  test('reserves scale slots for semantic display and heading typography', () => {
+    const styles = createExtractedStyles({
+      fontSizes: ['12px', '14px', '16px', '18px', '20px', '24px', '28px', '32px', '48px'],
+      fontWeights: ['400', '500', '600', '700', '800', '900'],
+      usageCount: {
+        'fontSize:12px': 80,
+        'fontSize:14px': 70,
+        'fontSize:16px': 60,
+        'fontSize:18px': 50,
+        'fontSize:20px': 40,
+        'fontSize:24px': 30,
+        'fontSize:28px': 20,
+        'fontSize:32px': 10,
+        'fontSize:48px': 1,
+        'displayFontSize:48px': 1,
+        'headingFontSize:32px': 4,
+        'fontWeight:400': 100,
+        'fontWeight:500': 80,
+        'fontWeight:600': 60,
+        'fontWeight:700': 20,
+        'fontWeight:800': 1,
+        'fontWeight:900': 40,
+        'displayFontWeight:800': 1,
+        'headingFontWeight:700': 20,
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(result.typography.fontSizes).toContain('3rem')
+    expect(result.typography.fontSizes).toContain('2rem')
+    expect(result.typography.fontWeights).toEqual(['400', '500', '600', '700', '800'])
   })
 
   test('uses directly rendered text coverage instead of nested element counts for the primary font', () => {
@@ -192,6 +306,32 @@ describe('design token builder', () => {
 
     expect(result.colors.primary).toBe('#0057d9')
     expect(result.colors.accent).toBeUndefined()
+  })
+
+  test('retains unrendered declared colors as evidence candidates', () => {
+    const styles = createExtractedStyles({
+      colors: ['rgb(124, 58, 237)'],
+      usageCount: {
+        'declaredColor:rgb(124, 58, 237)': 8,
+        'brandTokenColor:rgb(124, 58, 237)': 8,
+      },
+      valueSources: {
+        'declaredColor:rgb(124, 58, 237)': ['css-variable:--brand-primary'],
+        'brandTokenColor:rgb(124, 58, 237)': ['css-variable:--brand-primary'],
+      },
+    })
+
+    const result = buildDesignTokens(styles, { palette: [], backgrounds: [], texts: [], accents: [] })
+
+    expect(Object.values(result.colors)).not.toContain('#7c3aed')
+    expect(result.candidates?.colors).toEqual([
+      {
+        value: '#7c3aed',
+        kind: 'declared-only',
+        observationCount: 8,
+        sources: ['css-variable:--brand-primary'],
+      },
+    ])
   })
 
   test('keeps a repeated tinted secondary action even when clustering omits it from accents', () => {
@@ -291,7 +431,77 @@ describe('design token builder', () => {
     expect(tokens.colors.border).toBe('rgb(235, 236, 237)')
   })
 
-  test('does not emit a palette token for a color already assigned under a different notation', () => {
+  test('lets a repeated neutral boundary outweigh an isolated structural sample', () => {
+    const styles = createExtractedStyles({
+      usageCount: {
+        'borderColor:rgb(214, 218, 224)': 8,
+        'borderColor:rgb(181, 186, 194)': 1,
+        'structuralBorderColor:rgb(181, 186, 194)': 1,
+        'borderColor:rgb(23, 114, 246)': 20,
+      },
+    })
+    const result = buildDesignTokens(styles, {
+      palette: [],
+      backgrounds: ['#ffffff'],
+      texts: ['#191b1f'],
+      accents: ['#1772f6'],
+    })
+
+    expect(result.colors.border).toBe('rgb(214, 218, 224)')
+  })
+
+  test('demotes an isolated low-confidence semantic border to an unassigned candidate', () => {
+    const result = buildDesignTokens(
+      createExtractedStyles({ usageCount: { 'structuralBorderColor:rgb(181, 186, 194)': 1 } }),
+      {
+        palette: [],
+        backgrounds: ['#ffffff'],
+        texts: ['#191b1f'],
+        accents: [],
+      },
+    )
+    result.evidence = {
+      'colors.border': {
+        value: 'rgb(181, 186, 194)',
+        confidence: 'low',
+        observationCount: 2,
+        pageCount: 1,
+        captureCount: 1,
+        pages: ['https://example.com/'],
+        sources: ['usage:structuralBorderColor'],
+        reasons: ['computed-style'],
+      },
+    }
+    result.usageCount = {
+      'borderColor:rgb(181, 186, 194)': 1,
+      'structuralBorderColor:rgb(181, 186, 194)': 1,
+    }
+
+    demoteWeakSemanticBorderTokens(result)
+
+    expect(result.colors.border).toBeUndefined()
+    expect(result.candidates?.colors).toContainEqual(
+      expect.objectContaining({
+        value: '#b5bac2',
+        kind: 'observed-unassigned',
+        observationCount: 1,
+      }),
+    )
+    expect(result.evidence['colors.border']).toBeUndefined()
+  })
+
+  test('does not double-count structural border aliases as separate color observations', () => {
+    const styles = createExtractedStyles({
+      usageCount: {
+        'borderColor:rgb(181, 186, 194)': 1,
+        'structuralBorderColor:rgb(181, 186, 194)': 1,
+      },
+    })
+
+    expect(colorCandidateObservationCount(styles, '#b5bac2')).toBe(1)
+  })
+
+  test('keeps only unassigned palette values as evidence candidates', () => {
     const styles = createExtractedStyles({
       usageCount: { 'structuralBorderColor:rgb(59, 52, 64)': 100 },
     })
@@ -307,7 +517,89 @@ describe('design token builder', () => {
 
     expect(tokens.colors.border).toBe('rgb(59, 52, 64)')
     expect(tokens.colors['palette-1']).toBeUndefined()
-    expect(tokens.colors['palette-2']).toBe('#db2777')
+    expect(tokens.colors['palette-2']).toBeUndefined()
+    expect(tokens.candidates?.colors).toEqual([
+      expect.objectContaining({ value: '#db2777', kind: 'observed-unassigned' }),
+    ])
+  })
+
+  test('preserves destructive action colors as danger semantics without promoting them to primary', () => {
+    const styles = createExtractedStyles({
+      colors: ['rgb(255, 255, 255)', 'rgb(17, 24, 39)', 'rgb(180, 35, 24)'],
+      usageCount: {
+        'bgArea:rgb(255, 255, 255)': 0.8,
+        'bgColor:rgb(255, 255, 255)': 10,
+        'textColor:rgb(17, 24, 39)': 10,
+        'bgColor:rgb(180, 35, 24)': 2,
+        'textColor:rgb(255, 255, 255)': 2,
+        'destructiveActionBackgroundColor:rgb(180, 35, 24)': 2,
+        'destructiveActionForegroundColor:rgb(255, 255, 255)': 2,
+      },
+      valueSources: {
+        'bgColor:rgb(180, 35, 24)': ['computed:background'],
+        'destructiveActionBackgroundColor:rgb(180, 35, 24)': ['element:destructive-action'],
+        'destructiveActionForegroundColor:rgb(255, 255, 255)': ['element:destructive-action'],
+      },
+      colorRoleObservations: [
+        {
+          captureId: 'capture-1',
+          background: 'rgb(180, 35, 24)',
+          foreground: 'rgb(255, 255, 255)',
+          elementRef: 'button.delete',
+          elementKind: 'button',
+          role: 'destructive-action',
+        },
+        {
+          captureId: 'capture-1',
+          background: 'rgb(180, 35, 24)',
+          foreground: 'rgb(255, 255, 255)',
+          elementRef: 'button.remove',
+          elementKind: 'button',
+          role: 'destructive-action',
+        },
+      ],
+    })
+    const clustered = clusterColors(styles.colors, styles.usageCount)
+    const result = buildDesignTokens(styles, clustered, styles)
+    result.evidence = buildTokenEvidence(result, [{ url: 'https://example.com/', viewport: 'desktop', styles }])
+
+    expect(result.colors.danger).toBe('#b42318')
+    expect(result.colors.primary).toBeUndefined()
+    expect(result.candidates?.colors || []).not.toContainEqual(expect.objectContaining({ value: '#b42318' }))
+    expect(result.evidence['colors.danger'].sources).toContain('usage:destructiveActionBackgroundColor')
+    expect(generateDesignDoc(result)).toContain('| Destructive action | `--color-danger` |')
+  })
+
+  test('does not invent a danger token from neutral control styles on a destructive action', () => {
+    const styles = createExtractedStyles({
+      colors: ['rgb(255, 255, 255)', 'rgb(17, 24, 39)', 'rgb(239, 239, 239)', 'rgb(118, 118, 118)'],
+      usageCount: {
+        'bgColor:rgb(255, 255, 255)': 10,
+        'textColor:rgb(17, 24, 39)': 10,
+        'destructiveActionForegroundColor:rgb(17, 24, 39)': 1,
+        'destructiveActionBackgroundColor:rgb(239, 239, 239)': 1,
+        'borderColor:rgb(118, 118, 118)': 1,
+      },
+      valueSources: {
+        'destructiveActionForegroundColor:rgb(17, 24, 39)': ['element:destructive-action'],
+        'destructiveActionBackgroundColor:rgb(239, 239, 239)': ['element:destructive-action'],
+        'borderColor:rgb(118, 118, 118)': ['computed:border'],
+      },
+      colorRoleObservations: [
+        {
+          captureId: 'capture-1',
+          foreground: 'rgb(17, 24, 39)',
+          background: 'rgb(239, 239, 239)',
+          borderColor: 'rgb(118, 118, 118)',
+          elementRef: 'button.delete',
+          elementKind: 'button',
+          role: 'destructive-action',
+        },
+      ],
+    })
+    const clustered = clusterColors(styles.colors, styles.usageCount)
+
+    expect(buildDesignTokens(styles, clustered, styles).colors.danger).toBeUndefined()
   })
 
   test('separates default and subtle borders while keeping a secondary surface distinct from white cards', () => {

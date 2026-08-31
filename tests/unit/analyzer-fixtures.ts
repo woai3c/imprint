@@ -19,6 +19,7 @@ export function createExtractedStyles(overrides: Partial<ExtractedStyles> = {}):
     transitions: [],
     usageCount: {},
     valueSources: {},
+    valueSourceCounts: {},
     ...overrides,
   }
 }

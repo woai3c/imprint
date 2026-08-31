@@ -1,5 +1,5 @@
 import { normalizeColorValue } from './color-cluster.js'
-import type { DesignToken, ExtractedStyles, TokenConfidence, TokenEvidence } from './types.js'
+import type { DesignToken, ExtractedStyles, TokenConfidence, TokenEvidence, TokenReuseScope } from './types.js'
 
 export interface TokenEvidenceCapture {
   url: string
@@ -16,6 +16,8 @@ interface TokenEntry {
 const COLOR_CATEGORIES = [
   'primaryActionColor',
   'actionColor',
+  'destructiveActionBackgroundColor',
+  'destructiveActionForegroundColor',
   'brandTokenColor',
   'selectedColor',
   'accentColor',
@@ -114,17 +116,21 @@ function valuesMatch(path: string, category: string, tokenValue: string, observe
   return tokenValue.trim().toLowerCase() === observedValue.trim().toLowerCase()
 }
 
-function confidenceFor(
+export function measurementConfidenceFor(
   pageCount: number,
   captureCount: number,
   observationCount: number,
-  sources: Set<string>,
+  sources: ReadonlySet<string>,
 ): TokenConfidence {
   let score = pageCount >= 3 ? 4 : pageCount === 2 ? 3 : pageCount === 1 ? 1 : 0
   if ([...sources].some((source) => source.startsWith('css-variable:'))) score += 2
   if (
     [...sources].some(
-      (source) => source === 'element:primary-action' || source === 'element:action' || source === 'element:selected',
+      (source) =>
+        source === 'element:primary-action' ||
+        source === 'element:action' ||
+        source === 'element:destructive-action' ||
+        source === 'element:selected',
     )
   ) {
     score += 2
@@ -134,6 +140,85 @@ function confidenceFor(
   else if (observationCount >= 2) score += 1
   if (captureCount >= 2) score += 1
   return score >= 6 ? 'high' : score >= 3 ? 'medium' : 'low'
+}
+
+function observationCountForEntry(path: string, counts: ReadonlyMap<string, number>): number {
+  if (!path.startsWith('colors.')) return [...counts.values()].reduce((total, count) => total + count, 0)
+  const count = (category: string) => counts.get(category) || 0
+  const declaredFallback = () => Math.max(count('declaredColor'), count('brandTokenColor'))
+  if (path.startsWith('colors.border')) {
+    return count('borderColor') || count('structuralBorderColor') || declaredFallback()
+  }
+  if (/^colors\.(?:background|surface|secondary)$/.test(path)) return count('bgColor') || declaredFallback()
+  if (/^colors\.(?:foreground|muted-foreground)$/.test(path)) return count('textColor') || declaredFallback()
+
+  // Semantic color categories annotate the same computed property observations
+  // that bgColor/textColor/borderColor already count. Prefer those mutually
+  // exclusive base properties and use role/declaration categories as fallbacks.
+  const baseRendered = count('bgColor') + count('textColor') + count('borderColor')
+  if (baseRendered > 0) return baseRendered
+  const renderedFallback = Math.max(
+    count('structuralBorderColor'),
+    ...[...counts.entries()]
+      .filter(([category]) => !['bgArea', 'declaredColor', 'brandTokenColor'].includes(category))
+      .map(([, value]) => value),
+  )
+  if (renderedFallback > 0) return renderedFallback
+  return Math.max(count('declaredColor'), count('brandTokenColor'))
+}
+
+const RENDERED_USAGE_SOURCES = new Set([
+  'usage:primaryActionColor',
+  'usage:actionColor',
+  'usage:selectedColor',
+  'usage:accentColor',
+  'usage:linkColor',
+  'usage:bgArea',
+  'usage:bgColor',
+  'usage:textColor',
+  'usage:structuralBorderColor',
+  'usage:borderColor',
+  'usage:primaryActionBackgroundColor',
+  'usage:primaryActionForegroundColor',
+  'usage:actionBackgroundColor',
+  'usage:actionForegroundColor',
+  'usage:destructiveActionBackgroundColor',
+  'usage:destructiveActionForegroundColor',
+  'usage:statusBackgroundColor',
+  'usage:statusForegroundColor',
+  'usage:statusColor',
+])
+
+function evidenceSemantics(
+  measurementConfidence: TokenConfidence,
+  sources: ReadonlySet<string>,
+  pageCount: number,
+  eligiblePageCount: number,
+): { confidence: TokenConfidence; reuseScope: TokenReuseScope; pageSupportRatio: number } {
+  const pageSupportRatio = eligiblePageCount > 0 ? pageCount / eligiblePageCount : 0
+  const declared = [...sources].some(
+    (source) =>
+      source.startsWith('css-variable:') || source === 'usage:declaredColor' || source === 'usage:brandTokenColor',
+  )
+  const rendered = [...sources].some(
+    (source) => RENDERED_USAGE_SOURCES.has(source) || source === 'rendered:text' || source.startsWith('computed:'),
+  )
+  if (declared && !rendered) return { confidence: 'low', reuseScope: 'declared-only', pageSupportRatio }
+  const componentOnly =
+    [...sources].some((source) => source === 'element:control-spacing' || source.startsWith('element:')) &&
+    ![...sources].some(
+      (source) =>
+        source === 'element:structural-spacing' ||
+        source === 'element:content-spacing' ||
+        source === 'rendered:text' ||
+        source.startsWith('computed:'),
+    )
+  if (componentOnly) return { confidence: measurementConfidence, reuseScope: 'component', pageSupportRatio }
+  if (eligiblePageCount >= 2 && pageSupportRatio >= 0.75 && measurementConfidence === 'high') {
+    return { confidence: measurementConfidence, reuseScope: 'foundation', pageSupportRatio }
+  }
+  if (pageCount > 0) return { confidence: measurementConfidence, reuseScope: 'local', pageSupportRatio }
+  return { confidence: 'low', reuseScope: 'unknown', pageSupportRatio }
 }
 
 function evidencePageUrl(value: string): string {
@@ -154,6 +239,7 @@ export function buildTokenEvidence(
   captures: TokenEvidenceCapture[],
 ): Record<string, TokenEvidence> {
   const evidence: Record<string, TokenEvidence> = {}
+  const eligiblePageCount = new Set(captures.map((capture) => evidencePageUrl(capture.url))).size
 
   for (const entry of tokenEntries(tokens)) {
     const pages = new Set<string>()
@@ -163,6 +249,7 @@ export function buildTokenEvidence(
 
     for (const capture of captures) {
       let captureMatched = false
+      const matchedCounts = new Map<string, number>()
       for (const category of entry.categories) {
         const prefix = `${category}:`
         for (const [key, count] of Object.entries(capture.styles.usageCount)) {
@@ -170,33 +257,42 @@ export function buildTokenEvidence(
           const observedValue = key.slice(prefix.length)
           if (!valuesMatch(entry.path, category, entry.value, observedValue)) continue
           captureMatched = true
-          observationCount += count
+          matchedCounts.set(category, (matchedCounts.get(category) || 0) + count)
           sources.add(`usage:${category}`)
           for (const source of capture.styles.valueSources?.[key] || []) sources.add(source)
         }
       }
       if (captureMatched) {
+        observationCount += observationCountForEntry(entry.path, matchedCounts)
         captureCount += 1
         pages.add(evidencePageUrl(capture.url))
       }
     }
 
     if (sources.size === 0) sources.add('derived:token-builder')
+    const measurementConfidence = measurementConfidenceFor(pages.size, captureCount, observationCount, sources)
+    const semantics = evidenceSemantics(measurementConfidence, sources, pages.size, eligiblePageCount)
     const reasons = new Set<TokenEvidence['reasons'][number]>()
     if (pages.size >= 2) reasons.add('cross-page')
     if ([...sources].some((source) => source.startsWith('css-variable:'))) reasons.add('declared-token')
+    if (semantics.reuseScope === 'declared-only') reasons.add('declared-only')
     if ([...sources].some((source) => source.startsWith('element:'))) reasons.add('interactive-use')
     if (sources.has('rendered:text')) reasons.add('rendered-use')
-    if ([...sources].some((source) => source.startsWith('computed:') || source.startsWith('usage:'))) {
+    if ([...sources].some((source) => source.startsWith('computed:') || RENDERED_USAGE_SOURCES.has(source))) {
       reasons.add('computed-style')
     }
 
     evidence[entry.path] = {
       value: entry.value,
-      confidence: confidenceFor(pages.size, captureCount, observationCount, sources),
+      confidence: semantics.confidence,
+      measurementConfidence,
+      semanticConfidence: semantics.confidence,
+      reuseScope: semantics.reuseScope,
       observationCount: Number(observationCount.toFixed(3)),
       pageCount: pages.size,
       captureCount,
+      eligiblePageCount,
+      pageSupportRatio: Number(semantics.pageSupportRatio.toFixed(3)),
       pages: [...pages].slice(0, 8),
       sources: [...sources].slice(0, 12),
       reasons: [...reasons],

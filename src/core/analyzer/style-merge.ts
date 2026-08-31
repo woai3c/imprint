@@ -50,6 +50,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     transitions: [],
     usageCount: {},
     valueSources: {},
+    valueSourceCounts: {},
     colorRoleObservations: [],
   }
 
@@ -63,6 +64,14 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     }
     for (const [key, sources] of Object.entries(styles.valueSources || {})) {
       merged.valueSources![key] = [...new Set([...(merged.valueSources![key] || []), ...sources])]
+    }
+    for (const [key, sourceCounts] of Object.entries(styles.valueSourceCounts || {})) {
+      const mergedSourceCounts = merged.valueSourceCounts![key] || {}
+      for (const [source, count] of Object.entries(sourceCounts)) {
+        if (!Number.isFinite(count) || count <= 0) continue
+        mergedSourceCounts[source] = (mergedSourceCounts[source] || 0) + count
+      }
+      merged.valueSourceCounts![key] = mergedSourceCounts
     }
     merged.colorRoleObservations!.push(...(styles.colorRoleObservations || []))
   }

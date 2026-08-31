@@ -174,6 +174,23 @@ test('keeps submit and localized confirmation colors primary while excluding des
   assert.equal(styles.usageCount['statusBackgroundColor:rgb(180, 35, 24)'], undefined)
 })
 
+test('classifies oversized fully rounded values as control geometry instead of ordinary radius', async () => {
+  await page.setContent(`<!doctype html>
+    <style>
+      button { display:block; width:40px; height:40px; border-radius:1000px; }
+      section { width:300px; height:100px; border-radius:32px; }
+    </style>
+    <main>
+      <button aria-label="Menu">M</button>
+      <section>Content</section>
+    </main>`)
+
+  const styles = await extractStyles(page)
+
+  assert.deepEqual(styles.valueSources['radius:1000px'], ['geometry:circle-or-pill'])
+  assert.deepEqual(styles.valueSources['radius:32px'], ['computed:ordinary-radius'])
+})
+
 test('keeps voting controls as actions instead of treating direction words as statuses', async () => {
   await page.setContent(`<!doctype html>
     <style>

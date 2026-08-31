@@ -6,6 +6,7 @@ import path from 'node:path'
 import { type Browser, type BrowserContext, type Page, chromium } from 'playwright-core'
 
 import { type CapturedPageEvidence, extractPageEvidence, observeSafeInteractions } from '../design-evidence/index.js'
+import { mergeInteractionStylePatterns } from '../interaction-style.js'
 import { closeContextWithin, closePageWithin, settleWithin } from './analysis-lifecycle.js'
 import { buildAnalysisOutput } from './analysis-output.js'
 import { createAnalysisRequest } from './analysis-request.js'
@@ -35,7 +36,7 @@ import { freezePageAnimations, preparePageForExtraction } from './page-preparer.
 import {
   type MotionToken,
   type ResponsiveBreakpoint,
-  detectBreakpoints,
+  detectBreakpointsWithCoverage,
   detectMotion,
   mergeMotionTokens,
   mergeResponsiveBreakpoints,
@@ -379,17 +380,7 @@ async function switchManagedRuntimeToHeadless(
 }
 
 function mergeInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
-  for (const kind of ['hover', 'focus', 'active', 'disabled'] as const) {
-    const targetEntries = target[kind] || []
-    const seen = new Set(targetEntries.map((styles) => JSON.stringify(styles)))
-    for (const styles of source[kind] || []) {
-      const fingerprint = JSON.stringify(styles)
-      if (seen.has(fingerprint)) continue
-      targetEntries.push(styles)
-      seen.add(fingerprint)
-    }
-    if (kind === 'disabled') target.disabled = targetEntries
-  }
+  mergeInteractionStylePatterns(target, source)
 }
 
 function extractionReason(error: unknown): string {
@@ -687,6 +678,16 @@ export async function analyze(
     const allInteractions: InteractionStyles = { hover: [], focus: [], active: [], disabled: [] }
     const extractionIssues: ExtractionIssue[] = []
     const analysisLimitations: string[] = []
+    const detectPageBreakpoints = async (page: Page): Promise<ResponsiveBreakpoint[]> => {
+      const detection = await detectBreakpointsWithCoverage(page)
+      if (
+        detection.unreadableStylesheetCount > 0 &&
+        !analysisLimitations.includes('breakpoint-stylesheets-unreadable')
+      ) {
+        analysisLimitations.push('breakpoint-stylesheets-unreadable')
+      }
+      return detection.breakpoints
+    }
     const animationFreezeAttempts: Array<{ url: string; viewport: string; succeeded: boolean }> = []
     const analyzedPages = new Map<
       string,
@@ -783,7 +784,7 @@ export async function analyze(
           detectComponents(page),
         )
         breakpoints = await guardExtractionStage(extractionIssues, `${stagePrefix}:breakpoints`, [], () =>
-          detectBreakpoints(page),
+          detectPageBreakpoints(page),
         )
         entryBreakpointWidths = new Set(breakpoints.map((breakpoint) => breakpoint.width))
         techStack = await guardExtractionStage(extractionIssues, `${stagePrefix}:tech-stack`, undefined, () =>
@@ -844,7 +845,7 @@ export async function analyze(
             extractionIssues,
             `${stagePrefix}:capture-health:refresh-breakpoints`,
             breakpoints,
-            () => detectBreakpoints(page),
+            () => detectPageBreakpoints(page),
           )
           entryBreakpointWidths = new Set(breakpoints.map((breakpoint) => breakpoint.width))
           if (request.extractDarkMode) {
@@ -1137,7 +1138,7 @@ export async function analyze(
             detectComponents(subPage),
           )
           let subPageBreakpoints = await guardExtractionStage(extractionIssues, `${stagePrefix}:breakpoints`, [], () =>
-            detectBreakpoints(subPage),
+            detectPageBreakpoints(subPage),
           )
 
           health = await measure('healthGateMs', () =>
@@ -1184,7 +1185,7 @@ export async function analyze(
               extractionIssues,
               `${stagePrefix}:capture-health:refresh-breakpoints`,
               subPageBreakpoints,
-              () => detectBreakpoints(subPage),
+              () => detectPageBreakpoints(subPage),
             )
           }
           const nestedPagesNeeded = Math.max(0, subPageLimit - (successfulSubPageCount + 1) - pendingPages.length)

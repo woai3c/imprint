@@ -1,5 +1,6 @@
 import type { Locator, Page } from 'playwright-core'
 
+import { mergeInteractionStylePatterns } from '../interaction-style.js'
 import { ROLE_CANDIDATE_RULES } from './role-candidates.js'
 import type { ExtractedStyles, InteractionStyles } from './types.js'
 
@@ -27,6 +28,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       transitions: [],
       usageCount: {},
       valueSources: {},
+      valueSourceCounts: {},
       colorRoleObservations: [],
     }
 
@@ -39,6 +41,9 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const sources = styles.valueSources?.[key] || []
       if (!sources.includes(source)) sources.push(source)
       if (styles.valueSources) styles.valueSources[key] = sources
+      const sourceCounts = styles.valueSourceCounts?.[key] || {}
+      sourceCounts[source] = (sourceCounts[source] || 0) + 1
+      if (styles.valueSourceCounts) styles.valueSourceCounts[key] = sourceCounts
     }
 
     const colorCanvas = document.createElement('canvas')
@@ -115,6 +120,11 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
             // Unsupported selectors do not prevent the remaining rules from being observed.
           }
         }
+        if (rule instanceof CSSMediaRule && !matchMedia(rule.conditionText).matches) continue
+        if (rule instanceof CSSSupportsRule && !CSS.supports(rule.conditionText)) continue
+        // Container queries are evaluated per matching descendant. Rule-level CSSOM traversal cannot establish that
+        // condition, so do not reinterpret their custom properties as unconditional root declarations.
+        if (typeof CSSContainerRule !== 'undefined' && rule instanceof CSSContainerRule) continue
         const nestedRules = 'cssRules' in rule ? (rule as CSSGroupingRule).cssRules : null
         if (nestedRules) visitCustomPropertyRules(nestedRules)
       }
@@ -357,6 +367,17 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
           'a, button, input, select, textarea, [role="button"], [role="link"], [aria-current], [aria-selected="true"]',
         ),
       )
+      const structuralRoot = el.matches(
+        'body, main, section, article, header, footer, nav, aside, [role="main"], [role="region"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]',
+      )
+      const semanticTextRole =
+        (el.textContent || '').trim().length === 0
+          ? null
+          : el.matches('h1, [role="heading"][aria-level="1"]')
+            ? 'display'
+            : el.matches('h2, h3, h4, h5, h6, [role="heading"]')
+              ? 'heading'
+              : null
       const roleCandidate = roleCandidateFor(el, computed, rect)
       const linkRoot = el.matches('a, [role="link"]')
       const selectedRoot = el.matches('[aria-current], [aria-selected="true"], [data-state="active"]')
@@ -525,6 +546,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (fontSize) {
         styles.fontSizes.push(fontSize)
         countUsage('fontSize', fontSize)
+        if (semanticTextRole) countUsage(`${semanticTextRole}FontSize`, fontSize)
       }
 
       // Font weights
@@ -532,6 +554,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (fontWeight) {
         styles.fontWeights.push(fontWeight)
         countUsage('fontWeight', fontWeight)
+        if (semanticTextRole) countUsage(`${semanticTextRole}FontWeight`, fontWeight)
       }
 
       // Line heights
@@ -586,6 +609,15 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         if (val && val !== '0px' && val !== 'auto' && val !== 'normal') {
           styles.spacings.push(val)
           countUsage('spacing', val)
+          addValueSource(
+            'spacing',
+            val,
+            interactive
+              ? 'element:control-spacing'
+              : structuralRoot
+                ? 'element:structural-spacing'
+                : 'element:content-spacing',
+          )
         }
       }
 
@@ -604,6 +636,11 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (radius && !/^(?:0|0px|0rem|0em)$/i.test(radius)) {
         styles.radii.push(radius)
         countUsage('radius', radius)
+        const radiusPixels = Number.parseFloat(radius)
+        const minimumDimension = Math.min(rect.width, rect.height)
+        const geometryDependent =
+          Number.isFinite(radiusPixels) && minimumDimension > 0 && radiusPixels >= minimumDimension * 0.45
+        addValueSource('radius', radius, geometryDependent ? 'geometry:circle-or-pill' : 'computed:ordinary-radius')
       }
 
       // Box shadow
@@ -766,7 +803,7 @@ export async function extractObservedInteractionStyles(page: Page, limit = 16): 
         .catch(() => false)
       if (disabled) {
         const state = await readInteractionState(locator)
-        if (state) interactions.disabled?.push({ before: state, after: state })
+        if (state) interactions.disabled?.push({ before: state, after: state, source: 'computed-probed' })
         continue
       }
 
@@ -778,7 +815,7 @@ export async function extractObservedInteractionStyles(page: Page, limit = 16): 
       if (hovered) {
         await page.waitForTimeout(20)
         const changed = changedInteractionState(beforeHover, await readInteractionState(locator))
-        if (changed) interactions.hover.push(changed)
+        if (changed) interactions.hover.push({ ...changed, source: 'computed-probed' })
       }
 
       await page.mouse.move(0, 0).catch(() => {})
@@ -791,7 +828,7 @@ export async function extractObservedInteractionStyles(page: Page, limit = 16): 
       if (focused) {
         await page.waitForTimeout(20)
         const changed = changedInteractionState(beforeFocus, await readInteractionState(locator))
-        if (changed) interactions.focus.push(changed)
+        if (changed) interactions.focus.push({ ...changed, source: 'computed-probed' })
         await locator.evaluate((element) => (element as HTMLElement).blur()).catch(() => {})
       }
     }
@@ -806,20 +843,6 @@ export async function extractObservedInteractionStyles(page: Page, limit = 16): 
   }
 
   return interactions
-}
-
-function mergeObservedInteractionStyles(target: InteractionStyles, source: InteractionStyles): void {
-  for (const kind of ['hover', 'focus', 'active', 'disabled'] as const) {
-    const targetEntries = target[kind] || []
-    const seen = new Set(targetEntries.map((entry) => JSON.stringify(entry)))
-    for (const entry of source[kind] || []) {
-      const fingerprint = JSON.stringify(entry)
-      if (seen.has(fingerprint)) continue
-      targetEntries.push(entry)
-      seen.add(fingerprint)
-    }
-    if (kind === 'disabled') target.disabled = targetEntries
-  }
 }
 
 export async function extractInteractionStyles(page: Page): Promise<InteractionStyles> {
@@ -861,14 +884,72 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
       'width',
     ])
 
+    const splitSelectorList = (selectorText: string): string[] => {
+      const selectors: string[] = []
+      let start = 0
+      let bracketDepth = 0
+      let parenthesisDepth = 0
+      let quote = ''
+      let escaped = false
+      for (let index = 0; index < selectorText.length; index++) {
+        const character = selectorText[index]
+        if (escaped) {
+          escaped = false
+          continue
+        }
+        if (character === '\\') {
+          escaped = true
+          continue
+        }
+        if (quote) {
+          if (character === quote) quote = ''
+          continue
+        }
+        if (character === '"' || character === "'") {
+          quote = character
+          continue
+        }
+        if (character === '[') bracketDepth++
+        else if (character === ']') bracketDepth = Math.max(0, bracketDepth - 1)
+        else if (character === '(') parenthesisDepth++
+        else if (character === ')') parenthesisDepth = Math.max(0, parenthesisDepth - 1)
+        else if (character === ',' && bracketDepth === 0 && parenthesisDepth === 0) {
+          selectors.push(selectorText.slice(start, index).trim())
+          start = index + 1
+        }
+      }
+      selectors.push(selectorText.slice(start).trim())
+      return selectors.filter(Boolean)
+    }
+
+    const dynamicStatePattern = /:(?:hover|active|focus(?:-visible|-within)?)(?![\w-])/gi
+    const pseudoElementPattern =
+      /::(?:after|before|backdrop|cue|file-selector-button|first-letter|first-line|marker|placeholder|selection)(?![\w-])/gi
+    const selectorAppliesWithoutState = (selector: string): boolean => {
+      const unstatedSelector = selector.replace(dynamicStatePattern, '').replace(pseudoElementPattern, '')
+      if (!unstatedSelector.trim()) return false
+      try {
+        return document.querySelector(unstatedSelector) !== null
+      } catch {
+        return false
+      }
+    }
+
+    const selectorsForState = (selectorText: string, state: 'hover' | 'focus' | 'active'): string[] => {
+      const statePattern =
+        state === 'focus' ? /:focus(?:-visible|-within)?(?![\w-])/i : new RegExp(`:${state}(?![\\w-])`, 'i')
+      return splitSelectorList(selectorText).filter(
+        (selector) => statePattern.test(selector) && selectorAppliesWithoutState(selector),
+      )
+    }
+
     const visitRules = (rules: CSSRuleList) => {
       for (const rule of rules) {
         if (rule instanceof CSSStyleRule) {
           const selector = rule.selectorText
-          const targets: InteractionStyles[keyof InteractionStyles][] = []
-          if (selector.includes(':hover')) targets.push(interactions.hover)
-          if (selector.includes(':focus')) targets.push(interactions.focus)
-          if (selector.includes(':active')) targets.push(interactions.active)
+          const targets = (['hover', 'focus', 'active'] as const)
+            .map((state) => ({ state, selectors: selectorsForState(selector, state) }))
+            .filter(({ selectors }) => selectors.length > 0)
           if (targets.length === 0) continue
 
           const props: Record<string, string> = {}
@@ -882,11 +963,24 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
           }
 
           if (Object.keys(props).length > 0) {
-            targets.forEach((target) => target?.push({ before: {}, after: props }))
+            targets.forEach(({ state, selectors }) =>
+              interactions[state].push({
+                before: {},
+                after: props,
+                source: 'declared-applicable',
+                selector: selectors.join(', '),
+              }),
+            )
           }
           continue
         }
 
+        if (rule instanceof CSSMediaRule && !matchMedia(rule.conditionText).matches) continue
+        if (rule instanceof CSSSupportsRule && !CSS.supports(rule.conditionText)) continue
+        // A container query is evaluated against the query container of each
+        // matching element. CSSOM does not expose a reliable rule-level match,
+        // so treating every nested selector as applicable would be an overclaim.
+        if (typeof CSSContainerRule !== 'undefined' && rule instanceof CSSContainerRule) continue
         const nestedRules = 'cssRules' in rule ? (rule as CSSMediaRule).cssRules : null
         if (nestedRules) visitRules(nestedRules)
       }
@@ -902,7 +996,7 @@ export async function extractInteractionStyles(page: Page): Promise<InteractionS
 
     return interactions
   })
-  mergeObservedInteractionStyles(interactions, await extractObservedInteractionStyles(page))
+  mergeInteractionStylePatterns(interactions, await extractObservedInteractionStyles(page))
   return interactions
 }
 

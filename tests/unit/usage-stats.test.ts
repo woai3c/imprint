@@ -73,6 +73,27 @@ describe('usage statistics', () => {
     })
   })
 
+  test('sums per-source value counts while retaining the compatibility source set', () => {
+    const merged = mergeStyles([
+      createExtractedStyles({
+        valueSources: { 'spacing:8px': ['element:control-spacing'] },
+        valueSourceCounts: { 'spacing:8px': { 'element:control-spacing': 4 } },
+      }),
+      createExtractedStyles({
+        valueSources: { 'spacing:8px': ['element:control-spacing', 'element:content-spacing'] },
+        valueSourceCounts: {
+          'spacing:8px': { 'element:control-spacing': 3, 'element:content-spacing': 2 },
+        },
+      }),
+    ])
+
+    expect(merged.valueSources?.['spacing:8px']).toEqual(['element:control-spacing', 'element:content-spacing'])
+    expect(merged.valueSourceCounts?.['spacing:8px']).toEqual({
+      'element:control-spacing': 7,
+      'element:content-spacing': 2,
+    })
+  })
+
   test('normalizes each capture before combining token-selection frequencies', () => {
     const merged = mergeStylesWithNormalizedUsage([
       createExtractedStyles({ usageCount: { 'fontSize:16px': 10 } }),

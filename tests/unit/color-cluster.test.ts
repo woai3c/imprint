@@ -79,7 +79,7 @@ describe('color clustering', () => {
     expect(result.accents[0]).toBe('#1772f6')
   })
 
-  test('uses a declared brand token as primary evidence without promoting neutral tokens', () => {
+  test('keeps an unused declared brand token out of the rendered accent candidates', () => {
     const result = clusterColors(['rgb(23, 114, 246)', 'rgb(124, 58, 237)', 'rgb(255, 255, 255)'], {
       'bgColor:rgb(124, 58, 237)': 30,
       'declaredColor:rgb(23, 114, 246)': 1,
@@ -87,7 +87,8 @@ describe('color clustering', () => {
       'declaredColor:rgb(255, 255, 255)': 1,
     })
 
-    expect(result.accents[0]).toBe('#1772f6')
+    expect(result.accents[0]).toBe('#7c3aed')
+    expect(result.palette.map((item) => item.hex)).not.toContain('#1772f6')
   })
 
   test('prefers an observed action color over an unused declared brand token', () => {

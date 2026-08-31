@@ -1,5 +1,6 @@
 import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
-import type { ColorRoleObservation, DesignToken, ExtractedStyles } from './types.js'
+import { hasVisibleShadow } from './component-detect.js'
+import type { ColorRoleObservation, ColorTokenCandidate, DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 
 interface ParsedColor {
@@ -228,6 +229,29 @@ function observedSecondaryActionBackground(
   return repeated.sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))[0]?.[0]
 }
 
+function observedDestructiveActionColor(observations: readonly ColorRoleObservation[] | undefined): string | undefined {
+  const scores = new Map<string, number>()
+  for (const observation of observations || []) {
+    if (observation.role !== 'destructive-action') continue
+    for (const [value, weight] of [
+      [observation.background, 4],
+      [observation.borderColor, 2],
+      [observation.foreground, 1],
+    ] as const) {
+      const normalized = value ? normalizeColorValue(value) : null
+      if (!normalized) continue
+      // Native controls often inherit ordinary neutral foregrounds, fills, and borders from the page or user agent.
+      // A destructive label alone is not enough evidence to reinterpret those defaults as the system's danger color.
+      if (isNeutralColor(normalized)) continue
+      scores.set(normalized, (scores.get(normalized) || 0) + weight)
+    }
+  }
+  return [...scores.entries()].sort(
+    ([firstValue, firstScore], [secondValue, secondScore]) =>
+      secondScore - firstScore || firstValue.localeCompare(secondValue),
+  )[0]?.[0]
+}
+
 function hasColorUsageInCategories(
   styles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations'>,
   value: string,
@@ -267,6 +291,79 @@ function colorValueFromUsageKey(key: string): string {
   return key.slice(key.indexOf(':') + 1)
 }
 
+const RENDERED_COLOR_CATEGORIES = [
+  'textColor',
+  'bgColor',
+  'bgArea',
+  'borderColor',
+  'structuralBorderColor',
+  'accentColor',
+  'linkColor',
+  'selectedColor',
+  'primaryActionBackgroundColor',
+  'primaryActionForegroundColor',
+  'actionBackgroundColor',
+  'actionForegroundColor',
+  'destructiveActionBackgroundColor',
+  'destructiveActionForegroundColor',
+  'statusBackgroundColor',
+  'statusForegroundColor',
+  'statusColor',
+] as const
+
+function colorUsageForCategory(styles: Pick<ExtractedStyles, 'usageCount'>, category: string, value: string): number {
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return 0
+  const prefix = `${category}:`
+  return Object.entries(styles.usageCount).reduce((total, [key, count]) => {
+    if (!key.startsWith(prefix)) return total
+    return normalizeColorValue(key.slice(prefix.length)) === normalized ? total + count : total
+  }, 0)
+}
+
+function colorSourcesForValue(
+  styles: Pick<ExtractedStyles, 'valueSources'>,
+  value: string,
+  categories: readonly string[],
+): string[] {
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return []
+  const categorySet = new Set(categories)
+  const sources = new Set<string>()
+  for (const [key, keySources] of Object.entries(styles.valueSources || {})) {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !categorySet.has(key.slice(0, separator))) continue
+    if (normalizeColorValue(key.slice(separator + 1)) !== normalized) continue
+    keySources.forEach((source) => sources.add(source))
+  }
+  return [...sources].sort()
+}
+
+function declaredOnlyColorCandidates(styles: ExtractedStyles): ColorTokenCandidate[] {
+  const candidates = new Map<string, ColorTokenCandidate>()
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    if (!key.startsWith('declaredColor:') || !Number.isFinite(count) || count <= 0) continue
+    const value = normalizeColorValue(key.slice('declaredColor:'.length))
+    if (!value) continue
+    const rendered = RENDERED_COLOR_CATEGORIES.reduce(
+      (total, category) => total + colorUsageForCategory(styles, category, value),
+      0,
+    )
+    if (rendered > 0) continue
+    const existing = candidates.get(value)
+    const sources = colorSourcesForValue(styles, value, ['declaredColor', 'brandTokenColor'])
+    candidates.set(value, {
+      value,
+      kind: 'declared-only',
+      observationCount: (existing?.observationCount || 0) + count,
+      sources: [...new Set([...(existing?.sources || []), ...sources])].sort(),
+    })
+  }
+  return [...candidates.values()].sort(
+    (first, second) => second.observationCount - first.observationCount || first.value.localeCompare(second.value),
+  )
+}
+
 function isMutedTextCandidate(
   background: string | undefined,
   foreground: string | undefined,
@@ -303,6 +400,73 @@ function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<s
     normalized.set(key, (normalized.get(key) || 0) + count)
   }
   return normalized
+}
+
+function prioritizedTypographyValues(
+  styles: ExtractedStyles,
+  general: ReadonlyMap<string, number>,
+  displayCategory: 'displayFontSize' | 'displayFontWeight',
+  headingCategory: 'headingFontSize' | 'headingFontWeight',
+  limit: number,
+  normalize: (frequency: ReadonlyMap<string, number>) => ReadonlyMap<string, number> = (frequency) => frequency,
+): string[] {
+  const display = sortByFrequency(normalize(frequencyForCategory(styles, displayCategory))).slice(0, 1)
+  const headings = sortByFrequency(normalize(frequencyForCategory(styles, headingCategory))).slice(0, 3)
+  return [...display, ...headings, ...sortByFrequency(general)].filter(uniqueFilter()).slice(0, limit)
+}
+
+function normalizedValueSources(styles: ExtractedStyles, category: 'spacing' | 'radius', value: string): Set<string> {
+  const sources = new Set<string>()
+  const prefix = `${category}:`
+  for (const [key, keySources] of Object.entries(styles.valueSources || {})) {
+    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
+    keySources.forEach((source) => sources.add(source))
+  }
+  return sources
+}
+
+function normalizedValueSourceCounts(
+  styles: ExtractedStyles,
+  category: 'spacing' | 'radius',
+  value: string,
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  const prefix = `${category}:`
+  for (const [key, keySourceCounts] of Object.entries(styles.valueSourceCounts || {})) {
+    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
+    for (const [source, count] of Object.entries(keySourceCounts)) {
+      if (!Number.isFinite(count) || count <= 0) continue
+      counts.set(source, (counts.get(source) || 0) + count)
+    }
+  }
+  return counts
+}
+
+function hasReusableSpacingScope(styles: ExtractedStyles, value: string): boolean {
+  const counts = normalizedValueSourceCounts(styles, 'spacing', value)
+  if (counts.size === 0) {
+    const sources = normalizedValueSources(styles, 'spacing', value)
+    return sources.size === 0 || [...sources].some((source) => source !== 'element:control-spacing')
+  }
+  const control = counts.get('element:control-spacing') || 0
+  const reusable = [...counts.entries()].reduce(
+    (total, [source, count]) => total + (source === 'element:control-spacing' ? 0 : count),
+    0,
+  )
+  if (control === 0) return reusable > 0
+  return reusable >= 2 && reusable / (control + reusable) >= 0.25
+}
+
+function hasReusableRadiusScope(styles: ExtractedStyles, value: string): boolean {
+  const counts = normalizedValueSourceCounts(styles, 'radius', value)
+  if (counts.size === 0) {
+    const sources = normalizedValueSources(styles, 'radius', value)
+    return !sources.has('geometry:circle-or-pill') || sources.has('computed:ordinary-radius')
+  }
+  const geometry = counts.get('geometry:circle-or-pill') || 0
+  const ordinary = counts.get('computed:ordinary-radius') || 0
+  if (geometry === 0) return ordinary > 0
+  return ordinary >= 2 && ordinary / (geometry + ordinary) >= 0.25
 }
 
 function isScalarLength(value: string): boolean {
@@ -422,17 +586,24 @@ export function buildDesignTokens(
     const editorialAccent = observedTextOnlyAccent(roleStyles.colorRoleObservations)
     if (editorialAccent) colors['editorial-accent'] = editorialAccent
   }
+  const destructiveActionColor = observedDestructiveActionColor(roleStyles.colorRoleObservations)
+  if (destructiveActionColor) colors['danger'] = destructiveActionColor
 
   // Prefer borders observed outside controls. Action/focus borders belong to the primary or ring role and should not
   // become the default boundary for every card, table row, and navigation region in a validation scenario.
-  const structuralBorderColorEntries = Object.entries(roleStyles.usageCount)
-    .filter(([key]) => key.startsWith('structuralBorderColor:'))
-    .sort((first, second) => second[1] - first[1])
-  const observedBorderColorEntries = (
-    structuralBorderColorEntries.length > 0
-      ? structuralBorderColorEntries
-      : Object.entries(roleStyles.usageCount).filter(([key]) => key.startsWith('borderColor:'))
-  ).sort((first, second) => second[1] - first[1])
+  const borderColorStats = new Map<string, { observed: number; structural: number }>()
+  for (const [key, count] of Object.entries(roleStyles.usageCount)) {
+    const structural = key.startsWith('structuralBorderColor:')
+    if (!structural && !key.startsWith('borderColor:')) continue
+    const value = colorValueFromUsageKey(key)
+    const stats = borderColorStats.get(value) || { observed: 0, structural: 0 }
+    if (structural) stats.structural += count
+    else stats.observed += count
+    borderColorStats.set(value, stats)
+  }
+  const observedBorderColorEntries = [...borderColorStats.entries()]
+    .map(([value, stats]) => [`borderColor:${value}`, stats.observed + stats.structural * 2] as const)
+    .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
   const neutralBorderColorEntries = observedBorderColorEntries.filter(([key]) =>
     isNeutralColor(colorValueFromUsageKey(key)),
   )
@@ -451,26 +622,39 @@ export function buildDesignTokens(
     if (subtleBorder !== defaultBorder) colors['border-subtle'] = subtleBorder
   }
 
-  // Add remaining palette colors. Compare normalized values so the same color observed in
-  // different notations (e.g. rgb(59, 52, 64) vs #3b3440) is not emitted as two tokens.
+  // Keep unassigned rendered colors as candidates instead of promoting every observed hue
+  // into the portable design system. This retains evidence such as editorial or code colors
+  // without presenting it as a reusable semantic token.
   const takenColors = new Set(Object.values(colors).map((value) => normalizeColorValue(value) || value))
-  clusteredColors.palette.forEach((item, i) => {
+  const observedColorCandidates = clusteredColors.palette.flatMap<ColorTokenCandidate>((item) => {
     const normalized = normalizeColorValue(item.hex) || item.hex
-    if (!takenColors.has(normalized)) {
-      takenColors.add(normalized)
-      colors[`palette-${i + 1}`] = item.hex
-    }
+    if (takenColors.has(normalized)) return []
+    return [
+      {
+        value: normalized,
+        kind: 'observed-unassigned',
+        observationCount: item.count,
+        sources: colorSourcesForValue(styles, normalized, RENDERED_COLOR_CATEGORIES),
+      },
+    ]
   })
+  const colorCandidates = [...declaredOnlyColorCandidates(styles), ...observedColorCandidates]
 
   // Typography - sort by frequency and pick unique values
   // Computed font sizes frequently contain sub-pixel layout noise (for example
   // 11.9062px beside an authored 12px). Normalize that noise before creating a
   // reusable scale so one intended size cannot become two tokens.
   const fontSizeFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'fontSize', styles.fontSizes))
-  const sortedFontSizes = numericSort(sortByFrequency(fontSizeFreq).map(pxToRem).filter(uniqueFilter()).slice(0, 8))
+  const sortedFontSizes = numericSort(
+    prioritizedTypographyValues(styles, fontSizeFreq, 'displayFontSize', 'headingFontSize', 8, normalizeLengthFrequency)
+      .map(pxToRem)
+      .filter(uniqueFilter()),
+  )
 
   const fontWeightFreq = frequencyForCategory(styles, 'fontWeight', styles.fontWeights)
-  const sortedFontWeights = numericSort(sortByFrequency(fontWeightFreq).filter(uniqueFilter()).slice(0, 5))
+  const sortedFontWeights = numericSort(
+    prioritizedTypographyValues(styles, fontWeightFreq, 'displayFontWeight', 'headingFontWeight', 5),
+  )
 
   const pairedLineHeights = pairedLineHeightFrequency(styles)
   const lineHeightFreq =
@@ -485,6 +669,7 @@ export function buildDesignTokens(
       const num = parseFloat(v)
       return !isNaN(num) && num > 0 && num <= 96
     })
+    .filter((value) => hasReusableSpacingScope(styles, value))
     .filter(uniqueFilter())
     .slice(0, 12)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
@@ -493,6 +678,7 @@ export function buildDesignTokens(
   const radiusFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'radius', styles.radii))
   const radii = sortByFrequency(radiusFreq)
     .filter((v) => parseFloat(v) > 0)
+    .filter((value) => hasReusableRadiusScope(styles, value))
     .filter(uniqueFilter())
     .slice(0, 5)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
@@ -500,6 +686,7 @@ export function buildDesignTokens(
   // Shadows - deduplicate
   const shadowFreq = frequencyForCategory(styles, 'shadow', styles.shadows)
   const shadows = sortByFrequency(shadowFreq)
+    .filter(hasVisibleShadow)
     .slice(0, 4)
     .sort((first, second) => shadowElevation(first) - shadowElevation(second))
 
@@ -563,6 +750,7 @@ export function buildDesignTokens(
     borders,
     zIndices,
     transitions,
+    ...(colorCandidates.length > 0 ? { candidates: { colors: colorCandidates } } : {}),
     ...(primaryAction || semanticPairs
       ? { colorRoles: { ...(primaryAction ? { primaryAction } : {}), ...(semanticPairs ? { semanticPairs } : {}) } }
       : {}),

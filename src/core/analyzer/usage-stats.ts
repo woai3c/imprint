@@ -12,6 +12,8 @@ export type UsageCategory =
   | 'actionForegroundColor'
   | 'primaryActionBackgroundColor'
   | 'primaryActionForegroundColor'
+  | 'destructiveActionBackgroundColor'
+  | 'destructiveActionForegroundColor'
   | 'statusBackgroundColor'
   | 'statusForegroundColor'
   | 'linkColor'
@@ -23,7 +25,11 @@ export type UsageCategory =
   | 'fontFamily'
   | 'fontTextFamily'
   | 'fontSize'
+  | 'displayFontSize'
+  | 'headingFontSize'
   | 'fontWeight'
+  | 'displayFontWeight'
+  | 'headingFontWeight'
   | 'lineHeight'
   | 'typeMetric'
   | 'letterSpacing'
@@ -70,7 +76,25 @@ export function colorFrequency(
   usageCount: Readonly<Record<string, number>> = {},
 ): Map<string, number> {
   const frequency = new Map<string, number>()
-  const colorCategories: UsageCategory[] = ['textColor', 'bgColor', 'borderColor', 'declaredColor']
+  const colorCategories: UsageCategory[] = [
+    'textColor',
+    'bgColor',
+    'borderColor',
+    'accentColor',
+    'actionColor',
+    'primaryActionColor',
+    'statusColor',
+    'actionBackgroundColor',
+    'actionForegroundColor',
+    'primaryActionBackgroundColor',
+    'primaryActionForegroundColor',
+    'destructiveActionBackgroundColor',
+    'destructiveActionForegroundColor',
+    'statusBackgroundColor',
+    'statusForegroundColor',
+    'linkColor',
+    'selectedColor',
+  ]
 
   for (const category of colorCategories) {
     const prefix = `${category}:`
@@ -79,12 +103,12 @@ export function colorFrequency(
     }
   }
 
-  if (frequency.size === 0) return countFrequency(rawColors)
+  if (frequency.size > 0) return frequency
 
-  for (const color of rawColors) {
-    if (!frequency.has(color)) addCount(frequency, color, 1)
-  }
-  return frequency
+  const hasDeclaredColorEvidence = Object.keys(usageCount).some(
+    (key) => key.startsWith('declaredColor:') || key.startsWith('brandTokenColor:'),
+  )
+  return hasDeclaredColorEvidence ? frequency : countFrequency(rawColors)
 }
 
 export function sortByFrequency(frequency: ReadonlyMap<string, number>): string[] {

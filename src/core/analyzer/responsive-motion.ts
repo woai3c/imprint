@@ -9,10 +9,18 @@ export interface ResponsiveBreakpoint {
 /**
  * Detect responsive breakpoints by analyzing CSS media queries.
  */
-export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoint[]> {
-  const rawBreakpoints = await page.evaluate(() => {
+export interface BreakpointDetectionResult {
+  breakpoints: ResponsiveBreakpoint[]
+  readableStylesheetCount: number
+  unreadableStylesheetCount: number
+}
+
+export async function detectBreakpointsWithCoverage(page: Page): Promise<BreakpointDetectionResult> {
+  const detection = await page.evaluate(() => {
     const breakpoints = new Map<number, number>()
     const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    let readableStylesheetCount = 0
+    let unreadableStylesheetCount = 0
 
     const visitRules = (rules: CSSRuleList) => {
       for (const rule of rules) {
@@ -33,6 +41,7 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
           }
           for (const width of ruleBreakpoints) breakpoints.set(width, (breakpoints.get(width) || 0) + 1)
         }
+        if (rule instanceof CSSSupportsRule && !CSS.supports(rule.conditionText)) continue
         const nestedRules = 'cssRules' in rule ? (rule as CSSGroupingRule).cssRules : null
         if (nestedRules) visitRules(nestedRules)
       }
@@ -41,19 +50,34 @@ export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoin
     for (const sheet of document.styleSheets) {
       try {
         visitRules(sheet.cssRules)
+        readableStylesheetCount++
       } catch {
-        // Cross-origin
+        unreadableStylesheetCount++
       }
     }
 
-    return [...breakpoints].map(([width, count]) => ({ width, count })).sort((a, b) => a.width - b.width)
+    return {
+      rawBreakpoints: [...breakpoints].map(([width, count]) => ({ width, count })).sort((a, b) => a.width - b.width),
+      readableStylesheetCount,
+      unreadableStylesheetCount,
+    }
   })
 
-  return labelBreakpointWidths(selectRepresentativeBreakpointWidths(rawBreakpoints)).map(({ width, label }) => ({
-    width,
-    label,
-    layoutChanges: [],
-  }))
+  return {
+    breakpoints: labelBreakpointWidths(selectRepresentativeBreakpointWidths(detection.rawBreakpoints)).map(
+      ({ width, label }) => ({
+        width,
+        label,
+        layoutChanges: [],
+      }),
+    ),
+    readableStylesheetCount: detection.readableStylesheetCount,
+    unreadableStylesheetCount: detection.unreadableStylesheetCount,
+  }
+}
+
+export async function detectBreakpoints(page: Page): Promise<ResponsiveBreakpoint[]> {
+  return (await detectBreakpointsWithCoverage(page)).breakpoints
 }
 
 function breakpointCanonicality(width: number): number {

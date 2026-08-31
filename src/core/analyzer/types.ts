@@ -134,6 +134,8 @@ export interface ExtractedStyles {
   transitions: string[]
   usageCount: Record<string, number>
   valueSources?: Record<string, string[]>
+  /** Per-value source frequencies retained for scope-aware token promotion. */
+  valueSourceCounts?: Record<string, Record<string, number>>
   colorRoleObservations?: ColorRoleObservation[]
 }
 
@@ -153,6 +155,8 @@ export interface InteractionStyleObservation {
   before: Record<string, string>
   after: Record<string, string>
   changedProperties?: string[]
+  source?: 'computed-probed' | 'declared-applicable'
+  selector?: string
 }
 
 export interface InteractionStyles {
@@ -181,16 +185,35 @@ export interface AnalysisTiming {
 }
 
 export type TokenConfidence = 'high' | 'medium' | 'low'
+export type TokenReuseScope = 'foundation' | 'component' | 'local' | 'declared-only' | 'unknown'
 
 export interface TokenEvidence {
   value: string
+  /** Backward-compatible decision confidence; equivalent to semanticConfidence for new analyses. */
   confidence: TokenConfidence
+  measurementConfidence?: TokenConfidence
+  semanticConfidence?: TokenConfidence
+  reuseScope?: TokenReuseScope
   observationCount: number
   pageCount: number
   captureCount: number
+  eligiblePageCount?: number
+  pageSupportRatio?: number
   pages: string[]
   sources: string[]
-  reasons: Array<'cross-page' | 'declared-token' | 'interactive-use' | 'rendered-use' | 'computed-style'>
+  reasons: Array<
+    'cross-page' | 'declared-token' | 'declared-only' | 'interactive-use' | 'rendered-use' | 'computed-style'
+  >
+}
+
+export interface ColorTokenCandidate {
+  value: string
+  kind: 'declared-only' | 'observed-unassigned'
+  observationCount: number
+  sources: string[]
+  pageCount?: number
+  captureCount?: number
+  measurementConfidence?: TokenConfidence
 }
 
 export interface PageCoverage {
@@ -247,6 +270,9 @@ export interface DesignToken {
   transitions: string[]
   usageCount?: Record<string, number>
   evidence?: Record<string, TokenEvidence>
+  candidates?: {
+    colors?: ColorTokenCandidate[]
+  }
   colorRoles?: {
     primaryAction?: {
       observedBackground: string

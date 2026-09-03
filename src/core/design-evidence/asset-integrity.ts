@@ -18,10 +18,11 @@ export function resolveScreenshotAssetCoverage(
   evidence: Pick<DesignEvidence, 'pages' | 'coverage' | 'limitations'>,
 ): NonNullable<EvidenceCoverage['assetCoverage']> {
   if (evidence.coverage.assetCoverage) return evidence.coverage.assetCoverage
-  const issueCount = screenshotAssetIssueCount([...evidence.coverage.limitations, ...evidence.limitations])
+  const valid = evidence.pages.filter((page) => page.images.some((image) => image.kind === 'overview')).length
+  const issueCount = Math.max(0, evidence.pages.length - valid)
   return {
     expected: evidence.pages.length,
-    valid: Math.max(0, evidence.pages.length - Math.min(evidence.pages.length, issueCount)),
+    valid,
     status: issueCount === 0 ? 'complete' : 'partial',
     issueCount,
   }

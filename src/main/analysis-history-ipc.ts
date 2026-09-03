@@ -159,6 +159,7 @@ export function registerAnalysisHistoryIpcHandlers(): void {
       tokens,
       record.dark_mode_method,
       record.dark_mode_selector,
+      designEvidence || undefined,
     )
 
     return {

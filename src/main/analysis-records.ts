@@ -46,6 +46,7 @@ export function restoreDeterministicStoredContext(
     tokens,
     record.dark_mode_method,
     record.dark_mode_selector,
+    evidence,
   )
   const designDoc = generateDesignDoc({
     tokens,

@@ -2,16 +2,17 @@ import type { DesignToken } from '../analyzer/types.js'
 import { type DarkModeExportData, normalizeDarkSelector } from './dark-mode.js'
 import {
   DURATION_NAMES,
-  FONT_SIZE_NAMES,
-  LETTER_SPACING_NAMES,
-  LINE_HEIGHT_NAMES,
   RADIUS_NAMES,
   SHADOW_NAMES,
-  tailwindFontWeightName,
+  portableFontEntries,
+  portableFontSizeEntries,
+  portableFontWeightEntries,
+  portableLetterSpacingEntries,
+  portableLineHeightEntries,
 } from './token-names.js'
 
 interface ThemeCustomPropertyOptions {
-  fontFamily?: string
+  fontIdentity?: DesignToken['typography']
   includeFontSizes?: boolean
   includeFontWeights?: boolean
   includeLineHeights?: boolean
@@ -45,20 +46,26 @@ function appendThemeCustomProperties(lines: string[], tokens: DesignToken, optio
   const indent = options.indent || '  '
   appendColorCustomProperties(lines, tokens.colors, indent)
 
-  if (options.fontFamily !== undefined) {
-    lines.push(`${indent}--font-sans: ${options.fontFamily};`)
+  for (const font of portableFontEntries(tokens.typography, options.fontIdentity)) {
+    lines.push(`${indent}--font-${font.name}: ${font.value};`)
   }
 
   if (options.includeFontSizes) {
-    appendIndexedCustomProperties(lines, tokens.typography.fontSizes, 'font-size', FONT_SIZE_NAMES, indent)
+    for (const entry of portableFontSizeEntries(tokens.typography.fontSizes, options.fontIdentity?.fontSizes)) {
+      lines.push(`${indent}--font-size-${entry.name}: ${entry.value};`)
+    }
   }
 
   if (options.includeFontWeights) {
-    appendIndexedCustomProperties(lines, tokens.typography.fontWeights, 'font-weight', [], indent)
+    for (const entry of portableFontWeightEntries(tokens.typography.fontWeights, options.fontIdentity?.fontWeights)) {
+      lines.push(`${indent}--font-weight-${entry.name}: ${entry.value};`)
+    }
   }
 
   if (options.includeLineHeights) {
-    appendIndexedCustomProperties(lines, tokens.typography.lineHeights, 'line-height', [], indent)
+    for (const entry of portableLineHeightEntries(tokens.typography.lineHeights, options.fontIdentity?.lineHeights)) {
+      lines.push(`${indent}--line-height-${entry.name}: ${entry.value};`)
+    }
   }
 
   appendIndexedCustomProperties(lines, tokens.spacing, 'spacing', [], indent)
@@ -73,13 +80,12 @@ function appendThemeCustomProperties(lines: string[], tokens: DesignToken, optio
   }
 
   if (options.includeLetterSpacings) {
-    appendIndexedCustomProperties(
-      lines,
+    for (const entry of portableLetterSpacingEntries(
       tokens.typography.letterSpacings,
-      'letter-spacing',
-      LETTER_SPACING_NAMES,
-      indent,
-    )
+      options.fontIdentity?.letterSpacings,
+    )) {
+      lines.push(`${indent}--letter-spacing-${entry.name}: ${entry.value};`)
+    }
   }
 
   if (options.includeZIndices) {
@@ -89,27 +95,31 @@ function appendThemeCustomProperties(lines: string[], tokens: DesignToken, optio
   appendIndexedCustomProperties(lines, tokens.transitions, 'duration', DURATION_NAMES, indent)
 }
 
-function appendTailwindThemeProperties(lines: string[], tokens: DesignToken, indent = '  '): void {
+function appendTailwindThemeProperties(
+  lines: string[],
+  tokens: DesignToken,
+  indent = '  ',
+  fontIdentity: DesignToken['typography'] = tokens.typography,
+): void {
   appendColorCustomProperties(lines, tokens.colors, indent)
 
-  const fontFamily = tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
-  if (fontFamily) lines.push(`${indent}--font-sans: ${fontFamily};`)
+  for (const font of portableFontEntries(tokens.typography, fontIdentity)) {
+    lines.push(`${indent}--font-${font.name}: ${font.value};`)
+  }
 
-  const lineHeights = tokens.typography.lineHeights || []
-  const bodyLineHeight = lineHeights[Math.floor(lineHeights.length / 2)]
-  const headingLineHeight = lineHeights[0]
-  tokens.typography.fontSizes.forEach((value, index) => {
-    const name = FONT_SIZE_NAMES[index] || `${index + 1}`
-    lines.push(`${indent}--text-${name}: ${value};`)
-    const lineHeight = index >= 3 ? headingLineHeight : bodyLineHeight
-    if (lineHeight) lines.push(`${indent}--text-${name}--line-height: ${lineHeight};`)
-  })
+  for (const entry of portableFontSizeEntries(tokens.typography.fontSizes, fontIdentity.fontSizes)) {
+    lines.push(`${indent}--text-${entry.name}: ${entry.value};`)
+  }
 
-  tokens.typography.fontWeights.forEach((value, index) => {
-    lines.push(`${indent}--font-weight-${tailwindFontWeightName(value, index)}: ${value};`)
+  portableFontWeightEntries(tokens.typography.fontWeights, fontIdentity.fontWeights).forEach(({ name, value }) => {
+    lines.push(`${indent}--font-weight-${name}: ${value};`)
   })
-  appendIndexedCustomProperties(lines, lineHeights, 'leading', LINE_HEIGHT_NAMES, indent)
-  appendIndexedCustomProperties(lines, tokens.typography.letterSpacings, 'tracking', LETTER_SPACING_NAMES, indent)
+  for (const entry of portableLineHeightEntries(tokens.typography.lineHeights, fontIdentity.lineHeights)) {
+    lines.push(`${indent}--leading-${entry.name}: ${entry.value};`)
+  }
+  for (const entry of portableLetterSpacingEntries(tokens.typography.letterSpacings, fontIdentity.letterSpacings)) {
+    lines.push(`${indent}--tracking-${entry.name}: ${entry.value};`)
+  }
   appendIndexedCustomProperties(lines, tokens.spacing, 'spacing', [], indent)
   appendIndexedCustomProperties(lines, tokens.radii, 'radius', RADIUS_NAMES, indent)
   appendIndexedCustomProperties(lines, tokens.shadows, 'shadow', SHADOW_NAMES, indent)
@@ -131,10 +141,6 @@ export function generateCssVariables(
   const lines: string[] = [':root {']
 
   appendThemeCustomProperties(lines, tokens, {
-    fontFamily:
-      tokens.typography.fontFamilies.length > 0
-        ? tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
-        : undefined,
     includeFontSizes: true,
     includeFontWeights: true,
     includeLineHeights: true,
@@ -158,15 +164,13 @@ export function generateCssVariables(
         ? '@media (prefers-color-scheme: dark)'
         : normalizeDarkSelector(darkMode.selector)
     lines.push('')
+    lines.push('/* Dark mode overrides */')
     lines.push(`${selector} {`)
     if (darkMode.method === 'media-query') lines.push('  :root {')
     const indent = darkMode.method === 'media-query' ? '    ' : '  '
 
     appendThemeCustomProperties(lines, darkMode.darkTokens, {
-      fontFamily:
-        darkMode.darkTokens.typography.fontFamilies.length > 0
-          ? darkMode.darkTokens.typography.fontStacks?.[0] || darkMode.darkTokens.typography.fontFamilies[0]
-          : undefined,
+      fontIdentity: tokens.typography,
       includeFontSizes: true,
       includeFontWeights: true,
       includeLineHeights: true,
@@ -213,7 +217,7 @@ export function generateTailwindTheme(
     lines.push(`${selector} {`)
     if (darkMode.method === 'media-query') lines.push('  :root {')
     const indent = darkMode.method === 'media-query' ? '    ' : '  '
-    appendTailwindThemeProperties(lines, darkMode.darkTokens, indent)
+    appendTailwindThemeProperties(lines, darkMode.darkTokens, indent, tokens.typography)
     appendTailwindSupplementalProperties(lines, darkMode.darkTokens, indent)
     if (darkMode.method === 'media-query') lines.push('  }')
     lines.push('}')
@@ -230,18 +234,22 @@ export function generateScssVariables(tokens: DesignToken, darkMode?: DarkModeEx
   }
   lines.push('')
 
-  if (tokens.typography.fontFamilies.length > 0) {
-    lines.push(`$font-sans: ${tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]};`)
+  for (const font of portableFontEntries(tokens.typography)) {
+    lines.push(`$font-${font.name}: ${font.value};`)
   }
   lines.push('')
 
-  tokens.typography.fontSizes.forEach((val, i) => {
-    lines.push(`$font-size-${FONT_SIZE_NAMES[i] || i + 1}: ${val};`)
+  portableFontSizeEntries(tokens.typography.fontSizes).forEach(({ name, value }) => {
+    lines.push(`$font-size-${name}: ${value};`)
   })
-  tokens.typography.fontWeights.forEach((val, i) => lines.push(`$font-weight-${i + 1}: ${val};`))
-  tokens.typography.lineHeights.forEach((val, i) => lines.push(`$line-height-${i + 1}: ${val};`))
-  tokens.typography.letterSpacings?.forEach((val, i) => {
-    lines.push(`$letter-spacing-${LETTER_SPACING_NAMES[i] || i + 1}: ${val};`)
+  portableFontWeightEntries(tokens.typography.fontWeights).forEach(({ name, value }) => {
+    lines.push(`$font-weight-${name}: ${value};`)
+  })
+  portableLineHeightEntries(tokens.typography.lineHeights).forEach(({ name, value }) => {
+    lines.push(`$line-height-${name}: ${value};`)
+  })
+  portableLetterSpacingEntries(tokens.typography.letterSpacings).forEach(({ name, value }) => {
+    lines.push(`$letter-spacing-${name}: ${value};`)
   })
   lines.push('')
 
@@ -281,18 +289,27 @@ export function generateScssVariables(tokens: DesignToken, darkMode?: DarkModeEx
     for (const [name, value] of Object.entries(darkTokens.colors)) {
       lines.push(`$dark-color-${name}: ${value};`)
     }
-    darkTokens.typography.fontSizes.forEach((value, index) => {
-      lines.push(`$dark-font-size-${FONT_SIZE_NAMES[index] || index + 1}: ${value};`)
+    for (const font of portableFontEntries(darkTokens.typography, tokens.typography)) {
+      lines.push(`$dark-font-${font.name}: ${font.value};`)
+    }
+    portableFontSizeEntries(darkTokens.typography.fontSizes, tokens.typography.fontSizes).forEach(({ name, value }) => {
+      lines.push(`$dark-font-size-${name}: ${value};`)
     })
-    darkTokens.typography.fontWeights.forEach((value, index) => {
-      lines.push(`$dark-font-weight-${index + 1}: ${value};`)
-    })
-    darkTokens.typography.lineHeights.forEach((value, index) => {
-      lines.push(`$dark-line-height-${index + 1}: ${value};`)
-    })
-    darkTokens.typography.letterSpacings?.forEach((value, index) => {
-      lines.push(`$dark-letter-spacing-${LETTER_SPACING_NAMES[index] || index + 1}: ${value};`)
-    })
+    portableFontWeightEntries(darkTokens.typography.fontWeights, tokens.typography.fontWeights).forEach(
+      ({ name, value }) => {
+        lines.push(`$dark-font-weight-${name}: ${value};`)
+      },
+    )
+    portableLineHeightEntries(darkTokens.typography.lineHeights, tokens.typography.lineHeights).forEach(
+      ({ name, value }) => {
+        lines.push(`$dark-line-height-${name}: ${value};`)
+      },
+    )
+    portableLetterSpacingEntries(darkTokens.typography.letterSpacings, tokens.typography.letterSpacings).forEach(
+      ({ name, value }) => {
+        lines.push(`$dark-letter-spacing-${name}: ${value};`)
+      },
+    )
     darkTokens.spacing.forEach((value, index) => lines.push(`$dark-spacing-${index + 1}: ${value};`))
     darkTokens.radii.forEach((value, index) => {
       lines.push(`$dark-radius-${RADIUS_NAMES[index] || index + 1}: ${value};`)
@@ -308,10 +325,7 @@ export function generateScssVariables(tokens: DesignToken, darkMode?: DarkModeEx
 
     lines.push('', '@mixin imprint-dark-theme {')
     appendThemeCustomProperties(lines, darkTokens, {
-      fontFamily:
-        darkTokens.typography.fontFamilies.length > 0
-          ? darkTokens.typography.fontStacks?.[0] || darkTokens.typography.fontFamilies[0]
-          : undefined,
+      fontIdentity: tokens.typography,
       includeFontSizes: true,
       includeFontWeights: true,
       includeLineHeights: true,

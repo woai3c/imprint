@@ -1,3 +1,4 @@
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import type { ComponentEvidence, DesignEvidence, SectionEvidence } from '../design-evidence/types.js'
 
 export const ENTITY_MATCHING_SCHEMA_VERSION = '1' as const
@@ -40,21 +41,8 @@ export interface EntityMatchingSummary {
   unmatchedEntities: number
 }
 
-function routeIdentity(value: string): string {
-  try {
-    const url = new URL(value)
-    url.username = ''
-    url.password = ''
-    url.search = ''
-    url.hash = ''
-    return `${url.origin}${url.pathname.replace(/\/+$/, '') || '/'}`
-  } catch {
-    return value.split(/[?#]/, 1)[0].replace(/\/+$/, '') || value
-  }
-}
-
-function pageKey(url: string, viewport: string): string {
-  return `${routeIdentity(url)}::${viewport}`
+function pageKey(page: DesignEvidence['pages'][number]): string {
+  return `${evidencePageRouteIdentity(page)}::${page.viewport}`
 }
 
 function grouped<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
@@ -234,10 +222,8 @@ export function matchCrossCaptureEntities(
   referenceEvidence: DesignEvidence,
   targetEvidence: DesignEvidence,
 ): CrossCaptureEntityMatchingResult {
-  const referencePagesByKey = new Map(
-    referenceEvidence.pages.map((page) => [pageKey(page.url, page.viewport), page.id]),
-  )
-  const targetPagesByKey = new Map(targetEvidence.pages.map((page) => [pageKey(page.url, page.viewport), page.id]))
+  const referencePagesByKey = new Map(referenceEvidence.pages.map((page) => [pageKey(page), page.id]))
+  const targetPagesByKey = new Map(targetEvidence.pages.map((page) => [pageKey(page), page.id]))
   const sections: CrossCaptureEntityMatch[] = []
 
   for (const key of [...new Set([...referencePagesByKey.keys(), ...targetPagesByKey.keys()])].sort()) {

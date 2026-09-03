@@ -191,25 +191,6 @@ function roleColors(
   return clusterFrequency(frequency, 20, threshold).map((item) => item.hex)
 }
 
-function prioritizeRelatedRoleColors(colors: string[]): string[] {
-  const [base, ...rest] = colors
-  if (!base) return colors
-  const parsedBase = parseColor(base)
-  if (!parsedBase) return colors
-  return [
-    base,
-    ...rest.sort((first, second) => {
-      const firstColor = parseColor(first)
-      const secondColor = parseColor(second)
-      if (!firstColor || !secondColor) return 0
-      return (
-        colorDistance(parsedBase, firstColor) - colorDistance(parsedBase, secondColor) ||
-        stableColorKey(first).localeCompare(stableColorKey(second))
-      )
-    }),
-  ]
-}
-
 function prioritizeMutedTextColors(colors: string[]): string[] {
   const [foreground, ...rest] = colors
   if (!foreground) return colors
@@ -261,7 +242,10 @@ export function clusterColors(
   // and light text is still text. Area-weighted background observations win when the extractor provides them.
   // Keep subtle but intentional surface layers separate. The general palette threshold would merge common pairs such as
   // a #f4f6f9 page canvas and #ffffff cards, erasing the site's actual surface hierarchy.
-  const backgrounds = prioritizeRelatedRoleColors(roleColors(usageCount, 'bgArea', 'bgColor', 12))
+  // `roleColors` is already ordered by observed area/support. Preserve that order: RGB proximity is useful only as an
+  // eligibility check later, not as a substitute for evidence. Otherwise a small tinted panel can outrank a dominant
+  // white card simply because its channels are closer to the page canvas.
+  const backgrounds = roleColors(usageCount, 'bgArea', 'bgColor', 12)
   const texts = prioritizeMutedTextColors(roleColors(usageCount, 'textColor'))
 
   // Explicit rendered semantic evidence is ordered before raw DOM frequency. Declared-only custom properties remain

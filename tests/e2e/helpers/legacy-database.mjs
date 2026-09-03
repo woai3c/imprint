@@ -131,6 +131,17 @@ if (operation === 'create') {
       JSON.stringify({ schemaVersion: '1', pages: [{}] }),
     )
   database
+    .prepare(`INSERT INTO analyses (id, url, created_at, final_url) VALUES (?, ?, ?, ?)`)
+    .run('analysis-non-query', 'https://example.com/about', '2026-08-17T00:00:03.000Z', 'https://example.com/about')
+  database
+    .prepare(`INSERT INTO analyses (id, url, created_at, final_url) VALUES (?, ?, ?, ?)`)
+    .run(
+      'analysis-distinct-query',
+      'https://example.com/products?access_token=another-private-value',
+      '2026-08-17T00:00:04.000Z',
+      'https://example.com/products?access_token=another-private-value',
+    )
+  database
     .prepare(
       `INSERT INTO themes
        (id, name, source_url, tokens_json, design_doc, created_at, updated_at, design_evidence_json)
@@ -145,6 +156,36 @@ if (operation === 'create') {
       '2026-08-17T00:00:00.000Z',
       '2026-08-17T00:00:00.000Z',
       JSON.stringify(evidence),
+    )
+} else if (operation === 'create-sanitized') {
+  database.exec(`
+    CREATE TABLE analyses (
+      id TEXT PRIMARY KEY,
+      theme_id TEXT,
+      url TEXT NOT NULL,
+      pages_analyzed INTEGER DEFAULT 1,
+      viewports TEXT DEFAULT '["desktop"]',
+      duration_ms INTEGER,
+      route_identity TEXT,
+      created_at TEXT NOT NULL,
+      final_url TEXT
+    );
+    CREATE TABLE app_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `)
+  database
+    .prepare('INSERT INTO app_migrations (id, applied_at) VALUES (?, ?)')
+    .run('persisted-url-and-summary-v1', '2026-08-17T00:00:00.000Z')
+  database
+    .prepare(`INSERT INTO analyses (id, url, final_url, route_identity, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(
+      'analysis-query-redacted',
+      'https://example.com/query-router',
+      'https://example.com/query-router',
+      'https://example.com/query-router',
+      '2026-08-17T00:00:00.000Z',
     )
 } else if (operation === 'inspect') {
   const snapshot = {

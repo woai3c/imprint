@@ -6,6 +6,7 @@ import {
   routeIdentityFromUrl,
 } from '../../src/core/analyzer/reference-compare.js'
 import type { CaptureManifest, DesignToken } from '../../src/core/analyzer/types.js'
+import { opaqueRouteIdentity } from '../../src/core/analyzer/url-identity.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 
 function tokens(overrides: Partial<DesignToken> = {}): DesignToken {
@@ -65,7 +66,7 @@ function evidence(analysisId: string, url = 'https://example.com/products', toke
         role: 'hero',
         rect: { x: 0, y: 0, width: 1, height: 0.5 },
         layoutMode: 'flow',
-        tokenRefs: ['colors.primary'],
+        tokenRefs: ['color.primary'],
         componentRefs: [],
         interactionRefs: [],
         mediaLayerRefs: [],
@@ -343,6 +344,49 @@ describe('reference capture comparison', () => {
     )
   })
 
+  it('keeps persisted entry identities distinct without exposing query text', () => {
+    const alpha = opaqueRouteIdentity('https://example.com/products?doc=alpha#panel')
+    const beta = opaqueRouteIdentity('https://example.com/products?doc=beta')
+
+    expect(alpha).toMatch(/^route-[a-f0-9]{12}$/)
+    expect(beta).toMatch(/^route-[a-f0-9]{12}$/)
+    expect(alpha).not.toBe(beta)
+    expect(`${alpha}${beta}`).not.toContain('doc')
+    expect(`${alpha}${beta}`).not.toContain('alpha')
+
+    const reference = capture('reference-entry')
+    const target = capture('target-entry')
+    reference.routeIdentity = alpha
+    target.routeIdentity = beta
+    const result = compareReferenceCaptures(reference, target)
+    expect(result.status).toBe('inconclusive')
+    expect(result.comparability.reasons).toContain('route-mismatch')
+  })
+
+  it('infers one query entry route across multiple viewport captures', () => {
+    const addEntryRoute = (input: ReferenceCaptureInput, url: string) => {
+      const routeId = opaqueRouteIdentity(url)
+      input.evidence!.pages[0].routeId = routeId
+      addMobileEvidence(input, 2)
+      input.evidence!.pages.forEach((page) => {
+        page.url = url
+        page.routeId = routeId
+      })
+    }
+    const alphaReference = capture('alpha-reference', 'https://example.com/app?doc=alpha')
+    const alphaTarget = capture('alpha-target', 'https://example.com/app?doc=alpha')
+    addEntryRoute(alphaReference, 'https://example.com/app?doc=alpha')
+    addEntryRoute(alphaTarget, 'https://example.com/app?doc=alpha')
+    expect(compareReferenceCaptures(alphaReference, alphaTarget).status).toBe('unchanged')
+
+    const betaTarget = capture('beta-target', 'https://example.com/app?doc=beta')
+    addEntryRoute(betaTarget, 'https://example.com/app?doc=beta')
+    const mismatched = compareReferenceCaptures(alphaReference, betaTarget)
+    expect(mismatched.status).toBe('inconclusive')
+    expect(mismatched.comparability.reasons).toContain('route-mismatch')
+    expect(mismatched.reference.routeIdentity).not.toBe(mismatched.target.routeIdentity)
+  })
+
   it('does not report drift for equivalent, healthy captures', () => {
     const result = compareReferenceCaptures(capture('reference'), capture('target'))
 
@@ -369,12 +413,444 @@ describe('reference capture comparison', () => {
     const result = compareReferenceCaptures(capture('reference'), capture('target', undefined, targetTokens))
     const primaryChange = result.categories
       .find((category) => category.category === 'colors')
-      ?.changes.find((item) => item.tokenPath === 'colors.primary')
+      ?.changes.find((item) => item.tokenPath === 'color.primary')
 
     expect(result.status).toBe('changed')
     expect(primaryChange).toMatchObject({ kind: 'changed', from: '#2255ff', to: '#dd3322' })
     expect(primaryChange?.referenceEvidenceIds).toEqual(['reference-hero'])
     expect(primaryChange?.targetEvidenceIds).toEqual(['target-hero'])
+  })
+
+  it('compares rendered local typography candidates without promoting them to portable tokens', () => {
+    const localFontSize = (value: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'typography.fontSizes',
+            value,
+            sourcePath: 'typography.fontSizes.1',
+            rejectionReason: 'local-scope',
+            evidence: {
+              value,
+              confidence: 'low',
+              measurementConfidence: 'low',
+              semanticConfidence: 'low',
+              reuseScope: 'local',
+              observationCount: 1,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/products'],
+              sources: ['rendered:text'],
+              reasons: ['rendered-use'],
+            },
+          },
+        ],
+      },
+    })
+    const result = compareReferenceCaptures(
+      capture('reference', undefined, localFontSize('32px')),
+      capture('target', undefined, localFontSize('40px')),
+    )
+    const typography = result.categories.find((category) => category.category === 'typography')!
+
+    expect(typography.status).toBe('changed')
+    expect(typography.changes).toMatchObject([
+      { kind: 'removed', from: '32px' },
+      { kind: 'added', to: '40px' },
+    ])
+    expect(typography.changes.every((item) => item.tokenPath.startsWith('candidate.typography-fontsizes.'))).toBe(true)
+  })
+
+  it('ignores declaration-only typography candidates in reference comparison', () => {
+    const targetTokens = tokens({
+      candidates: {
+        values: [
+          {
+            group: 'typography.fontSizes',
+            value: '40px',
+            sourcePath: 'typography.fontSizes.1',
+            rejectionReason: 'declared-only',
+            evidence: {
+              value: '40px',
+              confidence: 'low',
+              semanticConfidence: 'low',
+              reuseScope: 'declared-only',
+              observationCount: 0,
+              pageCount: 0,
+              captureCount: 0,
+              eligiblePageCount: 1,
+              pageSupportRatio: 0,
+              pages: [],
+              sources: ['css-variable:--unused-heading'],
+              reasons: ['declared-token', 'declared-only'],
+            },
+          },
+        ],
+      },
+    })
+
+    const typography = compareReferenceCaptures(
+      capture('reference'),
+      capture('target', undefined, targetTokens),
+    ).categories.find((category) => category.category === 'typography')!
+
+    expect(typography.status).toBe('unchanged')
+    expect(typography.changes).toEqual([])
+  })
+
+  it('compares rendered local spacing and radius candidates without promoting them', () => {
+    const localScales = (spacing: string, radius: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          { group: 'spacing', value: spacing, sourcePath: 'spacing.2' },
+          { group: 'radii', value: radius, sourcePath: 'radii.1' },
+        ].map((candidate) => ({
+          ...candidate,
+          rejectionReason: 'local-scope' as const,
+          evidence: {
+            value: candidate.value,
+            confidence: 'low' as const,
+            semanticConfidence: 'low' as const,
+            reuseScope: 'local' as const,
+            observationCount: 1,
+            pageCount: 1,
+            captureCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            pages: ['https://example.com/products'],
+            sources: [`usage:${candidate.group === 'spacing' ? 'spacing' : 'radius'}`],
+            reasons: ['computed-style' as const],
+          },
+        })),
+      },
+    })
+    const result = compareReferenceCaptures(
+      capture('reference', undefined, localScales('2px', '12px')),
+      capture('target', undefined, localScales('4px', '14px')),
+    )
+
+    for (const categoryName of ['spacing', 'radii'] as const) {
+      const category = result.categories.find((item) => item.category === categoryName)!
+      expect(category.status).toBe('changed')
+      expect(category.changes).toHaveLength(2)
+      expect(
+        category.changes.every(
+          (change) => change.referenceEvidenceIds.length > 0 || change.targetEvidenceIds.length > 0,
+        ),
+      ).toBe(true)
+    }
+  })
+
+  it('uses public one-based token references for portable scale changes', () => {
+    const targetTokens = tokens({ spacing: ['8px'] })
+    const spacing = compareReferenceCaptures(
+      capture('reference'),
+      capture('target', undefined, targetTokens),
+    ).categories.find((category) => category.category === 'spacing')!
+
+    expect(spacing.changes).toContainEqual(
+      expect.objectContaining({ kind: 'removed', tokenPath: 'spacing.2', from: '16px' }),
+    )
+    expect(spacing.changes.some((item) => item.tokenPath === 'spacing.1')).toBe(false)
+  })
+
+  it('compares a rendered local semantic color candidate by role', () => {
+    const localAccent = (value: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'colors',
+            role: 'accent',
+            value,
+            sourcePath: 'colors.accent',
+            rejectionReason: 'local-scope',
+            evidence: {
+              value,
+              confidence: 'low',
+              semanticConfidence: 'low',
+              reuseScope: 'local',
+              observationCount: 1,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/products'],
+              sources: ['usage:accentColor'],
+              reasons: ['computed-style'],
+            },
+          },
+        ],
+      },
+    })
+    const colors = compareReferenceCaptures(
+      capture('reference', undefined, localAccent('#7c3aed')),
+      capture('target', undefined, localAccent('#d946ef')),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(colors.status).toBe('changed')
+    expect(colors.changes).toContainEqual(
+      expect.objectContaining({
+        tokenPath: 'color.accent',
+        kind: 'changed',
+        from: '#7c3aed',
+        to: '#d946ef',
+        referenceEvidenceIds: ['reference-page'],
+        targetEvidenceIds: ['target-page'],
+      }),
+    )
+  })
+
+  it('compares roleless observed colors and preserves equal-value semantic ownership', () => {
+    const observedColor = (value: string, role?: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'colors',
+            ...(role ? { role } : {}),
+            value,
+            provenance: 'observed-color',
+            rejectionReason: 'unassigned-role',
+            evidence: {
+              value,
+              confidence: 'low',
+              semanticConfidence: 'low',
+              reuseScope: 'local',
+              observationCount: 2,
+              ownerCount: 2,
+              semanticAgreement: role ? 1 : 0,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/products'],
+              sources: ['usage:bgColor'],
+              reasons: ['rendered-use'],
+            },
+          },
+        ],
+      },
+    })
+    const removed = compareReferenceCaptures(
+      capture('reference', undefined, observedColor('#7c3aed')),
+      capture('target'),
+    ).categories.find((category) => category.category === 'colors')!
+    const reassigned = compareReferenceCaptures(
+      capture('reference-role', undefined, observedColor('#7c3aed', 'background')),
+      capture('target-role', undefined, observedColor('#7c3aed', 'foreground')),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(removed.changes).toContainEqual(expect.objectContaining({ kind: 'removed', from: '#7c3aed' }))
+    expect(reassigned.changes).toHaveLength(2)
+    expect(reassigned.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'removed', from: '#7c3aed' }),
+        expect.objectContaining({ kind: 'added', to: '#7c3aed' }),
+      ]),
+    )
+  })
+
+  it('reports provenance drift when an observed color keeps the same role and value', () => {
+    const observedColor = (pageCount: number, sources: string[]): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'colors',
+            role: 'background',
+            value: '#7c3aed',
+            provenance: 'observed-color',
+            rejectionReason: 'unassigned-role',
+            evidence: {
+              value: '#7c3aed',
+              confidence: pageCount > 1 ? 'medium' : 'low',
+              measurementConfidence: pageCount > 1 ? 'medium' : 'low',
+              semanticConfidence: 'medium',
+              reuseScope: pageCount > 1 ? 'foundation' : 'local',
+              observationCount: pageCount * 2,
+              ownerCount: pageCount * 2,
+              semanticAgreement: 1,
+              pageCount,
+              captureCount: pageCount,
+              eligiblePageCount: 2,
+              pageSupportRatio: pageCount / 2,
+              pages: Array.from({ length: pageCount }, (_, index) => `https://example.com/page-${index + 1}`),
+              sources,
+              sourceCounts: Object.fromEntries(sources.map((source) => [source, pageCount * 2])),
+              roleCounts: { background: pageCount * 2 },
+              reasons: ['rendered-use', 'computed-style'],
+            },
+          },
+        ],
+      },
+    })
+    const colors = compareReferenceCaptures(
+      capture('reference', undefined, observedColor(1, ['computed:background'])),
+      capture('target', undefined, observedColor(2, ['computed:background', 'computed:pseudo-before'])),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(colors.status).toBe('changed')
+    expect(colors.changes).toHaveLength(1)
+    expect(colors.changes[0]).toMatchObject({
+      kind: 'changed',
+      tokenPath: expect.stringMatching(/^candidate\.colors\..+\.provenance$/),
+    })
+    expect(colors.changes[0]?.from).toContain('computed:background')
+    expect(colors.changes[0]?.to).toContain('computed:pseudo-before')
+  })
+
+  it('uses persisted opaque page references when query routes share one sanitized URL', () => {
+    const observedColor = (pageRef: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'colors',
+            role: 'background',
+            value: '#7c3aed',
+            provenance: 'observed-color',
+            rejectionReason: 'unassigned-role',
+            evidence: {
+              value: '#7c3aed',
+              confidence: 'low',
+              measurementConfidence: 'low',
+              semanticConfidence: 'medium',
+              reuseScope: 'local',
+              observationCount: 1,
+              ownerCount: 1,
+              semanticAgreement: 1,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/products'],
+              pageRefs: [pageRef],
+              sources: ['computed:background'],
+              sourceCounts: { 'computed:background': 1 },
+              roleCounts: { background: 1 },
+              reasons: ['rendered-use', 'computed-style'],
+            },
+          },
+        ],
+      },
+    })
+    const addSanitizedQueryRoutes = (input: ReferenceCaptureInput, order: string[]) => {
+      const captureEvidence = input.evidence!
+      const basePage = captureEvidence.pages[0]
+      const pages = new Map(
+        ['route-alpha', 'route-beta'].map((routeId) => [
+          routeId,
+          {
+            ...structuredClone(basePage),
+            id: `${input.analysisId}-${routeId}`,
+            url: 'https://example.com/products',
+            routeId,
+          },
+        ]),
+      )
+      captureEvidence.pages = order.map((routeId) => pages.get(routeId)!)
+      captureEvidence.sections[0].pageId = `${input.analysisId}-route-alpha`
+    }
+    const reference = capture('reference-query', 'https://example.com/products', observedColor('route-alpha'))
+    const target = capture('target-query', 'https://example.com/products', observedColor('route-alpha'))
+    addSanitizedQueryRoutes(reference, ['route-alpha', 'route-beta'])
+    addSanitizedQueryRoutes(target, ['route-beta', 'route-alpha'])
+    const persistedTarget = JSON.parse(JSON.stringify(target)) as ReferenceCaptureInput
+
+    const colors = compareReferenceCaptures(reference, persistedTarget).categories.find(
+      (category) => category.category === 'colors',
+    )!
+
+    expect(colors.status).toBe('unchanged')
+    expect(colors.changes).toEqual([])
+
+    const legacyTarget = structuredClone(persistedTarget)
+    delete legacyTarget.tokens.candidates?.values?.[0]?.evidence.pageRefs
+    delete legacyTarget.evidence?.tokens.candidates?.values?.[0]?.evidence.pageRefs
+    const legacyResult = compareReferenceCaptures(reference, legacyTarget)
+    expect(legacyResult.status).toBe('inconclusive')
+    expect(legacyResult.comparability.reasons).toContain('ambiguous-page-provenance')
+
+    const movedTarget = capture('moved-query', 'https://example.com/products', observedColor('route-beta'))
+    addSanitizedQueryRoutes(movedTarget, ['route-beta', 'route-alpha'])
+    const movedColors = compareReferenceCaptures(reference, movedTarget).categories.find(
+      (category) => category.category === 'colors',
+    )!
+    expect(movedColors.status).toBe('changed')
+    expect(movedColors.changes).toHaveLength(1)
+  })
+
+  it('rejects duplicate legacy public capture keys before page maps can overwrite them', () => {
+    const addAmbiguousLegacyPage = (input: ReferenceCaptureInput) => {
+      const first = input.evidence!.pages[0]
+      input.evidence!.pages.push({ ...structuredClone(first), id: `${input.analysisId}-second-page` })
+    }
+    const reference = capture('legacy-reference')
+    const target = capture('legacy-target')
+    addAmbiguousLegacyPage(reference)
+    addAmbiguousLegacyPage(target)
+
+    const result = compareReferenceCaptures(reference, target)
+
+    expect(result.status).toBe('inconclusive')
+    expect(result.comparability.reasons).toContain('ambiguous-page-provenance')
+    expect(result.comparability.comparedPageKeys).toEqual([])
+    expect(result.categories.every((category) => category.changes.length === 0)).toBe(true)
+    expect(result.entityMatching).toBeNull()
+  })
+
+  it('compares candidate semantics even when their literal is also a portable color', () => {
+    const withOverlappingBorderCandidate = (source: string): DesignToken => ({
+      ...tokens(),
+      candidates: {
+        values: [
+          {
+            group: 'colors',
+            role: 'border',
+            value: '#2255ff',
+            provenance: 'observed-color',
+            rejectionReason: 'unassigned-role',
+            evidence: {
+              value: '#2255ff',
+              confidence: 'low',
+              measurementConfidence: 'medium',
+              semanticConfidence: 'low',
+              reuseScope: 'local',
+              observationCount: 2,
+              ownerCount: 2,
+              semanticAgreement: 1,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/products'],
+              sources: [source],
+              sourceCounts: { [source]: 2 },
+              roleCounts: { border: 2 },
+              reasons: ['rendered-use', 'computed-style'],
+            },
+          },
+        ],
+      },
+    })
+    const colors = compareReferenceCaptures(
+      capture('reference', undefined, withOverlappingBorderCandidate('computed:border')),
+      capture('target', undefined, withOverlappingBorderCandidate('computed:pseudo-before')),
+    ).categories.find((category) => category.category === 'colors')!
+
+    expect(colors.status).toBe('changed')
+    expect(colors.changes).toHaveLength(1)
+    expect(colors.changes[0]).toMatchObject({
+      kind: 'changed',
+      tokenPath: expect.stringMatching(/^candidate\.colors\..+\.provenance$/),
+    })
+    expect(colors.changes[0]?.from).toContain('computed:border')
+    expect(colors.changes[0]?.to).toContain('computed:pseudo-before')
   })
 
   it('does not report a palette change when only generated palette indexes move', () => {
@@ -409,7 +885,7 @@ describe('reference capture comparison', () => {
     expect(colors.changes).toHaveLength(1)
     expect(colors.changes[0]).toMatchObject({
       kind: 'changed',
-      tokenPath: 'colors.palette-1',
+      tokenPath: 'color.palette-1',
       from: '#f8fafc',
       to: '#111827',
     })

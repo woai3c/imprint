@@ -28,6 +28,7 @@ const MIME: Record<string, string> = {
 let server: http.Server | undefined
 let baseUrl = ''
 let healthRecoveryRequests = 0
+const activeFixtureVariants = new Map<string, 'reference' | 'changed'>()
 const browserAvailable = Boolean(findBrowser())
 
 beforeAll(async () => {
@@ -53,7 +54,12 @@ beforeAll(async () => {
       response.end('not found')
       return
     }
-    const body = fs.readFileSync(filePath)
+    const source = fs.readFileSync(filePath)
+    const variant = activeFixtureVariants.get(name)
+    const body =
+      variant === 'changed'
+        ? Buffer.from(source.toString('utf8').replace('<html lang="en">', '<html lang="en" data-variant="changed">'))
+        : source
     response.writeHead(200, {
       'cache-control': 'no-store',
       'content-length': body.length,
@@ -89,12 +95,18 @@ async function analyzeKnownChangeFixture(
   viewports: Array<'desktop' | 'mobile'> = ['desktop'],
   maxPages = 1,
 ) {
-  return analyze(`${baseUrl}/${fixture}.html?variant=${variant}`, {
-    viewports,
-    maxPages,
-    useSession: false,
-    dataDir,
-  })
+  const fixtureName = `${fixture}.html`
+  activeFixtureVariants.set(fixtureName, variant)
+  try {
+    return await analyze(`${baseUrl}/${fixtureName}`, {
+      viewports,
+      maxPages,
+      useSession: false,
+      dataDir,
+    })
+  } finally {
+    activeFixtureVariants.delete(fixtureName)
+  }
 }
 
 describe('Design Evidence browser regression corpus', () => {
@@ -235,7 +247,9 @@ describe('Design Evidence browser regression corpus', () => {
         }
         if (annotation.forbiddenPrimary) expect(result.tokens.colors.primary).toBeUndefined()
         for (const [name, expected] of Object.entries(annotation.expectedColorTokens || {})) {
-          expect(normalizeColorValue(result.tokens.colors[name]), `unexpected color token ${name}`).toBe(expected)
+          const actual = result.tokens.colors[name]
+          expect(actual, `missing color token ${name}`).toBeDefined()
+          expect(actual ? normalizeColorValue(actual) : undefined, `unexpected color token ${name}`).toBe(expected)
         }
         for (const [role, expected] of Object.entries(annotation.expectedSemanticPairs || {})) {
           expect(
@@ -379,7 +393,10 @@ describe('Design Evidence browser regression corpus', () => {
         expect(designDoc).not.toContain('rich type scale')
         for (const text of annotation.expectedDesignDocStrings || []) expect(designDoc).toContain(text)
         for (const [name, expectedCount] of Object.entries(annotation.expectedDesignDocComponentCounts || {})) {
-          expect(designDoc, `unexpected DESIGN.md ${name} instance count`).toContain(`| ${name} | ${expectedCount} |`)
+          const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          expect(designDoc, `unexpected DESIGN.md ${name} canonical instance count`).toMatch(
+            new RegExp(`^- ${escapedName}: \\d+ observed patterns, ${expectedCount} canonical instances,`, 'm'),
+          )
         }
         const reconstructionSummary = designDoc.slice(
           designDoc.indexOf('### Reconstruction Summary'),
@@ -588,7 +605,12 @@ describe('Design Evidence browser regression corpus', () => {
         expect(repeated.categories.flatMap((category) => category.changes)).toEqual([])
         expect(comparison.comparability.reasons).toEqual([])
         expect(falseNegatives, 'known structural changes must be detected').toEqual([])
-        expect(falsePositives, 'unchanged categories must not be reported').toEqual([])
+        expect(
+          falsePositives,
+          `unchanged categories must not be reported: ${JSON.stringify(
+            comparison.categories.filter((category) => !expected.has(category.category)),
+          )}`,
+        ).toEqual([])
         for (const categoryName of expected) {
           const category = comparison.categories.find((candidate) => candidate.category === categoryName)
           expect(category?.coverage).toBe('partial')

@@ -6,24 +6,31 @@ import { normalizeColorValue } from '../analyzer/color-cluster.js'
 import {
   classifyComponentVariant,
   hasVisibleBorder,
+  hasVisibleColor,
   hasVisibleShadow,
   isContextDependentColor,
   isPillRadius,
   isReusableComponentPattern,
-  isTransparentColor,
   resolveComponentReuseEvidence,
-  summarizeComponentVariants,
 } from '../analyzer/component-detect.js'
 import type { ComponentPattern, ComponentType, ComponentVariantPattern } from '../analyzer/component-detect.js'
 import { colorContrast } from '../analyzer/token-builder.js'
 import { measurementConfidenceFor } from '../analyzer/token-evidence.js'
-import type { DesignToken, TokenConfidence } from '../analyzer/types.js'
+import type { DesignToken, TokenConfidence, TokenReuseScope, TokenValueCandidate } from '../analyzer/types.js'
+import { evidencePageRouteIdentity, explicitSourceRouteIdentity } from '../analyzer/url-identity.js'
 import {
   redactUrlsInText,
   sanitizeDesignEvidenceForPersistence,
   sanitizeDesignTokensForPersistence,
   sanitizeUrlForPersistence,
 } from '../analyzer/url-privacy.js'
+import { canonicalCatalogPageIds } from '../design-context/claim-catalog.js'
+import {
+  buildCanonicalComponentCatalog,
+  canonicalComponentKey,
+  canonicalComponentVariant,
+  selectBalancedComponentDetails,
+} from '../design-context/component-catalog.js'
 import {
   generateDesignProfileJson,
   generateDesignProfileMarkdown,
@@ -41,8 +48,8 @@ import {
   topLevelGridColumnCount,
   usefulResponsiveChanges,
 } from '../design-evidence/responsive-reliability.js'
-import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
+import { colorTokenRefCompatibleWithStyle } from '../design-evidence/token-style-compatibility.js'
 import { formatPageSectionTopology } from '../design-evidence/topology-summary.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { localizeFeatureTag } from '../i18n/feature-tags.js'
@@ -52,12 +59,14 @@ import { isDeclaredOnlyColor, isPortableColor, validateDesignDocSemantics } from
 import { designMdColorEntries } from './design-md-color-names.js'
 import {
   FONT_SIZE_NAMES,
-  LETTER_SPACING_NAMES,
-  LINE_HEIGHT_NAMES,
   RADIUS_NAMES,
   SHADOW_NAMES,
+  portableFontEntries,
+  portableFontSizeEntries,
+  portableFontWeightEntries,
+  portableLetterSpacingEntries,
+  portableLineHeightEntries,
   proseDurationName,
-  tailwindFontWeightName,
 } from './token-names.js'
 
 export { generateDesignEvidenceJson, generateDesignProfileJson }
@@ -205,7 +214,7 @@ function observedColorGroups(
         [/warning|success|status|delta|badge/i, 'status'],
         [/^editorial-accent$/i, 'editorial'],
         [/^decorative-accent$/i, 'decorative'],
-        [/^accent$/i, tokens.colors.primary ? 'action' : 'decorative'],
+        [/^accent$/i, scores.action > 0 ? 'action' : 'decorative'],
         [/^(?:background|surface|secondary)(?:-|$)/i, 'surface'],
         [/^(?:foreground|muted-foreground|text)(?:-|$)/i, 'text'],
         [/^border(?:-|$)/i, 'border'],
@@ -267,11 +276,12 @@ interface ExportColorCandidate {
   captureCount?: number
   sources: string[]
   measurementConfidence: TokenConfidence
+  semanticConfidence?: TokenConfidence
+  reuseScope?: TokenReuseScope
 }
 
 const CONFIDENCE_RANK: Record<TokenConfidence, number> = { low: 0, medium: 1, high: 2 }
-const DESIGN_MD_CANDIDATE_PREVIEW_LIMIT = 8
-const DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT = 4
+const DESIGN_MD_CANDIDATE_PREVIEW_LIMIT = 5
 
 function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
   const portableValues = new Set(
@@ -312,9 +322,34 @@ function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
         existing && CONFIDENCE_RANK[existing.measurementConfidence] > CONFIDENCE_RANK[measurementConfidence]
           ? existing.measurementConfidence
           : measurementConfidence,
+      semanticConfidence: candidate.semanticConfidence || existing?.semanticConfidence,
+      reuseScope: candidate.reuseScope || existing?.reuseScope,
     })
   }
-  for (const candidate of tokens.candidates?.colors || []) add(candidate)
+  // `values` is the canonical rejected-token catalog. The older color array is only a compatibility projection and
+  // may be absent or incomplete in restored analyses, so it must not determine DESIGN.md counts or preview order.
+  if (Array.isArray(tokens.candidates?.values)) {
+    for (const candidate of tokens.candidates.values) {
+      if (candidate.group !== 'colors') continue
+      const evidence = candidate.evidence
+      add({
+        value: candidate.value,
+        kind:
+          candidate.rejectionReason === 'declared-only' || candidate.provenance === 'declared-color'
+            ? 'declared-only'
+            : 'observed-unassigned',
+        observationCount: evidence.observationCount,
+        pageCount: evidence.pageCount,
+        captureCount: evidence.captureCount,
+        sources: evidence.sources,
+        measurementConfidence: evidence.measurementConfidence,
+        semanticConfidence: evidence.semanticConfidence,
+        reuseScope: evidence.reuseScope,
+      })
+    }
+  } else {
+    for (const candidate of tokens.candidates?.colors || []) add(candidate)
+  }
   for (const { sourceName, value } of designMdColorEntries(tokens)) {
     const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
     if (isDeclaredOnlyColor(tokens, value)) {
@@ -326,6 +361,8 @@ function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
         captureCount: tokenEvidence?.captureCount,
         sources: tokenEvidence?.sources || [],
         measurementConfidence: tokenEvidence?.measurementConfidence,
+        semanticConfidence: tokenEvidence?.semanticConfidence,
+        reuseScope: tokenEvidence?.reuseScope,
       })
     } else if (!isPortableColor(tokens, sourceName, value)) {
       add({
@@ -336,6 +373,8 @@ function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
         captureCount: tokenEvidence?.captureCount,
         sources: tokenEvidence?.sources || [],
         measurementConfidence: tokenEvidence?.measurementConfidence,
+        semanticConfidence: tokenEvidence?.semanticConfidence,
+        reuseScope: tokenEvidence?.reuseScope,
       })
     }
   }
@@ -348,50 +387,56 @@ function exportColorCandidates(tokens: DesignToken): ExportColorCandidate[] {
 }
 
 function designDocCandidatePreview(candidate: ExportColorCandidate): Record<string, unknown> {
-  const sources = candidate.sources.slice(0, DESIGN_MD_CANDIDATE_SOURCE_PREVIEW_LIMIT)
   return {
-    name: candidate.publicName,
     value: candidate.value,
-    observations: candidate.observationCount,
-    ...(candidate.pageCount ? { pageCount: candidate.pageCount } : {}),
-    ...(candidate.captureCount ? { captureCount: candidate.captureCount } : {}),
-    sources,
-    ...(candidate.sources.length > sources.length
-      ? { sourceCount: candidate.sources.length, omittedSources: candidate.sources.length - sources.length }
-      : {}),
-    measurementConfidence: candidate.measurementConfidence,
-    semanticConfidence: 'low',
-    reuseScope: candidate.kind === 'declared-only' ? 'declared-only' : 'unknown',
+    pageCount: candidate.pageCount || 0,
+  }
+}
+
+function designDocValueCandidatePreview(candidate: TokenValueCandidate): Record<string, unknown> {
+  const evidence = candidate.evidence
+  return {
+    value: candidate.value,
+    pageCount: evidence.pageCount,
   }
 }
 
 function designMdTypographyTokens(tokens: DesignToken): Record<string, Record<string, string | number>> {
   const typography: Record<string, Record<string, string | number>> = {}
-  const fontFamilies = [tokens.typography.fontStacks?.[0], ...tokens.typography.fontFamilies].filter(
-    (value, index, values): value is string => !!value && values.indexOf(value) === index,
-  )
-  fontFamilies.forEach((fontFamily, index) => {
-    typography[`font-family-${index + 1}`] = { fontFamily }
+  portableFontEntries(tokens.typography).forEach(({ name, value }) => {
+    typography[`font-family-${name}`] = { fontFamily: value }
   })
-  tokens.typography.fontSizes.forEach((fontSize, index) => {
-    if (isDesignMdDimension(fontSize)) typography[`size-${FONT_SIZE_NAMES[index] || index + 1}`] = { fontSize }
+  portableFontSizeEntries(tokens.typography.fontSizes).forEach(({ name, value: fontSize }) => {
+    if (isDesignMdDimension(fontSize)) typography[`size-${name}`] = { fontSize }
   })
-  tokens.typography.fontWeights.forEach((fontWeight, index) => {
+  portableFontWeightEntries(tokens.typography.fontWeights).forEach(({ name, value: fontWeight }) => {
     const numeric = Number(fontWeight)
     if (Number.isFinite(numeric)) {
-      typography[`weight-${tailwindFontWeightName(fontWeight, index)}`] = { fontWeight: numeric }
+      typography[`weight-${name}`] = { fontWeight: numeric }
     }
   })
-  tokens.typography.lineHeights.forEach((lineHeight, index) => {
+  portableLineHeightEntries(tokens.typography.lineHeights).forEach(({ name, value: lineHeight }) => {
     const value = designMdScaleValue(lineHeight)
-    if (value !== undefined) typography[`line-height-${LINE_HEIGHT_NAMES[index] || index + 1}`] = { lineHeight: value }
+    if (value !== undefined) typography[`line-height-${name}`] = { lineHeight: value }
   })
-  tokens.typography.letterSpacings.forEach((letterSpacing, index) => {
+  portableLetterSpacingEntries(tokens.typography.letterSpacings).forEach(({ name, value: letterSpacing }) => {
     if (isDesignMdDimension(letterSpacing)) {
-      typography[`letter-spacing-${LETTER_SPACING_NAMES[index] || index + 1}`] = { letterSpacing }
+      typography[`letter-spacing-${name}`] = { letterSpacing }
     }
   })
   return typography
+}
+
+function designMdFontFamilyTokens(
+  tokens: DesignToken,
+  identityTokens: DesignToken = tokens,
+): Record<string, Record<string, string>> {
+  return Object.fromEntries(
+    portableFontEntries(tokens.typography, identityTokens.typography).map(({ name, value }) => [
+      `font-family-${name}`,
+      { fontFamily: value },
+    ]),
+  )
 }
 
 function findTokenReference(
@@ -399,10 +444,13 @@ function findTokenReference(
   entries: ReadonlyArray<readonly [string, string]>,
   value: string,
   normalize: (candidate: string) => string | null = (candidate) => candidate.trim().toLowerCase(),
+  compatible: (name: string) => boolean = () => true,
 ): string | undefined {
   const normalized = normalize(value)
   if (!normalized) return undefined
-  const match = entries.find(([name, candidate]) => /^[\w-]+$/.test(name) && normalize(candidate) === normalized)
+  const match = entries.find(
+    ([name, candidate]) => /^[\w-]+$/.test(name) && compatible(name) && normalize(candidate) === normalized,
+  )
   return match ? `{${group}.${match[0]}}` : undefined
 }
 
@@ -444,16 +492,20 @@ function designMdComponentTokens(
   components.filter(isReusableComponentPattern).forEach((component) => {
     const properties: Record<string, string> = {}
     const backgroundColor = component.styles.backgroundColor
-    if (backgroundColor && !isContextDependentColor(backgroundColor)) {
+    if (hasVisibleColor(backgroundColor) && !isContextDependentColor(backgroundColor)) {
       properties.backgroundColor =
-        findTokenReference('colors', colorEntries, backgroundColor, normalizeColorValue) ||
+        findTokenReference('colors', colorEntries, backgroundColor, normalizeColorValue, (name) =>
+          colorTokenRefCompatibleWithStyle('backgroundColor', `color.${name}`),
+        ) ||
         normalizeColorValue(backgroundColor) ||
         ''
     }
     const textColor = component.styles.color
-    if (textColor && !isTransparentColor(textColor)) {
+    if (hasVisibleColor(textColor)) {
       properties.textColor =
-        findTokenReference('colors', colorEntries, textColor, normalizeColorValue) ||
+        findTokenReference('colors', colorEntries, textColor, normalizeColorValue, (name) =>
+          colorTokenRefCompatibleWithStyle('color', `color.${name}`),
+        ) ||
         normalizeColorValue(textColor) ||
         ''
     }
@@ -514,6 +566,31 @@ interface GoogleDesignMdFrontMatter {
   'x-imprint': [Record<string, unknown>]
 }
 
+function designDocComponentProjection(components: readonly ComponentVariantPattern[], profile?: DesignProfile | null) {
+  const reusableComponents = components.filter(isReusableComponentPattern)
+  if (!profile?.transferGrammar) {
+    return {
+      p1Recipes: [],
+      selectedP1Recipes: [],
+      actionableComponents: reusableComponents,
+      designDocComponents: reusableComponents,
+    }
+  }
+  const p1Recipes = profile.transferGrammar.componentRecipes.filter((recipe) => recipe.priority === 'P1')
+  const selectedP1Recipes = selectBalancedComponentDetails(p1Recipes)
+  const p1Keys = new Set(p1Recipes.map((recipe) => canonicalComponentKey(recipe.component, recipe.variant)))
+  const selectedP1Keys = new Set(
+    selectedP1Recipes.map((recipe) => canonicalComponentKey(recipe.component, recipe.variant)),
+  )
+  const actionableComponents = reusableComponents.filter((component) =>
+    p1Keys.has(canonicalComponentKey(component.type, canonicalComponentVariant(component))),
+  )
+  const designDocComponents = actionableComponents.filter((component) =>
+    selectedP1Keys.has(canonicalComponentKey(component.type, canonicalComponentVariant(component))),
+  )
+  return { p1Recipes, selectedP1Recipes, actionableComponents, designDocComponents }
+}
+
 const DESIGN_MD_COMPONENT_TYPES = new Set<ComponentType>([
   'button',
   'card',
@@ -522,30 +599,26 @@ const DESIGN_MD_COMPONENT_TYPES = new Set<ComponentType>([
   'table',
   'modal',
   'list',
+  'tab',
+  'status',
 ])
 
-const VIEWPORT_PREFERENCE = ['desktop', 'tablet', 'mobile'] as const
-
 function canonicalEvidencePageIds(evidence: DesignEvidence): Set<string> {
-  const pagesByUrl = new Map<string, DesignEvidence['pages']>()
-  for (const page of evidence.pages) {
-    const pages = pagesByUrl.get(page.url) || []
-    pages.push(page)
-    pagesByUrl.set(page.url, pages)
-  }
-  return new Set(
-    [...pagesByUrl.values()].flatMap((pages) => {
-      const selected = [...pages].sort((first, second) => {
-        const firstRank = VIEWPORT_PREFERENCE.indexOf(first.viewport as (typeof VIEWPORT_PREFERENCE)[number])
-        const secondRank = VIEWPORT_PREFERENCE.indexOf(second.viewport as (typeof VIEWPORT_PREFERENCE)[number])
-        return (
-          (firstRank === -1 ? VIEWPORT_PREFERENCE.length : firstRank) -
-          (secondRank === -1 ? VIEWPORT_PREFERENCE.length : secondRank)
-        )
-      })[0]
-      return selected ? [selected.id] : []
-    }),
-  )
+  return canonicalCatalogPageIds(evidence)
+}
+
+function canonicalReconstructionPage(evidence: DesignEvidence): DesignEvidence['pages'][number] | undefined {
+  const canonicalPageIds = canonicalEvidencePageIds(evidence)
+  const entryRouteId = explicitSourceRouteIdentity(evidence)
+  return evidence.pages
+    .filter((page) => canonicalPageIds.has(page.id))
+    .sort(
+      (first, second) =>
+        Number(evidencePageRouteIdentity(second) === entryRouteId) -
+          Number(evidencePageRouteIdentity(first) === entryRouteId) ||
+        evidencePageRouteIdentity(first).localeCompare(evidencePageRouteIdentity(second)) ||
+        first.id.localeCompare(second.id),
+    )[0]
 }
 
 function canonicalEvidenceComponents(evidence: DesignEvidence): DesignEvidence['components'] {
@@ -555,106 +628,104 @@ function canonicalEvidenceComponents(evidence: DesignEvidence): DesignEvidence['
     : evidence.components
 }
 
+function fallbackComponentStyleSignature(styles: Readonly<Record<string, string>>): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(styles)
+        .map(([property, value]) => [property, value.trim().replace(/\s+/g, ' ')])
+        .sort(([first], [second]) => first.localeCompare(second)),
+    ),
+  )
+}
+
+function mergeFallbackRoleCounts(
+  first: Readonly<Record<string, number>> | undefined,
+  second: Readonly<Record<string, number>> | undefined,
+): Record<string, number> | undefined {
+  const result = new Map<string, number>()
+  for (const [role, count] of [...Object.entries(first || {}), ...Object.entries(second || {})]) {
+    result.set(role, (result.get(role) || 0) + count)
+  }
+  return result.size > 0
+    ? Object.fromEntries([...result.entries()].sort(([firstRole], [secondRole]) => firstRole.localeCompare(secondRole)))
+    : undefined
+}
+
 function resolveDesignDocComponents(
   detectedComponents: readonly ComponentPattern[],
   tokens: DesignToken,
   evidence?: DesignEvidence,
 ): ComponentVariantPattern[] {
   if (!evidence?.components.length) {
-    return detectedComponents.map((component) => {
+    const exactPatterns = new Map<string, ComponentVariantPattern>()
+    for (const component of detectedComponents) {
       const variant = classifyComponentVariant(component.type, component.styles, {
         primaryColor: tokens.colors.primary,
       })
-      return {
-        ...component,
-        name: variant ? `${component.type}-${variant}` : component.type,
-        ...(variant ? { variant } : {}),
+      const baseName = variant ? `${component.type}-${variant}` : component.type
+      const signature = component.styleSignature || fallbackComponentStyleSignature(component.styles)
+      const key = `${baseName}|${signature}`
+      const existing = exactPatterns.get(key)
+      if (!existing) {
+        exactPatterns.set(key, {
+          ...component,
+          name: baseName,
+          styleSignature: signature,
+          ...(variant ? { variant } : {}),
+        })
+        continue
       }
-    })
-  }
-
-  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
-  const evidencePatterns = summarizeComponentVariants(
-    canonicalEvidenceComponents(evidence).flatMap((component) => {
-      if (!DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)) return []
-      const page = pageById.get(component.pageId)
-      const pageWidth = page?.contentWidth || page?.viewportWidth
-      const pageHeight = page?.contentHeight || page?.viewportHeight
-      return [
-        {
-          type: component.type as ComponentType,
-          confidence: component.confidence,
-          evidence: [component.id, ...component.evidenceRefs],
-          styles: component.styles,
-          tokenRefs: component.tokenRefs,
-          primaryColor: tokens.colors.primary,
-          surfaceColors: [tokens.colors.background, tokens.colors.surface, tokens.colors.secondary].filter(
-            (color): color is string => Boolean(color),
-          ),
-          role: component.role,
-          elementKind: component.elementKind,
-          pageId: component.pageId,
-          ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
-          ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
-        },
-      ]
-    }),
-  )
-  const evidenceKeys = new Set(
-    evidencePatterns.map((pattern) => `${pattern.type}|${pattern.variant || ''}|${pattern.semanticRole || ''}`),
-  )
-  const evidenceTypes = new Set(evidencePatterns.map((pattern) => pattern.type))
-  const detectorSupplements = detectedComponents.flatMap((component) => {
-    const variant = classifyComponentVariant(component.type, component.styles, {
-      primaryColor: tokens.colors.primary,
-    })
-    const key = `${component.type}|${variant || ''}|${component.semanticRole || ''}`
-    if (evidenceKeys.has(key) || (!variant && evidenceTypes.has(component.type))) return []
-    return [
-      {
-        ...component,
-        name: variant ? `${component.type}-${variant}` : component.type,
-        ...(variant ? { variant } : {}),
-        evidence: [...component.evidence, 'component-detector:supplemental:no-instance-provenance'],
-      },
-    ]
-  })
-  const resolvedPatterns = [...evidencePatterns, ...detectorSupplements]
-  const primaryAction = tokens.colorRoles?.primaryAction
-  if (
-    primaryAction &&
-    !resolvedPatterns.some((pattern) => pattern.type === 'button' && pattern.variant === 'primary')
-  ) {
-    const canonicalPageIds = canonicalEvidencePageIds(evidence)
-    const canonicalCaptureIds = new Set(
-      evidence.pages
-        .filter((page) => canonicalPageIds.has(page.id))
-        .map((page) => `${page.url}|${page.viewportWidth}x${page.viewportHeight}`),
-    )
-    const provenance = primaryAction.provenance.filter(
-      (item) => canonicalCaptureIds.size === 0 || canonicalCaptureIds.has(item.captureId),
-    )
-    if (provenance.length > 0) {
-      resolvedPatterns.unshift({
-        type: 'button',
-        count: new Set(provenance.map((item) => `${item.captureId}|${item.elementRef}`)).size,
-        selectors: [],
-        styles: {
-          backgroundColor: primaryAction.observedBackground,
-          ...(primaryAction.observedForeground ? { color: primaryAction.observedForeground } : {}),
-        },
-        confidence: 0.9,
-        styleObservationCount: new Set(provenance.map((item) => `${item.captureId}|${item.elementRef}`)).size,
-        pageCount: new Set(provenance.map((item) => item.captureId)).size,
-        evidence: ['color-role:primary-action', ...provenance.map((item) => item.elementRef)],
-        elementKinds: [...new Set(provenance.map((item) => item.elementKind))].sort(),
-        semanticRole: 'primary-action',
-        name: 'button-primary',
-        variant: 'primary',
-      })
+      const combinedCount = existing.count + component.count
+      const identityConfidence =
+        (existing.confidence * existing.count + component.confidence * component.count) / combinedCount
+      const roleCounts = mergeFallbackRoleCounts(existing.roleCounts, component.roleCounts)
+      const merged: ComponentVariantPattern = {
+        ...existing,
+        count: combinedCount,
+        selectors: [...new Set([...existing.selectors, ...component.selectors])].sort(),
+        confidence: Math.round(identityConfidence * 100) / 100,
+        styleObservationCount:
+          (existing.styleObservationCount ?? existing.count) + (component.styleObservationCount ?? component.count),
+        representativeEvidence: [
+          ...new Set([
+            ...(existing.representativeEvidence || existing.evidence),
+            ...(component.representativeEvidence || component.evidence),
+          ]),
+        ].sort(),
+        // Legacy aggregate patterns do not expose page identities, so retain the conservative known maximum instead
+        // of adding page counts that may describe the same page twice.
+        pageCount: Math.max(existing.pageCount || 1, component.pageCount || 1),
+        evidence: [...new Set([...existing.evidence, ...component.evidence])].sort(),
+        ...(roleCounts ? { roleCounts } : {}),
+        elementKinds: [...new Set([...(existing.elementKinds || []), ...(component.elementKinds || [])])].sort(),
+      }
+      const reuse = resolveComponentReuseEvidence({ ...merged, reuseConfidence: undefined, reuseScope: undefined })
+      merged.reuseConfidence = reuse.reuseConfidence
+      merged.reuseScope = reuse.reuseScope
+      exactPatterns.set(key, merged)
     }
+
+    const patterns = [...exactPatterns.values()]
+    const byName = new Map<string, ComponentVariantPattern[]>()
+    for (const pattern of patterns) {
+      const sameName = byName.get(pattern.name) || []
+      sameName.push(pattern)
+      byName.set(pattern.name, sameName)
+    }
+    for (const sameName of byName.values()) {
+      if (sameName.length <= 1) continue
+      sameName
+        .sort(
+          (first, second) =>
+            second.count - first.count || (first.styleSignature || '').localeCompare(second.styleSignature || ''),
+        )
+        .forEach((pattern, index) => {
+          pattern.name = `${pattern.name}-style-${index + 1}`
+        })
+    }
+    return patterns.sort((first, second) => first.name.localeCompare(second.name))
   }
-  return resolvedPatterns
+  return buildCanonicalComponentCatalog(evidence, tokens)
 }
 
 function summarizeFreeformEvidenceComponents(evidence: DesignEvidence | undefined): Array<{
@@ -813,13 +884,22 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
   const colorCandidates = exportColorCandidates(tokens)
   const declaredColorCandidates = colorCandidates.filter((candidate) => candidate.kind === 'declared-only')
   const observedColorCandidates = colorCandidates.filter((candidate) => candidate.kind === 'observed-unassigned')
+  // Declared/unassigned color arrays are a bounded legacy projection. Canonical color candidates live in `values`;
+  // omit their projection here unless they carry a semantic role that is not represented by the legacy preview.
+  const valueCandidates = (tokens.candidates?.values || []).filter(
+    (candidate) => candidate.group !== 'colors' || Boolean(candidate.role),
+  )
   const typography = designMdTypographyTokens(tokens)
   const rounded: Record<string, string> = Object.fromEntries(
     tokens.radii.flatMap((value, index) =>
       isDesignMdDimension(value) ? [[RADIUS_NAMES[index] || `${index + 1}`, value]] : [],
     ),
   )
-  const pillRadius = observedPillRadius(components)
+  const { p1Recipes, selectedP1Recipes, actionableComponents, designDocComponents } = designDocComponentProjection(
+    components,
+    profile,
+  )
+  const pillRadius = observedPillRadius(designDocComponents)
   if (pillRadius && !Object.values(rounded).includes(pillRadius)) rounded.pill = pillRadius
   const spacing = Object.fromEntries(
     tokens.spacing.flatMap((value, index) => {
@@ -827,7 +907,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
       return scaleValue !== undefined ? [[`space-${index + 1}`, scaleValue]] : []
     }),
   )
-  const componentTokens = designMdComponentTokens(components, colors, typography, rounded)
+  const componentTokens = designMdComponentTokens(designDocComponents, colors, typography, rounded)
   const omitted = [
     Object.keys(colors).length === 0
       ? { section: 'colors', reason: 'No valid color tokens were observed.' }
@@ -845,7 +925,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
       ? { section: 'components', reason: 'No safely mappable component tokens were observed.' }
       : undefined,
   ].filter((value): value is { section: string; reason: string } => value !== undefined)
-  const pageCount = evidence ? new Set(evidence.pages.map((page) => page.url)).size : undefined
+  const pageCount = evidence ? new Set(evidence.pages.map(evidencePageRouteIdentity)).size : undefined
   const requestedUrl = evidence?.source.requestedUrl || url
   const resolvedBreakpoints =
     breakpoints ||
@@ -861,6 +941,21 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
     ...(tokens.zIndices.length > 0 ? { zIndices: tokens.zIndices } : {}),
     ...(tokens.transitions.length > 0 ? { transitions: tokens.transitions } : {}),
   }
+  const summarizedComponents = componentSummary.map((component) => {
+    const pattern = {
+      ...component,
+      type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
+        ? (component.type as ComponentType)
+        : ('status' as const),
+      selectors: [],
+      styles: {},
+      evidence: [],
+    }
+    return { component, reusable: isReusableComponentPattern(pattern) }
+  })
+  const reusableComponentSummaries = summarizedComponents.filter((item) => item.reusable)
+  const actionablePatternCount = profile?.transferGrammar ? p1Recipes.length : actionableComponents.length
+  const renderedP1PatternCount = profile?.transferGrammar ? selectedP1Recipes.length : designDocComponents.length
   const frontMatter: GoogleDesignMdFrontMatter = {
     version: 'alpha',
     name: resolveDesignSystemName({
@@ -922,6 +1017,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           ? {
               componentSummary: {
                 source: evidence?.components.length ? 'design-evidence' : 'component-detector',
+                fullEvidenceArtifacts: ['design-evidence.json', 'component-specs.json'],
                 ...(evidence?.components.length
                   ? {
                       countBasis: 'one canonical capture per page; desktop preferred',
@@ -936,45 +1032,18 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                   : {}),
                 patterns: componentSummary.length,
                 instances: componentSummary.reduce((total, component) => total + component.count, 0),
-                reusablePatterns: componentSummary.filter((component) =>
-                  isReusableComponentPattern({
-                    ...component,
-                    type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
-                      ? (component.type as ComponentType)
-                      : 'status',
-                    selectors: [],
-                    styles: {},
-                    evidence: [],
-                  }),
-                ).length,
-                details: componentSummary.map((component) => {
-                  const reuse = resolveComponentReuseEvidence({
-                    ...component,
-                    type: DESIGN_MD_COMPONENT_TYPES.has(component.type as ComponentType)
-                      ? (component.type as ComponentType)
-                      : 'status',
-                    selectors: [],
-                    styles: {},
-                    evidence: [],
-                  })
-                  return {
-                    name: component.name,
-                    type: component.type,
-                    count: component.count,
-                    identityConfidence: component.confidence,
-                    reuseConfidence: reuse.reuseConfidence,
-                    reuseScope: reuse.reuseScope,
-                    matchingStyleInstances: reuse.styleObservationCount,
-                    pageCount: reuse.pageCount,
-                    ...(component.semanticRole ? { semanticRole: component.semanticRole } : {}),
-                    ...(component.elementKinds?.length ? { elementKinds: component.elementKinds } : {}),
-                  }
-                }),
+                reusablePatterns: reusableComponentSummaries.length,
+                actionablePatterns: actionablePatternCount,
+                renderedP1Patterns: renderedP1PatternCount,
+                omittedP1Patterns: Math.max(0, actionablePatternCount - renderedP1PatternCount),
+                yamlComponentContracts: Object.keys(componentTokens).length,
+                omittedLocalPatterns: componentSummary.length - reusableComponentSummaries.length,
+                omittedReusablePatterns: Math.max(0, reusableComponentSummaries.length - actionablePatternCount),
               },
             }
           : {}),
         ...(colorRoleSummary ? { colorRoles: colorRoleSummary } : {}),
-        ...(colorCandidates.length > 0
+        ...(colorCandidates.length > 0 || valueCandidates.length > 0
           ? {
               candidateSummary: {
                 scope: 'preview',
@@ -998,6 +1067,15 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                       },
                     }
                   : {}),
+                ...(valueCandidates.length > 0
+                  ? {
+                      tokenValues: {
+                        total: valueCandidates.length,
+                        included: Math.min(DESIGN_MD_CANDIDATE_PREVIEW_LIMIT, valueCandidates.length),
+                        omitted: Math.max(0, valueCandidates.length - DESIGN_MD_CANDIDATE_PREVIEW_LIMIT),
+                      },
+                    }
+                  : {}),
               },
               candidates: {
                 ...(declaredColorCandidates.length > 0
@@ -1012,6 +1090,13 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
                       observedUnassignedColors: observedColorCandidates
                         .slice(0, DESIGN_MD_CANDIDATE_PREVIEW_LIMIT)
                         .map(designDocCandidatePreview),
+                    }
+                  : {}),
+                ...(valueCandidates.length > 0
+                  ? {
+                      tokenValues: valueCandidates
+                        .slice(0, DESIGN_MD_CANDIDATE_PREVIEW_LIMIT)
+                        .map(designDocValueCandidatePreview),
                     }
                   : {}),
               },
@@ -1041,8 +1126,19 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
               darkMode: {
                 method: darkMode.method || 'none',
                 ...(darkMode.selector ? { selector: normalizeDarkSelector(darkMode.selector) } : {}),
+                ...(darkMode.overrides
+                  ? {
+                      overrideRefs: Object.keys(darkMode.overrides).sort(),
+                      overrides: Object.fromEntries(
+                        Object.entries(darkMode.overrides).sort(([first], [second]) => first.localeCompare(second)),
+                      ),
+                    }
+                  : {}),
                 ...(darkMode.darkTokens
-                  ? { colors: buildDesignMdColorTokens(darkMode.darkTokens, 'dark-observed') }
+                  ? {
+                      colors: buildDesignMdColorTokens(darkMode.darkTokens, 'dark-observed'),
+                      fontFamilies: designMdFontFamilyTokens(darkMode.darkTokens, tokens),
+                    }
                   : {}),
               },
             }
@@ -1100,14 +1196,21 @@ interface ReconstructionFact {
 }
 
 function reconstructionPageContext(evidence: DesignEvidence, pageId: string | undefined): string {
-  if (!pageId || new Set(evidence.pages.map((page) => page.url)).size <= 1) return ''
+  if (!pageId || new Set(evidence.pages.map(evidencePageRouteIdentity)).size <= 1) return ''
   const page = evidence.pages.find((candidate) => candidate.id === pageId)
   if (!page) return ''
   try {
-    const parsed = new URL(page.url)
-    return parsed.pathname === '/' && !parsed.search ? 'entry' : `${parsed.pathname}${parsed.search}`
+    const publicUrl = sanitizeUrlForPersistence(page.url)
+    const parsed = new URL(publicUrl)
+    const pathname = parsed.pathname === '/' ? 'entry' : parsed.pathname
+    const routesForPublicUrl = new Set(
+      evidence.pages
+        .filter((candidate) => sanitizeUrlForPersistence(candidate.url) === publicUrl)
+        .map(evidencePageRouteIdentity),
+    )
+    return routesForPublicUrl.size > 1 && page.routeId ? `${pathname} · ${page.routeId}` : pathname
   } catch {
-    return page.url
+    return page.routeId ? `${page.url} · ${page.routeId}` : page.url
   }
 }
 
@@ -1217,36 +1320,6 @@ function boundedPixelValue(value: string | number | undefined, maximum = 240): s
   return amount > 0 && amount <= maximum ? value : null
 }
 
-function hasNonzeroCssLength(value: string | undefined): boolean {
-  return Boolean(value && [...value.matchAll(/-?\d+(?:\.\d+)?/g)].some((match) => Math.abs(Number(match[0])) > 0.01))
-}
-
-function normalizedFontFamily(value: string): string {
-  return value.replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-function usefulComponentStyles(styles: Readonly<Record<string, string>>, tokens: DesignToken): Array<[string, string]> {
-  const globalFontFamilies = [...(tokens.typography.fontStacks || []), ...tokens.typography.fontFamilies].map(
-    normalizedFontFamily,
-  )
-  return Object.entries(styles).filter(([property, value]) => {
-    if (!value) return false
-    if (property === 'backgroundColor') return !isTransparentColor(value)
-    if (property === 'border') return hasVisibleBorder(value)
-    if (property === 'borderRadius') {
-      return !isContextDependentRadius(value) && value !== 'normal' && hasNonzeroCssLength(value)
-    }
-    if (property === 'padding' || property === 'gap') {
-      return value !== 'normal' && hasNonzeroCssLength(value)
-    }
-    if (property === 'boxShadow') return hasVisibleShadow(value)
-    if (property === 'fontFamily') return !globalFontFamilies.includes(normalizedFontFamily(value))
-    if (property === 'fontWeight') return !/^(?:400|normal)$/.test(value)
-    if (property === 'display') return /^(?:flex|inline-flex|grid|inline-grid)$/.test(value)
-    return ['color', 'fontSize'].includes(property)
-  })
-}
-
 function componentContrastWarnings(
   components: readonly ComponentVariantPattern[],
   tokens: DesignToken,
@@ -1337,8 +1410,8 @@ function reconstructionRole(role: string | undefined): string {
 
 function isVisiblePseudoValue(property: string, value: string | undefined): boolean {
   if (!value) return false
-  if (property === 'backgroundColor') return !isTransparentColor(value)
-  if (property === 'boxShadow') return value !== 'none'
+  if (['backgroundColor', 'color'].includes(property)) return hasVisibleColor(value)
+  if (property === 'boxShadow') return hasVisibleShadow(value)
   if (/^border(?:Top|Right|Bottom|Left)?$/.test(property)) return hasVisibleBorder(value)
   return !/^(?:none|normal|auto|0px|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\))$/i.test(value)
 }
@@ -1477,7 +1550,7 @@ function reconstructionSignatureFacts(evidence: DesignEvidence): ReconstructionF
     const beforeBackground = observation.before['background-color']
     const primaryColor = evidence.tokens.colors.primary
     const normalizedBeforeBackground =
-      typeof beforeBackground === 'string' && !isTransparentColor(beforeBackground)
+      typeof beforeBackground === 'string' && hasVisibleColor(beforeBackground)
         ? normalizeColorValue(beforeBackground)
         : null
     const primaryActionHover =
@@ -1586,7 +1659,7 @@ function readableReconstructionComponentName(name: string, language: DocLanguage
 
   let label = coreT(language, `export.reconstruction.componentTypes.${type}`, { defaultValue: type })
   let traitStart = 1
-  if (type === 'button' && ['primary', 'secondary', 'destructive', 'text', 'icon'].includes(parts[1] || '')) {
+  if (type === 'button' && ['primary', 'action', 'secondary', 'destructive', 'text', 'icon'].includes(parts[1] || '')) {
     label = coreT(language, `export.reconstruction.buttonVariants.${parts[1]}`, { defaultValue: label })
     traitStart = 2
   }
@@ -1612,16 +1685,16 @@ function reconstructionSummary(
   components: ReadonlyArray<{ name: string; count: number; elementKinds?: string[] }>,
   language: DocLanguage,
 ): string[] {
-  const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop') || evidence.pages[0]
-  const multiPage = new Set(evidence.pages.map((page) => page.url)).size > 1
-  const observedTitle = evidence.source.title || desktopPage?.title
+  const summaryPage = canonicalReconstructionPage(evidence)
+  const multiPage = new Set(evidence.pages.map(evidencePageRouteIdentity)).size > 1
+  const observedTitle = evidence.source.title || summaryPage?.title
   const pageTitle =
     evidence.source.siteName ||
     (observedTitle
       ? resolveDesignSystemName({ url: evidence.source.finalUrl, title: observedTitle })
       : new URL(evidence.source.finalUrl).hostname)
-  const sectionHierarchy = desktopPage
-    ? formatPageSectionTopology(evidence, desktopPage.id, (role) =>
+  const sectionHierarchy = summaryPage
+    ? formatPageSectionTopology(evidence, summaryPage.id, (role) =>
         localizeReconstructionFact(reconstructionRole(role), language),
       )
     : ''
@@ -1637,7 +1710,7 @@ function reconstructionSummary(
   // The reconstruction summary is the document's canonical observed layer; profile claims stay separate.
   const scope = coreT(language, `export.reconstruction.${multiPage ? 'siteScope' : 'pageScope'}`, {
     title: pageTitle,
-    pageCount: new Set(evidence.pages.map((page) => page.url)).size,
+    pageCount: new Set(evidence.pages.map(evidencePageRouteIdentity)).size,
   })
   const readableFact = (fact: ReconstructionFact): string => {
     const localized = localizeReconstructionFact(fact.fact, language)
@@ -1859,9 +1932,12 @@ export function generateDesignDoc(
   lines.push(docT('colors.tokenHeader'))
   lines.push('|-------|-------|-------|------------|')
   for (const { sourceName, publicName, value } of publicColorEntries) {
-    const bgCount = usageForColor(tokens, 'bgColor', value)
-    const textCount = usageForColor(tokens, 'textColor', value)
-    const borderCount = usageForColor(tokens, 'borderColor', value)
+    const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
+    const roleCount = (category: string): number =>
+      tokenEvidence?.roleCounts?.[category] ?? usageForColor(tokens, category, value)
+    const bgCount = roleCount('bgColor')
+    const textCount = roleCount('textColor')
+    const borderCount = roleCount('borderColor')
     const actionCount = [
       'primaryActionBackgroundColor',
       'primaryActionForegroundColor',
@@ -1871,16 +1947,16 @@ export function generateDesignDoc(
       'actionColor',
       'selectedColor',
       'linkColor',
-    ].reduce((total, category) => total + usageForColor(tokens, category, value), 0)
+    ].reduce((total, category) => total + roleCount(category), 0)
     const destructiveCount = ['destructiveActionBackgroundColor', 'destructiveActionForegroundColor'].reduce(
-      (total, category) => total + usageForColor(tokens, category, value),
+      (total, category) => total + roleCount(category),
       0,
     )
     const statusCount = ['statusBackgroundColor', 'statusForegroundColor', 'statusColor'].reduce(
-      (total, category) => total + usageForColor(tokens, category, value),
+      (total, category) => total + roleCount(category),
       0,
     )
-    const renderedCount = Math.max(bgCount + textCount + borderCount, actionCount, destructiveCount, statusCount)
+    const renderedCount = tokenEvidence?.ownerCount || 0
     const declaredOnly = isDeclaredOnlyColor(tokens, value)
     const contexts = [
       actionCount > 0 ? docT('colors.contexts.action') : null,
@@ -1891,9 +1967,9 @@ export function generateDesignDoc(
       borderCount > 0 ? docT('colors.contexts.border') : null,
     ].filter((context): context is string => context !== null)
     const context = contexts.join('+')
-    const tokenEvidence = tokens.evidence?.[`colors.${sourceName}`]
+    const confidenceLevel = tokenEvidence?.semanticConfidence || tokenEvidence?.confidence
     const confidence = tokenEvidence
-      ? `${tokenEvidence.confidence} · ${docT(
+      ? `${docT(`colors.confidence.${confidenceLevel}`)} · ${docT(
           tokenEvidence.pageCount === 1 ? 'colors.pageCountOne' : 'colors.pageCountOther',
           { count: tokenEvidence.pageCount },
         )}`
@@ -1986,7 +2062,7 @@ export function generateDesignDoc(
   lines = sections.typography
   lines.push(
     docT('typography.families', {
-      values: tokens.typography.fontFamilies.join(', ') || docT('typography.systemDefault'),
+      values: tokens.typography.fontFamilies.join(', ') || docT('typography.noPortableFamilies'),
     }),
   )
   if (tokens.typography.fontStacks?.length > 0) {
@@ -2016,11 +2092,11 @@ export function generateDesignDoc(
     lines.push(
       tokens.spacing
         .map((s, i) => {
-          const count = tokens.usageCount?.[`spacing:${s}`] || 0
+          const count = tokens.evidence?.[`spacing.${i}`]?.ownerCount || 0
           return docT('layout.spacingLevel', {
             level: i + 1,
             value: s,
-            countSuffix: count > 0 ? ` (${count}×)` : '',
+            countSuffix: count > 0 ? docT('layout.ownerCountSuffix', { count }) : '',
           })
         })
         .join('\n'),
@@ -2088,8 +2164,8 @@ export function generateDesignDoc(
     lines.push(
       tokens.radii
         .map((radius, index) => {
-          const count = tokens.usageCount?.[`radius:${radius}`] || 0
-          return `- ${RADIUS_NAMES[index] || index}: \`${radius}\`${count > 0 ? ` (${count}×)` : ''}`
+          const count = tokens.evidence?.[`radii.${index}`]?.ownerCount || 0
+          return `- ${RADIUS_NAMES[index] || index}: \`${radius}\`${count > 0 ? docT('shapes.ownerCountSuffix', { count }) : ''}`
         })
         .join('\n'),
     )
@@ -2121,12 +2197,12 @@ export function generateDesignDoc(
     )
   }
   const proseComponents = [...documentComponents, ...freeformEvidenceComponents]
-  if (proseComponents.length > 0) {
+  if (!designProfile?.transferGrammar && proseComponents.length > 0) {
     if (designEvidence) {
       lines.push(docT('components.canonicalNote'))
     }
-    lines.push(docT('components.header'))
-    lines.push('|---|---:|---:|---:|---|---|')
+    lines.push(docT('components.summaryIntro'))
+    const groups = new Map<string, { patterns: number; instances: number; reusable: number }>()
     proseComponents.forEach((component) => {
       const reuse = resolveComponentReuseEvidence({
         ...component,
@@ -2136,54 +2212,35 @@ export function generateDesignDoc(
         selectors: [],
         evidence: [],
       })
-      const styles = usefulComponentStyles(component.styles, tokens)
-        .map(([property, value]) => `\`${property}: ${value}\``)
-        .join('<br>')
-      const elementKinds = 'elementKinds' in component ? (component.elementKinds as string[] | undefined) : undefined
-      const kinds = elementKinds?.length ? elementKinds.join(', ') : '-'
-      const sampleSize =
-        'sampleSize' in component ? (component.sampleSize as { width: number; height: number } | undefined) : undefined
-      const representative = [
-        kinds !== '-' ? `\`elementKind: ${kinds}\`` : '',
-        sampleSize ? `\`sample: ${sampleSize.width}×${sampleSize.height}px\`` : '',
-        styles,
-      ]
-        .filter(Boolean)
-        .join('<br>')
-      lines.push(
-        `| ${component.name} | ${component.count} | ${component.confidence} | ${reuse.reuseConfidence} | ${docT(
-          `components.reuseScopes.${reuse.reuseScope}`,
-        )} | ${representative || '-'} |`,
-      )
+      const group = groups.get(component.type) || { patterns: 0, instances: 0, reusable: 0 }
+      group.patterns += 1
+      group.instances += component.count
+      if (reuse.styleObservationCount >= 2 && reuse.reuseConfidence >= 0.55) group.reusable += 1
+      groups.set(component.type, group)
     })
-    if (
-      documentComponents.some((component) =>
-        component.evidence.includes('component-detector:supplemental:no-instance-provenance'),
+    for (const [type, summary] of [...groups].sort(([first], [second]) => first.localeCompare(second))) {
+      lines.push(
+        docT('components.summary', {
+          type: readableReconstructionComponentName(type, language),
+          patterns: summary.patterns,
+          instances: summary.instances,
+          reusable: summary.reusable,
+        }),
       )
-    ) {
-      lines.push(docT('components.detectorNote'))
     }
-    const contrastWarnings = componentContrastWarnings(documentComponents, tokens)
-    if (contrastWarnings.length > 0) {
-      lines.push(`\n${coreT(language, 'export.contrast.heading')}\n`)
-      for (const warning of contrastWarnings) {
-        if (warning.schemaTextColorNote) {
-          lines.push(
-            coreT(language, 'export.contrast.iconSchemaNote', {
-              name: warning.name,
-              foreground: warning.foreground,
-              backgroundKind: coreT(
-                language,
-                warning.inferred ? 'export.contrast.inferredSurface' : 'export.contrast.observedBackground',
-              ),
-              background: warning.background,
-              ratio: warning.ratio.toFixed(2),
-            }),
-          )
-          continue
-        }
+  } else if (!designProfile?.transferGrammar) {
+    lines.push(docT('components.noPatterns'))
+  }
+  const contrastComponents = designProfile?.transferGrammar
+    ? designDocComponentProjection(documentComponents, designProfile).designDocComponents
+    : documentComponents
+  const contrastWarnings = componentContrastWarnings(contrastComponents, tokens)
+  if (contrastWarnings.length > 0) {
+    lines.push(`\n${coreT(language, 'export.contrast.heading')}\n`)
+    for (const warning of contrastWarnings) {
+      if (warning.schemaTextColorNote) {
         lines.push(
-          coreT(language, 'export.contrast.warning', {
+          coreT(language, 'export.contrast.iconSchemaNote', {
             name: warning.name,
             foreground: warning.foreground,
             backgroundKind: coreT(
@@ -2192,18 +2249,29 @@ export function generateDesignDoc(
             ),
             background: warning.background,
             ratio: warning.ratio.toFixed(2),
-            target: warning.target,
-            controlKind: coreT(
-              language,
-              warning.target === 3 ? 'export.contrast.iconControl' : 'export.contrast.textControl',
-            ),
-            inferredSuffix: warning.inferred ? coreT(language, 'export.contrast.inferredSuffix') : '',
           }),
         )
+        continue
       }
+      lines.push(
+        coreT(language, 'export.contrast.warning', {
+          name: warning.name,
+          foreground: warning.foreground,
+          backgroundKind: coreT(
+            language,
+            warning.inferred ? 'export.contrast.inferredSurface' : 'export.contrast.observedBackground',
+          ),
+          background: warning.background,
+          ratio: warning.ratio.toFixed(2),
+          target: warning.target,
+          controlKind: coreT(
+            language,
+            warning.target === 3 ? 'export.contrast.iconControl' : 'export.contrast.textControl',
+          ),
+          inferredSuffix: warning.inferred ? coreT(language, 'export.contrast.inferredSuffix') : '',
+        }),
+      )
     }
-  } else {
-    lines.push(docT('components.noPatterns'))
   }
 
   lines = sections.dosAndDonts
@@ -2213,6 +2281,9 @@ export function generateDesignDoc(
         hasDeclaredBreakpoints: (designEvidence?.breakpoints.length || 0) > 0,
         hasObservedResponsiveBehavior: (designEvidence?.responsiveObservations.length || 0) > 0,
         surfaceShadowScope: semanticIntegrity.surfaceShadowScope,
+        ...(designProfile?.transferGrammar
+          ? { coreRuleCategories: (designProfile.transferGrammar.coreRules || []).map((rule) => rule.category) }
+          : {}),
       }),
     ),
   )

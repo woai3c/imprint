@@ -230,8 +230,46 @@ describe('persisted record adapters', () => {
   })
 
   it('restores dark tokens and comparison captures from valid records', () => {
-    const darkTokens = { ...tokens, colors: { background: '#000000' } }
-    expect(readDarkModeExportData(JSON.stringify(darkTokens), tokens, 'media-query')?.darkTokens).toEqual(darkTokens)
+    const darkTokens = {
+      ...tokens,
+      colors: { background: '#000000' },
+      evidence: {
+        'colors.background': {
+          value: '#000000',
+          confidence: 'medium' as const,
+          measurementConfidence: 'medium' as const,
+          semanticConfidence: 'medium' as const,
+          reuseScope: 'foundation' as const,
+          observationCount: 4,
+          ownerCount: 4,
+          semanticAgreement: 1,
+          pageCount: 1,
+          captureCount: 1,
+          eligiblePageCount: 1,
+          pageSupportRatio: 1,
+          pages: ['https://example.com/'],
+          pageRefs: ['route-0f115db062b7'],
+          sources: ['usage:bgColor'],
+          reasons: ['rendered-use' as const],
+        },
+      },
+    }
+    const restoredDarkTokens = readDarkModeExportData(JSON.stringify(darkTokens), tokens, 'media-query', undefined, {
+      pages: [
+        {
+          id: 'page-home-desktop',
+          routeId: 'route-0f115db062b7',
+          url: 'https://example.com/',
+          viewport: 'desktop',
+          images: [],
+        },
+      ],
+    })?.darkTokens
+    expect(restoredDarkTokens).toMatchObject(darkTokens)
+    expect(restoredDarkTokens?.evidence?.['colors.background']).toMatchObject({
+      semanticConfidence: 'medium',
+      reuseScope: 'foundation',
+    })
     expect(readDarkModeExportData('{invalid', tokens, 'media-query')).toBeUndefined()
 
     expect(
@@ -239,12 +277,14 @@ describe('persisted record adapters', () => {
         id: 'analysis-1',
         url: 'https://example.com/requested',
         final_url: 'https://example.com/final',
+        route_identity: 'route-123456789abc',
         created_at: '2026-08-24T00:00:00.000Z',
         tokens_json: JSON.stringify(tokens),
       }),
     ).toMatchObject({
       analysisId: 'analysis-1',
       url: 'https://example.com/final',
+      routeIdentity: 'route-123456789abc',
       createdAt: '2026-08-24T00:00:00.000Z',
       tokens,
       evidence: null,

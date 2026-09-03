@@ -1,10 +1,25 @@
-import { isPillRadius, summarizeComponentVariants } from '../analyzer/component-detect.js'
-import type { ComponentType } from '../analyzer/component-detect.js'
+import {
+  isPillRadius,
+  isReusableComponentPattern,
+  resolveComponentReuseEvidence,
+} from '../analyzer/component-detect.js'
+import type { ComponentVariantPattern } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { ComponentEvidence, DesignEvidence, InteractionObservation } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
 import { canonicalCatalogPageIds } from './claim-catalog.js'
+import {
+  CATALOG_COMPONENT_TYPES,
+  buildCanonicalComponentCatalog,
+  canonicalComponentEvidenceSample,
+  canonicalComponentRecipeStyles,
+  canonicalComponentSharedTokenRefs,
+  canonicalComponentVariant,
+  canonicalRepresentativeComponents,
+  isActionableComponentPattern,
+} from './component-catalog.js'
 import { isSurfaceEvidenceOwner, surfaceEvidenceStrategy, surfaceEvidenceTokenRefs } from './surface-evidence.js'
 import type { SurfaceEvidenceOwner } from './surface-evidence.js'
 import type {
@@ -21,37 +36,12 @@ import type {
   TransferRuleCategory,
 } from './types.js'
 
-const P1_COMPONENTS = new Set(['button', 'input', 'card', 'navigation', 'tab', 'list', 'table', 'modal', 'status'])
-const KNOWN_COMPONENTS = new Set<ComponentType>([
-  'button',
-  'card',
-  'navigation',
-  'input',
-  'table',
-  'modal',
-  'list',
-  'tab',
-  'status',
-])
-
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)]
 }
 
 function stable(values: readonly string[], limit = Number.POSITIVE_INFINITY): string[] {
   return unique(values.filter(Boolean)).sort().slice(0, limit)
-}
-
-function displayedResponsiveProperties(properties: readonly string[]): string[] {
-  const aliases: Readonly<Record<string, string>> = {
-    color: 'textColor',
-    'rect.height': 'height',
-    'rect.width': 'width',
-    'rect.x': 'horizontalPosition',
-    'rect.y': 'verticalPosition',
-    top: 'topOffset',
-  }
-  return stable(properties.map((property) => aliases[property] || property))
 }
 
 function baseReusableClaim(claim: DesignClaim): boolean {
@@ -75,11 +65,11 @@ interface CanonicalFoundationScope {
 function canonicalFoundationScope(evidence: DesignEvidence): CanonicalFoundationScope {
   const pageIds = canonicalCatalogPageIds(evidence)
   const canonicalPages = evidence.pages.filter((page) => pageIds.has(page.id))
-  const urlByPageId = new Map(canonicalPages.map((page) => [page.id, page.url]))
+  const urlByPageId = new Map(canonicalPages.map((page) => [page.id, evidencePageRouteIdentity(page)]))
   const sections = evidence.sections.filter((section) => pageIds.has(section.pageId))
   const sectionIds = new Set(sections.map((section) => section.id))
   return {
-    urls: stable(canonicalPages.map((page) => page.url)),
+    urls: stable(canonicalPages.map(evidencePageRouteIdentity)),
     urlByPageId,
     sections,
     components: evidence.components.filter(
@@ -411,52 +401,13 @@ function withFoundationGuidance(
   return structuredClone(source)
 }
 
-function tokenRefsSharedBy(components: ComponentEvidence[], limit = 10): string[] {
-  const counts = new Map<string, number>()
-  for (const component of components) {
-    for (const ref of new Set(component.tokenRefs)) counts.set(ref, (counts.get(ref) || 0) + 1)
-  }
-  const minimum = components.length <= 1 ? 1 : Math.max(2, Math.ceil(components.length * 0.8))
-  return [...counts.entries()]
-    .filter(([, count]) => count >= minimum)
-    .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
-    .slice(0, limit)
-    .map(([ref]) => ref)
-}
-
-function recipeTokenDimensions(refs: readonly string[]): Set<string> {
-  return new Set(
-    refs.map((ref) => {
-      if (ref.startsWith('typography.')) return 'typography'
-      return ref.split('.')[0]
-    }),
-  )
-}
-
-function hasActionableRecipeEvidence(
-  component: string,
-  variant: string,
-  components: ComponentEvidence[],
-  sharedTokenRefs: readonly string[],
-): boolean {
-  const dimensions = recipeTokenDimensions(sharedTokenRefs)
-  const hasAppearance = dimensions.has('color') || dimensions.has('typography')
-  const hasStructure = ['spacing', 'radius', 'border', 'shadow'].some((dimension) => dimensions.has(dimension))
-  if (sharedTokenRefs.length < 2 || !hasAppearance || !hasStructure) return false
-
-  if (components.length >= 2) return dimensions.size >= 2
-  const explicitSingleInstance =
-    (component === 'button' && /^(?:primary|secondary|destructive)(?:-|$)/.test(variant)) ||
-    (component === 'input' && /^(?:search|combobox)(?:-|$)/.test(variant)) ||
-    component === 'tab' ||
-    component === 'modal' ||
-    component === 'navigation'
-  return explicitSingleInstance
-}
-
-function useWhen(component: string, variant: string, role: string | undefined): ComponentRecipeUseWhen {
+function useWhen(component: string, variant: string, pattern: ComponentVariantPattern): ComponentRecipeUseWhen {
   if (component === 'button')
-    return variant.startsWith('primary') || /primary/i.test(role || '') ? 'primary-action' : 'action'
+    return Object.entries(pattern.roleCounts || {}).some(
+      ([role, count]) => role === 'primary-action' && count / Math.max(pattern.styleObservationCount || 0, 1) >= 0.8,
+    )
+      ? 'primary-action'
+      : 'action'
   if (component === 'input') return variant.startsWith('search') ? 'search' : 'text-entry'
   if (component === 'card') return 'content-group'
   if (component === 'navigation') return 'navigation'
@@ -468,21 +419,14 @@ function useWhen(component: string, variant: string, role: string | undefined): 
   return 'specialized'
 }
 
-function semanticRecipeVariant(component: ComponentEvidence): string {
-  if (component.type === 'input') {
-    if (/search/i.test(component.role || '')) return 'search'
-    if (/combobox|select/i.test(component.role || '')) return 'combobox'
-  }
-  if (component.type === 'modal') return component.role === 'alertdialog' ? 'alert' : 'default'
-  return 'default'
-}
-
 function recipeRestrictions(component: string, components: ComponentEvidence[]): ComponentRecipeRestriction[] {
   const restrictions: ComponentRecipeRestriction[] = ['keep-variant-scope']
   if (components.some((item) => isPillRadius(item.styles))) restrictions.push('do-not-globalize-special-shape')
   if (component === 'card' || component === 'modal') restrictions.push('do-not-promote-overlay-elevation')
   if (components.every((item) => item.stateRefs.length === 0)) restrictions.push('do-not-invent-unobserved-state')
-  if (!P1_COMPONENTS.has(component)) restrictions.push('do-not-promote-local-layout')
+  if (!CATALOG_COMPONENT_TYPES.has(component as ComponentVariantPattern['type'])) {
+    restrictions.push('do-not-promote-local-layout')
+  }
   return unique(restrictions)
 }
 
@@ -528,11 +472,17 @@ function selectBalancedLocalRules(rules: PrioritizedDesignRule[], limit: number)
   return rules.filter((item) => selected.has(claimKey(item.claim))).slice(0, limit)
 }
 
-function recipeConfidence(components: ComponentEvidence[], evidence: DesignEvidence): Confidence {
+function identityConfidence(components: ComponentEvidence[], evidence: DesignEvidence): Confidence {
   const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
   const urls = new Set(components.map((component) => pageById.get(component.pageId)?.url).filter(Boolean))
   const average = components.reduce((total, component) => total + component.confidence, 0) / components.length
   return (urls.size >= 2 || components.length >= 3) && average >= 0.9 ? 'high' : 'medium'
+}
+
+function recipeConfidence(pattern: ComponentVariantPattern): Confidence {
+  const reuse = resolveComponentReuseEvidence(pattern)
+  if (reuse.reuseConfidence >= 0.8) return 'high'
+  return reuse.reuseConfidence >= 0.55 ? 'medium' : 'low'
 }
 
 function interactionClaims(
@@ -541,8 +491,11 @@ function interactionClaims(
   language: 'en' | 'zh-CN',
 ): DesignClaim[] {
   const t = coreTranslator(language, 'transferGrammar')
+  const componentIds = new Set(components.map((component) => component.id))
   const stateIds = new Set(components.flatMap((component) => component.stateRefs))
-  const observations = evidence.interactionObservations.filter((observation) => stateIds.has(observation.id))
+  const observations = evidence.interactionObservations.filter(
+    (observation) => stateIds.has(observation.id) && componentIds.has(observation.targetId),
+  )
   const groups = new Map<string, InteractionObservation[]>()
   for (const observation of observations) {
     const key = JSON.stringify([observation.driver, stable(observation.changedProperties)])
@@ -560,7 +513,7 @@ function interactionClaims(
       }),
       implementation: t('stateImplementation'),
       confidence: items.some((item) => item.safety === 'safe-active')
-        ? recipeConfidence(components, evidence)
+        ? identityConfidence(components, evidence)
         : 'medium',
       evidence: evidenceIds.map((evidenceId) => ({ evidenceId, note: t('evidenceNote') })),
       assertions: representative.changedProperties.map((property): DesignClaimAssertion => ({
@@ -576,134 +529,30 @@ function interactionClaims(
   })
 }
 
-function responsiveClaims(
-  components: ComponentEvidence[],
-  evidence: DesignEvidence,
-  language: 'en' | 'zh-CN',
-): DesignClaim[] {
-  const t = coreTranslator(language, 'transferGrammar')
-  const sectionIds = new Set(components.map((component) => component.sectionId))
-  const groups = new Map<string, typeof evidence.responsiveObservations>()
-  for (const observation of evidence.responsiveObservations) {
-    if (!sectionIds.has(observation.sectionId) || observation.changedProperties.length === 0) continue
-    const displayProperties = displayedResponsiveProperties(observation.changedProperties)
-    const key = JSON.stringify([
-      observation.fromViewport,
-      observation.toViewport,
-      observation.changeType,
-      displayProperties,
-    ])
-    const items = groups.get(key) || []
-    items.push(observation)
-    groups.set(key, items)
-  }
-
-  return [...groups.values()].slice(0, 3).map((items) => {
-    const observation = items[0]
-    const evidenceIds = items.map((item) => item.id)
-    const displayProperties = displayedResponsiveProperties(observation.changedProperties)
-    return {
-      statement: t('responsiveStatement', {
-        from: observation.fromViewport,
-        to: observation.toViewport,
-        change: observation.changeType,
-        properties: displayProperties.join(', '),
-      }),
-      implementation: t('responsiveImplementation'),
-      confidence: 'medium',
-      evidence: evidenceIds.map((evidenceId) => ({ evidenceId, note: t('evidenceNote') })),
-      assertions: items.flatMap((item) =>
-        item.changedProperties.map((property): DesignClaimAssertion => ({
-          kind: 'responsive',
-          target: item.sectionId,
-          predicate: 'property-change',
-          scope: 'page',
-          evidenceIds: [item.id],
-          property,
-        })),
-      ),
-      source: 'deterministic-catalog',
-    }
-  })
-}
-
 function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): ComponentRecipe[] {
   const t = coreTranslator(language, 'transferGrammar')
-  const canonicalPageIds = canonicalCatalogPageIds(evidence)
-  const components = evidence.components.filter(
-    (component) =>
-      canonicalPageIds.has(component.pageId) &&
-      KNOWN_COMPONENTS.has(component.type as ComponentType) &&
-      component.confidence >= 0.8,
-  )
-  const componentById = new Map(components.map((component) => [component.id, component]))
-  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
-  const patterns = summarizeComponentVariants(
-    components.map((component) => {
-      const page = pageById.get(component.pageId)
-      const pageWidth = page?.contentWidth || page?.viewportWidth
-      const pageHeight = page?.contentHeight || page?.viewportHeight
-      return {
-        type: component.type as ComponentType,
-        confidence: component.confidence,
-        evidence: [component.id],
-        styles: component.styles,
-        tokenRefs: component.tokenRefs,
-        primaryColor: evidence.tokens.colors.primary,
-        surfaceColors: [
-          evidence.tokens.colors.background,
-          evidence.tokens.colors.surface,
-          evidence.tokens.colors.secondary,
-        ].filter((color): color is string => Boolean(color)),
-        role: component.role,
-        elementKind: component.elementKind,
-        pageId: component.pageId,
-        ...(pageWidth ? { widthPx: component.rect.width * pageWidth } : {}),
-        ...(pageHeight ? { heightPx: component.rect.height * pageHeight } : {}),
-      }
-    }),
-  )
+  const patterns = buildCanonicalComponentCatalog(evidence)
 
   return patterns
-    .flatMap((pattern) => {
-      const items = pattern.evidence.flatMap((id) => {
-        const component = componentById.get(id)
-        return component ? [component] : []
-      })
-      if (!['input', 'modal'].includes(pattern.type)) return [{ pattern, items }]
-      const semanticGroups = new Map<string, ComponentEvidence[]>()
-      for (const item of items) {
-        const variant = semanticRecipeVariant(item)
-        const group = semanticGroups.get(variant) || []
-        group.push(item)
-        semanticGroups.set(variant, group)
-      }
-      return [...semanticGroups.entries()].map(([variant, group]) => ({
-        pattern: { ...pattern, name: `${pattern.type}-${variant}` },
-        items: group,
-      }))
+    .map((pattern) => {
+      const items = canonicalRepresentativeComponents(pattern, evidence)
+      return { pattern, items, evidenceSample: canonicalComponentEvidenceSample(pattern, evidence) }
     })
     .filter((group) => group.items.length > 0)
     .sort(
       (first, second) =>
         second.items.length - first.items.length || first.pattern.name.localeCompare(second.pattern.name),
     )
-    .map(({ pattern, items }) => {
+    .map(({ pattern, items, evidenceSample }) => {
       const component = pattern.type
-      const variant =
-        pattern.name === component
-          ? 'default'
-          : pattern.name.startsWith(`${component}-`)
-            ? pattern.name.slice(component.length + 1)
-            : pattern.name
-      const confidence = recipeConfidence(items, evidence)
-      const sourceIds = items.map((item) => item.id)
-      const allSharedTokenRefs = tokenRefsSharedBy(items, Number.POSITIVE_INFINITY)
+      const variant = canonicalComponentVariant(pattern)
+      const confidence = recipeConfidence(pattern)
+      const reuse = resolveComponentReuseEvidence(pattern)
+      const sourceIds = evidenceSample.map((item) => item.id)
+      const allSharedTokenRefs = canonicalComponentSharedTokenRefs(items)
       const sharedTokenRefs = allSharedTokenRefs.slice(0, 10)
       const priority: ComponentRecipe['priority'] =
-        P1_COMPONENTS.has(component) && hasActionableRecipeEvidence(component, variant, items, allSharedTokenRefs)
-          ? 'P1'
-          : 'P2'
+        isReusableComponentPattern(pattern) && isActionableComponentPattern(pattern, allSharedTokenRefs) ? 'P1' : 'P2'
       const observed: DesignClaim = {
         statement: t(
           component === 'status'
@@ -723,7 +572,7 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         confidence,
         evidence: sourceIds.map((evidenceId) => ({ evidenceId, note: t('evidenceNote') })),
         tokenRefs: sharedTokenRefs,
-        assertions: items.flatMap((item): DesignClaimAssertion[] => [
+        assertions: evidenceSample.flatMap((item): DesignClaimAssertion[] => [
           {
             kind: 'component',
             target: component,
@@ -746,11 +595,19 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         component,
         variant,
         priority,
-        useWhen: useWhen(component, variant, items[0]?.role),
+        useWhen: useWhen(component, variant, pattern),
         observed,
+        observedStyles: canonicalComponentRecipeStyles(pattern.styles),
         states: interactionClaims(items, evidence, language),
-        responsive: responsiveClaims(items, evidence, language),
+        // Responsive evidence currently identifies sections across viewports, not component instances. Keep those
+        // facts in the responsive section instead of presenting enclosing-section changes as component behavior.
+        responsive: [],
         restrictions: recipeRestrictions(component, items),
+        identityConfidence: pattern.confidence,
+        reuseConfidence: reuse.reuseConfidence,
+        reuseScope: reuse.reuseScope,
+        matchingStyleInstances: reuse.styleObservationCount,
+        pageCount: reuse.pageCount,
         confidence,
         sourceInstances: items.length,
       }
@@ -761,7 +618,6 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         second.sourceInstances - first.sourceInstances ||
         `${first.component}-${first.variant}`.localeCompare(`${second.component}-${second.variant}`),
     )
-    .slice(0, 14)
 }
 
 function coordinate(

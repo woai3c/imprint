@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto'
 
 import { classifyComponentVariant, isPillRadius } from '../analyzer/component-detect.js'
 import type { ComponentType } from '../analyzer/component-detect.js'
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import { resolveScreenshotAssetCoverage } from '../design-evidence/asset-integrity.js'
+import { canonicalEvidencePageIds } from '../design-evidence/canonical-pages.js'
 import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import {
   displayedResponsiveChangeType,
@@ -64,36 +66,8 @@ function roundedPercent(value: number): number {
   return Math.round(value * 100)
 }
 
-function pageRank(page: EvidencePage): number {
-  if (page.viewport === 'desktop') return 0
-  if (page.viewport === 'tablet') return 1
-  if (page.viewport === 'mobile') return 2
-  return 3
-}
-
-/** One healthy, non-overflowing capture per URL; desktop is preferred. */
-export function canonicalCatalogPageIds(evidence: DesignEvidence): Set<string> {
-  const byUrl = new Map<string, EvidencePage[]>()
-  for (const page of evidence.pages) {
-    const pages = byUrl.get(page.url) || []
-    pages.push(page)
-    byUrl.set(page.url, pages)
-  }
-  const result = new Set<string>()
-  for (const pages of byUrl.values()) {
-    const eligible = pages.filter(
-      (page) => !hasSevereHorizontalOverflow(page) && page.health?.evidenceEligible !== false,
-    )
-    const selected = [...eligible].sort(
-      (first, second) =>
-        pageRank(first) - pageRank(second) ||
-        (second.viewportWidth || 0) - (first.viewportWidth || 0) ||
-        first.id.localeCompare(second.id),
-    )[0]
-    if (selected) result.add(selected.id)
-  }
-  return result
-}
+/** One healthy capture without severe overflow per route; desktop is preferred. */
+export const canonicalCatalogPageIds = canonicalEvidencePageIds
 
 function sectionAnchor(section: SectionEvidence): 'full' | 'left' | 'center' | 'right' {
   if (section.rect.width >= 0.96) return 'full'
@@ -130,7 +104,7 @@ function assertionScope(evidenceIds: readonly string[], evidence: DesignEvidence
   const urls = new Set(
     evidenceIds.flatMap((id) => {
       const page = pageById.get(pageIdByEvidenceId.get(id) || '')
-      return page ? [page.url] : []
+      return page ? [evidencePageRouteIdentity(page)] : []
     }),
   )
   return urls.size >= 2 ? 'cross-page' : urls.size === 1 ? 'page' : 'instance'
@@ -1097,53 +1071,83 @@ function buildResponsiveAndScopeClaims(
   evidence.layoutNodes.forEach((node) => pageIdByEvidenceId.set(node.id, node.pageId))
   evidence.interactionObservations.forEach((observation) => pageIdByEvidenceId.set(observation.id, observation.pageId))
   evidence.mediaLayers.forEach((media) => pageIdByEvidenceId.set(media.id, media.pageId))
-  for (const observation of evidence.responsiveObservations
-    .filter((item) => {
-      if (!hasConsistentResponsiveSectionIdentity(item, evidence)) return false
-      if (!validSectionIds.has(item.sectionId) || roleBySection.get(item.sectionId) === 'unknown') return false
-      if (
-        item.evidenceRefs.some((evidenceId) => {
-          const pageId = pageIdByEvidenceId.get(evidenceId)
-          return pageId !== undefined && !safeCapturePageIds.has(pageId)
-        })
-      ) {
-        return false
-      }
-      const recordsAbsent = Object.values(item.changes || {}).some(
-        (change) => change.from === 'absent' || change.to === 'absent',
-      )
-      const directlyHidden = Object.entries(item.changes || {}).some(
-        ([property, change]) =>
-          (/(?:^|\.)display$/.test(property) && change.to === 'none') ||
-          (/(?:^|\.)visibility$/.test(property) && ['hidden', 'collapse'].includes(String(change.to))),
-      )
-      return !recordsAbsent || directlyHidden
-    })
-    .slice(0, 10)) {
-    const role = roleBySection.get(observation.sectionId)
+  const responsiveGroups = new Map<
+    string,
+    Array<{
+      observation: DesignEvidence['responsiveObservations'][number]
+      role: string
+      changes: ReturnType<typeof usefulResponsiveChanges>
+      changedProperties: string[]
+      changeType: DesignEvidence['responsiveObservations'][number]['changeType']
+    }>
+  >()
+  for (const observation of evidence.responsiveObservations.filter((item) => {
+    if (!hasConsistentResponsiveSectionIdentity(item, evidence)) return false
+    if (!validSectionIds.has(item.sectionId) || roleBySection.get(item.sectionId) === 'unknown') return false
+    if (
+      item.evidenceRefs.some((evidenceId) => {
+        const pageId = pageIdByEvidenceId.get(evidenceId)
+        return pageId !== undefined && !safeCapturePageIds.has(pageId)
+      })
+    ) {
+      return false
+    }
+    const recordsAbsent = Object.values(item.changes || {}).some(
+      (change) => change.from === 'absent' || change.to === 'absent',
+    )
+    const directlyHidden = Object.entries(item.changes || {}).some(
+      ([property, change]) =>
+        (/(?:^|\.)display$/.test(property) && change.to === 'none') ||
+        (/(?:^|\.)visibility$/.test(property) && ['hidden', 'collapse'].includes(String(change.to))),
+    )
+    return !recordsAbsent || directlyHidden
+  })) {
+    const role = roleBySection.get(observation.sectionId) || observation.sectionId
     const changes = usefulResponsiveChanges(observation, role)
     if (changes.length === 0) continue
     const changedProperties = changes.map(([property]) => property)
     const changeType = displayedResponsiveChangeType(observation.changeType, changedProperties)
-    const evidenceIds = [observation.id, ...observation.evidenceRefs]
-    const assertions: DesignClaimAssertion[] = changedProperties.map((property) => ({
-      kind: 'responsive',
-      target: role || observation.sectionId,
-      predicate: 'property-change',
-      scope: 'page',
-      evidenceIds: [observation.id],
-      property,
-      value: observation.changes?.[property]
-        ? [String(observation.changes[property].from ?? ''), String(observation.changes[property].to ?? '')]
-        : undefined,
-    }))
+    const key = JSON.stringify([
+      role,
+      observation.fromViewport,
+      observation.toViewport,
+      changeType,
+      changes.map(([property, value]) => [property, value.from ?? null, value.to ?? null]),
+    ])
+    const group = responsiveGroups.get(key) || []
+    group.push({ observation, role, changes, changedProperties, changeType })
+    responsiveGroups.set(key, group)
+  }
+  for (const group of [...responsiveGroups.values()]
+    .sort(
+      (first, second) =>
+        second.length - first.length || first[0].observation.id.localeCompare(second[0].observation.id),
+    )
+    .slice(0, 10)) {
+    const representative = group[0]
+    const { role, changedProperties, changeType } = representative
+    const evidenceIds = stableList(
+      group.flatMap(({ observation }) => [observation.id, ...observation.evidenceRefs]),
+      40,
+    )
+    const assertions: DesignClaimAssertion[] = group.flatMap(({ observation, changes }) =>
+      changes.map(([property, value]) => ({
+        kind: 'responsive' as const,
+        target: role,
+        predicate: 'property-change' as const,
+        scope: 'page' as const,
+        evidenceIds: [observation.id],
+        property,
+        value: [String(value.from ?? ''), String(value.to ?? '')],
+      })),
+    )
     if (changeType === 'reflow') {
       assertions.push({
         kind: 'responsive',
-        target: role || observation.sectionId,
+        target: role,
         predicate: 'reflow',
         scope: 'page',
-        evidenceIds: [observation.id],
+        evidenceIds: group.map(({ observation }) => observation.id),
       })
     }
     assertions.push({
@@ -1151,15 +1155,15 @@ function buildResponsiveAndScopeClaims(
       target: 'responsive',
       predicate: 'supports',
       scope: 'page',
-      evidenceIds: [observation.id],
+      evidenceIds: group.map(({ observation }) => observation.id),
       property: 'change-type',
       value: changeType,
     })
-    builder.add(`responsive-${observation.id}`, [{ kind: 'transfer', bucket: 'adapt' }], {
+    builder.add(`responsive-${representative.observation.id}`, [{ kind: 'transfer', bucket: 'adapt' }], {
       statement: t('responsiveStatement', {
-        role: role || observation.sectionId,
-        from: observation.fromViewport,
-        to: observation.toViewport,
+        role,
+        from: representative.observation.fromViewport,
+        to: representative.observation.toViewport,
         change: changeType,
         properties: changedProperties.join(', '),
       }),
@@ -1260,7 +1264,9 @@ function buildUncertainties(evidence: DesignEvidence, language: 'en' | 'zh-CN'):
     add(t('uncertainties.assetTopic'), t('uncertainties.assetReason'), t('uncertainties.assetNeeded'))
   }
   const reusablePageIds = canonicalCatalogPageIds(evidence)
-  const reusableUrls = new Set(evidence.pages.filter((page) => reusablePageIds.has(page.id)).map((page) => page.url))
+  const reusableUrls = new Set(
+    evidence.pages.filter((page) => reusablePageIds.has(page.id)).map(evidencePageRouteIdentity),
+  )
   if (reusableUrls.size < 2) {
     add(t('uncertainties.crossPageTopic'), t('uncertainties.crossPageReason'), t('uncertainties.crossPageNeeded'))
   }

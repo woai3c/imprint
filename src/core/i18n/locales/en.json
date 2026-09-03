@@ -152,7 +152,8 @@
       "noShadowScale": "- ✅ No stable shadow scale was observed; prefer observed borders and background shifts for hierarchy",
       "observedResponsive": "- ✅ Preserve the observed responsive behavior across viewports",
       "declaredBreakpoints": "- Breakpoints were declared, but responsive behavior was not observed in this capture",
-      "recurringSpacing": "- ✅ Use the spacing scale for recurring rhythm; keep observed component and structural exceptions exact"
+      "recurringSpacing": "- ✅ Use the spacing scale for recurring rhythm; keep observed component and structural exceptions exact",
+      "noGlobalRules": "- No site-wide do/don't rule met the P0 evidence threshold; apply the local observations below only in their cited contexts."
     },
     "donts": {
       "heading": "### Don'ts",
@@ -174,13 +175,42 @@
         "partial": "partial"
       }
     },
+    "typographyRole": {
+      "heading": "### Typography Role Evidence",
+      "countBasis": "> Count basis: one evidence-eligible canonical capture per route without severe horizontal overflow; desktop is preferred, followed by tablet and mobile.",
+      "header": "| Observed role | Independent owners | Font | Size | Weight | Line height |"
+    },
+    "topology": {
+      "heading": "### Page Topology",
+      "routeGroup_one": "`{{viewport}}` · {{count}} route · example: {{examples}}",
+      "routeGroup_other": "`{{viewport}}` · {{count}} routes · examples: {{examples}}"
+    },
+    "structure": {
+      "heading": "### Structural Facts",
+      "ownerScope_one": "{{count}} independent owner · scope: {{scope}}",
+      "ownerScope_other": "{{count}} independent owners · scope: {{scope}}",
+      "scopeMore": "+{{count}} more scopes"
+    },
+    "responsive": {
+      "heading": "### Responsive Structure Observations",
+      "groupLine": "- {{from}} → {{to}} · {{role}} · {{change}} ({{properties}}) · {{routeSupport}} · {{instanceSupport}} · {{examples}}",
+      "routeSupport_one": "support: {{count}} route",
+      "routeSupport_other": "support: {{count}} routes",
+      "instanceSupport_one": "{{count}} observed instance",
+      "instanceSupport_other": "{{count}} observed instances",
+      "examples": "examples: {{examples}}",
+      "propertySeparator": ", ",
+      "valueSeparator": "; "
+    },
     "limitations": {
       "selectedPagesIncomplete": "Some automatically selected pages could not be captured; conclusions cover completed pages only.",
       "plannedCapturesIncomplete": "At least one planned page×viewport capture is missing; cross-viewport coverage is partial.",
+      "queryRouteRedacted": "One or more captured documents use query-based routing; public artifact URLs redact query text and use opaque route IDs for distinction.",
       "adaptiveMobileBudgetExceeded": "The supplemental mobile capture exceeded its reserved time budget and was not retained.",
       "adaptiveMobileSkippedBudget": "A later supplemental mobile capture was skipped because the analysis time budget had been exhausted.",
       "adaptiveMobileHorizontalOverflow": "Page {{page}} supplemental mobile capture overflowed horizontally ({{viewport}}px viewport, {{content}}px content width).",
-      "responsiveSectionIdentityMismatch": "A repeated DOM path had different semantic section roles across viewports, so that pair was excluded from responsive claims.",
+      "partialOverlay": "At least one capture contains a non-blocking edge overlay; its evidence remains usable, but content beneath the obscured region should be verified.",
+      "responsiveSectionIdentityMismatch": "Some sections lacked a unique semantic identity across viewports, so unsafe pairs were excluded from responsive claims.",
       "breakpointStylesheetsUnreadable": "Some stylesheet rules were inaccessible to the browser CSSOM, so the declared breakpoint list is partial; observed responsive changes remain valid."
     },
     "stateEvidence": {
@@ -273,12 +303,21 @@
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px radius",
       "sourceInstances": "{{count}} observed instance(s)",
+      "recipeEvidence": "{{count}} representative-style match(es) across {{pages}} page(s) · identity {{identity}} · reuse {{reuse}} · {{scope}}",
+      "reuseScopes": {
+        "isolated": "isolated observation",
+        "page-repeated": "repeated on one page",
+        "cross-page": "observed across pages"
+      },
       "useWhen": "Use when",
       "observedRecipe": "Observed recipe",
+      "observedStyles": "Representative styles",
       "states": "Observed states",
       "responsive": "Observed responsive behavior",
       "restrictions": "Restrictions",
       "noP1Recipes": "No component pattern currently has enough evidence for contextual reuse.",
+      "omittedP1Recipes": "{{count}} additional reusable contract(s) are summarized instead of repeated here ({{summary}}). Their complete contracts are in `component-specs.json`.",
+      "omittedP1RecipeType": "{{component}}: {{count}}",
       "useWhenValues": {
         "primary-action": "the target needs its principal action",
         "action": "the target needs a supporting or ordinary action",
@@ -305,6 +344,7 @@
       "localFacts": "Observed local facts",
       "localFactsScopeNotice": "Each fact below applies only to its cited capture scope; verify it again before broader reuse.",
       "localRecipes": "Local or specialized component patterns",
+      "localRecipeSummary": "**{{component}}:** {{patterns}} local pattern(s), {{instances}} representative instance(s)",
       "unknownsHeading": "### Unknowns and Coverage Gaps",
       "unknowns": "Unknown or insufficiently covered",
       "none": "None recorded.",
@@ -676,6 +716,7 @@
       },
       "buttonVariants": {
         "primary": "primary button",
+        "action": "action button",
         "secondary": "secondary button",
         "destructive": "destructive button",
         "text": "text button",
@@ -774,6 +815,7 @@
       "compactRadiusSurfaces": "compact-radius surfaces observed",
       "noStableShadowScale": "no stable shadow scale observed",
       "layeredElevationSystem": "layered elevation system",
+      "observedLayeredElevation": "observed layered elevation",
       "weightContrastHierarchy": "weight contrast hierarchy",
       "extensiveCssVariableUsage": "extensive CSS variable usage",
       "sectionGradientAndCompoundRadius": "section-level gradient and compound-radius treatments observed",
@@ -818,7 +860,7 @@
           "fallback": "Observed, unassigned role"
         },
         "completeHeading": "### Core Portable Color Tokens\n",
-        "tokenHeader": "| Token | Value | Usage | Confidence |",
+        "tokenHeader": "| Token | Value | Independent owners | Confidence |",
         "groupOmitted": "(+{{count}} more; see the complete table)",
         "contexts": {
           "action": "action",
@@ -827,6 +869,11 @@
           "background": "background",
           "text": "text",
           "border": "border"
+        },
+        "confidence": {
+          "high": "high",
+          "medium": "medium",
+          "low": "low"
         },
         "pageCountOne": "{{count}} page",
         "pageCountOther": "{{count}} pages",
@@ -852,7 +899,7 @@
       },
       "typography": {
         "families": "**Font families:** {{values}}",
-        "systemDefault": "System default",
+        "noPortableFamilies": "No portable font family was established; consult local typography Evidence before choosing a typeface.",
         "fullStacks": "\n**Full font stacks:**",
         "sizes": "\n**Reusable font-size scale:** {{values}}",
         "roleExceptionsHeading": "\n**Observed role-specific size exceptions:**",
@@ -864,8 +911,9 @@
       "layout": {
         "spacingHeading": "### Reusable Spacing Candidates\n",
         "spacingLevel": "- Level {{level}}: `{{value}}`{{countSuffix}}",
+        "ownerCountSuffix": " ({{count}} independent owners)",
         "noSpacing": "- No reliable spacing scale was observed.",
-        "geometryNote": "\n> Low-frequency page geometry above 96px is excluded from the reusable scale; representative structural dimensions and responsive changes remain in this document.",
+        "geometryNote": "\n> Negative offsets, large fractional geometry, and one-owner-per-route layout offsets above 96px stay outside the reusable scale; representative structural dimensions and responsive changes remain in this document's evidence sections.",
         "breakpointHeading": "\n### Responsive Breakpoints Declared in CSS\n",
         "breakpointNote": "> These widths come from CSS media/container queries. Only listed changes were directly observed; an empty cell does not prove that nothing changes at that width.\n",
         "breakpointPartialNote": "> Breakpoint discovery is partial because some stylesheet rules were inaccessible through CSSOM. Do not treat this table as the complete declared breakpoint set.\n",
@@ -881,11 +929,14 @@
       },
       "shapes": {
         "radiusHeading": "### Corner Radius Scale\n",
+        "ownerCountSuffix": " ({{count}} independent owners)",
         "noRadius": "No reliable corner radius scale was observed.",
         "structuralHeading": "\n### Structural Shapes\n"
       },
       "components": {
         "canonicalNote": "> Instance counts use one canonical capture per page, preferring desktop. Other viewports inform responsive observations and are not added again.\n",
+        "summaryIntro": "> This section is a bounded summary. Reusable exact-style specifications are in Component Specs JSON; all instances remain in Design Evidence JSON.\n",
+        "summary": "- {{type}}: {{patterns}} observed patterns, {{instances}} canonical instances, {{reusable}} reusable exact-style patterns",
         "header": "| Type | Instances | Identity confidence | Reuse confidence | Reuse scope | Representative styles |",
         "reuseScopes": {
           "isolated": "isolated observation",
@@ -905,11 +956,11 @@
   },
   "transferGrammar": {
     "evidenceNote": "Evidence supporting this transfer recipe",
-    "recipeStatement": "The listed tokens are shared by at least 80% of these {{count}} matching instances; they are an observed subset, not a complete component specification.",
-    "recipeSingleStatement": "The listed tokens come from this observed instance; one instance does not establish a site-wide default.",
-    "statusRecipeStatement": "The listed tokens are shared by at least 80% of these {{count}} matching instances; they are an observed subset, not a complete component specification.",
-    "statusRecipeSingleStatement": "The listed tokens come from this observed instance; one instance does not establish a site-wide default.",
-    "recipeImplementation": "Reuse the shared token combination only when the target UI contains this component and variant.",
+    "recipeStatement": "The representative styles and listed token references recur across these {{count}} exact-style matches; they are an observed subset, not a complete component specification.",
+    "recipeSingleStatement": "The representative styles and token references come from this observed instance; one instance does not establish a site-wide default.",
+    "statusRecipeStatement": "The representative styles and listed token references recur across these {{count}} exact-style matches; they are an observed subset, not a complete component specification.",
+    "statusRecipeSingleStatement": "The representative styles and token references come from this observed instance; one instance does not establish a site-wide default.",
+    "recipeImplementation": "Reuse the representative treatment only when the target UI contains this component and variant.",
     "stateStatement": "The observed {{driver}} state changes {{properties}}.",
     "stateImplementation": "Implement only the listed state change; do not infer unobserved states.",
     "responsiveStatement": "From {{from}} to {{to}}, the containing section uses {{change}}; the observed changed properties are {{properties}}.",
@@ -992,6 +1043,7 @@
       "componentVariantClause_other": " and these variants: {{variants}}",
       "componentVariants": {
         "primary": "primary button",
+        "action": "action button",
         "secondary": "secondary button",
         "destructive": "destructive button",
         "text": "text button",
@@ -1059,8 +1111,8 @@
         "responsivePresenceReason": "A section appears in only one compared capture; absence alone does not prove CSS hiding or removal.",
         "responsivePresenceNeeded": "Match the same section across both viewports or directly observe display or visibility.",
         "responsiveIdentityTopic": "Cross-viewport section identity",
-        "responsiveIdentityReason": "A repeated DOM path had different semantic section roles across viewports, so no responsive relationship was asserted for that pair.",
-        "responsiveIdentityNeeded": "Confirm the same semantic section in both viewports before comparing its responsive changes.",
+        "responsiveIdentityReason": "One or more sections could not be uniquely matched by stable semantic identity across viewports. Unmatched labels, duplicate identities, and role conflicts were not interpreted as responsive behavior.",
+        "responsiveIdentityNeeded": "Confirm the same semantic section in both viewports, or directly observe visibility, before comparing its responsive changes.",
         "overflowTopic": "Severe horizontal overflow",
         "overflowReason": "At least one capture is clipped and excluded from reusable layout inference.",
         "overflowNeeded": "Capture a non-overflowing viewport before inferring responsive layout.",

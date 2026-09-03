@@ -1,5 +1,7 @@
 import type { Page } from 'playwright-core'
 
+import { pageIdentityUrl } from './url-identity.js'
+
 export type PageDiscoveryMode = 'auto' | 'links' | 'sitemap'
 export type PageKind = 'pricing' | 'product' | 'docs' | 'content' | 'about' | 'contact' | 'blog' | 'support' | 'generic'
 
@@ -21,19 +23,8 @@ interface PageCandidate extends DiscoveredPage {
   contextualDescendant: boolean
 }
 
-const EXCLUDED_PATHS = [
-  /\/(?:login|log-in|signin|sign-in|signup|sign-up|register|auth)(?:\/|$)/i,
-  /\/(?:logout|signout|sign-out)(?:\/|$)/i,
-  /\/(?:terms|privacy|legal|cookie|gdpr|tos)(?:\/|$)/i,
-  /\/(?:account|profile|settings|checkout|cart|search)(?:\/|$)/i,
-  /\/(?:cdn-cgi|wp-admin|wp-content|wp-json|api)(?:\/|$)/i,
-  /\/(?:404|410|not-found|notfound|page-not-found)(?:\.(?:html?|php|aspx?))?$/i,
-  /\/(?:tag|author|page)\/[^/]+/i,
-  /\/(?:19|20)\d{2}\/(?:0?[1-9]|1[0-2])(?:\/|$)/,
-  /\.(?:avif|css|csv|docx?|gif|ico|jpe?g|js|json|mov|mp3|mp4|pdf|png|svg|tar|webm|webp|xml|zip|gz)$/i,
-]
-
-const TRACKING_PARAMETERS = /^(?:fbclid|gclid|mc_cid|mc_eid|ref|source|utm_.+)$/i
+const NON_DOCUMENT_EXTENSION =
+  /\.(?:avif|css|csv|docx?|gif|ico|jpe?g|js|json|mov|mp3|mp4|pdf|png|svg|tar|webm|webp|xml|zip|gz)$/i
 const MIN_REPRESENTATIVE_SCORE = 90
 const DIVERSE_PRIORITY_PREFIX = 32
 
@@ -51,10 +42,6 @@ function normalizedUrl(candidate: string, baseUrl: string): URL | null {
     const resolved = new URL(candidate, base)
     if (!['http:', 'https:'].includes(resolved.protocol) || resolved.origin !== base.origin) return null
     resolved.hash = ''
-    for (const key of [...resolved.searchParams.keys()]) {
-      if (TRACKING_PARAMETERS.test(key)) resolved.searchParams.delete(key)
-    }
-    resolved.searchParams.sort()
     resolved.pathname = resolved.pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '') || '/'
     return resolved
   } catch {
@@ -62,50 +49,30 @@ function normalizedUrl(candidate: string, baseUrl: string): URL | null {
   }
 }
 
-export function classifyPageKind(pathname: string): PageKind {
-  const path = pathname.toLowerCase()
-  if (/\/(?:pricing|plans?|cost)(?:\/|$)/.test(path)) return 'pricing'
-  if (/\/(?:product|products|features?|solutions?|platform|enterprise|business)(?:\/|$)/.test(path)) return 'product'
-  if (/\/(?:docs?|documentation|developers?|api-reference|guides?)(?:\/|$)/.test(path)) return 'docs'
-  if (/\/(?:questions?|answers?|topics?|posts?|stories?|videos?|watch|explore|feed)(?:\/|$)/.test(path)) {
-    return 'content'
-  }
-  if (/\/(?:about|company|team|story|careers?)(?:\/|$)/.test(path)) return 'about'
-  if (/\/(?:contact|demo|trial|get-started|start)(?:\/|$)/.test(path)) return 'contact'
-  if (/\/(?:blog|resources|insights|news|articles?)(?:\/|$)/.test(path)) return 'blog'
-  if (/\/(?:help|support|faq|community)(?:\/|$)/.test(path)) return 'support'
+export function classifyPageKind(_pathname: string): PageKind {
+  // Route words are neither language-neutral nor reliable semantics. Keep the legacy field stable while discovery is
+  // ranked only from URL structure and standards-based DOM location.
   return 'generic'
 }
 
 export function scorePageUrl(candidate: string, baseUrl: string, locationScore = 0): PageCandidate | null {
   const url = normalizedUrl(candidate, baseUrl)
-  if (!url || EXCLUDED_PATHS.some((pattern) => pattern.test(url.pathname))) return null
+  if (!url || NON_DOCUMENT_EXTENSION.test(url.pathname)) return null
 
   const base = new URL(baseUrl)
-  const basePath = base.pathname.replace(/\/$/, '') || '/'
-  if (url.pathname === basePath) return null
+  base.pathname = base.pathname.replace(/\/{2,}/g, '/').replace(/\/$/, '') || '/'
+  base.hash = ''
+  const basePath = base.pathname
+  if (pageIdentityUrl(url.href) === pageIdentityUrl(base.href)) return null
 
   const segments = url.pathname.split('/').filter(Boolean)
   const baseSegments = basePath.split('/').filter(Boolean)
   const contextualDescendant = basePath !== '/' && url.pathname.startsWith(`${basePath}/`)
   const relativeDepth = contextualDescendant ? segments.length - baseSegments.length : segments.length
   const kind = classifyPageKind(url.pathname)
-  const boosts: Record<PageKind, number> = {
-    pricing: 36,
-    product: 30,
-    docs: 26,
-    content: 24,
-    blog: 16,
-    generic: 12,
-    about: 10,
-    support: -12,
-    contact: -14,
-  }
-  let score = 100 + boosts[kind] + locationScore - Math.max(0, relativeDepth - 1) * 12
-  if (url.search) score -= 15
-  if (segments.some((segment) => /^\d+$/.test(segment) || segment.length > 64)) {
-    score -= kind === 'content' ? 2 : 20
-  }
+  let score = 100 + locationScore - Math.max(0, relativeDepth - 1) * 8
+  if (segments.some((segment) => /^\d+$/.test(segment))) score -= 8
+  if (segments.some((segment) => segment.length > 64)) score -= 16
 
   return { url: url.href, source: 'dom', kind, score, locationScore, contextualDescendant }
 }
@@ -113,8 +80,8 @@ export function scorePageUrl(candidate: string, baseUrl: string, locationScore =
 async function discoverDomCandidates(page: Page, baseUrl: string): Promise<PageCandidate[]> {
   const links = await page.evaluate(() => {
     const locationScore = (anchor: HTMLAnchorElement): number => {
-      if (anchor.closest('nav, header, [role="navigation"], [aria-label*="nav" i], [data-nav]')) return 24
       if (anchor.closest('footer')) return -20
+      if (anchor.closest('nav, header, [role="navigation"]')) return 24
       if (anchor.closest('main, article, [role="main"]')) return 24
       return 0
     }
@@ -203,12 +170,11 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
   const diversityLimit = Math.min(selectionLimit, DIVERSE_PRIORITY_PREFIX)
   const selected: PageCandidate[] = []
   const selectedUrls = new Set<string>()
-  const selectedKinds = new Map<PageKind, number>()
   const selectedFamilies = new Map<string, number>()
   const familyByUrl = new Map(
     selectionPool.map((candidate) => [
       candidate.url,
-      new URL(candidate.url).pathname.split('/').filter(Boolean)[0] || '',
+      new URL(candidate.url).pathname.split('/').filter(Boolean)[0] || '/',
     ]),
   )
   while (selected.length < diversityLimit) {
@@ -217,10 +183,7 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
     for (const candidate of selectionPool) {
       if (selectedUrls.has(candidate.url)) continue
       const family = familyByUrl.get(candidate.url) || ''
-      const adjustedScore =
-        candidate.score -
-        (selectedKinds.get(candidate.kind) || 0) * 12 -
-        (family ? selectedFamilies.get(family) || 0 : 0) * 4
+      const adjustedScore = candidate.score - (family ? selectedFamilies.get(family) || 0 : 0) * 4
       if (
         !next ||
         adjustedScore > nextAdjustedScore ||
@@ -235,9 +198,8 @@ function selectDiversePages(candidates: PageCandidate[], maximum: number): Disco
     if (!next) break
     selected.push(next)
     selectedUrls.add(next.url)
-    selectedKinds.set(next.kind, (selectedKinds.get(next.kind) || 0) + 1)
     const family = familyByUrl.get(next.url) || ''
-    if (family) selectedFamilies.set(family, (selectedFamilies.get(family) || 0) + 1)
+    selectedFamilies.set(family, (selectedFamilies.get(family) || 0) + 1)
   }
 
   // Automatic discovery may expose thousands of URLs. Preserve a diverse, high-value prefix, then append every

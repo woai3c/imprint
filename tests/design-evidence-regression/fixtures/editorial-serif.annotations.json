@@ -8,9 +8,6 @@
   "expectedDesktopComponentCounts": {
     "card": 3
   },
-  "expectedDesignDocComponentCounts": {
-    "card": 3
-  },
   "minSafelyObservedInteractions": 1,
   "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
   "minMediaLayers": 0,

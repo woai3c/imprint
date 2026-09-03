@@ -1,6 +1,7 @@
 import { normalizeColorValue } from '../analyzer/color-cluster.js'
 import { hasDepthShadow } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import type { DesignProfile } from '../design-context/types.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
@@ -145,8 +146,8 @@ export function resolveSurfaceShadowScope(
     if (!evidence) return 'foundation'
   }
   if (!evidence) return 'component-only'
-  const pageUrlById = new Map(evidence.pages.map((page) => [page.id, page.url]))
-  const eligibleUrls = new Set(evidence.pages.map((page) => page.url))
+  const pageUrlById = new Map(evidence.pages.map((page) => [page.id, evidencePageRouteIdentity(page)]))
+  const eligibleUrls = new Set(evidence.pages.map(evidencePageRouteIdentity))
   const surfaceSections = evidence.sections.filter((section) => {
     const styles = section.observedStyles
     return Boolean(

@@ -112,7 +112,12 @@ export function hasMeaningfulDarkModeChange(lightStyles: ExtractedStyles, darkSt
  * 1. CSS prefers-color-scheme media query (emulate)
  * 2. Class-based toggle (add .dark or [data-theme="dark"] to html)
  */
-export async function extractDarkMode(page: Page, lightStyles: ExtractedStyles): Promise<DarkModeResult> {
+export async function extractDarkMode(
+  page: Page,
+  lightStyles: ExtractedStyles,
+  viewport = 'desktop',
+): Promise<DarkModeResult> {
+  const source = { url: page.url(), viewport }
   // Probe the browser media state directly. Stylesheet introspection alone misses
   // cross-origin sheets, nested @layer blocks, and JavaScript matchMedia listeners.
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -120,7 +125,7 @@ export async function extractDarkMode(page: Page, lightStyles: ExtractedStyles):
     await waitForThemeSettle(page)
     const darkStyles = await extractStyles(page)
     if (hasMeaningfulDarkModeChange(lightStyles, darkStyles)) {
-      return { hasDarkMode: true, darkStyles, method: 'media-query' }
+      return { hasDarkMode: true, darkStyles, method: 'media-query', source }
     }
   } finally {
     await page.emulateMedia({ colorScheme: null })
@@ -193,7 +198,7 @@ export async function extractDarkMode(page: Page, lightStyles: ExtractedStyles):
         await waitForThemeSettle(page)
         const darkStyles = await extractStyles(page)
         if (hasMeaningfulDarkModeChange(lightStyles, darkStyles)) {
-          return { hasDarkMode: true, darkStyles, method: 'class-toggle', selector }
+          return { hasDarkMode: true, darkStyles, method: 'class-toggle', selector, source }
         }
       } finally {
         await page.evaluate(

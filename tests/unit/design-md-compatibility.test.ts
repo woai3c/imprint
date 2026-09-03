@@ -86,10 +86,11 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(report.sections.slice(0, canonicalSections.length)).toEqual(canonicalSections)
     expect(report.designSystem.name).toBe('example.com Design System')
     expect(report.designSystem.colors.get('primary')?.hex.toLowerCase()).toBe('#2563eb')
-    expect(report.designSystem.typography.get('size-sm')?.fontSize).toMatchObject({ value: 16, unit: 'px' })
+    expect(report.designSystem.typography.get('size-sm')?.fontSize).toMatchObject({ value: 14, unit: 'px' })
+    expect(report.designSystem.typography.get('size-base')?.fontSize).toMatchObject({ value: 16, unit: 'px' })
     expect(report.designSystem.spacing.get('space-2')).toMatchObject({ value: 8, unit: 'px' })
     expect(report.designSystem.rounded.get('md')).toMatchObject({ value: 8, unit: 'px' })
-    expect(report.designSystem.components.get('button-primary')?.unresolvedRefs).toEqual([])
+    expect(report.designSystem.components.get('button-action')?.unresolvedRefs).toEqual([])
 
     const extension = report.designSystem.unknownKeyValues?.['x-imprint'] as Array<Record<string, unknown>>
     expect(extension).toHaveLength(1)
@@ -121,6 +122,24 @@ describe('Google DESIGN.md alpha compatibility', () => {
       expect(dtcg.data).toHaveProperty('spacing.space-2')
       expect(dtcg.data).toHaveProperty('rounded.md')
     }
+  })
+
+  test.each([
+    [
+      'en',
+      '**Font families:** No portable font family was established; consult local typography Evidence before choosing a typeface.',
+      'System default',
+    ],
+    ['zh-CN', '**字体族：** 尚未建立可移植字体族；选择字体前请查看局部排版证据。', '系统默认'],
+  ] as const)('does not invent a default font family when the %s catalog is empty', (language, expected, forbidden) => {
+    const withoutPortableFonts = structuredClone(tokens)
+    withoutPortableFonts.typography.fontFamilies = []
+    withoutPortableFonts.typography.fontStacks = []
+
+    const designDoc = generateDesignDoc(withoutPortableFonts, undefined, undefined, undefined, undefined, [], language)
+
+    expect(designDoc).toContain(expected)
+    expect(designDoc).not.toContain(forbidden)
   })
 
   test('does not treat circular radii as the ordinary surface radius style', () => {
@@ -161,7 +180,8 @@ describe('Google DESIGN.md alpha compatibility', () => {
       ],
     })
 
-    expect(designDoc).toContain('| card | 5 | 0.9 |')
+    expect(designDoc).toContain('- card: 1 observed patterns, 5 canonical instances, 1 reusable exact-style patterns')
+    expect(designDoc).not.toContain('| Type | Instances |')
     expect(designDoc).not.toContain('card-outlined-r7')
     expect(designDoc).not.toContain(contextualRadius)
   })
@@ -188,9 +208,27 @@ describe('Google DESIGN.md alpha compatibility', () => {
     }
 
     expect(parsed.rounded.pill).toBe('100px')
-    expect(parsed.components['button-primary'].rounded).toBe('{rounded.pill}')
+    expect(parsed.components['button-action'].rounded).toBe('{rounded.pill}')
     expect(designDoc).toContain('普通表面使用小圆角；胶囊和圆形按钮按已观察变体单独复用')
     expect(designDoc).not.toContain('保持小圆角，维持锐利精确的气质')
+  })
+
+  test('keeps distinct legacy action styles under unique deterministic component names', () => {
+    const designDoc = generateDesignDoc({
+      tokens,
+      components: [
+        components[0],
+        {
+          ...components[0],
+          count: 2,
+          styles: { ...components[0].styles, backgroundColor: '#7c3aed' },
+        },
+      ],
+    })
+    const frontMatter = designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || ''
+    const parsed = parse(frontMatter) as { components: Record<string, Record<string, string>> }
+
+    expect(Object.keys(parsed.components)).toEqual(['button-action-style-1', 'button-action-style-2'])
   })
 
   test('omits transparent and context-dependent component backgrounds plus zero dimensions from machine tokens', () => {
@@ -247,18 +285,21 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(parsed.components['button-text']).not.toHaveProperty('backgroundColor')
     expect(parsed.components['button-text']).not.toHaveProperty('rounded')
     expect(parsed.components['button-text']).not.toHaveProperty('padding')
-    expect(parsed.components['button-secondary']).not.toHaveProperty('backgroundColor')
+    expect(parsed.components['button-action']).not.toHaveProperty('backgroundColor')
     expect(parsed.components.navigation).not.toHaveProperty('backgroundColor')
   })
 
-  test('keeps fallback colors out of portable tokens while preserving stable candidate IDs', () => {
+  test('keeps fallback colors out of portable tokens while previewing only their value and page support', () => {
     const raw = { ...tokens, colors: { ...tokens.colors, 'palette-5': '#8491a5' } }
+    const designDoc = generateDesignDoc(raw, 'https://example.com/')
 
     expect(buildDesignMdColorTokens(raw)).not.toHaveProperty('observed-8491a5')
-    expect(generateDesignDoc(raw, 'https://example.com/')).toContain('name: observed-8491a5')
+    expect(designDoc).toContain('value: "#8491a5"')
+    expect(designDoc).toContain('pageCount: 0')
+    expect(designDoc).not.toContain('name: observed-8491a5')
   })
 
-  test('uses the same public fallback color name in machine and prose layers', () => {
+  test('keeps fallback candidate identity in structured evidence instead of repeating it in DESIGN.md', () => {
     const raw: DesignToken = {
       ...tokens,
       colors: { ...tokens.colors, 'palette-5': '#8491a5' },
@@ -277,7 +318,9 @@ describe('Google DESIGN.md alpha compatibility', () => {
     }
     const designDoc = generateDesignDoc(raw, 'https://example.com/')
 
-    expect(designDoc).toContain('name: observed-8491a5')
+    expect(designDoc).toContain('value: "#8491a5"')
+    expect(designDoc).toContain('pageCount: 1')
+    expect(designDoc).not.toContain('name: observed-8491a5')
     expect(designDoc).not.toContain('observed-8491a5: "#8491a5"')
     expect(designDoc).not.toContain('`--color-observed-8491a5`')
     expect(designDoc).toContain('Observed Unassigned Colors (Evidence Appendix)')
@@ -313,7 +356,9 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(actionGroup || '').not.toContain('`--color-observed-3f45ff`')
     expect(designDoc).not.toContain('`--color-observed-3f45ff`')
     expect(designDoc).toContain('declaredColors:')
-    expect(designDoc).toContain('observations: 3')
+    expect(designDoc).toContain('value: "#3f45ff"')
+    expect(designDoc).toContain('pageCount: 3')
+    expect(designDoc).not.toContain('observations:')
     expect(designDoc).not.toContain('declarations: 3')
     expect(designDoc.split('\nx-imprint:', 1)[0]).not.toContain('observed-3f45ff:')
   })
@@ -337,8 +382,10 @@ describe('Google DESIGN.md alpha compatibility', () => {
 
     const designDoc = generateDesignDoc(declaredTokens, 'https://example.com/')
 
-    expect(designDoc).toContain('semanticConfidence: low')
-    expect(designDoc).toContain('measurementConfidence: medium')
+    expect(designDoc).toContain('value: "#3f45ff"')
+    expect(designDoc).toContain('pageCount: 1')
+    expect(designDoc).not.toContain('semanticConfidence:')
+    expect(designDoc).not.toContain('measurementConfidence:')
     expect(designDoc).not.toContain('measurementConfidence: high')
   })
 
@@ -351,30 +398,140 @@ describe('Google DESIGN.md alpha compatibility', () => {
       captureCount: 1,
       sources: Array.from({ length: 8 }, (_source, sourceIndex) => `css-variable:--candidate-${index}-${sourceIndex}`),
     }))
+    const canonicalColorCandidates = candidateColors.map((candidate, index) => ({
+      id: `candidate.colors.declared-${index}`,
+      group: 'colors' as const,
+      value: candidate.value,
+      provenance: 'declared-color' as const,
+      rejectionReason: 'declared-only' as const,
+      evidence: {
+        value: candidate.value,
+        confidence: 'medium' as const,
+        measurementConfidence: 'medium' as const,
+        semanticConfidence: 'medium' as const,
+        reuseScope: 'declared-only' as const,
+        observationCount: candidate.observationCount,
+        ownerCount: candidate.observationCount,
+        semanticAgreement: 0,
+        pageCount: candidate.pageCount,
+        captureCount: candidate.captureCount,
+        eligiblePageCount: 8,
+        pageSupportRatio: 0.125,
+        pages: ['https://example.com/'],
+        sources: candidate.sources,
+        reasons: ['declared-only' as const],
+      },
+    }))
     const candidateTokens: DesignToken = {
       ...tokens,
-      candidates: { colors: candidateColors },
+      candidates: {
+        colors: candidateColors,
+        values: [
+          ...canonicalColorCandidates,
+          {
+            group: 'spacing',
+            value: '2px',
+            sourcePath: 'spacing.0',
+            rejectionReason: 'local-scope',
+            evidence: {
+              value: '2px',
+              confidence: 'medium',
+              measurementConfidence: 'medium',
+              semanticConfidence: 'medium',
+              reuseScope: 'local',
+              observationCount: 3,
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 8,
+              pageSupportRatio: 0.125,
+              pages: ['https://example.com/'],
+              sources: Array.from({ length: 6 }, (_source, index) => `computed:spacing-${index}`),
+              reasons: ['computed-style'],
+            },
+          },
+        ],
+      },
     }
 
     const designDoc = generateDesignDoc(candidateTokens, 'https://example.com/')
     const frontMatter = parse(designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
       'x-imprint': Array<{
-        candidateSummary: { declaredColors: { total: number; included: number; omitted: number } }
-        candidates: { declaredColors: Array<{ sources: string[]; sourceCount?: number; omittedSources?: number }> }
+        candidateSummary: {
+          declaredColors: { total: number; included: number; omitted: number }
+          tokenValues: { total: number; included: number; omitted: number }
+        }
+        candidates: {
+          declaredColors: Array<{ value: string; pageCount: number }>
+          tokenValues: Array<{ value: string; pageCount: number }>
+        }
       }>
     }
     const extension = frontMatter['x-imprint'][0]
     const dtcg = JSON.parse(generateDtcgJson(candidateTokens)) as {
-      $extensions: { 'com.imprint.candidates': { colors: typeof candidateColors } }
+      $extensions: {
+        'com.imprint.candidates': {
+          colors: typeof candidateColors
+          values: NonNullable<DesignToken['candidates']>['values']
+        }
+      }
     }
 
-    expect(extension.candidateSummary.declaredColors).toEqual({ total: 20, included: 8, omitted: 12 })
-    expect(extension.candidates.declaredColors).toHaveLength(8)
-    expect(extension.candidates.declaredColors[0]).toMatchObject({ sourceCount: 8, omittedSources: 4 })
-    expect(extension.candidates.declaredColors[0].sources).toHaveLength(4)
+    expect(extension.candidateSummary.declaredColors).toEqual({ total: 20, included: 5, omitted: 15 })
+    expect(extension.candidates.declaredColors).toHaveLength(5)
+    expect(extension.candidates.declaredColors[0]).toEqual({ value: '#100000', pageCount: 1 })
+    expect(extension.candidateSummary.tokenValues).toEqual({ total: 1, included: 1, omitted: 0 })
+    expect(extension.candidates.tokenValues[0]).toEqual({ value: '2px', pageCount: 1 })
     expect(designDoc).not.toContain('| `--color-observed-100000` |')
     expect(dtcg.$extensions['com.imprint.candidates'].colors).toHaveLength(20)
     expect(dtcg.$extensions['com.imprint.candidates'].colors[0].sources).toHaveLength(8)
+    expect(dtcg.$extensions['com.imprint.candidates'].values?.at(-1)?.evidence.sources).toHaveLength(6)
+  })
+
+  test('uses canonical color candidates when the legacy compatibility projection is incomplete', () => {
+    const candidateTokens: DesignToken = {
+      ...tokens,
+      candidates: {
+        colors: [],
+        values: [
+          {
+            id: 'candidate.colors.canonical-only',
+            group: 'colors',
+            value: '#123456',
+            provenance: 'declared-color',
+            rejectionReason: 'declared-only',
+            evidence: {
+              value: '#123456',
+              confidence: 'medium',
+              measurementConfidence: 'medium',
+              semanticConfidence: 'medium',
+              reuseScope: 'declared-only',
+              observationCount: 4,
+              ownerCount: 4,
+              semanticAgreement: 0,
+              pageCount: 2,
+              captureCount: 2,
+              eligiblePageCount: 2,
+              pageSupportRatio: 1,
+              pages: ['https://example.com/', 'https://example.com/about'],
+              sources: ['css-variable:--candidate'],
+              reasons: ['declared-only'],
+            },
+          },
+        ],
+      },
+    }
+
+    const frontMatter = parse(
+      generateDesignDoc(candidateTokens, 'https://example.com/').match(/^---\n([\s\S]*?)\n---/)?.[1] || '',
+    ) as {
+      'x-imprint': Array<{
+        candidateSummary: { declaredColors: { total: number; included: number; omitted: number } }
+        candidates: { declaredColors: Array<{ value: string; pageCount: number }> }
+      }>
+    }
+
+    expect(frontMatter['x-imprint'][0].candidateSummary.declaredColors).toEqual({ total: 1, included: 1, omitted: 0 })
+    expect(frontMatter['x-imprint'][0].candidates.declaredColors).toEqual([{ value: '#123456', pageCount: 2 }])
   })
 
   test('uses rendered evidence instead of a CSS variable name when grouping an observed color', () => {
@@ -405,6 +562,24 @@ describe('Google DESIGN.md alpha compatibility', () => {
 
     expect(textGroup).toContain('`--color-brand`')
     expect(actionGroup || '').not.toContain('`--color-brand`')
+  })
+
+  test('groups an observed generic action accent as action without inventing a primary token', () => {
+    const designDoc = generateDesignDoc({
+      ...tokens,
+      colors: { background: '#f3f6fb', foreground: '#172033', accent: '#2457d6' },
+      usageCount: {
+        'actionBackgroundColor:rgb(36, 87, 214)': 4,
+        'accentColor:rgb(36, 87, 214)': 4,
+      },
+    })
+    const dominantRoles = designDoc.split('### Core Portable Color Tokens')[0]
+    const frontMatter = designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || ''
+    const parsed = parse(frontMatter) as { colors: Record<string, string> }
+
+    expect(dominantRoles).toContain('| Action | `--color-accent` |')
+    expect(dominantRoles).not.toContain('| Decorative | `--color-accent` |')
+    expect(parsed.colors).not.toHaveProperty('primary')
   })
 
   test('surfaces observed-background contrast risks without guessing a transparent control surface', () => {
@@ -502,4 +677,36 @@ describe('Google DESIGN.md alpha compatibility', () => {
     expect(frontMatter).toContain('low: 200')
     expect(frontMatter).not.toContain('computed-style:199')
   })
+})
+
+test('keeps component colors literal when only an incompatible semantic token has the same value', () => {
+  const collisionTokens: DesignToken = {
+    ...tokens,
+    colors: { background: '#ffffff', foreground: '#111827' },
+  }
+  const collisionComponents: ComponentPattern[] = [
+    {
+      type: 'button',
+      count: 3,
+      selectors: ['button'],
+      styles: {
+        backgroundColor: '#111827',
+        color: '#ffffff',
+        borderRadius: '8px',
+        padding: '8px 8px 8px 8px',
+        fontSize: '16px',
+      },
+      confidence: 0.95,
+      evidence: ['native:button'],
+    },
+  ]
+  const parsed = parse(
+    generateDesignDoc(collisionTokens, 'https://example.com/', [], undefined, [], collisionComponents).match(
+      /^---\n([\s\S]*?)\n---/,
+    )?.[1] || '',
+  ) as { components: Record<string, { backgroundColor?: string; textColor?: string }> }
+  const component = Object.values(parsed.components)[0]
+
+  expect(component.backgroundColor).toBe('#111827')
+  expect(component.textColor).toBe('#ffffff')
 })

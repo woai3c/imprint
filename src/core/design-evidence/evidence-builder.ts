@@ -5,8 +5,8 @@ import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { PageScreenshot } from '../analyzer/types.js'
 import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
-import { pageIdentityUrl } from '../analyzer/url-identity.js'
-import { screenshotAssetIssueCount } from './asset-integrity.js'
+import { opaqueRouteIdentity, pageIdentityUrl } from '../analyzer/url-identity.js'
+import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
 import type { InteractionObservationSnapshot } from './interaction-observer.js'
 import type { PageEvidenceSnapshot, PageSectionSnapshot } from './page-extractor.js'
 import { pageIdentityFromMetadata } from './page-identity.js'
@@ -46,8 +46,6 @@ export interface BuildDesignEvidenceInput {
   expectedViewports?: string[]
   /** Actual page/viewport captures planned by the analyzer's adaptive strategy. */
   expectedCaptureCount?: number
-  /** Retained overview screenshots that failed encoded-dimension validation. */
-  screenshotAssetIssueCount?: number
   tokens: DesignToken
   featureTags: string[]
   interactionStyles: InteractionStyles
@@ -125,6 +123,95 @@ function normalizeTokenValue(value: string): string {
 
 function normalizeFontValue(value: string): string {
   return value.replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function routeRefsForPages(pages: readonly string[], routeIdsByIdentity: ReadonlyMap<string, string>): string[] {
+  return [
+    ...new Set(
+      pages.map((pageUrl) => {
+        const identity = pageIdentityUrl(pageUrl)
+        const routeId = routeIdsByIdentity.get(identity)
+        if (!routeId) {
+          throw new Error(`Token evidence page has no matching Evidence capture: ${identity}`)
+        }
+        return routeId
+      }),
+    ),
+  ].sort()
+}
+
+function routeRefForPage(page: string, routeIdsByIdentity: ReadonlyMap<string, string>): string {
+  const routeId = routeIdsByIdentity.get(pageIdentityUrl(page))
+  if (!routeId) throw new Error(`Token evidence page has no matching Evidence capture: ${pageIdentityUrl(page)}`)
+  return routeId
+}
+
+function tokenEvidenceWithRouteRefs(
+  evidence: NonNullable<DesignToken['evidence']>[string],
+  routeIdsByIdentity: ReadonlyMap<string, string>,
+): NonNullable<DesignToken['evidence']>[string] {
+  return {
+    ...evidence,
+    pageRefs: routeRefsForPages(evidence.pages, routeIdsByIdentity),
+    ...(evidence.renderedTextOwners
+      ? {
+          renderedTextOwners: evidence.renderedTextOwners.map((owner) => ({
+            ...owner,
+            routeId: routeRefForPage(owner.page, routeIdsByIdentity),
+          })),
+        }
+      : {}),
+    ...(evidence.pairedSurface
+      ? {
+          pairedSurface: {
+            ...evidence.pairedSurface,
+            routeSupport: evidence.pairedSurface.routeSupport.map((route) => ({
+              ...route,
+              routeId: routeRefForPage(route.page, routeIdsByIdentity),
+            })),
+          },
+        }
+      : {}),
+  }
+}
+
+function designTokensWithRouteRefs(tokens: DesignToken, routeIdsByIdentity: ReadonlyMap<string, string>): DesignToken {
+  return {
+    ...tokens,
+    ...(tokens.evidence
+      ? {
+          evidence: Object.fromEntries(
+            Object.entries(tokens.evidence).map(([path, evidence]) => [
+              path,
+              tokenEvidenceWithRouteRefs(evidence, routeIdsByIdentity),
+            ]),
+          ),
+        }
+      : {}),
+    ...(tokens.candidates
+      ? {
+          candidates: {
+            ...tokens.candidates,
+            ...(tokens.candidates.colors
+              ? {
+                  colors: tokens.candidates.colors.map((candidate) => ({
+                    ...candidate,
+                    ...(candidate.pages ? { pageRefs: routeRefsForPages(candidate.pages, routeIdsByIdentity) } : {}),
+                  })),
+                }
+              : {}),
+            ...(tokens.candidates.values
+              ? {
+                  values: tokens.candidates.values.map((candidate) => ({
+                    ...candidate,
+                    evidence: tokenEvidenceWithRouteRefs(candidate.evidence, routeIdsByIdentity),
+                  })),
+                }
+              : {}),
+          },
+        }
+      : {}),
+  }
 }
 
 function cssLengthPx(value: string | undefined): number | null {
@@ -218,6 +305,39 @@ function changedSectionValues(
   return changes
 }
 
+function responsiveChangeType(
+  changedProperties: string[],
+  interactionChanged = false,
+): ResponsiveSectionObservation['changeType'] {
+  const reorderOnly =
+    changedProperties.includes('sequenceIndex') &&
+    changedProperties.every((property) => ['sequenceIndex', 'rect.x', 'rect.y'].includes(property))
+  const structural = changedProperties.some(
+    (property) =>
+      ['sequenceIndex', 'layoutMode', 'display', 'gridTemplateColumns', 'rect.x', 'rect.y'].includes(property) ||
+      /^node\.[^.]+\.display$/.test(property),
+  )
+  const sizeOnly = changedProperties.every(
+    (property) =>
+      [
+        'height',
+        'rect.width',
+        'rect.height',
+        'maxWidth',
+        'paddingTop',
+        'paddingRight',
+        'paddingBottom',
+        'paddingLeft',
+        'gap',
+      ].includes(property) || /^node\.[^.]+\.(?:fontSize|lineHeight|width|height)$/.test(property),
+  )
+  if (interactionChanged && changedProperties.length === 1) return 'interaction'
+  if (reorderOnly) return 'reorder'
+  if (interactionChanged) return 'mixed'
+  if (structural) return 'reflow'
+  return sizeOnly ? 'scale' : 'mixed'
+}
+
 function buildResponsiveObservations(
   captures: CapturedPageEvidence[],
   sectionIds: Map<string, string>,
@@ -247,40 +367,48 @@ function buildResponsiveObservations(
       if (hasSevereHorizontalOverflow(fromCapture.snapshot) || hasSevereHorizontalOverflow(toCapture.snapshot)) {
         continue
       }
-      const fromByKey = new Map(fromCapture.snapshot.sections.map((section) => [section.key, section]))
-      const toByKey = new Map(toCapture.snapshot.sections.map((section) => [section.key, section]))
-      for (const key of new Set([...fromByKey.keys(), ...toByKey.keys()])) {
-        const from = fromByKey.get(key)
-        const to = toByKey.get(key)
-        const fromCaptureKey = `${pageIdentityUrl(fromCapture.snapshot.url)}|${fromCapture.snapshot.viewport}`
-        const toCaptureKey = `${pageIdentityUrl(toCapture.snapshot.url)}|${toCapture.snapshot.viewport}`
-        const fromSectionId = sectionIds.get(`${fromCaptureKey}|${key}`)
-        const toSectionId = sectionIds.get(`${toCaptureKey}|${key}`)
-        if (!from || !to || !fromSectionId || !toSectionId) {
-          if (fromCapture.snapshot.horizontalOverflow || toCapture.snapshot.horizontalOverflow) continue
-          const sectionId = fromSectionId || toSectionId
-          if (!sectionId) continue
-          observations.push({
-            id: createEvidenceId('responsive', sectionId, fromCapture.snapshot.viewport, toCapture.snapshot.viewport),
-            sectionId,
-            fromViewport: fromCapture.snapshot.viewport,
-            toViewport: toCapture.snapshot.viewport,
-            changeType: 'visibility',
-            changedProperties: ['visibility'],
-            changes: { visibility: { from: from ? 'visible' : 'absent', to: to ? 'visible' : 'absent' } },
-            summary: 'The section is present in only one of the compared viewport captures.',
-            evidenceRefs: [
-              ...(fromSectionId ? [fromSectionId] : []),
-              ...(toSectionId ? [toSectionId] : []),
-              imageIds.get(`${fromCaptureKey}|${key}`) || imageIds.get(fromCaptureKey) || '',
-              imageIds.get(`${toCaptureKey}|${key}`) || imageIds.get(toCaptureKey) || '',
-            ].filter(Boolean),
-          })
+      const sectionsByIdentity = (sections: PageSectionSnapshot[]) => {
+        const result = new Map<string, PageSectionSnapshot[]>()
+        for (const section of sections) {
+          if (!section.identityKey) {
+            identityMismatchCount += 1
+            continue
+          }
+          const matches = result.get(section.identityKey) || []
+          matches.push(section)
+          result.set(section.identityKey, matches)
+        }
+        return result
+      }
+      const fromByIdentity = sectionsByIdentity(fromCapture.snapshot.sections)
+      const toByIdentity = sectionsByIdentity(toCapture.snapshot.sections)
+      const fromCaptureKey = `${pageIdentityUrl(fromCapture.snapshot.url)}|${fromCapture.snapshot.viewport}`
+      const toCaptureKey = `${pageIdentityUrl(toCapture.snapshot.url)}|${toCapture.snapshot.viewport}`
+      for (const identityKey of new Set([...fromByIdentity.keys(), ...toByIdentity.keys()])) {
+        const fromMatches = fromByIdentity.get(identityKey) || []
+        const toMatches = toByIdentity.get(identityKey) || []
+        if (fromMatches.length > 1 || toMatches.length > 1) {
+          identityMismatchCount += 1
+          continue
+        }
+        const from = fromMatches[0]
+        const to = toMatches[0]
+        // An unmatched semantic label cannot prove visibility. The same section may have changed its accessible
+        // heading or label at the other viewport, and capture-local DOM paths are not safe cross-viewport identities.
+        // Keep the raw per-capture sections and disclose the pairing limitation instead of inventing hide/show rules.
+        if (!from || !to) {
+          identityMismatchCount += 1
+          continue
+        }
+        const fromSectionId = sectionIds.get(`${fromCaptureKey}|${from.key}`)
+        const toSectionId = sectionIds.get(`${toCaptureKey}|${to.key}`)
+        if (!fromSectionId || !toSectionId) {
+          identityMismatchCount += 1
           continue
         }
 
-        // A stable DOM locator is necessary but not sufficient for cross-viewport identity.
-        // Responsive markup can reuse the same structural path for a semantically different region.
+        // identityKey is independent from capture-local nth-of-type locators, but role agreement remains a final guard
+        // for imported or legacy snapshots whose identity was produced by an older extractor.
         if (from.role !== to.role) {
           identityMismatchCount += 1
           continue
@@ -292,31 +420,13 @@ function buildResponsiveObservations(
             if (property.startsWith('rect.')) delete changes[property]
           }
         }
-        const fromNodes = new Map(
-          fromCapture.snapshot.layoutNodes.filter((node) => node.sectionKey === key).map((node) => [node.key, node]),
-        )
-        const toNodes = new Map(
-          toCapture.snapshot.layoutNodes.filter((node) => node.sectionKey === key).map((node) => [node.key, node]),
-        )
-        for (const nodeKey of new Set([...fromNodes.keys(), ...toNodes.keys()])) {
-          const fromNode = fromNodes.get(nodeKey)
-          const toNode = toNodes.get(nodeKey)
-          if (!fromNode || !toNode) continue
-          for (const property of ['fontSize', 'lineHeight', 'display'] as const) {
-            if (fromNode.styles[property] === toNode.styles[property]) continue
-            changes[`node.${fromNode.role}.${property}`] = {
-              from: fromNode.styles[property],
-              to: toNode.styles[property],
-            }
-          }
-        }
         const changedProperties = Object.keys(changes)
         const fromInteractionKinds = fromCapture.snapshot.interactionCandidates
-          .filter((candidate) => candidate.sectionKey === key)
+          .filter((candidate) => candidate.sectionKey === from.key)
           .map((candidate) => candidate.kind)
           .sort()
         const toInteractionKinds = toCapture.snapshot.interactionCandidates
-          .filter((candidate) => candidate.sectionKey === key)
+          .filter((candidate) => candidate.sectionKey === to.key)
           .map((candidate) => candidate.kind)
           .sort()
         const interactionChanged = JSON.stringify(fromInteractionKinds) !== JSON.stringify(toInteractionKinds)
@@ -325,37 +435,6 @@ function buildResponsiveObservations(
           changes.interactionModel = { from: fromInteractionKinds.join(', '), to: toInteractionKinds.join(', ') }
         }
         if (changedProperties.length === 0) continue
-        const reorderOnly =
-          changedProperties.includes('sequenceIndex') &&
-          changedProperties.every((property) => ['sequenceIndex', 'rect.x', 'rect.y'].includes(property))
-        const structural = changedProperties.some((property) =>
-          ['sequenceIndex', 'layoutMode', 'display', 'gridTemplateColumns', 'rect.x', 'rect.y'].includes(property),
-        )
-        const sizeOnly = changedProperties.every((property) =>
-          [
-            'height',
-            'rect.width',
-            'rect.height',
-            'maxWidth',
-            'paddingTop',
-            'paddingRight',
-            'paddingBottom',
-            'paddingLeft',
-            'gap',
-          ].includes(property),
-        )
-        const changeType: ResponsiveSectionObservation['changeType'] =
-          interactionChanged && changedProperties.length === 1
-            ? 'interaction'
-            : reorderOnly
-              ? 'reorder'
-              : interactionChanged
-                ? 'mixed'
-                : structural
-                  ? 'reflow'
-                  : sizeOnly
-                    ? 'scale'
-                    : 'mixed'
         observations.push({
           id: createEvidenceId(
             'responsive',
@@ -367,15 +446,79 @@ function buildResponsiveObservations(
           sectionId: fromSectionId,
           fromViewport: fromCapture.snapshot.viewport,
           toViewport: toCapture.snapshot.viewport,
-          changeType,
+          changeType: responsiveChangeType(changedProperties, interactionChanged),
           changedProperties,
           changes,
           summary: `Observed ${changedProperties.length} section-level changes between ${fromCapture.snapshot.viewport} and ${toCapture.snapshot.viewport}.`,
           evidenceRefs: [
             fromSectionId,
             toSectionId,
-            imageIds.get(`${fromCaptureKey}|${key}`) || imageIds.get(fromCaptureKey) || '',
-            imageIds.get(`${toCaptureKey}|${key}`) || imageIds.get(toCaptureKey) || '',
+            imageIds.get(`${fromCaptureKey}|${from.key}`) || imageIds.get(fromCaptureKey) || '',
+            imageIds.get(`${toCaptureKey}|${to.key}`) || imageIds.get(toCaptureKey) || '',
+          ].filter(Boolean),
+        })
+      }
+
+      // Section extraction boundaries can legitimately differ by viewport. Pair directly observed layout nodes across
+      // the whole page by unique semantic identity so a stable heading or media item does not inherit an unrelated
+      // section's changes and is not lost merely because its nearest extracted owner changed.
+      const nodesByIdentity = (nodes: PageEvidenceSnapshot['layoutNodes']) => {
+        const result = new Map<string, PageEvidenceSnapshot['layoutNodes']>()
+        for (const node of nodes) {
+          if (!node.identityKey) continue
+          const matches = result.get(node.identityKey) || []
+          matches.push(node)
+          result.set(node.identityKey, matches)
+        }
+        return result
+      }
+      const fromNodes = nodesByIdentity(fromCapture.snapshot.layoutNodes)
+      const toNodes = nodesByIdentity(toCapture.snapshot.layoutNodes)
+      for (const nodeIdentity of new Set([...fromNodes.keys(), ...toNodes.keys()])) {
+        const fromNodeMatches = fromNodes.get(nodeIdentity) || []
+        const toNodeMatches = toNodes.get(nodeIdentity) || []
+        if (fromNodeMatches.length !== 1 || toNodeMatches.length !== 1) continue
+        const fromNode = fromNodeMatches[0]
+        const toNode = toNodeMatches[0]
+        if (fromNode.role !== toNode.role) continue
+        const fromSection = fromCapture.snapshot.sections.find((section) => section.key === fromNode.sectionKey)
+        const toSection = toCapture.snapshot.sections.find((section) => section.key === toNode.sectionKey)
+        if (!fromSection || !toSection || fromSection.role !== toSection.role) continue
+        const fromSectionId = sectionIds.get(`${fromCaptureKey}|${fromSection.key}`)
+        const toSectionId = sectionIds.get(`${toCaptureKey}|${toSection.key}`)
+        if (!fromSectionId || !toSectionId) continue
+
+        const changes: Record<string, { from?: string | number; to?: string | number }> = {}
+        for (const property of ['fontSize', 'lineHeight', 'display', 'width', 'height'] as const) {
+          if (fromNode.styles[property] === toNode.styles[property]) continue
+          changes[`node.${fromNode.role}.${property}`] = {
+            from: fromNode.styles[property],
+            to: toNode.styles[property],
+          }
+        }
+        const changedProperties = Object.keys(changes)
+        if (changedProperties.length === 0) continue
+        observations.push({
+          id: createEvidenceId(
+            'responsive-node',
+            nodeIdentity,
+            fromSectionId,
+            toSectionId,
+            fromCapture.snapshot.viewport,
+            toCapture.snapshot.viewport,
+          ),
+          sectionId: fromSectionId,
+          fromViewport: fromCapture.snapshot.viewport,
+          toViewport: toCapture.snapshot.viewport,
+          changeType: responsiveChangeType(changedProperties),
+          changedProperties,
+          changes,
+          summary: `Observed ${changedProperties.length} directly paired node changes between ${fromCapture.snapshot.viewport} and ${toCapture.snapshot.viewport}.`,
+          evidenceRefs: [
+            fromSectionId,
+            toSectionId,
+            imageIds.get(`${fromCaptureKey}|${fromSection.key}`) || imageIds.get(fromCaptureKey) || '',
+            imageIds.get(`${toCaptureKey}|${toSection.key}`) || imageIds.get(toCaptureKey) || '',
           ].filter(Boolean),
         })
       }
@@ -395,11 +538,21 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const interactionObservations: DesignEvidence['interactionObservations'] = []
   const sectionIds = new Map<string, string>()
   const imageIds = new Map<string, string>()
+  const routeIdsByIdentity = new Map<string, string>()
+  for (const capture of input.captures) {
+    const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    if (routeIdsByIdentity.has(identityUrl)) continue
+    // The digest keeps query text out of public artifacts while remaining stable when discovery order changes.
+    routeIdsByIdentity.set(identityUrl, opaqueRouteIdentity(identityUrl))
+  }
+  const evidenceTokens = designTokensWithRouteRefs(input.tokens, routeIdsByIdentity)
 
   for (const capture of input.captures) {
     const identityUrl = pageIdentityUrl(capture.snapshot.url)
+    const routeId = routeIdsByIdentity.get(identityUrl)!
     const captureKey = `${identityUrl}|${capture.snapshot.viewport}`
-    const pageId = createEvidenceId('page', identityUrl, capture.snapshot.viewport)
+    const pageIdIdentity = sanitizeUrlForPersistence(identityUrl) === identityUrl ? identityUrl : routeId
+    const pageId = createEvidenceId('page', pageIdIdentity, capture.snapshot.viewport)
     const imageId = createEvidenceId('image', pageId, 'overview')
     const componentIds = createInstanceIdRegistry('component', pageId, capture.snapshot.components)
     const layoutIds = createInstanceIdRegistry('layout', pageId, capture.snapshot.layoutNodes)
@@ -421,6 +574,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       path: capture.screenshot.path,
       width: screenshotWidth,
       height: screenshotHeight,
+      capturedAt: capture.screenshot.capturedAt,
       contentHash: imageContentHash(capture.screenshot.path),
     }
     const overviewImages = hasUsableOverview ? [{ ...capturedImage, kind: 'overview' as const }] : []
@@ -502,6 +656,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     })
     pages.push({
       id: pageId,
+      routeId,
       url: capture.snapshot.url,
       viewport: capture.snapshot.viewport,
       ...pageIdentity,
@@ -558,7 +713,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           id,
           pageId,
           sectionId,
-          targetId: createEvidenceId('target', pageId, 'scroll-snap', section.key),
+          targetId: sectionId,
+          targetKind: 'section',
           driver: 'scroll',
           safety: 'passive',
           trigger: { kind: 'css-scroll-snap' },
@@ -582,6 +738,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         type: component.type,
         elementKind: component.elementKind,
         role: component.role,
+        textStyleOwner: component.textStyleOwner,
+        textStyleSource: component.textStyleSource,
+        statusBoundary: component.statusBoundary,
         rect: component.rect,
         styles: component.styles,
         tokenRefs: tokenRefsForStyles(component.styles, tokenIndex),
@@ -600,7 +759,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         id,
         pageId,
         sectionId,
-        targetId: createEvidenceId('target', id),
+        targetId: sectionId,
+        targetKind: 'section',
         driver: 'click',
         safety: 'passive',
         trigger: { kind: `aria-state:${ariaState.attribute}` },
@@ -630,7 +790,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         id,
         pageId,
         sectionId,
-        targetId: targetComponentId || createEvidenceId('target', id),
+        targetId: targetComponentId || sectionId,
+        targetKind: targetComponentId ? 'component' : 'section',
         driver: observation.driver,
         safety: 'safe-active',
         trigger: { kind: observation.triggerKind },
@@ -658,13 +819,19 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         role: node.role,
         rect: node.rect,
         textRole: node.textRole,
+        textStyleSource: node.textStyleSource,
         tokenRefs: tokenRefsForStyles(node.styles, tokenIndex),
-        observedTypography: {
-          fontFamily: node.styles.fontFamily,
-          fontSize: node.styles.fontSize,
-          fontWeight: node.styles.fontWeight,
-          lineHeight: node.styles.lineHeight,
-        },
+        ...(node.textStyleSource
+          ? {
+              observedTypography: {
+                color: node.styles.color,
+                fontFamily: node.styles.fontFamily,
+                fontSize: node.styles.fontSize,
+                fontWeight: node.styles.fontWeight,
+                lineHeight: node.styles.lineHeight,
+              },
+            }
+          : {}),
         observedStyles: Object.fromEntries(
           [
             'backgroundColor',
@@ -674,6 +841,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
             'borderBottom',
             'borderLeft',
             'boxShadow',
+            'width',
+            'height',
           ].flatMap((property) => {
             const value = node.styles[property]
             return value && value !== 'none' && value !== 'rgba(0, 0, 0, 0)' ? [[property, value]] : []
@@ -694,6 +863,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         target: pseudo.target,
         kind: pseudo.kind,
         styles: pseudo.styles,
+        paint: pseudo.paint,
         evidenceRefs: [sectionId, ...imageEvidenceRefs],
       })
     }
@@ -707,6 +877,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         sectionId,
         kind: media.kind,
         role: media.role,
+        roleEvidence: media.roleEvidence,
         importance: media.importance,
         rect: media.rect,
         zIndex: media.zIndex,
@@ -723,7 +894,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
 
   input.captures.forEach((capture, captureIndex) => {
     const identityUrl = pageIdentityUrl(capture.snapshot.url)
-    const pageId = createEvidenceId('page', identityUrl, capture.snapshot.viewport)
+    const routeId = routeIdsByIdentity.get(identityUrl)!
+    const pageIdIdentity = sanitizeUrlForPersistence(identityUrl) === identityUrl ? identityUrl : routeId
+    const pageId = createEvidenceId('page', pageIdIdentity, capture.snapshot.viewport)
     const overviewImageId = imageIds.get(`${identityUrl}|${capture.snapshot.viewport}`)
     const page = pages.find((candidate) => candidate.id === pageId)
     const firstSection = sections.find((section) => section.pageId === pageId)
@@ -751,7 +924,8 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
           id,
           pageId: page.id,
           sectionId: firstSection.id,
-          targetId: createEvidenceId('target', page.id, group.triggerKind, index),
+          targetId: page.id,
+          targetKind: 'page',
           driver: group.driver,
           safety: 'passive',
           trigger: { kind: group.triggerKind },
@@ -795,6 +969,17 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   ).length
   const limitations: string[] = []
   limitations.push(...(input.limitations || []))
+  if (
+    [...routeIdsByIdentity.keys()].some((identity) => {
+      try {
+        return new URL(identity).search.length > 0
+      } catch {
+        return identity.includes('?')
+      }
+    })
+  ) {
+    limitations.push('query-route-redacted')
+  }
   if (uniqueUrls.size < input.expectedPageCount) limitations.push('fewer-pages-than-requested')
   if (capturedExpectedCombinations < expectedCaptureCount) {
     limitations.push('fewer-page-viewports-than-requested')
@@ -830,7 +1015,11 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   if (majorMediaLayers.length > 0 && majorMediaLayers.every((media) => media.role === 'unknown')) {
     limitations.push('no-classified-media-regions')
   }
-  const assetIssueCount = input.screenshotAssetIssueCount ?? screenshotAssetIssueCount(limitations)
+  const validOverviewPageCount = pages.filter((page) => page.images.some((image) => image.kind === 'overview')).length
+  const assetIssueCount = Math.max(0, pages.length - validOverviewPageCount)
+  if (assetIssueCount > 0 && !limitations.includes('partial-screenshot-asset-coverage')) {
+    limitations.push('partial-screenshot-asset-coverage')
+  }
 
   const pageSectionIds = new Map<string, string[]>()
   for (const section of sections) {
@@ -903,7 +1092,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     },
     assetCoverage: {
       expected: pages.length,
-      valid: Math.max(0, pages.length - Math.min(pages.length, assetIssueCount)),
+      valid: validOverviewPageCount,
       status: assetIssueCount === 0 ? ('complete' as const) : ('partial' as const),
       issueCount: assetIssueCount,
     },
@@ -939,6 +1128,10 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     schemaVersion: '1',
     analysisId: input.analysisId,
     source: {
+      routeId:
+        routeIdsByIdentity.get(pageIdentityUrl(input.finalUrl)) ||
+        routeIdsByIdentity.get(pageIdentityUrl(input.requestedUrl)) ||
+        opaqueRouteIdentity(input.finalUrl),
       requestedUrl: input.requestedUrl,
       finalUrl: input.finalUrl,
       accessMode: input.accessMode,
@@ -947,7 +1140,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       ...(entryPage?.siteName ? { siteName: entryPage.siteName } : {}),
     },
     pages,
-    tokens: input.tokens,
+    tokens: evidenceTokens,
     featureTags: input.featureTags,
     topology,
     sections,

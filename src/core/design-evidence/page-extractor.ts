@@ -1,11 +1,22 @@
 import type { Page } from 'playwright-core'
 
+import type { ComponentStatusBoundary } from '../analyzer/component-detect.js'
 import { resetPageScroll } from '../analyzer/page-preparer.js'
 import { ROLE_CANDIDATE_RULES } from '../analyzer/role-candidates.js'
-import type { LayoutMode, NormalizedRect, PageRole, SectionRole } from './types.js'
+import type {
+  ComponentTextStyleSource,
+  LayoutMode,
+  MediaRoleEvidence,
+  NormalizedRect,
+  PageRole,
+  PseudoElementPaintEvidence,
+  SectionRole,
+} from './types.js'
 
 export interface PageSectionSnapshot {
   key: string
+  /** Cross-viewport identity derived only from standard semantics and accessible text. Capture-local locators are unsafe here. */
+  identityKey?: string
   parentKey?: string
   order: number
   role: SectionRole
@@ -20,6 +31,10 @@ export interface PageComponentSnapshot {
   type: string
   elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
+  /** The rendered owner used for foreground and typography instead of assuming the semantic wrapper owns text. */
+  textStyleOwner?: 'root' | 'descendant'
+  textStyleSource?: ComponentTextStyleSource
+  statusBoundary?: ComponentStatusBoundary
   rect: NormalizedRect
   styles: Record<string, string>
   confidence: number
@@ -27,6 +42,8 @@ export interface PageComponentSnapshot {
 
 export interface PageLayoutNodeSnapshot {
   key: string
+  /** Cross-viewport identity derived from the node's semantic role and accessible text. */
+  identityKey?: string
   sectionKey: string
   role:
     | 'header'
@@ -42,6 +59,8 @@ export interface PageLayoutNodeSnapshot {
     | 'unknown'
   rect: NormalizedRect
   textRole?: 'display' | 'heading' | 'body' | 'label' | 'metadata'
+  /** Observable facts proving that the layout node's typography was visibly painted. */
+  textStyleSource?: ComponentTextStyleSource
   styles: Record<string, string>
   traits: string[]
 }
@@ -52,6 +71,7 @@ export interface PagePseudoElementSnapshot {
   target: string
   kind: 'before' | 'after' | 'first-letter'
   styles: Record<string, string>
+  paint?: PseudoElementPaintEvidence
 }
 
 export interface PageMediaLayerSnapshot {
@@ -59,6 +79,7 @@ export interface PageMediaLayerSnapshot {
   sectionKey: string
   kind: 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
   role: 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+  roleEvidence?: MediaRoleEvidence
   importance: 'major' | 'supporting' | 'icon'
   rect: NormalizedRect
   zIndex?: string
@@ -153,6 +174,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     type BrowserTextRole = 'display' | 'heading' | 'body' | 'label' | 'metadata'
     type BrowserMediaKind = 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
     type BrowserMediaRole = 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+    type BrowserMediaRoleEvidence = MediaRoleEvidence
     type BrowserMediaImportance = 'major' | 'supporting' | 'icon'
 
     const computedCache = new WeakMap<Element, CSSStyleDeclaration>()
@@ -162,6 +184,58 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const computed = getComputedStyle(element)
       computedCache.set(element, computed)
       return computed
+    }
+
+    const filterOpacityFor = (value: string): number | undefined => {
+      const normalized = value.trim().toLowerCase()
+      if (!normalized || normalized === 'none') return 1
+      const calls = [...normalized.matchAll(/([a-z-]+)\(([^()]*)\)/g)]
+      if (calls.length === 0 || calls.map((match) => match[0]).join(' ') !== normalized.replace(/\s+/g, ' ')) {
+        return undefined
+      }
+      return calls.reduce<number | undefined>((product, match) => {
+        if (product === undefined) return undefined
+        if (match[1] !== 'opacity') return undefined
+        const token = match[2].trim()
+        const parsed = Number.parseFloat(token)
+        if (!Number.isFinite(parsed) || !/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?$/.test(token)) return undefined
+        const opacity = token.endsWith('%') ? parsed / 100 : parsed
+        return product * Math.max(0, Math.min(1, opacity))
+      }, 1)
+    }
+
+    const maskValuesFor = (computed: CSSStyleDeclaration): string[] =>
+      ['mask-image', '-webkit-mask-image', 'mask-border-source', '-webkit-mask-box-image-source']
+        .map((property) => computed.getPropertyValue(property).trim().toLowerCase().replace(/\s+/g, ' '))
+        .filter((value, index, values) => Boolean(value && value !== 'none') && values.indexOf(value) === index)
+    const hasUnsupportedMask = (computed: CSSStyleDeclaration): boolean => maskValuesFor(computed).length > 0
+    const hasContextDependentBlend = (computed: CSSStyleDeclaration): boolean => {
+      const value = computed.mixBlendMode.trim().toLowerCase()
+      return Boolean(value && value !== 'normal')
+    }
+
+    const hasVisiblePaintChain = (element: Element): boolean => {
+      let effectiveOpacity = 1
+      let effectiveFilterOpacity = 1
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        const computed = computedFor(current)
+        const opacity = Number.parseFloat(computed.opacity || '1')
+        const filterOpacity = filterOpacityFor(computed.filter)
+        if (
+          !Number.isFinite(opacity) ||
+          filterOpacity === undefined ||
+          hasUnsupportedMask(computed) ||
+          hasContextDependentBlend(computed)
+        ) {
+          return false
+        }
+        effectiveOpacity *= opacity
+        effectiveFilterOpacity *= filterOpacity
+        if (effectiveOpacity < 0.999 || effectiveFilterOpacity < 0.999) {
+          return false
+        }
+      }
+      return true
     }
 
     const isVisible = (element: Element): boolean => {
@@ -256,7 +330,13 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
 
       const visibleChildren = [...target.children].filter(isVisible)
       if (visibleChildren.length >= 3) {
-        const signatures = visibleChildren.map((child) => `${child.tagName}:${child.className}`)
+        const signatures = visibleChildren.map((child) =>
+          [
+            child.tagName,
+            child.getAttribute('role') || '',
+            [...child.children].slice(0, 4).map((item) => item.tagName),
+          ].join(':'),
+        )
         const repeated = signatures.some((signature) => signatures.filter((value) => value === signature).length >= 2)
         if (repeated) return 'feature-group'
       }
@@ -275,19 +355,19 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     }
 
     const pageRole = (): PageRole => {
-      const path = location.pathname.toLowerCase()
-      if (/\/(pricing|plans|billing)(\/|$)/.test(path)) return 'pricing'
-      if (/\/(workspace|editor|studio|console|creator)(\/|$)/.test(path)) return 'workspace'
-      if (/\/(profile)(\/|$)/.test(path)) return 'profile'
-      if (/\/(account|settings|dashboard)(\/|$)/.test(path)) return 'account'
-      if (/\/(product|products|features)(\/|$)/.test(path)) return 'product'
-      if (/\/(article|blog|docs|guide|about|explore|discover)(\/|$)/.test(path)) return 'content'
       if (
         document.querySelector(
           'main [itemscope][itemtype="https://schema.org/Person"], main [itemscope][itemtype="http://schema.org/Person"], main [itemprop~="additionalName"]',
         )
       ) {
         return 'profile'
+      }
+      if (
+        document.querySelector(
+          'main [itemscope][itemtype="https://schema.org/Product"], main [itemscope][itemtype="http://schema.org/Product"]',
+        )
+      ) {
+        return 'product'
       }
       const article = document.querySelector('article')
       if (article && (article.textContent || '').replace(/\s+/g, ' ').trim().length >= 500) return 'content'
@@ -296,7 +376,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         return 'content'
       }
       const hasApplicationControls = Boolean(
-        document.querySelector('[role="tablist"], .toolbar, [class*="workspace" i], [data-testid*="workspace" i]'),
+        document.querySelector('[role="tablist"], [role="toolbar"], [role="menubar"]'),
       )
       if (
         hasApplicationControls &&
@@ -330,6 +410,58 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         current = parent
       }
       return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
+    }
+
+    const normalizedIdentityText = (value: string | null | undefined): string =>
+      (value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 512)
+    const identityHash = (value: string): string => {
+      let hash = 0x811c9dc5
+      for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index)
+        hash = Math.imul(hash, 0x01000193)
+      }
+      return `${value.length.toString(36)}-${(hash >>> 0).toString(36)}`
+    }
+    const ariaLabelText = (element: Element): string => {
+      const labelledBy = (element.getAttribute('aria-labelledby') || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent || '')
+        .join(' ')
+      return normalizedIdentityText(labelledBy || element.getAttribute('aria-label'))
+    }
+    const sectionIdentityFor = (element: Element, role: BrowserSectionRole): string | undefined => {
+      let heading = element.matches('h1, h2, h3, h4, h5, h6, [role="heading"]')
+        ? element
+        : element.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]')
+      if (heading && heading !== element) {
+        let owner = heading.parentElement
+        while (owner && owner !== element) {
+          if (
+            owner.matches(
+              'header, nav, main, section, article, aside, footer, [role="banner"], [role="navigation"], [role="main"], [role="region"], [role="article"], [role="complementary"], [role="contentinfo"]',
+            )
+          ) {
+            heading = null
+            break
+          }
+          owner = owner.parentElement
+        }
+      }
+      const label = ariaLabelText(element) || normalizedIdentityText(heading?.textContent)
+      return label ? `section:${role}:${identityHash(label)}` : undefined
+    }
+    const nodeIdentityFor = (
+      element: Element,
+      role: BrowserLayoutNodeRole,
+      textRole?: BrowserTextRole,
+    ): string | undefined => {
+      const nestedImage = element.matches('img') ? element : element.querySelector('img')
+      const label =
+        ariaLabelText(element) ||
+        normalizedIdentityText(nestedImage?.getAttribute('alt')) ||
+        normalizedIdentityText(element.textContent)
+      return label ? `node:${role}:${textRole || 'none'}:${identityHash(label)}` : undefined
     }
 
     // scrollWidth alone treats the contents of an intentional horizontal scroller as
@@ -443,7 +575,14 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const actionCount = element.querySelectorAll('button, [role="button"], a[href]').length
       const frequencies = new Map<string, number>()
       for (const child of visibleChildren) {
-        const signature = `${child.tagName}:${typeof child.className === 'string' ? child.className : ''}`
+        const signature = [
+          child.tagName,
+          child.getAttribute('role') || '',
+          [...child.children]
+            .slice(0, 4)
+            .map((item) => item.tagName)
+            .join(','),
+        ].join(':')
         frequencies.set(signature, (frequencies.get(signature) || 0) + 1)
       }
       const maxRepeat = Math.max(0, ...frequencies.values())
@@ -523,6 +662,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         key,
         snapshot: {
           key,
+          identityKey: undefined as string | undefined,
           parentKey: undefined as string | undefined,
           order,
           role,
@@ -581,6 +721,9 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         entry.snapshot.role = 'content'
       }
     }
+    for (const entry of sectionEntries) {
+      entry.snapshot.identityKey = sectionIdentityFor(entry.element, entry.snapshot.role)
+    }
     const sectionEntryByElement = new Map(sectionEntries.map((entry) => [entry.element, entry]))
     for (const entry of sectionEntries) {
       let parent = entry.element.parentElement
@@ -616,20 +759,587 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       )
     }
 
-    const stylesForComponent = (element: Element) => {
-      const computed = computedFor(element)
+    interface BrowserTextStyleOwner {
+      element: Element
+      computed: CSSStyleDeclaration
+      source: ComponentTextStyleSource
+    }
+
+    const paintCanvas = document.createElement('canvas')
+    paintCanvas.width = paintCanvas.height = 1
+    const paintContext = paintCanvas.getContext('2d', { willReadFrequently: true })
+    const normalizedPaintColor = (value: string): string | undefined => {
+      const input = value.trim()
+      if (!input || input.toLowerCase() === 'transparent' || !paintContext) return undefined
+      try {
+        paintContext.clearRect(0, 0, 1, 1)
+        paintContext.fillStyle = '#010203'
+        paintContext.fillStyle = input
+        const firstParse = paintContext.fillStyle
+        paintContext.fillStyle = '#040506'
+        paintContext.fillStyle = input
+        if (firstParse !== paintContext.fillStyle) return undefined
+        paintContext.fillStyle = firstParse
+        paintContext.fillRect(0, 0, 1, 1)
+        const [red, green, blue, alphaByte] = paintContext.getImageData(0, 0, 1, 1).data
+        if (alphaByte === 0) return undefined
+        const alpha = Number((alphaByte / 255).toFixed(3))
+        return alpha >= 0.999 ? `rgb(${red}, ${green}, ${blue})` : `rgba(${red}, ${green}, ${blue}, ${alpha})`
+      } catch {
+        return undefined
+      }
+    }
+    const hasVisibleBoxShadow = (value: string): boolean =>
+      value !== 'none' &&
+      value.split(/,(?![^()]*\))/).some((layer) => {
+        const colorPattern = /transparent|#[\da-f]{3,8}\b|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\([^)]*\)/gi
+        const colors = layer.match(colorPattern) || []
+        if (!colors.some((color) => Boolean(normalizedPaintColor(color)))) return false
+        const dimensions = layer
+          .replace(colorPattern, ' ')
+          .replace(/\binset\b/gi, ' ')
+          .match(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:[a-z%]+)?/gi)
+        return Boolean(
+          dimensions &&
+          dimensions.length >= 2 &&
+          dimensions.slice(0, 4).some((dimension) => Math.abs(Number.parseFloat(dimension)) > 0.01),
+        )
+      })
+    const glyphPaintFor = (
+      computed: CSSStyleDeclaration,
+    ):
+      | { kind: 'solid-color'; foreground: string }
+      | { kind: 'background-clip'; backgroundClip: string; backgroundImage: string }
+      | undefined => {
+      const textFill = computed.getPropertyValue('-webkit-text-fill-color').trim()
+      const fill = textFill && textFill.toLowerCase() !== 'currentcolor' ? textFill : computed.color
+      const foreground = normalizedPaintColor(fill)
+      if (foreground) return { kind: 'solid-color', foreground }
+      const backgroundClip = [computed.backgroundClip, computed.getPropertyValue('-webkit-background-clip')]
+        .map((value) => value.trim().toLowerCase())
+        .find((value) => value.split(/\s*,\s*/).includes('text'))
+      const backgroundImage = computed.backgroundImage.trim()
+      if (backgroundClip && backgroundImage && backgroundImage !== 'none' && backgroundImage.length <= 512) {
+        return { kind: 'background-clip', backgroundClip, backgroundImage }
+      }
+      return undefined
+    }
+    const clipPathMetrics = (
+      value: string,
+      width: number,
+      height: number,
+    ): { left: number; top: number; right: number; bottom: number; fillRatio: number } | undefined => {
+      const normalized = value.trim().toLowerCase()
+      if (!normalized || normalized === 'none') return { left: 0, top: 0, right: width, bottom: height, fillRatio: 1 }
+      const length = (token: string, axis: number): number | undefined => {
+        if (token.endsWith('%')) return (Number.parseFloat(token) / 100) * axis
+        if (token.endsWith('px') || /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) return Number.parseFloat(token)
+        return undefined
+      }
+      const boundedMetrics = (left: number, top: number, right: number, bottom: number, fillRatio: number) => ({
+        left: Math.max(0, Math.min(width, left)),
+        top: Math.max(0, Math.min(height, top)),
+        right: Math.max(0, Math.min(width, right)),
+        bottom: Math.max(0, Math.min(height, bottom)),
+        fillRatio: Math.max(0, Math.min(1, fillRatio)),
+      })
+      const inset = /^inset\(([^)]*)\)/.exec(normalized)
+      if (inset) {
+        const values = inset[1]
+          .split(/\bround\b/)[0]
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+        if (values.length === 0 || values.length > 4) return undefined
+        const expanded =
+          values.length === 1
+            ? [values[0], values[0], values[0], values[0]]
+            : values.length === 2
+              ? [values[0], values[1], values[0], values[1]]
+              : values.length === 3
+                ? [values[0], values[1], values[2], values[1]]
+                : values
+        const top = length(expanded[0], height)
+        const right = length(expanded[1], width)
+        const bottom = length(expanded[2], height)
+        const left = length(expanded[3], width)
+        if ([top, right, bottom, left].some((item) => item === undefined || !Number.isFinite(item))) return undefined
+        return boundedMetrics(left!, top!, width - right!, height - bottom!, 1)
+      }
+      const circle = /^circle\(([^)]*)\)$/.exec(normalized)
+      if (circle) {
+        const [radiusValue, positionValue] = circle[1].split(/\s+at\s+/)
+        const position = (positionValue || '50% 50%').trim().split(/\s+/)
+        if (position.length !== 2) return undefined
+        const centerX = length(position[0], width)
+        const centerY = length(position[1], height)
+        const radius = radiusValue.trim().endsWith('%')
+          ? length(radiusValue.trim(), Math.hypot(width, height) / Math.SQRT2)
+          : length(radiusValue.trim(), Math.min(width, height))
+        if (![centerX, centerY, radius].every((item) => item !== undefined && Number.isFinite(item))) return undefined
+        return boundedMetrics(
+          centerX! - radius!,
+          centerY! - radius!,
+          centerX! + radius!,
+          centerY! + radius!,
+          Math.PI / 4,
+        )
+      }
+      const ellipse = /^ellipse\(([^)]*)\)$/.exec(normalized)
+      if (ellipse) {
+        const [radiiValue, positionValue] = ellipse[1].split(/\s+at\s+/)
+        const radii = radiiValue.trim().split(/\s+/)
+        const position = (positionValue || '50% 50%').trim().split(/\s+/)
+        if (radii.length !== 2 || position.length !== 2) return undefined
+        const radiusX = length(radii[0], width)
+        const radiusY = length(radii[1], height)
+        const centerX = length(position[0], width)
+        const centerY = length(position[1], height)
+        if (![radiusX, radiusY, centerX, centerY].every((item) => item !== undefined && Number.isFinite(item))) {
+          return undefined
+        }
+        return boundedMetrics(
+          centerX! - radiusX!,
+          centerY! - radiusY!,
+          centerX! + radiusX!,
+          centerY! + radiusY!,
+          Math.PI / 4,
+        )
+      }
+      const polygon = /^polygon\((.*)\)$/.exec(normalized)
+      if (polygon) {
+        const pointValues = polygon[1]
+          .replace(/^\s*(?:evenodd|nonzero)\s*,/i, '')
+          .split(',')
+          .map((point) => point.trim().split(/\s+/))
+        if (pointValues.length < 3 || pointValues.some((point) => point.length !== 2)) return undefined
+        const points = pointValues.map(([x, y]) => [length(x, width), length(y, height)] as const)
+        if (points.some(([x, y]) => x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y))) {
+          return undefined
+        }
+        const numericPoints = points as Array<readonly [number, number]>
+        const xs = numericPoints.map(([x]) => x)
+        const ys = numericPoints.map(([, y]) => y)
+        const area = Math.abs(
+          numericPoints.reduce((sum, [x, y], index) => {
+            const [nextX, nextY] = numericPoints[(index + 1) % numericPoints.length]
+            return sum + x * nextY - nextX * y
+          }, 0) / 2,
+        )
+        const left = Math.min(...xs)
+        const top = Math.min(...ys)
+        const right = Math.max(...xs)
+        const bottom = Math.max(...ys)
+        return boundedMetrics(left, top, right, bottom, area / Math.max(1, (right - left) * (bottom - top)))
+      }
+      return undefined
+    }
+    const effectiveTextVisibility = (
+      element: Element,
+      paintedComputed: CSSStyleDeclaration,
+    ):
+      | {
+          visibleWidthPx: number
+          visibleHeightPx: number
+          visibleBounds: { xPx: number; yPx: number; widthPx: number; heightPx: number }
+          paintedAreaPx: number
+          captureIntersectionRatio: number
+          effectiveClipPathAreaRatio: number
+          ancestorClipCount: number
+          opacity: number
+          filterOpacity: number
+          filterChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
+          maskChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
+          blendChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
+          clipPathChain: Array<{
+            value: string
+            widthPx: number
+            heightPx: number
+            owner: 'self' | 'ancestor'
+          }>
+          nonRectangularClipPathCount: number
+        }
+      | undefined => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width <= 2 || rect.height <= 2 || element.getClientRects().length === 0) return undefined
+      const scrollingElement = document.scrollingElement || document.documentElement
+      const captureHeight = Math.max(
+        window.innerHeight,
+        scrollingElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+      )
+      let left = Math.max(0, rect.left)
+      let top = Math.max(0, rect.top)
+      let right = Math.min(window.innerWidth, rect.right)
+      let bottom = Math.min(captureHeight, rect.bottom)
+      const captureArea = Math.max(0, right - left) * Math.max(0, bottom - top)
+      const captureIntersectionRatio = captureArea / Math.max(1, rect.width * rect.height)
+      let effectiveOpacity = 1
+      let filterOpacity = 1
+      let effectiveClipPathAreaRatio = 1
+      let ancestorClipCount = 0
+      const clipPathChain: Array<{
+        value: string
+        widthPx: number
+        heightPx: number
+        owner: 'self' | 'ancestor'
+      }> = []
+      const filterChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }> = []
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        const currentComputed = computedFor(current)
+        if (
+          currentComputed.display === 'none' ||
+          currentComputed.visibility === 'hidden' ||
+          currentComputed.visibility === 'collapse' ||
+          currentComputed.getPropertyValue('content-visibility') === 'hidden' ||
+          hasUnsupportedMask(currentComputed) ||
+          hasContextDependentBlend(currentComputed)
+        ) {
+          return undefined
+        }
+        const currentOpacity = Number.parseFloat(currentComputed.opacity || '1')
+        effectiveOpacity *= Number.isFinite(currentOpacity) ? currentOpacity : 1
+        const filter = currentComputed.filter.trim().toLowerCase().replace(/\s+/g, ' ')
+        if (filter && filter !== 'none') {
+          const currentFilterOpacity = filterOpacityFor(filter)
+          if (currentFilterOpacity === undefined || filter.length > 512 || filterChain.length >= 8) return undefined
+          filterOpacity *= currentFilterOpacity
+          filterChain.push({ value: filter, owner: current === element ? 'self' : 'ancestor' })
+        }
+        const currentRect = current.getBoundingClientRect()
+        const clipPath = clipPathMetrics(currentComputed.clipPath, currentRect.width, currentRect.height)
+        if (!clipPath) return undefined
+        if (currentComputed.clipPath !== 'none' && currentComputed.clipPath !== '') {
+          const normalizedClipPath = currentComputed.clipPath.trim().toLowerCase().replace(/\s+/g, ' ')
+          // A box plus a scalar fill ratio cannot prove that glyphs intersect a curved/concave shape. Component text
+          // under these clips is therefore omitted rather than promoted from unprovable paint.
+          if (/^(?:circle|ellipse|polygon)\(/.test(normalizedClipPath) || clipPathChain.length >= 8) return undefined
+          clipPathChain.push({
+            value: normalizedClipPath,
+            widthPx: currentRect.width,
+            heightPx: currentRect.height,
+            owner: current === element ? 'self' : 'ancestor',
+          })
+          left = Math.max(left, currentRect.left + clipPath.left)
+          top = Math.max(top, currentRect.top + clipPath.top)
+          right = Math.min(right, currentRect.left + clipPath.right)
+          bottom = Math.min(bottom, currentRect.top + clipPath.bottom)
+          effectiveClipPathAreaRatio *= clipPath.fillRatio
+          if (current !== element) ancestorClipCount += 1
+        }
+        if (currentComputed.clip !== 'auto' && currentComputed.clip !== '') return undefined
+        if (current !== element) {
+          const clipsX = ['auto', 'scroll', 'hidden', 'clip'].includes(currentComputed.overflowX)
+          const clipsY = ['auto', 'scroll', 'hidden', 'clip'].includes(currentComputed.overflowY)
+          const containsPaint = currentComputed.contain.split(/\s+/).includes('paint')
+          if (clipsX || containsPaint) {
+            left = Math.max(left, currentRect.left)
+            right = Math.min(right, currentRect.right)
+            ancestorClipCount += 1
+          }
+          if (clipsY || containsPaint) {
+            top = Math.max(top, currentRect.top)
+            bottom = Math.min(bottom, currentRect.bottom)
+            if (!clipsX && !containsPaint) ancestorClipCount += 1
+          }
+        }
+      }
+      const hostComputed = computedFor(element)
+      const hostOpacity = Number.parseFloat(hostComputed.opacity || '1')
+      const paintOpacity = Number.parseFloat(paintedComputed.opacity || '1')
+      const ancestorOpacity = effectiveOpacity / Math.max(Number.isFinite(hostOpacity) ? hostOpacity : 1, 0.000001)
+      effectiveOpacity =
+        paintedComputed === hostComputed
+          ? effectiveOpacity
+          : ancestorOpacity *
+            (Number.isFinite(hostOpacity) ? hostOpacity : 1) *
+            (Number.isFinite(paintOpacity) ? paintOpacity : 1)
+      if (paintedComputed !== hostComputed) {
+        if (hasUnsupportedMask(paintedComputed) || hasContextDependentBlend(paintedComputed)) return undefined
+        const paintFilter = paintedComputed.filter.trim().toLowerCase().replace(/\s+/g, ' ')
+        if (paintFilter && paintFilter !== 'none') {
+          const paintFilterOpacity = filterOpacityFor(paintFilter)
+          if (paintFilterOpacity === undefined || paintFilter.length > 512 || filterChain.length >= 8) return undefined
+          filterOpacity *= paintFilterOpacity
+          filterChain.push({ value: paintFilter, owner: 'paint' })
+        }
+      }
+      const visibleWidthPx = Math.max(0, right - left)
+      const visibleHeightPx = Math.max(0, bottom - top)
+      const effectiveScale = Math.sqrt(Math.max(0, Math.min(1, effectiveClipPathAreaRatio)))
+      const paintedAreaPx = visibleWidthPx * visibleHeightPx * effectiveClipPathAreaRatio
+      if (
+        visibleWidthPx <= 2 ||
+        visibleHeightPx <= 2 ||
+        visibleWidthPx * effectiveScale <= 2 ||
+        visibleHeightPx * effectiveScale <= 2 ||
+        paintedAreaPx <= 16 ||
+        effectiveOpacity <= 0.02 ||
+        filterOpacity <= 0.02
+      ) {
+        return undefined
+      }
       return {
-        backgroundColor: computed.backgroundColor,
-        color: computed.color,
-        border: `${computed.borderTopWidth} ${computed.borderTopStyle} ${computed.borderTopColor}`,
-        borderRadius: computed.borderRadius,
-        boxShadow: computed.boxShadow,
-        padding: `${computed.paddingTop} ${computed.paddingRight} ${computed.paddingBottom} ${computed.paddingLeft}`,
-        fontFamily: computed.fontFamily,
-        fontSize: computed.fontSize,
-        fontWeight: computed.fontWeight,
-        display: computed.display,
-        gap: computed.gap,
+        visibleWidthPx,
+        visibleHeightPx,
+        visibleBounds: {
+          xPx: left - rect.left,
+          yPx: top - rect.top,
+          widthPx: visibleWidthPx,
+          heightPx: visibleHeightPx,
+        },
+        paintedAreaPx,
+        captureIntersectionRatio,
+        effectiveClipPathAreaRatio,
+        ancestorClipCount,
+        opacity: effectiveOpacity,
+        filterOpacity,
+        filterChain,
+        maskChain: [],
+        blendChain: [],
+        clipPathChain,
+        nonRectangularClipPathCount: 0,
+      }
+    }
+    const renderedTextSource = (
+      element: Element,
+      paintedComputed: CSSStyleDeclaration,
+      kind: ComponentTextStyleSource['kind'],
+      glyphRects: readonly DOMRect[],
+      nativeTextOrigin?: ComponentTextStyleSource['nativeTextOrigin'],
+    ): ComponentTextStyleSource | undefined => {
+      if (!isVisible(element)) return undefined
+      const computed = computedFor(element)
+      const rect = element.getBoundingClientRect()
+      const clip = computed.clip.trim().toLowerCase()
+      const clipPath = computed.clipPath.trim().toLowerCase().replace(/\s+/g, ' ')
+      const textIndent = Number.parseFloat(computed.textIndent || '0')
+      const glyphPaint = glyphPaintFor(paintedComputed)
+      const visibility = effectiveTextVisibility(element, paintedComputed)
+      const nativeTextSource = ['native-value', 'native-placeholder', 'native-selection'].includes(kind)
+      if (
+        !glyphPaint ||
+        !visibility ||
+        nativeTextSource !== Boolean(nativeTextOrigin) ||
+        (nativeTextSource
+          ? Number.isFinite(textIndent) && Math.abs(textIndent) > 1
+          : Number.isFinite(textIndent) && Math.abs(textIndent) > Math.max(128, rect.width * 2))
+      ) {
+        return undefined
+      }
+      const dimension = (value: string): number => {
+        const parsed = Number.parseFloat(value || '0')
+        return Number.isFinite(parsed) ? Math.max(0, parsed) : 0
+      }
+      const nativeTextBounds = nativeTextSource
+        ? (() => {
+            const left = dimension(computed.borderLeftWidth) + dimension(computed.paddingLeft)
+            const top = dimension(computed.borderTopWidth) + dimension(computed.paddingTop)
+            const right = dimension(computed.borderRightWidth) + dimension(computed.paddingRight)
+            const bottom = dimension(computed.borderBottomWidth) + dimension(computed.paddingBottom)
+            return { xPx: left, yPx: top, widthPx: rect.width - left - right, heightPx: rect.height - top - bottom }
+          })()
+        : undefined
+      if (
+        nativeTextBounds &&
+        (nativeTextBounds.widthPx <= 2 ||
+          nativeTextBounds.heightPx <= 2 ||
+          visibility.visibleBounds.xPx > nativeTextBounds.xPx + 1 ||
+          visibility.visibleBounds.yPx > nativeTextBounds.yPx + 1 ||
+          visibility.visibleBounds.xPx + visibility.visibleBounds.widthPx <
+            nativeTextBounds.xPx + nativeTextBounds.widthPx - 1 ||
+          visibility.visibleBounds.yPx + visibility.visibleBounds.heightPx <
+            nativeTextBounds.yPx + nativeTextBounds.heightPx - 1)
+      ) {
+        return undefined
+      }
+      const visibleLeft = rect.left + visibility.visibleBounds.xPx
+      const visibleTop = rect.top + visibility.visibleBounds.yPx
+      const visibleGlyphRects = glyphRects
+        .flatMap((glyphRect) => {
+          const left = Math.max(glyphRect.left, visibleLeft)
+          const top = Math.max(glyphRect.top, visibleTop)
+          const right = Math.min(glyphRect.right, visibleLeft + visibility.visibleBounds.widthPx)
+          const bottom = Math.min(glyphRect.bottom, visibleTop + visibility.visibleBounds.heightPx)
+          const width = Math.max(0, right - left)
+          const height = Math.max(0, bottom - top)
+          return width > 1 && height > 1 && width * height > 4
+            ? [{ xPx: left - rect.left, yPx: top - rect.top, widthPx: width, heightPx: height }]
+            : []
+        })
+        .slice(0, 8)
+      if (['direct-text', 'descendant-text'].includes(kind) && visibleGlyphRects.length === 0) return undefined
+      return {
+        kind,
+        widthPx: rect.width,
+        heightPx: rect.height,
+        ...visibility,
+        clientRectCount: element.getClientRects().length,
+        glyphRectCount: glyphRects.length,
+        visibleGlyphRects,
+        visibleGlyphAreaPx: visibleGlyphRects.reduce(
+          (area, glyphRect) => area + glyphRect.widthPx * glyphRect.heightPx,
+          0,
+        ),
+        ...(nativeTextBounds ? { nativeTextBounds } : {}),
+        ...(nativeTextOrigin ? { nativeTextOrigin } : {}),
+        clip,
+        clipPath,
+        contentVisibility: computed.getPropertyValue('content-visibility'),
+        textIndentPx: Number.isFinite(textIndent) ? textIndent : 0,
+        filter: computed.filter.trim().toLowerCase().replace(/\s+/g, ' '),
+        glyphPaintKind: glyphPaint.kind,
+        ...(glyphPaint.kind === 'solid-color'
+          ? { foreground: glyphPaint.foreground }
+          : { backgroundClip: glyphPaint.backgroundClip, backgroundImage: glyphPaint.backgroundImage }),
+      }
+    }
+    const visibleTextStyleOwner = (element: Element): BrowserTextStyleOwner | undefined => {
+      const textNodes = [...element.childNodes].filter(
+        (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.replace(/\s+/g, ' ').trim()),
+      )
+      if (textNodes.length === 0) return undefined
+      const computed = computedFor(element)
+      const glyphRects = textNodes.flatMap((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return [...range.getClientRects()].filter((glyphRect) => glyphRect.width > 0 && glyphRect.height > 0)
+      })
+      if (glyphRects.length === 0) return undefined
+      const source = renderedTextSource(element, computed, 'direct-text', glyphRects)
+      return source ? { element, computed, source } : undefined
+    }
+    const directlyOwnsRenderedText = (element: Element): boolean => Boolean(visibleTextStyleOwner(element))
+    const inputTextStyleOwner = (element: Element): BrowserTextStyleOwner | undefined => {
+      if (element instanceof HTMLInputElement) {
+        const type = element.type.toLowerCase()
+        if (['hidden', 'image', 'checkbox', 'radio', 'range', 'color'].includes(type)) return undefined
+        const computed = computedFor(element)
+        const nativeEmptyText = ['date', 'datetime-local', 'file', 'month', 'time', 'week'].includes(type)
+        if (Boolean(element.value.trim()) || nativeEmptyText) {
+          const source = renderedTextSource(
+            element,
+            computed,
+            nativeEmptyText ? 'native-selection' : 'native-value',
+            [],
+            nativeEmptyText ? (element.value.trim() ? 'selection' : 'user-agent-default') : 'explicit-value',
+          )
+          if (source) return { element, computed, source }
+        }
+        if (element.placeholder.trim()) {
+          const placeholder = getComputedStyle(element, '::placeholder')
+          const source = renderedTextSource(element, placeholder, 'native-placeholder', [], 'placeholder')
+          if (source) return { element, computed: placeholder, source }
+        }
+        return undefined
+      }
+      if (element instanceof HTMLTextAreaElement) {
+        const computed = computedFor(element)
+        if (element.value.trim()) {
+          const source = renderedTextSource(element, computed, 'native-value', [], 'explicit-value')
+          if (source) return { element, computed, source }
+        }
+        if (element.placeholder.trim()) {
+          const placeholder = getComputedStyle(element, '::placeholder')
+          const source = renderedTextSource(element, placeholder, 'native-placeholder', [], 'placeholder')
+          if (source) return { element, computed: placeholder, source }
+        }
+        return undefined
+      }
+      if (element instanceof HTMLSelectElement) {
+        const computed = computedFor(element)
+        if (!element.selectedOptions[0]?.textContent?.trim()) return undefined
+        const source = renderedTextSource(element, computed, 'native-selection', [], 'selection')
+        return source ? { element, computed, source } : undefined
+      }
+      return (
+        visibleTextStyleOwner(element) || [...element.querySelectorAll('*')].map(visibleTextStyleOwner).find(Boolean)
+      )
+    }
+    const renderedTextOwner = (type: string, element: Element): BrowserTextStyleOwner | undefined => {
+      if (type === 'input') {
+        const inputSelector =
+          'input:not([type="hidden"]), textarea, select, [role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]'
+        const source = element.matches(inputSelector) ? element : element.querySelector(inputSelector)
+        const sourceStyle = source ? inputTextStyleOwner(source) : undefined
+        if (sourceStyle) return sourceStyle
+        return [...element.querySelectorAll('*')]
+          .filter((candidate) => candidate !== source && !source?.contains(candidate))
+          .map(visibleTextStyleOwner)
+          .find(Boolean)
+      }
+      if (type === 'button' && element instanceof HTMLInputElement) {
+        const inputType = element.type.toLowerCase()
+        if (inputType === 'image') return undefined
+        const computed = computedFor(element)
+        const explicitValue = Boolean(element.value.trim())
+        const userAgentDefault = ['reset', 'submit'].includes(inputType) && !element.hasAttribute('value')
+        if (!explicitValue && !userAgentDefault) return undefined
+        const source = renderedTextSource(
+          element,
+          computed,
+          'native-value',
+          [],
+          explicitValue ? 'explicit-value' : 'user-agent-default',
+        )
+        return source ? { element, computed, source } : undefined
+      }
+      if (!['button', 'tab', 'status'].includes(type)) return undefined
+      const directOwner = visibleTextStyleOwner(element)
+      if (directOwner || type === 'status') return directOwner
+      return [...element.querySelectorAll('*')].map(visibleTextStyleOwner).find(Boolean)
+    }
+    const stylesForComponent = (type: string, element: Element) => {
+      const computed = computedFor(element)
+      const textOwner = renderedTextOwner(type, element)
+      const textComputed = textOwner?.computed
+      const textColor =
+        textOwner?.source.glyphPaintKind === 'solid-color' &&
+        textOwner.source.opacity >= 0.999 &&
+        textOwner.source.filterOpacity >= 0.999
+          ? textOwner.source.foreground
+          : undefined
+      const borders = {
+        borderTop: `${computed.borderTopWidth} ${computed.borderTopStyle} ${computed.borderTopColor}`,
+        borderRight: `${computed.borderRightWidth} ${computed.borderRightStyle} ${computed.borderRightColor}`,
+        borderBottom: `${computed.borderBottomWidth} ${computed.borderBottomStyle} ${computed.borderBottomColor}`,
+        borderLeft: `${computed.borderLeftWidth} ${computed.borderLeftStyle} ${computed.borderLeftColor}`,
+      }
+      const borderValues = Object.values(borders)
+      const equalBorders = borderValues.every((border) => border === borderValues[0])
+      const contentSized = ['card', 'list', 'table', 'modal', 'status'].includes(type)
+      return {
+        styles: {
+          backgroundColor: computed.backgroundColor,
+          ...(textComputed
+            ? {
+                ...(textColor ? { color: textColor } : {}),
+                fontFamily: textComputed.fontFamily,
+                fontSize: textComputed.fontSize,
+                fontWeight: textComputed.fontWeight,
+                lineHeight: textComputed.lineHeight,
+                letterSpacing: textComputed.letterSpacing,
+              }
+            : {}),
+          ...(equalBorders ? { border: borderValues[0] } : borders),
+          borderRadius: computed.borderRadius,
+          boxShadow: computed.boxShadow,
+          padding: `${computed.paddingTop} ${computed.paddingRight} ${computed.paddingBottom} ${computed.paddingLeft}`,
+          ...(!contentSized ? { height: computed.height, minHeight: computed.minHeight } : {}),
+          display: computed.display,
+          gap: computed.gap,
+        },
+        ...(textOwner
+          ? {
+              textStyleOwner: textOwner.element === element ? ('root' as const) : ('descendant' as const),
+              textStyleSource: {
+                ...textOwner.source,
+                ...(textOwner.source.kind === 'direct-text' && textOwner.element !== element
+                  ? { kind: 'descendant-text' as const }
+                  : {}),
+              },
+            }
+          : {}),
       }
     }
 
@@ -662,63 +1372,19 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return source
     }
 
-    const actionTokenPattern = new RegExp(candidateRules.actionTokenPattern, 'i')
-    const primaryActionPattern = new RegExp(candidateRules.primaryActionPattern, 'i')
-    const destructiveActionPattern = new RegExp(candidateRules.destructiveActionPattern, 'i')
-    const directStatusPattern = new RegExp(candidateRules.directStatusPattern, 'i')
-    const statusSubjectPattern = new RegExp(candidateRules.statusSubjectPattern, 'i')
-    const statusDirectionPattern = new RegExp(candidateRules.statusDirectionPattern, 'i')
-    const positiveStatusPattern = new RegExp(candidateRules.positiveStatusPattern, 'i')
-    const warningStatusPattern = new RegExp(candidateRules.warningStatusPattern, 'i')
-    const negativeStatusPattern = new RegExp(candidateRules.negativeStatusPattern, 'i')
-    const statusIntentFor = (context: string): 'positive' | 'warning' | 'negative' | 'neutral' => {
-      if (positiveStatusPattern.test(context)) return 'positive'
-      if (warningStatusPattern.test(context)) return 'warning'
-      if (negativeStatusPattern.test(context)) return 'negative'
-      return 'neutral'
-    }
-    const roleCandidateContext = (element: Element): string =>
-      [
-        typeof element.className === 'string' ? element.className : '',
-        element.id,
-        element.getAttribute('role'),
-        element.getAttribute('data-variant'),
-        element.getAttribute('data-intent'),
-        element.getAttribute('data-state'),
-        element.getAttribute('data-status'),
-        element.getAttribute('type'),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-    const statusCandidateKind = (element: Element): 'native' | 'heuristic' | null => {
+    const statusCandidateKind = (element: Element): 'native' | null => {
       const role = element.getAttribute('role') || ''
       const ariaLive = element.getAttribute('aria-live')
       if (element.matches(candidateRules.broadActionSelector)) return null
       const nativeStatus = ['status', 'alert'].includes(role) || Boolean(ariaLive && ariaLive !== 'off')
-      if (nativeStatus) {
-        if (element.parentElement?.closest(candidateRules.nativeStatusSelector)) return null
-        return 'native'
-      }
-      if (
-        element.parentElement?.closest(`${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`)
-      ) {
-        return null
-      }
-      const context = roleCandidateContext(element)
-      return directStatusPattern.test(context) ||
-        (statusSubjectPattern.test(context) && statusDirectionPattern.test(context))
-        ? 'heuristic'
-        : null
+      if (nativeStatus) return 'native'
+      return null
     }
     const isStyledActionAnchor = (element: Element): boolean => {
       if (element.tagName !== 'A' || !element.hasAttribute('href')) return false
-      const context = roleCandidateContext(element)
-      if (!actionTokenPattern.test(context)) return false
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
-      const background = computed.backgroundColor.trim().toLowerCase()
-      const paintedFill = background !== 'transparent' && !/^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(background)
+      const paintedFill = Boolean(normalizedPaintColor(computed.backgroundColor))
       const paintedBorder = [
         [computed.borderTopWidth, computed.borderTopStyle],
         [computed.borderRightWidth, computed.borderRightStyle],
@@ -739,6 +1405,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       role?: string
       elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
       confidence: number
+      statusBoundary?: ComponentStatusBoundary
     }> = []
     const addComponents = (
       selector: string,
@@ -757,7 +1424,20 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         })
       }
     }
-    const statusCandidateKinds = new Map<Element, 'native' | 'heuristic'>()
+    const inputSemanticRole = (element: Element): string | undefined => {
+      const explicitRole = element.getAttribute('role')?.trim().toLowerCase()
+      if (explicitRole) return explicitRole
+      const tagName = element.tagName.toLowerCase()
+      if (tagName === 'select') return element.hasAttribute('multiple') ? 'listbox' : 'combobox'
+      if (tagName === 'textarea') return 'textbox'
+      if (tagName !== 'input') return undefined
+      const type = (element.getAttribute('type') || 'text').toLowerCase()
+      if (type === 'search') return 'searchbox'
+      if (type === 'number') return 'spinbutton'
+      if (['text', 'email', 'tel', 'url'].includes(type)) return 'textbox'
+      return type
+    }
+    const statusCandidateKinds = new Map<Element, 'native'>()
     for (const element of document.querySelectorAll('body *')) {
       if (!isVisible(element)) continue
       const kind = statusCandidateKind(element)
@@ -765,27 +1445,47 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     }
     const statusCandidates = [...statusCandidateKinds.keys()]
     const statusCandidateSet = new Set(statusCandidates)
-    const candidatesWithNativeDescendants = new Set<Element>()
-    for (const [element, kind] of statusCandidateKinds) {
-      let ancestor = element.parentElement
-      while (ancestor) {
-        if (statusCandidateSet.has(ancestor)) {
-          if (kind === 'native') candidatesWithNativeDescendants.add(ancestor)
-        }
-        ancestor = ancestor.parentElement
+    const statusBoundaryPaint = (element: Element) => {
+      const computed = computedFor(element)
+      if (!effectiveTextVisibility(element, computed)) {
+        return { paintedFill: false, paintedBorder: false, paintedShadow: false }
+      }
+      const paintedFill = Boolean(normalizedPaintColor(computed.backgroundColor))
+      const paintedBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+      ].some(
+        ([width, style, color]) =>
+          Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) && Boolean(normalizedPaintColor(color)),
+      )
+      const paintedShadow = hasVisibleBoxShadow(computed.boxShadow)
+      return { paintedFill, paintedBorder, paintedShadow }
+    }
+    const statusBoundaryFor = (element: Element): ComponentStatusBoundary => {
+      const rect = element.getBoundingClientRect()
+      const paint = statusBoundaryPaint(element)
+      return {
+        strongVisualBoundary: paint.paintedFill || paint.paintedBorder || paint.paintedShadow,
+        ...paint,
+        directlyOwnedText: directlyOwnsRenderedText(element),
+        widthPx: rect.width,
+        heightPx: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
       }
     }
-    const hasStrongStatusVisualBoundary = (element: Element): boolean => {
-      const computed = computedFor(element)
-      const background = computed.backgroundColor.trim().toLowerCase()
-      const paintedFill = background !== 'transparent' && !/^rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\)$/i.test(background)
-      const paintedBorder = [
-        [computed.borderTopWidth, computed.borderTopStyle],
-        [computed.borderRightWidth, computed.borderRightStyle],
-        [computed.borderBottomWidth, computed.borderBottomStyle],
-        [computed.borderLeftWidth, computed.borderLeftStyle],
-      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
-      return paintedFill || paintedBorder
+    const isActionableStatusBoundary = (boundary: ComponentStatusBoundary): boolean => {
+      const viewportWidth = Math.max(1, boundary.viewportWidth)
+      const viewportHeight = Math.max(1, boundary.viewportHeight)
+      const width = Math.max(0, boundary.widthPx)
+      const height = Math.max(0, boundary.heightPx)
+      const areaRatio = (width * height) / (viewportWidth * viewportHeight)
+      const bounded = height <= Math.min(240, viewportHeight * 0.45) && areaRatio <= 0.4
+      const compact = height <= Math.min(160, viewportHeight * 0.25) && areaRatio <= 0.2
+      const compactWidth = width <= Math.min(720, viewportWidth * 0.8)
+      return bounded && (boundary.strongVisualBoundary || (boundary.directlyOwnedText && compact && compactWidth))
     }
     const hasStatusEvidenceGeometry = (element: Element): boolean => {
       const rect = element.getBoundingClientRect()
@@ -793,51 +1493,77 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return (
         rect.width >= 4 &&
         rect.height >= 4 &&
+        Boolean(effectiveTextVisibility(element, computed)) &&
         (computed.clip === 'auto' || computed.clip === '') &&
         (computed.clipPath === 'none' || computed.clipPath === '')
       )
     }
-    const stronglyBoundedCandidates = new Set(statusCandidates.filter(hasStrongStatusVisualBoundary))
-    const independentStrongDescendantCounts = new Map<Element, number>()
-    for (const element of stronglyBoundedCandidates) {
+    const preferredStatusCandidates = new Set(statusCandidates.filter(hasStatusEvidenceGeometry))
+    const statusBoundaries = new Map(
+      [...preferredStatusCandidates].map((element) => [element, statusBoundaryFor(element)] as const),
+    )
+    const actionableStatusCandidates = new Set(
+      [...preferredStatusCandidates].filter((element) => isActionableStatusBoundary(statusBoundaries.get(element)!)),
+    )
+    const actionableDescendantCounts = new Map<Element, number>()
+    for (const element of actionableStatusCandidates) {
       let ancestor = element.parentElement
       while (ancestor) {
-        if (statusCandidateSet.has(ancestor)) {
-          independentStrongDescendantCounts.set(ancestor, (independentStrongDescendantCounts.get(ancestor) || 0) + 1)
-          if (stronglyBoundedCandidates.has(ancestor)) break
+        if (preferredStatusCandidates.has(ancestor)) {
+          actionableDescendantCounts.set(ancestor, (actionableDescendantCounts.get(ancestor) || 0) + 1)
+          if (actionableStatusCandidates.has(ancestor)) break
         }
         ancestor = ancestor.parentElement
       }
     }
-    const preferredStatusCandidates = new Set(
-      statusCandidates.filter((element) => {
-        if (!hasStatusEvidenceGeometry(element)) return false
-        if (statusCandidateKinds.get(element) === 'native') return true
-        if (candidatesWithNativeDescendants.has(element)) return false
-        return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2
-      }),
-    )
     const statusRoots = statusCandidates.filter((element) => {
       if (!preferredStatusCandidates.has(element)) return false
+      const actionable = actionableStatusCandidates.has(element)
+      if (!actionable && (actionableDescendantCounts.get(element) || 0) > 0) return false
       let ancestor = element.parentElement
       while (ancestor) {
-        if (preferredStatusCandidates.has(ancestor)) return false
+        if (preferredStatusCandidates.has(ancestor)) {
+          if (actionable && !actionableStatusCandidates.has(ancestor)) {
+            ancestor = ancestor.parentElement
+            continue
+          }
+          return false
+        }
         ancestor = ancestor.parentElement
       }
       return true
     })
     for (const element of statusRoots) {
-      const context = roleCandidateContext(element)
-      const kind = statusSubjectPattern.test(context) && statusDirectionPattern.test(context) ? 'delta' : 'status'
       componentCandidates.push({
         element,
         type: 'status',
-        role: `${kind}-${statusIntentFor(context)}`,
+        role: 'status-neutral',
         elementKind: 'status',
         confidence: 0.94,
+        statusBoundary: statusBoundaries.get(element) || statusBoundaryFor(element),
       })
     }
     addComponents('[role="tab"]', 'tab', 0.98, 'button')
+    const formSubmitterCounts = new WeakMap<HTMLFormElement, number>()
+    const enabledVisibleSubmitterCount = (form: HTMLFormElement): number => {
+      const cached = formSubmitterCounts.get(form)
+      if (cached !== undefined) return cached
+      const count = [...document.querySelectorAll<HTMLElement>(candidateRules.formSubmitterSelector)].filter(
+        (candidate) => {
+          const control = candidate as HTMLButtonElement | HTMLInputElement
+          return (
+            control.form === form &&
+            !control.disabled &&
+            !candidate.matches(':disabled, [aria-disabled="true"]') &&
+            isVisible(candidate) &&
+            Boolean(effectiveTextVisibility(candidate, computedFor(candidate))) &&
+            computedFor(candidate).pointerEvents !== 'none'
+          )
+        },
+      ).length
+      formSubmitterCounts.set(form, count)
+      return count
+    }
     for (const element of document.querySelectorAll(candidateRules.nativeActionSelector)) {
       if (
         !isVisible(element) ||
@@ -847,14 +1573,19 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         continue
       }
       const tagName = element.tagName.toLowerCase()
+      const nativeButton = tagName === 'button'
+      const inputButton = tagName === 'input'
+      const formControl = nativeButton
+        ? (element as HTMLButtonElement)
+        : inputButton
+          ? (element as HTMLInputElement)
+          : null
+      const form = formControl?.form || null
+      const submitCapable = Boolean(form && ['submit', 'image'].includes(formControl?.type.toLowerCase() || ''))
       componentCandidates.push({
         element,
         type: 'button',
-        role: primaryActionPattern.test(roleCandidateContext(element))
-          ? 'primary-action'
-          : destructiveActionPattern.test(roleCandidateContext(element))
-            ? 'destructive-action'
-            : 'action',
+        role: submitCapable && form && enabledVisibleSubmitterCount(form) === 1 ? 'primary-action' : 'action',
         elementKind:
           tagName === 'input'
             ? 'input'
@@ -876,18 +1607,14 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       componentCandidates.push({
         element,
         type: 'button',
-        role: primaryActionPattern.test(roleCandidateContext(element))
-          ? 'primary-action'
-          : destructiveActionPattern.test(roleCandidateContext(element))
-            ? 'destructive-action'
-            : 'action',
+        role: 'action',
         elementKind: 'anchor',
         confidence: 0.9,
       })
     }
     addComponents('nav, [role="navigation"]', 'navigation', 0.98)
     for (const source of document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="button"]):not([type="submit"]), textarea, select, [role="textbox"], [role="combobox"]',
+      'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="image"]), textarea, select, [role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]',
     )) {
       if (!isVisible(source)) continue
       const element = visualInputRoot(source)
@@ -895,7 +1622,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       componentCandidates.push({
         element,
         type: 'input',
-        role: source.getAttribute('role') || undefined,
+        role: inputSemanticRole(source),
         elementKind: 'input',
         confidence: 0.96,
       })
@@ -992,22 +1719,29 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       componentCandidates.push({ element: candidate.element, type: 'card', confidence: Math.min(0.94, confidence) })
     }
 
-    const components = componentCandidates.slice(0, 250).flatMap((candidate) => {
-      const section = sectionFor(candidate.element)
-      if (!section) return []
-      return [
-        {
-          key: `${candidate.type}:${locatorFor(candidate.element)}`,
-          sectionKey: section.key,
-          type: candidate.type,
-          elementKind: candidate.elementKind,
-          role: candidate.role,
-          rect: normalizedRect(candidate.element),
-          styles: stylesForComponent(candidate.element),
-          confidence: candidate.confidence,
-        },
-      ]
-    })
+    const components = componentCandidates
+      .filter((candidate) => hasVisiblePaintChain(candidate.element))
+      .slice(0, 250)
+      .flatMap((candidate) => {
+        const section = sectionFor(candidate.element)
+        if (!section) return []
+        const componentStyle = stylesForComponent(candidate.type, candidate.element)
+        return [
+          {
+            key: `${candidate.type}:${locatorFor(candidate.element)}`,
+            sectionKey: section.key,
+            type: candidate.type,
+            elementKind: candidate.elementKind,
+            role: candidate.role,
+            textStyleOwner: componentStyle.textStyleOwner,
+            textStyleSource: componentStyle.textStyleSource,
+            statusBoundary: candidate.statusBoundary,
+            rect: normalizedRect(candidate.element),
+            styles: componentStyle.styles,
+            confidence: candidate.confidence,
+          },
+        ]
+      })
 
     const layoutCandidates = [
       ...document.querySelectorAll(
@@ -1016,10 +1750,20 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
     ].filter(
       (element) =>
         isVisible(element) &&
+        hasVisiblePaintChain(element) &&
         !(element.closest('form') && element instanceof HTMLButtonElement && element.getAttribute('type') !== 'button'),
     )
+    const layoutTextOwnerCache = new WeakMap<Element, BrowserTextStyleOwner | null>()
+    const layoutTextOwnerFor = (element: Element): BrowserTextStyleOwner | undefined => {
+      const cached = layoutTextOwnerCache.get(element)
+      if (cached !== undefined) return cached || undefined
+      const owner =
+        visibleTextStyleOwner(element) || [...element.querySelectorAll('*')].map(visibleTextStyleOwner).find(Boolean)
+      layoutTextOwnerCache.set(element, owner || null)
+      return owner
+    }
     const maximumTypeSize = layoutCandidates.reduce((maximum, element) => {
-      const fontSize = Number.parseFloat(computedFor(element).fontSize || '0')
+      const fontSize = Number.parseFloat(layoutTextOwnerFor(element)?.computed.fontSize || '0')
       return Math.max(maximum, Number.isFinite(fontSize) ? fontSize : 0)
     }, 0)
     const layoutNodes = layoutCandidates.slice(0, 300).flatMap((element) => {
@@ -1033,7 +1777,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           : tag === 'A' || tag === 'BUTTON' || element.getAttribute('role') === 'button'
             ? 'action'
             : 'media'
-      const textRole: BrowserTextRole | undefined =
+      const candidateTextRole: BrowserTextRole | undefined =
         tag === 'H1'
           ? 'display'
           : /^H[2-4]$/.test(tag)
@@ -1044,9 +1788,18 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
                 ? 'label'
                 : undefined
       const computed = computedFor(element)
+      const textOwner = candidateTextRole ? layoutTextOwnerFor(element) : undefined
+      const textComputed = textOwner?.computed
+      const textColor =
+        textOwner?.source.glyphPaintKind === 'solid-color' &&
+        textOwner.source.opacity >= 0.999 &&
+        textOwner.source.filterOpacity >= 0.999
+          ? textOwner.source.foreground
+          : undefined
+      const textRole = textOwner ? candidateTextRole : undefined
       const traits = [`display:${computed.display}`, `position:${computed.position}`, `align:${computed.textAlign}`]
       const rect = element.getBoundingClientRect()
-      const fontSize = Number.parseFloat(computed.fontSize || '0')
+      const fontSize = Number.parseFloat(textComputed?.fontSize || '0')
       if (rect.top < window.innerHeight && rect.bottom > 0) traits.push('salience:above-fold')
       if (maximumTypeSize >= 24 && fontSize >= maximumTypeSize * 0.9) traits.push('salience:max-type')
       if (role === 'action' && rect.top < window.innerHeight) traits.push('salience:primary-action-candidate')
@@ -1060,18 +1813,25 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       return [
         {
           key: `${role}:${locatorFor(element)}`,
+          identityKey: nodeIdentityFor(element, role, textRole),
           sectionKey: section.key,
           role,
           rect: normalizedRect(element),
           textRole,
+          textStyleSource: textOwner?.source,
           styles: {
-            color: computed.color,
+            ...(textColor ? { color: textColor } : {}),
             backgroundColor: computed.backgroundColor,
-            fontFamily: computed.fontFamily,
-            fontSize: computed.fontSize,
-            fontWeight: computed.fontWeight,
-            lineHeight: computed.lineHeight,
-            letterSpacing: computed.letterSpacing,
+            ...(textComputed
+              ? {
+                  fontFamily: textComputed.fontFamily,
+                  fontSize: textComputed.fontSize,
+                  fontWeight: textComputed.fontWeight,
+                  lineHeight: textComputed.lineHeight,
+                  letterSpacing: textComputed.letterSpacing,
+                }
+              : {}),
+            ...(role === 'media' ? { width: computed.width, height: computed.height } : {}),
             borderRadius: computed.borderRadius,
             borderTop: `${computed.borderTopWidth} ${computed.borderTopStyle} ${computed.borderTopColor}`,
             borderRight: `${computed.borderRightWidth} ${computed.borderRightStyle} ${computed.borderRightColor}`,
@@ -1084,8 +1844,128 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       ]
     })
 
+    const pseudoPaintEvidenceFor = (
+      element: Element,
+      pseudo: CSSStyleDeclaration,
+      requireExplicitBox: boolean,
+    ): PseudoElementPaintEvidence | undefined => {
+      if (
+        hasUnsupportedMask(pseudo) ||
+        hasContextDependentBlend(pseudo) ||
+        (pseudo.transform && pseudo.transform !== 'none')
+      ) {
+        return undefined
+      }
+      const hostRect = element.getBoundingClientRect()
+      const parsedWidth = Number.parseFloat(pseudo.width)
+      const parsedHeight = Number.parseFloat(pseudo.height)
+      const fallbackHeight = Number.parseFloat(pseudo.lineHeight)
+      const widthPx = Number.isFinite(parsedWidth) ? parsedWidth : requireExplicitBox ? 0 : hostRect.width
+      const heightPx = Number.isFinite(parsedHeight)
+        ? parsedHeight
+        : requireExplicitBox
+          ? 0
+          : Number.isFinite(fallbackHeight)
+            ? fallbackHeight
+            : hostRect.height
+      if (widthPx <= 2 || heightPx <= 2) return undefined
+
+      const finiteOffset = (value: string): number | undefined => {
+        if (!value || value === 'auto') return undefined
+        const parsed = Number.parseFloat(value)
+        return Number.isFinite(parsed) ? parsed : undefined
+      }
+      const fixed = pseudo.position === 'fixed'
+      const positioned = fixed || pseudo.position === 'absolute' || pseudo.position === 'relative'
+      const leftOffset = finiteOffset(pseudo.left)
+      const rightOffset = finiteOffset(pseudo.right)
+      const topOffset = finiteOffset(pseudo.top)
+      const bottomOffset = finiteOffset(pseudo.bottom)
+      const baseLeft = fixed ? 0 : hostRect.left
+      const baseTop = fixed ? 0 : hostRect.top
+      const containingWidth = fixed ? window.innerWidth : hostRect.width
+      const containingHeight = fixed ? window.innerHeight : hostRect.height
+      const xPx = positioned
+        ? leftOffset !== undefined
+          ? baseLeft + leftOffset
+          : rightOffset !== undefined
+            ? baseLeft + containingWidth - rightOffset - widthPx
+            : baseLeft
+        : hostRect.left
+      const yPx = positioned
+        ? topOffset !== undefined
+          ? baseTop + topOffset
+          : bottomOffset !== undefined
+            ? baseTop + containingHeight - bottomOffset - heightPx
+            : baseTop
+        : hostRect.top
+
+      let opacity = Number.parseFloat(pseudo.opacity || '1')
+      if (!Number.isFinite(opacity)) opacity = 1
+      let filterOpacity = 1
+      const filterChain: PseudoElementPaintEvidence['filterChain'] = []
+      const pseudoFilter = pseudo.filter.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (pseudoFilter && pseudoFilter !== 'none') {
+        const parsed = filterOpacityFor(pseudoFilter)
+        if (parsed === undefined || pseudoFilter.length > 512) return undefined
+        filterOpacity *= parsed
+        filterChain.push({ value: pseudoFilter, owner: 'paint' })
+      }
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        const computed = computedFor(current)
+        if (hasUnsupportedMask(computed) || hasContextDependentBlend(computed)) return undefined
+        const currentOpacity = Number.parseFloat(computed.opacity || '1')
+        opacity *= Number.isFinite(currentOpacity) ? currentOpacity : 1
+        const filter = computed.filter.trim().toLowerCase().replace(/\s+/g, ' ')
+        if (filter && filter !== 'none') {
+          const parsed = filterOpacityFor(filter)
+          if (parsed === undefined || filter.length > 512 || filterChain.length >= 8) return undefined
+          filterOpacity *= parsed
+          filterChain.push({ value: filter, owner: current === element ? 'self' : 'ancestor' })
+        }
+      }
+      if (opacity <= 0.02 || filterOpacity <= 0.02) return undefined
+
+      const scrollingElement = document.scrollingElement || document.documentElement
+      const captureHeight = Math.max(
+        window.innerHeight,
+        scrollingElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+      )
+      const visibleLeft = Math.max(0, xPx)
+      const visibleTop = Math.max(0, yPx)
+      const visibleRight = Math.min(window.innerWidth, xPx + widthPx)
+      const visibleBottom = Math.min(captureHeight, yPx + heightPx)
+      const visibleWidthPx = Math.max(0, visibleRight - visibleLeft)
+      const visibleHeightPx = Math.max(0, visibleBottom - visibleTop)
+      const paintedAreaPx = visibleWidthPx * visibleHeightPx
+      const captureIntersectionRatio = paintedAreaPx / Math.max(1, widthPx * heightPx)
+      if (visibleWidthPx <= 2 || visibleHeightPx <= 2 || paintedAreaPx <= 16 || captureIntersectionRatio <= 0.02) {
+        return undefined
+      }
+      return {
+        widthPx,
+        heightPx,
+        xPx,
+        yPx,
+        captureWidthPx: window.innerWidth,
+        captureHeightPx: captureHeight,
+        visibleWidthPx,
+        visibleHeightPx,
+        paintedAreaPx,
+        captureIntersectionRatio,
+        opacity,
+        filterOpacity,
+        filterChain,
+        maskChain: [],
+        blendChain: [],
+      }
+    }
+
     const pseudoElements: PagePseudoElementSnapshot[] = []
-    const pseudoCandidates = [...document.querySelectorAll('body *')].filter(isVisible).slice(0, 1_500)
+    const pseudoCandidates = [...document.querySelectorAll('body *')]
+      .filter((element) => isVisible(element) && hasVisiblePaintChain(element))
+      .slice(0, 1_500)
     for (const element of pseudoCandidates) {
       const section = sectionFor(element)
       if (!section || pseudoElements.length >= 80) break
@@ -1104,17 +1984,13 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         ) {
           continue
         }
-        if (!content || ['none', 'normal', '""', "''"].includes(content)) continue
+        if (!content || ['none', 'normal'].includes(content)) continue
         const unquotedContent = content.replace(/^(['"])([\s\S]*)\1$/, '$2').trim()
-        const isTransparentMaterial = (value: string) =>
-          /^(?:transparent|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?%?\s*\)|(?:hsla?|oklch|oklab|lab|lch)\([^)]*\/\s*0(?:\.0+)?%?\s*\))$/i.test(
-            value.trim(),
-          )
-        const shadowColors =
-          pseudo.boxShadow.match(/(?:rgba?|hsla?|oklch|oklab|lab|lch)\([^)]+\)|#[\da-f]{3,8}/gi) || []
-        const hasVisibleShadow =
-          pseudo.boxShadow !== 'none' &&
-          (shadowColors.length === 0 || shadowColors.some((color) => !isTransparentMaterial(color)))
+        const nonTextContent = /^(?:url|image-set|linear-gradient|radial-gradient|conic-gradient)\(/i.test(
+          unquotedContent,
+        )
+        const hasVisibleContent = Boolean(unquotedContent && (nonTextContent || glyphPaintFor(pseudo)))
+        const hasVisibleShadow = hasVisibleBoxShadow(pseudo.boxShadow)
         const borders = {
           borderTop: `${pseudo.borderTopWidth} ${pseudo.borderTopStyle} ${pseudo.borderTopColor}`,
           borderRight: `${pseudo.borderRightWidth} ${pseudo.borderRightStyle} ${pseudo.borderRightColor}`,
@@ -1126,16 +2002,20 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           return (
             Number.parseFloat(width) > 0 &&
             !['none', 'hidden'].includes(style) &&
-            !isTransparentMaterial(colorParts.join(' '))
+            Boolean(normalizedPaintColor(colorParts.join(' ')))
           )
         })
-        const hasMaterial = !isTransparentMaterial(pseudo.backgroundColor) || hasVisibleShadow || hasVisibleBorder
-        if (!unquotedContent && !hasMaterial) continue
+        const hasMaterial =
+          Boolean(normalizedPaintColor(pseudo.backgroundColor)) || hasVisibleShadow || hasVisibleBorder
+        if (!hasVisibleContent && !hasMaterial) continue
+        const paint = pseudoPaintEvidenceFor(element, pseudo, !hasVisibleContent)
+        if (!paint) continue
         pseudoElements.push({
           key: `${kind}:${locatorFor(element)}`,
           sectionKey: section.key,
           target: locatorFor(element),
           kind,
+          paint,
           styles: {
             content: content.slice(0, 120),
             color: pseudo.color,
@@ -1146,6 +2026,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
             ...borders,
             boxShadow: pseudo.boxShadow,
             transform: pseudo.transform,
+            filter: pseudo.filter,
           },
         })
       }
@@ -1245,6 +2126,55 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (areaRatio >= 0.004) return 'supporting'
       return 'icon'
     }
+    const roleForMedia = (
+      element: Element,
+      kind: BrowserMediaKind,
+      importance: BrowserMediaImportance,
+      areaRatio: number,
+      computed: CSSStyleDeclaration,
+    ): { role: BrowserMediaRole; evidence: BrowserMediaRoleEvidence } => {
+      if (importance === 'icon') return { role: 'icon', evidence: 'importance-icon' }
+      if (kind === 'css-background' && areaRatio >= 0.5) {
+        return { role: 'ambient', evidence: 'css-background-area' }
+      }
+
+      const tag = element.tagName.toUpperCase()
+      const image = tag === 'IMG' ? (element as HTMLImageElement) : element.querySelector('img')
+      const alt = image?.getAttribute('alt')
+      const accessibleDescription = [alt, element.getAttribute('aria-label')]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .join(' ')
+        .trim()
+      const presentation =
+        ['none', 'presentation'].includes(element.getAttribute('role') || '') ||
+        (typeof alt === 'string' && alt.trim() === '')
+      if (presentation) return { role: 'decorative', evidence: 'presentation-semantics' }
+      const structuredOwner = element.closest('[itemscope][itemtype]')
+      const structuredProduct = (structuredOwner?.getAttribute('itemtype') || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .some((value) => {
+          try {
+            const type = new URL(value, document.baseURI)
+            return type.pathname.split('/').filter(Boolean).at(-1)?.toLowerCase() === 'product'
+          } catch {
+            return false
+          }
+        })
+      if (structuredProduct) {
+        return { role: 'product', evidence: 'structured-product-semantics' }
+      }
+      if (element.closest('figure')) return { role: 'narrative', evidence: 'figure-semantics' }
+      if (accessibleDescription) {
+        return { role: 'unknown', evidence: 'accessible-non-decorative' }
+      }
+      if (kind === 'video') return { role: 'unknown', evidence: 'media-element' }
+      if (areaRatio >= 0.5) return { role: 'unknown', evidence: 'large-visual' }
+      if (computed.position === 'absolute' || computed.position === 'fixed') {
+        return { role: 'unknown', evidence: 'positioned-visual' }
+      }
+      return { role: 'unknown', evidence: 'unknown' }
+    }
 
     // Dedupe repeated avatars (same src) and identical SVG shapes, then prioritize
     // major media so DOM order cannot crowd out hero/cover imagery with icons.
@@ -1280,20 +2210,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const kind = entry.kind
       const rect = element.getBoundingClientRect()
       const areaRatio = (rect.width * rect.height) / viewportArea
-      const semanticHint =
-        `${element.id} ${typeof element.className === 'string' ? element.className : ''}`.toLowerCase()
-      const role: BrowserMediaRole =
-        entry.importance === 'icon'
-          ? 'icon'
-          : kind === 'css-background' && areaRatio >= 0.5
-            ? 'ambient'
-            : /(?:product|device|mockup|screenshot|dashboard|preview)/.test(semanticHint)
-              ? 'product'
-              : areaRatio >= 0.5
-                ? 'narrative'
-                : computed.position === 'absolute' || computed.position === 'fixed'
-                  ? 'decorative'
-                  : 'unknown'
+      const classifiedRole = roleForMedia(element, kind, entry.importance, areaRatio, computed)
       const imageElement = tag === 'IMG' ? (element as HTMLImageElement) : null
       const sourceElement = tag === 'PICTURE' ? element.querySelector('img') : null
       const responsiveImage = imageElement || sourceElement
@@ -1312,7 +2229,8 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           key: `${kind}:${locatorFor(element)}`,
           sectionKey: section.key,
           kind,
-          role,
+          role: classifiedRole.role,
+          roleEvidence: classifiedRole.evidence,
           importance: entry.importance,
           rect: normalizedRect(element),
           zIndex: computed.zIndex,

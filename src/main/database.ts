@@ -6,8 +6,13 @@ import { app } from 'electron'
 import Database from 'better-sqlite3'
 
 import { normalizedAnalysisDurationMs } from '../core/analyzer/analysis-timing.js'
-import { routeIdentityFromUrl } from '../core/analyzer/reference-compare.js'
 import type { DesignToken, PageScreenshot } from '../core/analyzer/types.js'
+import {
+  PERSISTED_ROUTE_IDENTITY_VERSION,
+  explicitSourceRouteIdentity,
+  isOpaqueRouteIdentity,
+  opaqueRouteIdentity,
+} from '../core/analyzer/url-identity.js'
 import {
   redactUrlsInText,
   sanitizeDesignEvidenceForPersistence,
@@ -65,6 +70,7 @@ export function runDatabaseMigrations(database: Database.Database) {
       viewports TEXT DEFAULT '["desktop"]',
       duration_ms INTEGER,
       route_identity TEXT,
+      route_identity_version INTEGER,
       created_at TEXT NOT NULL
     );
 
@@ -110,6 +116,7 @@ export function runDatabaseMigrations(database: Database.Database) {
     ['capture_manifest_json', `TEXT`],
     ['completion_json', `TEXT`],
     ['route_identity', `TEXT`],
+    ['route_identity_version', `INTEGER`],
     ['site_name', `TEXT`],
     ['preview_path', `TEXT`],
   ]
@@ -131,8 +138,11 @@ export function runDatabaseMigrations(database: Database.Database) {
   for (const [name, definition] of themeSnapshotColumns) {
     if (!themeColumns.includes(name)) database.exec(`ALTER TABLE themes ADD COLUMN ${name} ${definition}`)
   }
+  const persistedUrlsAlreadySanitized = databaseMigrationApplied(database, 'persisted-url-and-summary-v1')
+  runMigrationOnce(database, 'opaque-analysis-route-identity-v1', () =>
+    migrateAnalysisRouteIdentities(database, persistedUrlsAlreadySanitized),
+  )
   runMigrationOnce(database, 'persisted-url-and-summary-v1', () => sanitizeStoredUrls(database))
-  backfillAnalysisRouteIdentities(database)
   runMigrationOnce(database, 'normalized-analysis-duration-v1', () => normalizeStoredAnalysisDurations(database))
   database.exec('CREATE INDEX IF NOT EXISTS idx_analyses_theme_id ON analyses(theme_id)')
   database.exec('CREATE INDEX IF NOT EXISTS idx_analyses_route_identity ON analyses(route_identity)')
@@ -142,12 +152,15 @@ export function runDatabaseMigrations(database: Database.Database) {
 }
 
 function runMigrationOnce(database: Database.Database, id: string, migrate: () => void): void {
-  const applied = database.prepare('SELECT 1 FROM app_migrations WHERE id = ?').get(id)
-  if (applied) return
+  if (databaseMigrationApplied(database, id)) return
   migrate()
   database
     .prepare('INSERT OR IGNORE INTO app_migrations (id, applied_at) VALUES (?, ?)')
     .run(id, new Date().toISOString())
+}
+
+function databaseMigrationApplied(database: Database.Database, id: string): boolean {
+  return Boolean(database.prepare('SELECT 1 FROM app_migrations WHERE id = ?').get(id))
 }
 
 function sanitizeSerializedTokens(value: string): string {
@@ -362,17 +375,43 @@ function removeUncommittedAnalysisAssets(database: Database.Database): void {
   if (removed > 0) log.info('db', `removed ${removed} assets from interrupted analyses`)
 }
 
-function backfillAnalysisRouteIdentities(database: Database.Database) {
+function migrateAnalysisRouteIdentities(database: Database.Database, persistedUrlsAlreadySanitized: boolean) {
   const records = database
-    .prepare(`SELECT id, url, final_url FROM analyses WHERE route_identity IS NULL OR route_identity = ''`)
-    .all() as Array<{ id: string; url: string; final_url: string | null }>
+    .prepare(`SELECT id, url, final_url, route_identity, route_identity_version, design_evidence_json FROM analyses`)
+    .all() as Array<{
+    id: string
+    url: string
+    final_url: string | null
+    route_identity: string | null
+    route_identity_version: number | null
+    design_evidence_json: string | null
+  }>
   if (records.length === 0) return
 
-  const update = database.prepare('UPDATE analyses SET route_identity = ? WHERE id = ?')
+  const update = database.prepare('UPDATE analyses SET route_identity = ?, route_identity_version = ? WHERE id = ?')
+  let migrated = 0
+  let ineligible = 0
   database.transaction(() => {
-    for (const record of records) update.run(routeIdentityFromUrl(record.final_url || record.url), record.id)
+    for (const record of records) {
+      let routeIdentity: string | null = null
+      if (isOpaqueRouteIdentity(record.route_identity)) {
+        routeIdentity = record.route_identity
+      } else if (!persistedUrlsAlreadySanitized) {
+        routeIdentity = opaqueRouteIdentity(record.final_url || record.url)
+      } else {
+        const explicitIdentity = explicitSourceRouteIdentity(readDesignEvidence(record.design_evidence_json))
+        if (isOpaqueRouteIdentity(explicitIdentity)) routeIdentity = explicitIdentity
+      }
+
+      const version = routeIdentity ? PERSISTED_ROUTE_IDENTITY_VERSION : null
+      if (record.route_identity === routeIdentity && record.route_identity_version === version) continue
+      update.run(routeIdentity, version, record.id)
+      if (routeIdentity) migrated += 1
+      else ineligible += 1
+    }
   })()
-  log.info('db', `backfilled route identity for ${records.length} analysis records`)
+  if (migrated > 0) log.info('db', `migrated ${migrated} analysis route identities to version 1`)
+  if (ineligible > 0) log.info('db', `left ${ineligible} query-redacted analysis records ineligible for comparison`)
 }
 
 function normalizeStoredAnalysisDurations(database: Database.Database) {

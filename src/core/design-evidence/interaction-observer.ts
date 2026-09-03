@@ -169,11 +169,12 @@ async function clickCandidate(
   }
 
   if (page.url() !== originalUrl || mainFrameNavigated || unsafeSideEffect) {
-    const recoveryBudget = Math.min(750, Math.max(1, deadline - Date.now()))
-    if (page.url() !== originalUrl) {
-      await page.goBack({ waitUntil: 'domcontentloaded', timeout: recoveryBudget }).catch(() => {})
-    } else if (mainFrameNavigated) {
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: recoveryBudget }).catch(() => {})
+    if ((page.url() !== originalUrl || mainFrameNavigated) && !page.isClosed()) {
+      const recoveryBudget = Math.min(1_500, Math.max(1, deadline - Date.now()))
+      // History is not a reliable recovery primitive here. A script can replace the current entry, and an aborted
+      // main-frame navigation can leave the previous entry as about:blank. Reload the exact observed document so a
+      // rejected probe cannot change the identity used by later capture stages.
+      await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: recoveryBudget }).catch(() => {})
     }
     return false
   }

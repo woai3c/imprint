@@ -9,7 +9,7 @@ import {
   NoUsableCapturesError,
   createAnalysisRequest,
 } from '../core/analyzer/index.js'
-import { routeIdentityFromUrl } from '../core/analyzer/reference-compare.js'
+import { PERSISTED_ROUTE_IDENTITY_VERSION, opaqueRouteIdentity } from '../core/analyzer/url-identity.js'
 import {
   formatExtractionIssueDiagnosticsForDisplay,
   sanitizeAuthWallDetectionForDisplay,
@@ -173,17 +173,17 @@ export function registerIpcHandlers() {
         const db = getDb()
         const analysisId = result.analysisId
         const viewports = effectiveOptions.viewports
-        const pagesAnalyzed = Math.max(1, new Set(displayedScreenshots.map((screenshot) => screenshot.url)).size)
+        const pagesAnalyzed = Math.max(1, persistedPageCoverage.analyzed)
         const siteName = analysisSiteName(displayUrl, persistedEvidence)
         const previewPath = displayedScreenshots[0]?.thumbnailPath || null
         db.prepare(
           `INSERT INTO analyses
            (id, url, pages_analyzed, viewports, duration_ms, created_at, site_name, preview_path,
             tokens_json, css_variables, tailwind_theme, design_doc, page_screenshots_json,
-             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url, route_identity,
+             feature_tags_json, dark_tokens_json, dark_mode_method, dark_mode_selector, has_dark_mode, access_mode, auth_wall_detected, final_url, route_identity, route_identity_version,
              design_evidence_json, design_profile_json, evidence_coverage_json,
              validation_report_json, analysis_timing_json, capture_manifest_json, completion_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           analysisId,
           displayUrl,
@@ -206,7 +206,8 @@ export function registerIpcHandlers() {
           result.accessMode ?? null,
           result.authWallDetected ? 1 : 0,
           persistedFinalUrl,
-          routeIdentityFromUrl(persistedFinalUrl || displayUrl),
+          opaqueRouteIdentity(result.finalUrl || request.url),
+          PERSISTED_ROUTE_IDENTITY_VERSION,
           artifacts.evidenceJson,
           JSON.stringify(deterministicContext.profile),
           JSON.stringify(persistedEvidence.coverage),

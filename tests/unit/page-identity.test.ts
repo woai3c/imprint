@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  isMeaningfulPageIdentity,
   pageIdentityFromMetadata,
   resolveDesignSystemName,
   sanitizePageIdentity,
@@ -41,7 +42,6 @@ describe('page identity', () => {
     'Access denied',
     'Just a moment...',
     'Checking your browser',
-    'Cloudflare',
     'Captcha challenge',
     'Error',
   ])('rejects generic or interstitial title %s', (title) => {
@@ -86,7 +86,15 @@ describe('page identity', () => {
     })
   })
 
-  test('rejects entry metadata from unusable or blocked page health', () => {
+  test('retains healthy brand metadata without vendor-specific filtering', () => {
+    expect(isMeaningfulPageIdentity('Cloudflare')).toBe(true)
+    expect(pageIdentityFromMetadata({ applicationName: 'Cloudflare', title: 'Cloudflare' })).toEqual({
+      siteName: 'Cloudflare',
+      title: 'Cloudflare',
+    })
+  })
+
+  test('rejects entry metadata when generic page health evidence is blocked', () => {
     expect(
       pageIdentityFromMetadata({
         applicationName: 'Cloudflare',

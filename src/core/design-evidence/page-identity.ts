@@ -12,7 +12,6 @@ const GENERIC_IDENTITY_PATTERNS = [
 const INTERSTITIAL_IDENTITY_PATTERNS = [
   /\bjust a moment\b/i,
   /\bchecking your browser\b/i,
-  /\bcloudflare\b/i,
   /\bcaptcha\b/i,
   /\bhuman verification\b/i,
 ]

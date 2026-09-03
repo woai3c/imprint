@@ -1,6 +1,6 @@
 import type { DesignEvidence } from '../design-evidence/types.js'
 import type { AuthWallDetection } from './auth-wall.js'
-import type { DesignToken, ExtractionIssue, PageCoverage, PageScreenshot } from './types.js'
+import type { DesignToken, ExtractionIssue, PageCoverage, PageScreenshot, TokenEvidence } from './types.js'
 
 export function sanitizeUrlForPersistence(value: string): string {
   try {
@@ -87,20 +87,63 @@ export function sanitizeDesignTokensForPersistence(tokens: DesignToken): DesignT
           : {}),
       }
     : undefined
-  if (!tokens.evidence && !colorRoles) return tokens
+  const sanitizeTokenEvidence = <T extends TokenEvidence>(evidence: T): T =>
+    ({
+      ...evidence,
+      pages: evidence.pages.map(sanitizeUrlForPersistence),
+      ...(evidence.renderedTextOwners
+        ? {
+            renderedTextOwners: evidence.renderedTextOwners.map((owner) => ({
+              ...owner,
+              page: sanitizeUrlForPersistence(owner.page),
+            })),
+          }
+        : {}),
+      ...(evidence.pairedSurface
+        ? {
+            pairedSurface: {
+              ...evidence.pairedSurface,
+              routeSupport: evidence.pairedSurface.routeSupport.map((route) => ({
+                ...route,
+                page: sanitizeUrlForPersistence(route.page),
+              })),
+            },
+          }
+        : {}),
+    }) as T
+  const candidates = tokens.candidates
+    ? {
+        ...tokens.candidates,
+        ...(tokens.candidates.colors
+          ? {
+              colors: tokens.candidates.colors.map((candidate) => ({
+                ...candidate,
+                ...(candidate.pages ? { pages: candidate.pages.map(sanitizeUrlForPersistence) } : {}),
+              })),
+            }
+          : {}),
+        ...(tokens.candidates.values
+          ? {
+              values: tokens.candidates.values.map((candidate) => ({
+                ...candidate,
+                evidence: sanitizeTokenEvidence(candidate.evidence),
+              })),
+            }
+          : {}),
+      }
+    : undefined
+  if (!tokens.evidence && !colorRoles && !candidates) return tokens
   return {
     ...tokens,
     ...(tokens.evidence
       ? {
           evidence: Object.fromEntries(
-            Object.entries(tokens.evidence).map(([key, evidence]) => [
-              key,
-              { ...evidence, pages: evidence.pages.map(sanitizeUrlForPersistence) },
-            ]),
+            Object.entries(tokens.evidence).map(([key, evidence]) => [key, sanitizeTokenEvidence(evidence)]),
           ),
         }
       : {}),
     ...(colorRoles ? { colorRoles } : {}),
+    ...(candidates ? { candidates } : {}),
   }
 }
 

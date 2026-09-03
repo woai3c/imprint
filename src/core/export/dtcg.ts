@@ -1,4 +1,5 @@
 import type { DesignToken } from '../analyzer/types.js'
+import { sanitizeDesignTokensForPersistence } from '../analyzer/url-privacy.js'
 import { type DarkModeExportData, normalizeDarkSelector } from './dark-mode.js'
 import { RADIUS_NAMES, SHADOW_NAMES, proseDurationName } from './token-names.js'
 
@@ -81,18 +82,20 @@ function createDtcgGroups(tokens: DesignToken): Record<string, unknown> {
 }
 
 export function generateDtcgJson(tokens: DesignToken, darkMode?: DarkModeExportData): string {
+  const publicTokens = sanitizeDesignTokensForPersistence(tokens)
   const dtcg: Record<string, unknown> = {
     $schema: 'https://design-tokens.github.io/community-group/format/',
-    ...createDtcgGroups(tokens),
+    ...createDtcgGroups(publicTokens),
   }
 
   if (darkMode?.hasDarkMode && darkMode.darkTokens) {
-    dtcg.dark = createDtcgGroups(darkMode.darkTokens)
+    dtcg.dark = createDtcgGroups(sanitizeDesignTokensForPersistence(darkMode.darkTokens))
     dtcg.$extensions = {
       ...(dtcg.$extensions as Record<string, unknown>),
       'com.imprint.darkMode': {
         method: darkMode.method || 'none',
         ...(darkMode.method === 'class-toggle' ? { selector: normalizeDarkSelector(darkMode.selector) } : {}),
+        ...(darkMode.overrides ? { overrides: darkMode.overrides } : {}),
       },
     }
   }

@@ -28,7 +28,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "pnpm build && pnpm test:packaged && pnpm build:cli && pnpm exec electron-rebuild --force --only better-sqlite3 && node --test tests/e2e/*.test.mjs",
+    "test:e2e": "pnpm build && pnpm test:packaged && pnpm build:cli && pnpm exec electron-rebuild --force --only better-sqlite3 && node --test --test-concurrency=1 tests/e2e/*.test.mjs",
     "test:packaged": "node scripts/smoke-test-packaged-app.mjs",
     "test:all": "pnpm test && pnpm test:e2e",
     "test:comparison-site": "node tests/comparison-site/server.mjs",
@@ -46,7 +46,8 @@
     "release:notes": "node scripts/extract-release-notes.mjs",
     "release:collect": "node scripts/collect-release-artifacts.mjs",
     "prepare": "husky",
-    "test:design-evidence": "vitest run -c vitest.design-evidence.config.ts"
+    "test:design-evidence": "vitest run -c vitest.design-evidence.config.ts",
+    "audit:design-doc": "node scripts/audit-design-doc.mjs"
   },
   "bin": {
     "imprint": "./dist/cli/index.js",

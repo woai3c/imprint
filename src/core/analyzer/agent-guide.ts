@@ -139,10 +139,15 @@ export function generateDosAndDonts(
     hasDeclaredBreakpoints?: boolean
     hasObservedResponsiveBehavior?: boolean
     surfaceShadowScope?: 'foundation' | 'component-only' | 'none'
+    /** P0 transfer categories. Undefined preserves legacy token-only guide behavior. */
+    coreRuleCategories?: readonly string[]
   } = {},
 ): string {
   const t = coreTranslator(language, 'agentGuide')
   const lines: string[] = []
+  const scopedByTransferGrammar = responsiveEvidence.coreRuleCategories !== undefined
+  const hasCoreRule = (category: string): boolean =>
+    !scopedByTransferGrammar || Boolean(responsiveEvidence.coreRuleCategories?.includes(category))
 
   // The canonical English heading is required by the DESIGN.md alpha parser;
   // localized guidance remains below it.
@@ -151,21 +156,21 @@ export function generateDosAndDonts(
   lines.push(t('dos.heading'))
   lines.push('')
 
-  if (Object.keys(tokens.colors).length > 0) {
+  if (Object.keys(tokens.colors).length > 0 && hasCoreRule('color')) {
     lines.push(t('dos.colorTokens'))
   }
-  if (tokens.spacing.length > 0) {
+  if (tokens.spacing.length > 0 && hasCoreRule('density')) {
     lines.push(t('dos.spacingScale'))
   }
 
   // Font-specific
   const primaryFont = tokens.typography.fontStacks?.[0] || tokens.typography.fontFamilies[0]
-  if (primaryFont) {
+  if (primaryFont && hasCoreRule('typography')) {
     lines.push(t('dos.primaryFont', { font: primaryFont }))
   }
 
   // Radius-specific
-  if (tokens.radii.length > 0) {
+  if (tokens.radii.length > 0 && hasCoreRule('shape')) {
     const regularRadii = tokens.radii
       .flatMap((radius) => {
         const match = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))(px|rem|em)?$/i.exec(radius.trim())
@@ -219,40 +224,42 @@ export function generateDosAndDonts(
   // Shadow-specific
   const hasObservedDepthShadow = tokens.shadows.some(hasDepthShadow)
   const surfaceShadowScope = responsiveEvidence.surfaceShadowScope || (hasObservedDepthShadow ? 'foundation' : 'none')
-  if (hasObservedDepthShadow && surfaceShadowScope === 'foundation') {
+  if (hasObservedDepthShadow && surfaceShadowScope === 'foundation' && hasCoreRule('surface')) {
     lines.push(t('dos.shadows'))
   } else if (hasObservedDepthShadow && surfaceShadowScope === 'component-only') {
     lines.push(t('dos.componentScopedShadows'))
-  } else {
+  } else if (hasCoreRule('surface')) {
     lines.push(t('dos.noShadowScale'))
   }
 
-  if (responsiveEvidence.hasObservedResponsiveBehavior) {
+  if (responsiveEvidence.hasObservedResponsiveBehavior && hasCoreRule('composition')) {
     lines.push(t('dos.observedResponsive'))
-  } else if (responsiveEvidence.hasDeclaredBreakpoints) {
+  } else if (responsiveEvidence.hasDeclaredBreakpoints && hasCoreRule('composition')) {
     lines.push(t('dos.declaredBreakpoints'))
   }
 
   // Spacing-specific
-  if (tokens.spacing.length >= 4) {
+  if (tokens.spacing.length >= 4 && hasCoreRule('density')) {
     lines.push(t('dos.recurringSpacing'))
   }
 
+  if (scopedByTransferGrammar && lines.length === 4) lines.push(t('dos.noGlobalRules'))
+
   const donts: string[] = []
-  if (Object.keys(tokens.colors).length > 0) {
+  if (Object.keys(tokens.colors).length > 0 && hasCoreRule('color')) {
     const hasDerivedAccessibilityColor = Boolean(tokens.colorRoles?.primaryAction?.recommendedOnPrimary)
     donts.push(t(hasDerivedAccessibilityColor ? 'donts.derivedColors' : 'donts.newColors'))
   }
-  if (tokens.spacing.length > 0) {
+  if (tokens.spacing.length > 0 && hasCoreRule('density')) {
     donts.push(t('donts.spacingSystems'))
   }
 
-  if (tokens.typography.fontFamilies.length === 1) {
+  if (tokens.typography.fontFamilies.length === 1 && hasCoreRule('typography')) {
     donts.push(t('donts.fontFamilies'))
   }
 
   const weights = tokens.typography.fontWeights
-  if (weights.length > 0 && weights.length <= 3) {
+  if (weights.length > 0 && weights.length <= 3 && hasCoreRule('typography')) {
     donts.push(t('donts.fontWeights', { weights: weights.join(', ') }))
   }
 

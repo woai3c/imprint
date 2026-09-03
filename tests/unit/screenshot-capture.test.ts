@@ -70,6 +70,8 @@ describe('validated screenshots', () => {
   })
 
   it('bounds a CDP screenshot command that never settles', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
     const filePath = temporaryPngPath()
     const detach = vi.fn(async () => {})
     const page = {
@@ -82,7 +84,9 @@ describe('validated screenshots', () => {
       screenshot: vi.fn().mockRejectedValue(new Error('Screenshot unavailable')),
     } as unknown as Page
 
-    await expect(captureValidatedViewport(page, filePath, 375, 812, 5)).resolves.toEqual({
+    const capture = captureValidatedViewport(page, filePath, 375, 812, 5)
+    await vi.runAllTimersAsync()
+    await expect(capture).resolves.toEqual({
       dimensions: null,
       valid: false,
     })

@@ -34,6 +34,16 @@ const evidence = {
       },
       images: [{ id: 'image-1', kind: 'viewport-crop', path: 'unused.png', width: 1440, height: 900 }],
     },
+    {
+      id: 'page-2',
+      url: 'https://example.com/about',
+      viewport: 'desktop',
+      role: 'content',
+      viewportWidth: 1440,
+      contentWidth: 1440,
+      horizontalOverflow: false,
+      images: [],
+    },
   ],
   tokens: {
     colors: { primary: '#123456' },
@@ -74,6 +84,19 @@ const evidence = {
       confidence: 1,
       evidenceRefs: ['image-1'],
     },
+    {
+      id: 'component-2',
+      pageId: 'page-2',
+      sectionId: 'section-2',
+      type: 'button',
+      role: 'primary-action',
+      rect: { x: 0, y: 0, width: 0.1, height: 0.05 },
+      styles: { backgroundColor: '#123456', borderRadius: '8px' },
+      tokenRefs: ['color.primary'],
+      stateRefs: [],
+      confidence: 1,
+      evidenceRefs: [],
+    },
   ],
   layoutNodes: [],
   interactionStyles: { hover: [], focus: [], active: [] },
@@ -97,10 +120,12 @@ const evidence = {
 describe('optional deterministic exports', () => {
   it('exports aggregated component specifications only when requested', () => {
     const payload = JSON.parse(generateComponentSpecsJson(evidence))
+    expect(payload.schemaVersion).toBe('2')
     expect(payload.components[0]).toMatchObject({
       component: 'button',
       role: 'primary-action',
-      sourceInstances: 1,
+      sourceInstances: 2,
+      pageCount: 2,
       styles: { backgroundColor: ['#123456'], borderRadius: ['8px'] },
     })
   })

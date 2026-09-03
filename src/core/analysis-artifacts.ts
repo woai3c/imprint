@@ -1,4 +1,5 @@
 import type { DocLanguage } from './analyzer/agent-guide.js'
+import { hasCompleteTokenPromotionEvidence, promotePortableDesignTokens } from './analyzer/token-promotion.js'
 import type { AnalysisResult, DesignToken } from './analyzer/types.js'
 import {
   sanitizeDesignEvidenceForPersistence,
@@ -62,9 +63,12 @@ export function buildAnalysisArtifacts(
 ): AnalysisArtifactBundle {
   const language = options.language || 'en'
   const contextEvidence = options.contextEvidence || result.designEvidence
-  const tokens = sanitizeDesignTokensForPersistence(result.tokens)
+  const tokens = sanitizeDesignTokensForPersistence(structuredClone(result.tokens))
+  // Current records carry the full promotion metadata and can be defensively projected again at the shared artifact
+  // boundary. Legacy records without those optional fields retain their historical indices for compatibility.
+  if (hasCompleteTokenPromotionEvidence(tokens)) promotePortableDesignTokens(tokens)
   const evidence = sanitizeDesignEvidenceForPersistence(contextEvidence)
-  const rawDarkMode = buildDarkModeExportData(result.darkMode)
+  const rawDarkMode = buildDarkModeExportData(result.darkMode, tokens, contextEvidence)
   const darkMode = rawDarkMode?.darkTokens
     ? { ...rawDarkMode, darkTokens: sanitizeDesignTokensForPersistence(rawDarkMode.darkTokens) }
     : rawDarkMode

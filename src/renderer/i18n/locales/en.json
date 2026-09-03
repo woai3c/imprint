@@ -1107,6 +1107,7 @@
         "issueSeparator": ", ",
         "issues": {
           "large-overlay": "a visible overlay",
+          "partial-overlay": "a non-blocking edge overlay",
           "main-content-empty": "empty main content",
           "skeleton-heavy": "a dominant loading skeleton",
           "fonts-not-ready": "fonts that were not ready",
@@ -1251,6 +1252,7 @@
       },
       "reasons": {
         "missing-evidence": "One capture does not contain Design Evidence.",
+        "ambiguous-page-provenance": "A legacy capture cannot assign token evidence to distinct query-addressed pages after URL redaction.",
         "missing-capture-manifest": "One capture does not contain a Capture Manifest.",
         "schema-mismatch": "The captures use different evidence schema versions.",
         "capture-manifest-schema-mismatch": "The captures use different Capture Manifest schema versions.",

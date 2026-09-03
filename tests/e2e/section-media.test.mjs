@@ -92,6 +92,44 @@ test('recovers real content sections from layered app shells', async () => {
   }
 })
 
+test('derives stable semantic section identities when same-tag insertion shifts nth-of-type locators', async () => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const shell = (sections) => `<!doctype html>
+    <style>body{margin:0}main{padding:24px}section{min-height:140px;margin:12px;padding:20px;border:1px solid #ddd}</style>
+    <main><h1>Reference page</h1>${sections}</main>`
+  await page.setContent(
+    shell(`
+      <section><h2>Alpha foundation</h2><p>Stable content with enough structure for a visual region.</p></section>
+      <section><h2>Beta components</h2><p>Stable content with enough structure for a visual region.</p></section>`),
+  )
+  const desktop = await extractPageEvidence(page, 'desktop')
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.setContent(
+    shell(`
+      <section><h2>Mobile promotion</h2><p>An inserted region shifts every following section locator.</p></section>
+      <section><h2>Alpha foundation</h2><p>Stable content with enough structure for a visual region.</p></section>
+      <section><h2>Beta components</h2><p>Stable content with enough structure for a visual region.</p></section>`),
+  )
+  const mobile = await extractPageEvidence(page, 'mobile')
+  const desktopByIdentity = new Map(
+    desktop.sections.flatMap((section) => (section.identityKey ? [[section.identityKey, section]] : [])),
+  )
+  const stableMatches = mobile.sections.flatMap((section) => {
+    const desktopSection = section.identityKey ? desktopByIdentity.get(section.identityKey) : undefined
+    return desktopSection ? [{ desktop: desktopSection, mobile: section }] : []
+  })
+
+  assert.ok(stableMatches.length >= 2)
+  assert.ok(
+    stableMatches.some(
+      ({ desktop: desktopSection, mobile: mobileSection }) => desktopSection.key !== mobileSection.key,
+    ),
+    'at least one semantic match must survive an nth-of-type shift',
+  )
+  await page.setViewportSize({ width: 1280, height: 800 })
+})
+
 test('keeps nested landmark headers and navigation scoped to their owner', async () => {
   await page.setContent(`<!doctype html>
     <style>
@@ -607,4 +645,54 @@ test('separates major media from icons and dedupes repeated shapes', async () =>
   const navIcons = icons.filter((media) => media.kind === 'svg')
   assert.equal(navIcons.length, 1, `identical SVG shapes must dedupe to one instance, got ${navIcons.length}`)
   assert.ok(icons.length <= 13, `icon instances must be capped per section, got ${icons.length}`)
+})
+
+test('classifies media from explicit semantics without depending on English content keywords', async () => {
+  const image = (fill) =>
+    `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='${fill}'/%3E%3C/svg%3E`
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin: 0; }
+      main { display: grid; grid-template-columns: repeat(2, 320px); gap: 24px; padding: 24px; }
+      img { display: block; width: 320px; height: 180px; }
+    </style>
+    <body>
+      <main>
+        <figure>
+          <img id="editorial-figure" src="${image('%23336699')}" alt="Screenshot of the dashboard discussed in this article">
+          <figcaption>Editorial evidence</figcaption>
+        </figure>
+        <article itemscope itemtype="https://schema.org/Product">
+          <img id="structured-product" itemprop="image" src="${image('%23993366')}" alt="设备外观">
+        </article>
+        <img id="multilingual-description" src="${image('%23339966')}" alt="文章中介绍的建筑照片">
+        <img id="unknown-media" src="${image('%23666666')}">
+      </main>
+    </body>`)
+
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const media = (roleEvidence) => evidence.mediaLayers.find((item) => item.roleEvidence === roleEvidence)
+
+  assert.deepEqual(
+    { role: media('figure-semantics')?.role, roleEvidence: media('figure-semantics')?.roleEvidence },
+    { role: 'narrative', roleEvidence: 'figure-semantics' },
+  )
+  assert.deepEqual(
+    {
+      role: media('structured-product-semantics')?.role,
+      roleEvidence: media('structured-product-semantics')?.roleEvidence,
+    },
+    { role: 'product', roleEvidence: 'structured-product-semantics' },
+  )
+  assert.deepEqual(
+    {
+      role: media('accessible-non-decorative')?.role,
+      roleEvidence: media('accessible-non-decorative')?.roleEvidence,
+    },
+    { role: 'unknown', roleEvidence: 'accessible-non-decorative' },
+  )
+  assert.deepEqual(
+    { role: media('unknown')?.role, roleEvidence: media('unknown')?.roleEvidence },
+    { role: 'unknown', roleEvidence: 'unknown' },
+  )
 })

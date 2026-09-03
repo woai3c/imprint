@@ -9,6 +9,7 @@ const FEATURE_TAG_KEYS: Record<string, string> = {
   'compact-radius surfaces observed': 'compactRadiusSurfaces',
   'no stable shadow scale observed': 'noStableShadowScale',
   'layered elevation system': 'layeredElevationSystem',
+  'observed layered elevation': 'observedLayeredElevation',
   'weight contrast hierarchy': 'weightContrastHierarchy',
   'extensive CSS variable usage': 'extensiveCssVariableUsage',
   'section-level gradient and compound-radius treatments observed': 'sectionGradientAndCompoundRadius',

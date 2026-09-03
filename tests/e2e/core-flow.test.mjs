@@ -166,8 +166,10 @@ test('extracts and persists a deterministic local design system', { timeout: 300
 
     await page.getByTestId('analysis-result').waitFor({ state: 'visible', timeout: 90_000 })
     assert.equal(await page.getByTestId('analysis-source').textContent(), '127.0.0.1')
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 6)
-    assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 2)
+    // The three discovered routes intentionally return the same structure. Capture one requested mobile entry view,
+    // but do not manufacture an adaptive mobile distinction from route names alone.
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 5)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').filter({ hasText: 'Mobile' }).count(), 1)
     const immediateThumbnailSize = await page
       .getByTestId('analysis-page-screenshot')
       .first()
@@ -467,7 +469,7 @@ test('extracts and persists a deterministic local design system', { timeout: 300
     await page
       .locator(`[data-testid="analysis-result"][data-source-url="${privateUrl}"][data-access-mode="managed"]`)
       .waitFor({ state: 'visible', timeout: 90_000 })
-    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 6)
+    assert.equal(await page.getByTestId('analysis-page-screenshot').count(), 5)
     await page.getByTestId('anonymous-auth-warning').waitFor({ state: 'detached', timeout: 30_000 })
 
     const originalSavedTheme = await page.evaluate(async () => {

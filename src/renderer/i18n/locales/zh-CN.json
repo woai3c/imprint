@@ -1059,6 +1059,7 @@
         "issueSeparator": "、",
         "issues": {
           "large-overlay": "存在遮罩",
+          "partial-overlay": "存在非阻断式边缘遮挡",
           "main-content-empty": "主内容为空",
           "skeleton-heavy": "骨架屏占比过高",
           "fonts-not-ready": "字体未加载完成",
@@ -1200,6 +1201,7 @@
       },
       "reasons": {
         "missing-evidence": "其中一次捕获不包含设计证据。",
+        "ambiguous-page-provenance": "旧版捕获在网址脱敏后无法把令牌证据可靠归属到不同的查询参数页面。",
         "missing-capture-manifest": "其中一次捕获不包含捕获清单。",
         "schema-mismatch": "两次捕获使用了不同的证据结构版本。",
         "capture-manifest-schema-mismatch": "两次捕获使用了不同的捕获清单结构版本。",

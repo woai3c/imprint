@@ -213,6 +213,7 @@ export function registerThemeIpcHandlers(): void {
           tokens,
           theme.dark_mode_method,
           theme.dark_mode_selector,
+          evidence,
         )
         designDoc = generateDesignDoc({
           tokens,

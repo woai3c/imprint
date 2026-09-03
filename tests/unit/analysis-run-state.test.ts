@@ -8,7 +8,7 @@ afterEach(() => {
 })
 
 describe('AnalysisRunState', () => {
-  it('deduplicates page identities and reports progress from one state owner', () => {
+  it('counts query documents separately while deduplicating fragments and reports progress from one state owner', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const reports: AnalysisProgress[] = []
@@ -22,11 +22,12 @@ describe('AnalysisRunState', () => {
     state.setDiscoveredPageCount(3)
     vi.setSystemTime(1_500)
     state.markPageReady('https://user:secret@example.com/products?campaign=a#details')
+    state.markPageReady('https://example.com/products?campaign=a#overview')
     state.markPageReady('https://example.com/products?campaign=b')
 
-    expect(state.analyzedPageCount).toBe(1)
+    expect(state.analyzedPageCount).toBe(2)
     expect(reports.at(-1)).toMatchObject({
-      analyzedPages: 1,
+      analyzedPages: 2,
       discoveredPages: 3,
       resultReady: true,
       activeElapsedMs: 500,

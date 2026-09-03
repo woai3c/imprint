@@ -9,6 +9,8 @@ describe('CLI document formats', () => {
   test('keeps reconstruction out of the public export surface', () => {
     const formats = resolveCliExportFormats('all', { hasProfile: true })
     expect(formats).toContain('profile')
+    expect(formats).toContain('components')
+    expect(formats).toContain('visual-qa')
     expect(formats).not.toContain('reconstruction')
     expect(formats).not.toContain('brief')
     expect(resolveCliExportFormats('all', { hasProfile: false })).not.toContain('profile')

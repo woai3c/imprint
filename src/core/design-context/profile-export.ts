@@ -1,8 +1,10 @@
 import type { DesignToken } from '../analyzer/types.js'
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
+import { selectBalancedComponentDetails } from './component-catalog.js'
 import { formatRecipeVariant } from './component-recipe-label.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 import type { ComponentRecipe, ComponentRecipeRestriction, PrioritizedDesignRule, StyleCoordinate } from './types.js'
@@ -60,6 +62,13 @@ function buildClaimScopeFormatter(
   if (!evidence) return () => null
 
   const pages = new Map(evidence.pages.map((page) => [page.id, page]))
+  const routesByPublicUrl = new Map<string, Set<string>>()
+  for (const page of evidence.pages) {
+    const publicUrl = scopeUrl(page.url)
+    const routes = routesByPublicUrl.get(publicUrl) || new Set<string>()
+    routes.add(evidencePageRouteIdentity(page))
+    routesByPublicUrl.set(publicUrl, routes)
+  }
   const pageIds = new Map<string, string>()
   const add = (evidenceId: string, pageId: string): void => {
     pageIds.set(evidenceId, pageId)
@@ -82,20 +91,23 @@ function buildClaimScopeFormatter(
   })
 
   return (claim) => {
-    const viewportsByUrl = new Map<string, Set<string>>()
+    const scopesByRoute = new Map<string, { label: string; viewports: Set<string> }>()
     for (const evidenceId of claimEvidenceIds(claim)) {
       const page = pages.get(pageIds.get(evidenceId) || '')
       if (!page) continue
-      const url = scopeUrl(page.url)
-      const viewports = viewportsByUrl.get(url) || new Set<string>()
-      viewports.add(page.viewport)
-      viewportsByUrl.set(url, viewports)
+      const routeIdentity = evidencePageRouteIdentity(page)
+      const publicUrl = scopeUrl(page.url)
+      const label =
+        (routesByPublicUrl.get(publicUrl)?.size || 0) > 1 && page.routeId ? `${publicUrl} · ${page.routeId}` : publicUrl
+      const scope = scopesByRoute.get(routeIdentity) || { label, viewports: new Set<string>() }
+      scope.viewports.add(page.viewport)
+      scopesByRoute.set(routeIdentity, scope)
     }
-    const scopes = [...viewportsByUrl.entries()]
-      .sort(([first], [second]) => first.localeCompare(second))
+    const scopes = [...scopesByRoute.values()]
+      .sort((first, second) => first.label.localeCompare(second.label))
       .map(
-        ([url, viewports]) =>
-          `${url} · ${[...viewports]
+        ({ label, viewports }) =>
+          `${label} · ${[...viewports]
             .sort()
             .map((viewport) => translatedTerm(viewport, t))
             .join('/')}`,
@@ -393,6 +405,7 @@ function claimLines(
 interface ClaimExportContext {
   t: ReturnType<typeof coreTranslator>
   formatText: (text: string) => string
+  formatTokenNames: (claim: DesignClaim) => string | null
   formatTokenRefs: (claim: DesignClaim) => string | null
   scopeForClaim: (claim: DesignClaim) => string | null
 }
@@ -432,9 +445,17 @@ function createClaimExportContext(
     })
     return refs?.length ? refs.join(t('listSeparator')) : null
   }
+  const formatTokenNames = (claim: DesignClaim): string | null => {
+    const refs = claim.tokenRefs?.flatMap((ref) => {
+      const mapped = aliasRefs.get(ref) ?? ref
+      return !referenceTokens || resolveDesignTokenRef(referenceTokens, ref) ? [`\`${mapped}\``] : []
+    })
+    return refs?.length ? refs.join(t('listSeparator')) : null
+  }
   return {
     t,
     formatText,
+    formatTokenNames,
     formatTokenRefs,
     scopeForClaim: buildClaimScopeFormatter(evidence, t),
   }
@@ -500,16 +521,31 @@ const COMMON_RECIPE_RESTRICTIONS = new Set<ComponentRecipeRestriction>([
 ])
 
 function recipeLines(recipe: ComponentRecipe, context: TransferExportContext): string[] {
-  const tokens = context.formatTokenRefs(recipe.observed)
+  const tokens = context.formatTokenNames(recipe.observed)
+  const observedStyles = Object.entries(recipe.observedStyles || {})
+    .map(
+      ([property, value]) =>
+        `\`${property.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`)}: ${value}\``,
+    )
+    .join(context.t('listSeparator'))
   const specificRestrictions = recipe.restrictions.filter((restriction) => !COMMON_RECIPE_RESTRICTIONS.has(restriction))
   const result = [
     `#### ${recipeLabel(recipe, context)}`,
     '',
-    `_${context.t('transfer.sourceInstances', { count: recipe.sourceInstances })} · ${context.t(`confidence.${recipe.confidence}`)}_`,
+    `_${context.t('transfer.recipeEvidence', {
+      count: recipe.matchingStyleInstances ?? recipe.sourceInstances,
+      pages: recipe.pageCount ?? 1,
+      identity: recipe.identityConfidence?.toFixed(2) ?? context.t(`confidence.${recipe.confidence}`),
+      reuse: recipe.reuseConfidence?.toFixed(2) ?? context.t(`confidence.${recipe.confidence}`),
+      scope: context.t(`transfer.reuseScopes.${recipe.reuseScope || 'isolated'}`),
+    })}_`,
     '',
     `- **${context.t('transfer.useWhen')}${context.t('labelSeparator')}** ${context.t(`transfer.useWhenValues.${recipe.useWhen}`)}`,
     `- **${context.t('transfer.observedRecipe')}${context.t('labelSeparator')}** ${context.formatText(recipe.observed.statement)}`,
     ...(tokens ? [`  - **${context.t('relatedTokens')}${context.t('labelSeparator')}** ${tokens}`] : []),
+    ...(observedStyles
+      ? [`  - **${context.t('transfer.observedStyles')}${context.t('labelSeparator')}** ${observedStyles}`]
+      : []),
   ]
   if (recipe.states.length > 0) {
     result.push(
@@ -576,12 +612,27 @@ export function generateTransferComponentsMarkdown(
   const grammar = profile.transferGrammar
   if (!grammar) return ''
   const context = createTransferExportContext(profile, tokens, publicColorNames, evidence)
-  const recipes = grammar.componentRecipes.filter((recipe) => recipe.priority === 'P1')
+  const allRecipes = grammar.componentRecipes.filter((recipe) => recipe.priority === 'P1')
+  const recipes = selectBalancedComponentDetails(allRecipes)
+  const omittedRecipes = allRecipes.filter((recipe) => !recipes.includes(recipe))
+  const omittedByType = new Map<string, number>()
+  for (const recipe of omittedRecipes) {
+    omittedByType.set(recipe.component, (omittedByType.get(recipe.component) || 0) + 1)
+  }
+  const omittedSummary = [...omittedByType.entries()]
+    .sort(([first], [second]) => first.localeCompare(second))
+    .map(([component, count]) =>
+      context.t('transfer.omittedP1RecipeType', { component: translatedTerm(component, context.t), count }),
+    )
+    .join(context.t('listSeparator'))
   return [
     context.t('transfer.componentsHeading'),
     '',
     context.t('transfer.componentsIntro'),
     '',
+    ...(omittedRecipes.length > 0
+      ? [`> ${context.t('transfer.omittedP1Recipes', { count: omittedRecipes.length, summary: omittedSummary })}`, '']
+      : []),
     ...(recipes.length > 0
       ? recipes.flatMap((recipe) => recipeLines(recipe, context))
       : [context.t('transfer.noP1Recipes')]),
@@ -617,9 +668,20 @@ export function generateTransferBoundariesMarkdown(
   lines.push('', `#### ${context.t('transfer.localRecipes')}`, '')
   if (p2Recipes.length === 0) lines.push(`- ${context.t('transfer.none')}`)
   else {
+    const groups = new Map<string, { patterns: number; instances: number }>()
     for (const recipe of p2Recipes) {
+      const group = groups.get(recipe.component) || { patterns: 0, instances: 0 }
+      group.patterns += 1
+      group.instances += recipe.sourceInstances
+      groups.set(recipe.component, group)
+    }
+    for (const [component, summary] of [...groups].sort(([first], [second]) => first.localeCompare(second))) {
       lines.push(
-        `- **${recipeLabel(recipe, context)}${context.t('labelSeparator')}** ${context.t(`transfer.useWhenValues.${recipe.useWhen}`)} _(${context.t('transfer.sourceInstances', { count: recipe.sourceInstances })})_`,
+        `- ${context.t('transfer.localRecipeSummary', {
+          component: translatedTerm(component, context.t),
+          patterns: summary.patterns,
+          instances: summary.instances,
+        })}`,
       )
     }
   }

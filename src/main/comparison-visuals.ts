@@ -14,7 +14,7 @@ interface ComparisonVisualPairOptions {
 }
 
 function screenshotKey(screenshot: PageScreenshotData): string {
-  return `${routeIdentityFromUrl(screenshot.url)}::${screenshot.viewport}`
+  return `${screenshot.routeId || routeIdentityFromUrl(screenshot.url)}::${screenshot.viewport}`
 }
 
 function readableScreenshot(screenshot: PageScreenshotData, isReadable: (path: string) => boolean): boolean {
@@ -43,7 +43,10 @@ function fileContentHash(filePath: string): string | undefined {
 function evidenceContentHash(evidence: DesignEvidence | null | undefined, screenshot: PageScreenshotData) {
   const pages = evidence?.pages.filter(
     (page) =>
-      routeIdentityFromUrl(page.url) === routeIdentityFromUrl(screenshot.url) && page.viewport === screenshot.viewport,
+      (screenshot.routeId && page.routeId
+        ? screenshot.routeId === page.routeId
+        : routeIdentityFromUrl(page.url) === routeIdentityFromUrl(screenshot.url)) &&
+      page.viewport === screenshot.viewport,
   )
   if (pages?.length !== 1) return undefined
   const overviewImages = pages[0].images.filter((image) => image.kind === 'overview')

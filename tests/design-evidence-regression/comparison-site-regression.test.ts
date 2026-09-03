@@ -85,6 +85,16 @@ describe('manual comparison site browser regression', () => {
       })
       expect(reference.designEvidence.coverage.limitations).not.toContain('fewer-pages-than-requested')
       expect(reference.designEvidence.coverage.limitations).not.toContain('fewer-page-viewports-than-requested')
+      expect(reference.tokens.colors).toMatchObject({
+        background: '#f3f6fb',
+        surface: '#ffffff',
+        secondary: '#e8eef8',
+        foreground: '#172033',
+        'muted-foreground': '#5b6578',
+        accent: '#2457d6',
+        border: 'rgb(204, 213, 227)',
+      })
+      expect(reference.tokens.colors.primary).toBeUndefined()
       expect(reference.captureManifest).toMatchObject({
         request: { maxPages: 3 },
         capture: {

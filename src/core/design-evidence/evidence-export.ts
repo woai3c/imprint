@@ -1,8 +1,10 @@
 import type { DocLanguage } from '../analyzer/agent-guide.js'
-import { hasVisibleBorder, hasVisibleShadow, isTransparentColor } from '../analyzer/component-detect.js'
+import { hasVisibleBorder, hasVisibleColor, hasVisibleShadow } from '../analyzer/component-detect.js'
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import { sanitizeDesignEvidenceForPersistence } from '../analyzer/url-privacy.js'
 import { coreTranslator } from '../i18n/index.js'
 import { resolveScreenshotAssetCoverage } from './asset-integrity.js'
+import { canonicalEvidencePageIds } from './canonical-pages.js'
 import { computeInteractionStateMetrics } from './interaction-metrics.js'
 import {
   boundedPixelValue,
@@ -54,24 +56,84 @@ function displaySectionRole(role: string | undefined): string {
   return !role || role === 'unknown' ? 'content' : role
 }
 
-function canonicalPageIds(evidence: DesignEvidence): Set<string> {
-  const pagesByUrl = new Map<string, DesignEvidence['pages']>()
-  for (const page of evidence.pages) {
-    const pages = pagesByUrl.get(page.url) || []
-    pages.push(page)
-    pagesByUrl.set(page.url, pages)
+function publicPageScopeLabel(evidence: DesignEvidence, page: DesignEvidence['pages'][number]): string {
+  const routeIdentities = new Set(
+    evidence.pages.filter((candidate) => candidate.url === page.url).map(evidencePageRouteIdentity),
+  )
+  return routeIdentities.size > 1 ? `${page.url} [${evidencePageRouteIdentity(page)}]` : page.url
+}
+
+const RESPONSIVE_BRIEF_GROUP_LIMIT = 20
+
+interface ResponsiveBriefGroup {
+  fromViewport: string
+  toViewport: string
+  role: string
+  changeType: string
+  changes: Array<[string, { from?: string | number; to?: string | number }]>
+  instanceCount: number
+  routes: Map<string, DesignEvidence['pages'][number]>
+  signature: string
+}
+
+function groupedResponsiveObservations(evidence: DesignEvidence): ResponsiveBriefGroup[] {
+  const sectionById = new Map(evidence.sections.map((section) => [section.id, section]))
+  const pageById = new Map(evidence.pages.map((page) => [page.id, page]))
+  const groups = new Map<string, ResponsiveBriefGroup>()
+  for (const observation of evidence.responsiveObservations) {
+    if (!hasConsistentResponsiveSectionIdentity(observation, evidence)) continue
+    const section = sectionById.get(observation.sectionId)
+    const changes = usefulResponsiveChanges(observation, section?.role).sort(([first], [second]) =>
+      first.localeCompare(second),
+    )
+    if (changes.length === 0) continue
+    const role = displaySectionRole(section?.role)
+    const changeType = displayedResponsiveChangeType(
+      observation.changeType,
+      changes.map(([property]) => property),
+    )
+    const signature = JSON.stringify([observation.fromViewport, observation.toViewport, role, changeType, changes])
+    const group = groups.get(signature) || {
+      fromViewport: observation.fromViewport,
+      toViewport: observation.toViewport,
+      role,
+      changeType,
+      changes,
+      instanceCount: 0,
+      routes: new Map(),
+      signature,
+    }
+    group.instanceCount += 1
+    const page = section ? pageById.get(section.pageId) : undefined
+    if (page) group.routes.set(evidencePageRouteIdentity(page), page)
+    groups.set(signature, group)
   }
-  return new Set(
-    [...pagesByUrl.values()].flatMap((pages) => {
-      const preferred = pages.find((page) => page.viewport === 'desktop') || pages[0]
-      return preferred ? [preferred.id] : []
-    }),
+  return [...groups.values()].sort(
+    (first, second) =>
+      second.routes.size - first.routes.size ||
+      second.instanceCount - first.instanceCount ||
+      first.fromViewport.localeCompare(second.fromViewport) ||
+      first.toViewport.localeCompare(second.toViewport) ||
+      first.role.localeCompare(second.role) ||
+      first.changeType.localeCompare(second.changeType) ||
+      first.signature.localeCompare(second.signature),
   )
 }
 
+function captureScopeLabel(evidence: DesignEvidence, page: DesignEvidence['pages'][number]): string {
+  return `\`${page.viewport}\` ${publicPageScopeLabel(evidence, page)}`
+}
+
+function compactScopeList(scopes: readonly string[], moreLabel: (count: number) => string): string {
+  const uniqueScopes = [...new Set(scopes)]
+  const displayed = uniqueScopes.slice(0, 3)
+  if (uniqueScopes.length > displayed.length) displayed.push(moreLabel(uniqueScopes.length - displayed.length))
+  return displayed.join('; ')
+}
+
 function isUsefulPseudoValue(property: string, value: string): boolean {
-  if (property === 'backgroundColor') return !isTransparentColor(value)
-  if (property === 'boxShadow') return value !== 'none'
+  if (['backgroundColor', 'color'].includes(property)) return hasVisibleColor(value)
+  if (property === 'boxShadow') return hasVisibleShadow(value)
   return !/^(?:none|normal|auto|0px|rgba?\([^)]*(?:,|\/)\s*0(?:\.0+)?\s*\))$/i.test(value)
 }
 
@@ -91,7 +153,7 @@ function visiblePseudoStyles(
       ),
     )
   }
-  if (styles.backgroundColor && !isTransparentColor(styles.backgroundColor)) {
+  if (hasVisibleColor(styles.backgroundColor)) {
     result.push(['backgroundColor', styles.backgroundColor])
     hasMaterial = true
   }
@@ -142,7 +204,9 @@ function observedLineHeight(node: DesignEvidence['layoutNodes'][number]): string
   return Number.isFinite(ratio) && ratio > 0 ? ratio.toFixed(3).replace(/\.?0+$/, '') : typography.lineHeight
 }
 
-function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, zh: boolean): void {
+function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, language: DocLanguage): void {
+  const evidenceT = coreTranslator(language, 'designEvidence')
+  const canonicalPages = canonicalEvidencePageIds(evidence)
   const rows = new Map<
     NonNullable<DesignEvidence['layoutNodes'][number]['textRole']>,
     {
@@ -154,7 +218,7 @@ function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, z
     }
   >()
   for (const node of evidence.layoutNodes) {
-    if (!node.textRole) continue
+    if (!node.textRole || !canonicalPages.has(node.pageId)) continue
     const row = rows.get(node.textRole) || {
       count: 0,
       font: new Map<string, number>(),
@@ -185,13 +249,11 @@ function appendTypographyRoleMatrix(lines: string[], evidence: DesignEvidence, z
 
   const order = ['display', 'heading', 'body', 'label', 'metadata'] as const
   lines.push('')
-  lines.push(zh ? '### 排版角色证据' : '### Typography Role Evidence')
+  lines.push(evidenceT('typographyRole.heading'))
   lines.push('')
-  lines.push(
-    zh
-      ? '| 观察角色 | 实例 | 字体 | 字号 | 字重 | 行高 |'
-      : '| Observed role | Instances | Font | Size | Weight | Line height |',
-  )
+  lines.push(evidenceT('typographyRole.countBasis'))
+  lines.push('')
+  lines.push(evidenceT('typographyRole.header'))
   lines.push('|---|---:|---|---|---|---|')
   for (const role of order) {
     const row = rows.get(role)
@@ -210,12 +272,14 @@ export function generateDesignEvidenceJson(evidence: DesignEvidence): string {
 function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLanguage): string {
   const zh = language === 'zh-CN'
   const lines: string[] = []
-  const pageCount = new Set(evidence.pages.map((page) => page.url)).size
+  const pageCount = new Set(evidence.pages.map(evidencePageRouteIdentity)).size
   const urlCoverage = evidence.coverage.urlCoverage
   const captureCoverage = evidence.coverage.captureCoverage
   const assetCoverage = resolveScreenshotAssetCoverage(evidence)
+  const evidenceT = coreTranslator(language, 'designEvidence')
   const coverageT = coreTranslator(language, 'designEvidence.coverage')
   const stateT = coreTranslator(language, 'designEvidence.stateEvidence')
+  const responsiveT = coreTranslator(language, 'designEvidence.responsive')
   const termT = coreTranslator(language, 'profileExport')
   const term = (value: string): string => {
     const aliases: Record<string, string> = {
@@ -298,26 +362,82 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
   )
   lines.push('')
 
-  appendTypographyRoleMatrix(lines, evidence, zh)
+  appendTypographyRoleMatrix(lines, evidence, language)
 
-  lines.push(zh ? '### 页面拓扑' : '### Page Topology')
+  lines.push(evidenceT('topology.heading'))
   lines.push('')
+  const topologyGroups = new Map<
+    string,
+    {
+      viewport: string
+      topology: string
+      pagesByRoute: Map<string, DesignEvidence['pages'][number]>
+    }
+  >()
+  const overflowGroups = new Map<
+    string,
+    {
+      viewport: string
+      viewportWidth: number
+      contentWidth: number
+      pagesByRoute: Map<string, DesignEvidence['pages'][number]>
+    }
+  >()
+  // Overflow is a direct page measurement and remains valid even when section topology could not be indexed.
+  for (const page of evidence.pages) {
+    if (page.horizontalOverflow && page.viewportWidth && page.contentWidth) {
+      const overflowKey = `${page.viewport}|${page.contentWidth}|${page.viewportWidth}`
+      const group = overflowGroups.get(overflowKey) || {
+        viewport: page.viewport,
+        viewportWidth: page.viewportWidth,
+        contentWidth: page.contentWidth,
+        pagesByRoute: new Map<string, DesignEvidence['pages'][number]>(),
+      }
+      group.pagesByRoute.set(evidencePageRouteIdentity(page), page)
+      overflowGroups.set(overflowKey, group)
+    }
+  }
   for (const topologyPage of evidence.topology.pages) {
     const page = evidence.pages.find((candidate) => candidate.id === topologyPage.pageId)
     if (!page) continue
-    if (page.horizontalOverflow && page.viewportWidth && page.contentWidth) {
-      lines.push(
-        zh
-          ? `- \`${page.viewport}\` ${page.url}：检测到横向溢出（内容 ${page.contentWidth}px > 视口 ${page.viewportWidth}px）；视口外内容不能视为已隐藏或已重排`
-          : `- \`${page.viewport}\` ${page.url}: horizontal overflow observed (content ${page.contentWidth}px > viewport ${page.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
-      )
-    }
     const topology = formatPageSectionTopology(evidence, page.id, (role) => term(displaySectionRole(role)))
     if (!topology) continue
-    lines.push(`- \`${page.viewport}\` ${page.url}: ${topology}`)
+    const key = `${page.viewport}|${topology}`
+    const group = topologyGroups.get(key) || {
+      viewport: page.viewport,
+      topology,
+      pagesByRoute: new Map<string, DesignEvidence['pages'][number]>(),
+    }
+    group.pagesByRoute.set(evidencePageRouteIdentity(page), page)
+    topologyGroups.set(key, group)
+  }
+  for (const group of overflowGroups.values()) {
+    const pages = [...group.pagesByRoute.values()]
+    const examples = compactScopeList(
+      pages.map((page) => publicPageScopeLabel(evidence, page)),
+      (count) => evidenceT('structure.scopeMore', { count }),
+    )
+    const scope = evidenceT('topology.routeGroup', { count: pages.length, viewport: group.viewport, examples })
+    lines.push(
+      zh
+        ? `- ${scope}：检测到横向溢出（内容 ${group.contentWidth}px > 视口 ${group.viewportWidth}px）；视口外内容不能视为已隐藏或已重排`
+        : `- ${scope}: horizontal overflow observed (content ${group.contentWidth}px > viewport ${group.viewportWidth}px); off-screen content is not evidence of hiding or reflow`,
+    )
+  }
+  for (const group of topologyGroups.values()) {
+    const pages = [...group.pagesByRoute.values()]
+    const examples = compactScopeList(
+      pages.map((page) => publicPageScopeLabel(evidence, page)),
+      (count) => evidenceT('structure.scopeMore', { count }),
+    )
+    const scope = evidenceT('topology.routeGroup', { count: pages.length, viewport: group.viewport, examples })
+    lines.push(`- ${scope}: ${group.topology}`)
   }
 
+  const canonicalPages = canonicalEvidencePageIds(evidence)
+  const pagesById = new Map(evidence.pages.map((page) => [page.id, page]))
   const structuralFacts = evidence.sections.flatMap((section) => {
+    if (!canonicalPages.has(section.pageId)) return []
     const styles = section.observedStyles
     if (!styles) return []
     const facts = [
@@ -331,24 +451,39 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
         : '',
       ...compactVisibleBorders(styles.borders || {}),
     ].filter(Boolean)
-    return facts.length > 0 ? [{ section, facts }] : []
+    const page = pagesById.get(section.pageId)
+    return facts.length > 0 && page ? [{ section, page, facts }] : []
   })
-  const dedupedStructuralFacts = [
-    ...new Map(
-      structuralFacts.map((item) => [`${displaySectionRole(item.section.role)}|${item.facts.join('|')}`, item]),
-    ).values(),
-  ]
-  if (dedupedStructuralFacts.length > 0) {
+  const structuralGroups = new Map<
+    string,
+    {
+      role: string
+      facts: string[]
+      count: number
+      scopes: string[]
+    }
+  >()
+  for (const item of structuralFacts) {
+    const role = displaySectionRole(item.section.role)
+    const key = `${role}|${item.facts.join('|')}`
+    const group = structuralGroups.get(key) || { role, facts: item.facts, count: 0, scopes: [] }
+    group.count += 1
+    group.scopes.push(captureScopeLabel(evidence, item.page))
+    structuralGroups.set(key, group)
+  }
+  if (structuralGroups.size > 0) {
     lines.push('')
-    lines.push(zh ? '### 结构事实' : '### Structural Facts')
+    lines.push(evidenceT('structure.heading'))
     lines.push('')
-    for (const { section, facts } of dedupedStructuralFacts.slice(0, 24)) {
-      lines.push(`- ${displaySectionRole(section.role)}: ${facts.map((fact) => `\`${fact}\``).join(' · ')}`)
+    for (const group of [...structuralGroups.values()].slice(0, 24)) {
+      const scope = compactScopeList(group.scopes, (count) => evidenceT('structure.scopeMore', { count }))
+      const support = evidenceT('structure.ownerScope', { count: group.count, scope })
+      lines.push(`- ${group.role} · ${support} — ${group.facts.map((fact) => `\`${fact}\``).join(' · ')}`)
     }
   }
 
   if ((evidence.pseudoElements?.length || 0) > 0) {
-    const canonicalPages = canonicalPageIds(evidence)
+    const canonicalPages = canonicalEvidencePageIds(evidence)
     const pseudoGroups = new Map<
       string,
       {
@@ -494,30 +629,35 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
     }
   }
 
-  const usefulResponsiveObservations = evidence.responsiveObservations.flatMap((observation) => {
-    if (!hasConsistentResponsiveSectionIdentity(observation, evidence)) return []
-    const section = evidence.sections.find((candidate) => candidate.id === observation.sectionId)
-    const changes = usefulResponsiveChanges(observation, section?.role)
-    return changes.length > 0 ? [{ observation, section, changes }] : []
-  })
-  if (usefulResponsiveObservations.length > 0) {
+  const responsiveGroups = groupedResponsiveObservations(evidence)
+  if (responsiveGroups.length > 0) {
     lines.push('')
-    lines.push(zh ? '### 响应式结构观察' : '### Responsive Structure Observations')
+    lines.push(responsiveT('heading'))
     lines.push('')
-    for (const { observation, section, changes } of usefulResponsiveObservations.slice(0, 20)) {
-      const page = section ? evidence.pages.find((candidate) => candidate.id === section.pageId) : undefined
-      const context = `${page?.url || evidence.source.finalUrl} · ${displaySectionRole(section?.role)}`
-      const properties = changes.map(([property]) => property)
-      const changeType = displayedResponsiveChangeType(observation.changeType, properties)
-      lines.push(
-        zh
-          ? `- ${context}：${term(observation.fromViewport)} → ${term(observation.toViewport)}，${term(changeType)}（${properties.map(term).join('、')}）`
-          : `- ${context}: ${term(observation.fromViewport)} → ${term(observation.toViewport)}, ${term(changeType)} (${properties.map(term).join(', ')})`,
+    for (const group of responsiveGroups.slice(0, RESPONSIVE_BRIEF_GROUP_LIMIT)) {
+      const properties = group.changes.map(([property]) => property)
+      const examples = compactScopeList(
+        [...group.routes.entries()]
+          .sort(([first], [second]) => first.localeCompare(second))
+          .map(([, page]) => publicPageScopeLabel(evidence, page)),
+        (count) => evidenceT('structure.scopeMore', { count }),
       )
-      const values = changes
+      lines.push(
+        responsiveT('groupLine', {
+          from: term(group.fromViewport),
+          to: term(group.toViewport),
+          role: term(group.role),
+          change: term(group.changeType),
+          properties: properties.map(term).join(responsiveT('propertySeparator')),
+          routeSupport: responsiveT('routeSupport', { count: group.routes.size }),
+          instanceSupport: responsiveT('instanceSupport', { count: group.instanceCount }),
+          examples: responsiveT('examples', { examples }),
+        }),
+      )
+      const values = group.changes
         .slice(0, 12)
         .map(([property, value]) => `${term(property)}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`)
-        .join('; ')
+        .join(responsiveT('valueSeparator'))
       if (values) lines.push(`  - ${values}`)
     }
   }
@@ -530,9 +670,9 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       ? ['responsive-section-identity-mismatch']
       : []),
   ]
-  const humanLimitations = [...new Set(limitationKeys)]
-    .map((l) => humanizeLimitation(l, zh))
-    .filter(Boolean) as string[]
+  const humanLimitations = [
+    ...new Set([...new Set(limitationKeys)].map((l) => humanizeLimitation(l, zh)).filter(Boolean) as string[]),
+  ]
   if (humanLimitations.length > 0) {
     lines.push('')
     lines.push(zh ? '### 分析局限' : '### Analysis Limitations')
@@ -620,6 +760,8 @@ function humanizeLimitation(key: string, zh: boolean): string | null {
   if (key === 'adaptive-mobile-skipped-budget') return t('adaptiveMobileSkippedBudget')
   if (key === 'fewer-pages-than-requested') return t('selectedPagesIncomplete')
   if (key === 'fewer-page-viewports-than-requested') return t('plannedCapturesIncomplete')
+  if (key === 'query-route-redacted') return t('queryRouteRedacted')
+  if (key.startsWith('page-health:partial-overlay@')) return t('partialOverlay')
   if (key === 'responsive-section-identity-mismatch') return t('responsiveSectionIdentityMismatch')
   if (key === 'breakpoint-stylesheets-unreadable') return t('breakpointStylesheetsUnreadable')
   const label = LIMITATION_LABELS[key]

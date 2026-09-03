@@ -7,16 +7,101 @@ import {
   classifyComponentVariant,
   hasCrispEdgeShadow,
   hasDepthShadow,
+  hasVisibleBorder,
+  hasVisibleColor,
   hasVisibleShadow,
   isOutlinedButton,
   isPillRadius,
   isReusableComponentPattern,
+  isTransparentColor,
   mergeComponentPatterns,
+  normalizeComponentStyleRecord,
   summarizeComponentCandidates,
   summarizeComponentVariants,
 } from '../../src/core/analyzer/component-detect.js'
 
 describe('component candidate summarization', () => {
+  test('keeps reusable component styles on their rendered owner', () => {
+    const styles = {
+      backgroundColor: '#ffffff',
+      color: '#172033',
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '16px',
+      height: '160px',
+      minHeight: '40px',
+      padding: '12px 16px',
+    }
+
+    expect(normalizeComponentStyleRecord('button', styles, 'descendant')).toEqual(styles)
+    expect(normalizeComponentStyleRecord('button', styles)).toEqual({
+      backgroundColor: '#ffffff',
+      height: '160px',
+      minHeight: '40px',
+      padding: '12px 16px',
+    })
+    expect(normalizeComponentStyleRecord('navigation', styles, 'root')).toEqual({
+      backgroundColor: '#ffffff',
+      height: '160px',
+      minHeight: '40px',
+      padding: '12px 16px',
+    })
+    expect(normalizeComponentStyleRecord('list', styles, 'root')).toEqual({
+      backgroundColor: '#ffffff',
+      padding: '12px 16px',
+    })
+    expect(normalizeComponentStyleRecord('status', styles, 'root')).toEqual({
+      backgroundColor: '#ffffff',
+      color: '#172033',
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '16px',
+      padding: '12px 16px',
+    })
+    expect(
+      normalizeComponentStyleRecord(
+        'input',
+        { backgroundColor: '#ffffff', color: 'rgba(0, 0, 0, 0)', fontFamily: 'Inter, sans-serif' },
+        'root',
+      ),
+    ).toEqual({ backgroundColor: '#ffffff', fontFamily: 'Inter, sans-serif' })
+  })
+
+  test('does not split container patterns by descendant typography or content height', () => {
+    const patterns = summarizeComponentVariants([
+      {
+        type: 'list',
+        confidence: 0.9,
+        evidence: ['list-one'],
+        pageId: 'page-one',
+        textStyleOwner: 'root',
+        styles: {
+          backgroundColor: '#ffffff',
+          color: '#172033',
+          fontFamily: 'Times',
+          height: '120px',
+          padding: '12px 16px',
+        },
+      },
+      {
+        type: 'list',
+        confidence: 0.9,
+        evidence: ['list-two'],
+        pageId: 'page-two',
+        textStyleOwner: 'root',
+        styles: {
+          backgroundColor: '#ffffff',
+          color: '#2255aa',
+          fontFamily: 'Inter, sans-serif',
+          height: '280px',
+          padding: '12px 16px',
+        },
+      },
+    ])
+
+    expect(patterns).toHaveLength(1)
+    expect(patterns[0]).toMatchObject({ count: 2, pageCount: 2, styles: { backgroundColor: '#ffffff' } })
+    expect(patterns[0].styles).toEqual({ backgroundColor: '#ffffff', padding: '12px 16px' })
+  })
+
   test('distinguishes outlined and pill controls from tinted or compact-radius buttons', () => {
     expect(
       isOutlinedButton({
@@ -38,6 +123,13 @@ describe('component candidate summarization', () => {
         { backgroundColor: '#2563eb', borderRadius: '24px', padding: '0px' },
         { primaryColor: '#2563eb', widthPx: 90, heightPx: 34 },
       ),
+    ).toBe('action')
+    expect(
+      classifyComponentVariant(
+        'button',
+        { backgroundColor: '#2563eb', borderRadius: '24px', padding: '0px' },
+        { role: 'primary-action', primaryColor: '#2563eb', widthPx: 90, heightPx: 34 },
+      ),
     ).toBe('primary')
     expect(
       classifyComponentVariant(
@@ -58,6 +150,20 @@ describe('component candidate summarization', () => {
         { role: 'primary-action', primaryColor: '#1772f6', widthPx: 72, heightPx: 40 },
       ),
     ).toBe('text')
+    expect(
+      classifyComponentVariant(
+        'button',
+        { backgroundColor: 'rgba(0, 0, 0, 0)', borderRadius: '0px', padding: '0px' },
+        { widthPx: 39, heightPx: 39, hasVisibleText: true },
+      ),
+    ).toBe('text')
+    expect(
+      classifyComponentVariant(
+        'button',
+        { backgroundColor: 'rgba(0, 0, 0, 0)', borderRadius: '0px', padding: '0px' },
+        { widthPx: 39, heightPx: 39, hasVisibleText: false },
+      ),
+    ).toBe('icon')
   })
 
   test('does not treat transparent or zero-geometry shadows as visible paint', () => {
@@ -67,6 +173,31 @@ describe('component candidate summarization', () => {
     expect(hasVisibleShadow('0 0 0 2px rgba(0, 0, 0, 0.2)')).toBe(true)
     expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 0%)')).toBe(false)
     expect(hasVisibleShadow('0 2px 8px hsla(0, 0%, 0%, 20%)')).toBe(true)
+    expect(hasVisibleShadow('0 2px 8px color(srgb 1 0 0 / 0)')).toBe(false)
+    expect(hasVisibleShadow('0 2px 8px oklch(60% 0.2 30 / 0.4)')).toBe(true)
+    expect(hasVisibleShadow('0 2px 8px color(srgb 1 0 0 / none)')).toBe(false)
+    expect(hasVisibleShadow('0 2px 8px oklch(60% 0.2 30 / var(--alpha))')).toBe(false)
+  })
+
+  test('requires nontransparent CSS Color 4 or hex-alpha border paint', () => {
+    expect(hasVisibleBorder('1px solid color(srgb 1 0 0 / 0)')).toBe(false)
+    expect(hasVisibleBorder('1px solid oklch(60% 0.2 30 / 0%)')).toBe(false)
+    expect(hasVisibleBorder('1px solid #f000')).toBe(false)
+    expect(hasVisibleBorder('1px solid color(srgb 1 0 0 / 0.5)')).toBe(true)
+    expect(hasVisibleBorder('1px solid #f008')).toBe(true)
+    expect(hasVisibleBorder('1px solid oklch(60% 0.2 30 / none)')).toBe(false)
+    expect(hasVisibleBorder('1px solid color(srgb 1 0 0 / var(--alpha))')).toBe(false)
+  })
+
+  test('requires a validated nonzero alpha before treating a color as painted', () => {
+    expect(isTransparentColor('color(srgb 1 0 0 / none)')).toBe(true)
+    expect(isTransparentColor('oklch(60% 0.2 30 / none)')).toBe(true)
+    expect(hasVisibleColor('rgb(255, 0, 0)')).toBe(true)
+    expect(hasVisibleColor('oklch(60% 0.2 30 / 0.4)')).toBe(true)
+    expect(hasVisibleColor('color(srgb 1 0 0 / 0)')).toBe(false)
+    expect(hasVisibleColor('color(srgb 1 0 0 / none)')).toBe(false)
+    expect(hasVisibleColor('color(srgb 1 0 0 / calc(1 - 1))')).toBe(false)
+    expect(hasVisibleColor('unrecognized-color-expression')).toBe(false)
   })
 
   test('distinguishes crisp edge shadows from shadows that convey depth', () => {
@@ -261,14 +392,19 @@ describe('component candidate summarization', () => {
     const variants = summarizeComponentVariants(candidates)
 
     expect(variants.map((variant) => variant.name)).toEqual([
-      'button-primary',
-      'button-secondary',
+      'button-action-rounded-filled',
+      'button-action-rounded-outlined-style-1',
+      'button-action-rounded-outlined-style-2',
       'button-text',
       'button-icon',
     ])
-    expect(variants.find((variant) => variant.name === 'button-secondary')).toMatchObject({
-      count: 4,
+    expect(variants.find((variant) => variant.name === 'button-action-rounded-outlined-style-1')).toMatchObject({
+      count: 3,
       styles: { backgroundColor: 'rgba(0, 0, 0, 0)' },
+    })
+    expect(variants.find((variant) => variant.name === 'button-action-rounded-outlined-style-2')).toMatchObject({
+      count: 1,
+      styles: { backgroundColor: 'rgb(255, 255, 255)' },
     })
     expect(variants.reduce((total, variant) => total + variant.count, 0)).toBe(7)
   })
@@ -312,8 +448,8 @@ describe('component candidate summarization', () => {
     const variants = summarizeComponentVariants(candidates)
 
     expect(variants.map((variant) => variant.name)).toEqual([
-      'button-secondary-pill-tinted',
-      'button-secondary-rounded-tinted',
+      'button-action-pill-tinted',
+      'button-action-rounded-tinted',
     ])
     expect(variants.map((variant) => variant.count)).toEqual([1, 1])
   })
@@ -351,8 +487,8 @@ describe('component candidate summarization', () => {
     ]
 
     expect(summarizeComponentVariants(candidates).map((variant) => variant.name)).toEqual([
-      'button-secondary-rounded-flat',
-      'button-secondary-rounded-outlined',
+      'button-action-rounded-flat',
+      'button-action-rounded-outlined',
     ])
   })
 
@@ -362,6 +498,7 @@ describe('component candidate summarization', () => {
         type: 'button',
         confidence: 0.98,
         evidence: ['native-element'],
+        role: 'primary-action',
         primaryColor: '#2563eb',
         tokenRefs: ['color.primary'],
         widthPx: 96,
@@ -377,6 +514,7 @@ describe('component candidate summarization', () => {
         type: 'button',
         confidence: 0.98,
         evidence: ['native-element'],
+        role: 'primary-action',
         primaryColor: '#2563eb',
         tokenRefs: ['color.primary'],
         widthPx: 96,
@@ -588,5 +726,59 @@ describe('component candidate summarization', () => {
       pageCount: 2,
     })
     expect(isReusableComponentPattern(repeated)).toBe(true)
+  })
+
+  test('keeps representative evidence and semantic roles limited to exact-style matches', () => {
+    const shared = {
+      type: 'button' as const,
+      confidence: 0.96,
+      role: 'primary-action',
+      textStyleOwner: 'root' as const,
+      styles: { backgroundColor: '#2563eb', borderRadius: '8px', fontWeight: '600' },
+    }
+    const [pattern, localPattern] = summarizeComponentVariants([
+      { ...shared, evidence: ['button-one'], pageId: 'page-one' },
+      { ...shared, evidence: ['button-two'], pageId: 'page-two' },
+      {
+        ...shared,
+        role: 'action',
+        evidence: ['button-different-style'],
+        pageId: 'page-two',
+        styles: { ...shared.styles, fontWeight: '700' },
+      },
+    ])
+
+    expect(pattern).toMatchObject({ count: 2, styleObservationCount: 2, pageCount: 2 })
+    expect(pattern.representativeEvidence).toEqual(['button-one', 'button-two'])
+    expect(pattern.roleCounts).toEqual({ 'primary-action': 2 })
+    expect(pattern.evidence).toEqual(['button-one', 'button-two'])
+    expect(localPattern).toMatchObject({ count: 1, styleObservationCount: 1, reuseScope: 'isolated' })
+    expect(localPattern.evidence).toEqual(['button-different-style'])
+  })
+
+  test('keeps two independently repeated exact styles as separate reusable patterns', () => {
+    const candidates: ComponentVariantCandidate[] = [
+      ...['first-a', 'first-b'].map((id) => ({
+        type: 'button' as const,
+        confidence: 0.95,
+        evidence: [id],
+        pageId: id.endsWith('a') ? 'page-one' : 'page-two',
+        styles: { backgroundColor: '#2563eb', borderRadius: '8px', padding: '8px 16px' },
+      })),
+      ...['second-a', 'second-b'].map((id) => ({
+        type: 'button' as const,
+        confidence: 0.95,
+        evidence: [id],
+        pageId: id.endsWith('a') ? 'page-one' : 'page-two',
+        styles: { backgroundColor: '#2563eb', borderRadius: '9999px', padding: '8px 20px' },
+      })),
+    ]
+
+    const patterns = summarizeComponentVariants(candidates)
+
+    expect(patterns).toHaveLength(2)
+    expect(patterns.every(isReusableComponentPattern)).toBe(true)
+    expect(patterns.map((pattern) => pattern.styleObservationCount)).toEqual([2, 2])
+    expect(new Set(patterns.map((pattern) => pattern.styleSignature)).size).toBe(2)
   })
 })

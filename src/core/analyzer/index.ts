@@ -32,7 +32,12 @@ import {
 import { appendFailedCaptureHealthLimitations } from './extraction-limitations.js'
 import { navigateWithRecovery } from './navigation.js'
 import { type DiscoveredPage, discoverPages } from './page-discovery.js'
-import { ensurePageHealth } from './page-health.js'
+import {
+  type PageHealthReport,
+  UnexpectedFinalHealthInspectionError,
+  ensurePageHealth,
+  runFinalHealthInspection,
+} from './page-health.js'
 import { freezePageAnimations, preparePageForExtraction } from './page-preparer.js'
 import {
   type MotionToken,
@@ -46,6 +51,7 @@ import {
   SCREENSHOT_CAPTURE_TIMEOUT_MS,
   captureValidatedOverview,
   captureValidatedViewport,
+  inspectPngDimensions,
   recordScreenshotDimensionIssue,
 } from './screenshot-capture.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from './style-extractor.js'
@@ -161,6 +167,10 @@ async function runWithinDeadline<T>(deadline: number, run: () => Promise<T>): Pr
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+function isAdaptiveMobileBudgetError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('adaptive-mobile-budget-exceeded')
 }
 
 interface BrowserRuntime {
@@ -410,6 +420,7 @@ function retainAvailableScreenshot(
     viewport: overview.viewport,
     width: viewport.width,
     height: viewport.height,
+    capturedAt: viewport.capturedAt,
     valid: true,
   })
 }
@@ -793,8 +804,6 @@ export async function analyze(
       let styles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
         extractStyles(page),
       )
-      allStyles.push(styles)
-      styleCaptures.push({ url: page.url(), viewport: vpName, styles })
 
       let pageInteractionStyles = await guardExtractionStage(
         extractionIssues,
@@ -805,7 +814,7 @@ export async function analyze(
 
       if (i === 0 && request.extractDarkMode) {
         darkModeResult = await guardExtractionStage(extractionIssues, `${stagePrefix}:dark-mode`, null, () =>
-          extractDarkMode(page, styles),
+          extractDarkMode(page, styles, vpName),
         )
       }
 
@@ -836,8 +845,6 @@ export async function analyze(
       )
       if (page.isClosed() || (health.status === 'unusable' && !captureExplicitlyAnalyzableAccessSurface)) {
         analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}`)
-        allStyles.pop()
-        styleCaptures.pop()
         if (i === 0) {
           components = []
           breakpoints = []
@@ -856,8 +863,6 @@ export async function analyze(
           styles,
           () => extractStyles(page),
         )
-        allStyles[allStyles.length - 1] = styles
-        styleCaptures[styleCaptures.length - 1] = { url: page.url(), viewport: vpName, styles }
         pageInteractionStyles = await guardExtractionStage(
           extractionIssues,
           `${stagePrefix}:capture-health:refresh-interaction-styles`,
@@ -883,25 +888,14 @@ export async function analyze(
               extractionIssues,
               `${stagePrefix}:capture-health:refresh-dark-mode`,
               darkModeResult,
-              () => extractDarkMode(page, styles),
+              () => extractDarkMode(page, styles, vpName),
             )
           }
         }
       }
-      mergeInteractionStyles(allInteractions, pageInteractionStyles)
-      analyzedPages.set(pageIdentityUrl(page.url()), { source: 'requested', kind: 'entry' })
-      if (health.evidenceEligible) {
-        evidenceEligibleStyles.push(styles)
-        evidenceEligibleStyleCaptures.push({ url: page.url(), viewport: vpName, styles })
-        if (i === 0) {
-          evidenceMotion = motion
-          evidenceBreakpoints = breakpoints
-        }
-      }
-
       const screenshotPath = analysisAssetPath(`page-1-${vpName}`)
       const evidenceSnapshot = await extractPageEvidence(page, vpName)
-      if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
+      const captureUrl = evidenceSnapshot.url
       runState.addTiming('extractionMs', Date.now() - extractionStartedAt)
       let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
       const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = []
@@ -910,6 +904,7 @@ export async function analyze(
         const viewportCapture = await measure('screenshotCaptureMs', () =>
           captureValidatedViewport(page, viewportPath, viewport.width, viewport.height),
         )
+        const viewportCapturedAt = new Date().toISOString()
         if (!viewportCapture.valid) {
           recordScreenshotDimensionIssue(
             extractionIssues,
@@ -924,6 +919,7 @@ export async function analyze(
           path: viewportPath,
           width: viewportCapture.dimensions?.width || viewport.width,
           height: viewportCapture.dimensions?.height || viewport.height,
+          capturedAt: viewportCapturedAt,
           valid: viewportCapture.valid,
           sourceRect: {
             x: 0,
@@ -981,6 +977,7 @@ export async function analyze(
             await measure('screenshotCaptureMs', () =>
               page.screenshot({ path: regionPath, clip, timeout: SCREENSHOT_CAPTURE_TIMEOUT_MS }),
             )
+            const regionCapturedAt = new Date().toISOString()
             const regionValid = recordScreenshotDimensionIssue(
               extractionIssues,
               `${stagePrefix}:screenshot:region`,
@@ -988,11 +985,13 @@ export async function analyze(
               clip.width,
               clip.height,
             )
+            const regionDimensions = inspectPngDimensions(regionPath)
             supplementalImages.push({
               kind: 'region-crop',
               path: regionPath,
-              width: Math.round(clip.width),
-              height: Math.round(clip.height),
+              width: regionDimensions?.width || Math.round(clip.width),
+              height: regionDimensions?.height || Math.round(clip.height),
+              capturedAt: regionCapturedAt,
               valid: regionValid,
               sourceRect,
               sectionKey: section.key,
@@ -1007,6 +1006,7 @@ export async function analyze(
       const overviewCapture = await measure('screenshotCaptureMs', () =>
         captureValidatedOverview(page, screenshotPath, evidenceSnapshot.width, evidenceSnapshot.height),
       )
+      const overviewCapturedAt = new Date().toISOString()
       if (!overviewCapture.valid) {
         recordScreenshotDimensionIssue(
           extractionIssues,
@@ -1017,10 +1017,11 @@ export async function analyze(
         )
       }
       const pageScreenshot = {
-        url: page.url(),
+        url: captureUrl,
         path: screenshotPath,
         viewport: vpName,
         ...(overviewCapture.dimensions || {}),
+        capturedAt: overviewCapturedAt,
         valid: overviewCapture.valid,
       }
       if (i === 0 && accessMode === 'anonymous' && !authDetection.detected) {
@@ -1031,6 +1032,75 @@ export async function analyze(
           () => observeSafeInteractions(page, evidenceSnapshot, 4, 6_000),
         )
       }
+      const finalHealthInspection = await runFinalHealthInspection('entry', () =>
+        measure('healthGateMs', () =>
+          ensurePageHealth(page, { expectedUrl: captureUrl, responseStatus: pageResponseStatus }),
+        ),
+      )
+      if (!finalHealthInspection.ok) {
+        extractionIssues.push({
+          stage: `${stagePrefix}:final-health:inspection-failed`,
+          reason: extractionReason(finalHealthInspection.raceError),
+        })
+        analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}:final`)
+        if (i === 0) {
+          components = []
+          breakpoints = []
+          entryBreakpointWidths = new Set()
+          motion = []
+          darkModeResult = null
+          techStack = undefined
+        }
+        if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:final-health-failed`)
+        continue
+      }
+      const finalHealth: PageHealthReport = finalHealthInspection.report
+      extractionIssues.push(
+        ...finalHealth.issues.map((issue) => ({
+          stage: `${stagePrefix}:final-health:${issue.code}`,
+          reason: issue.detail || issue.severity,
+        })),
+      )
+      const finalExplicitlyAnalyzableAccessSurface = finalHealth.issues.some(
+        (issue) => issue.code === 'auth-wall' || issue.code === 'captcha',
+      )
+      const documentChanged = page.isClosed() || pageIdentityUrl(page.url()) !== pageIdentityUrl(captureUrl)
+      if (
+        documentChanged ||
+        finalHealth.recovered ||
+        (finalHealth.status === 'unusable' && !finalExplicitlyAnalyzableAccessSurface)
+      ) {
+        analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}:final`)
+        if (i === 0) {
+          components = []
+          breakpoints = []
+          entryBreakpointWidths = new Set()
+          motion = []
+          darkModeResult = null
+          techStack = undefined
+        }
+        if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:final-health-excluded`)
+        continue
+      }
+      health = {
+        ...finalHealth,
+        recovered: health.recovered || finalHealth.recovered,
+        attempts: health.attempts + finalHealth.attempts,
+      }
+      allStyles.push(styles)
+      styleCaptures.push({ url: captureUrl, viewport: vpName, styles })
+      mergeInteractionStyles(allInteractions, pageInteractionStyles)
+      analyzedPages.set(pageIdentityUrl(captureUrl), { source: 'requested', kind: 'entry' })
+      if (health.evidenceEligible) {
+        evidenceEligibleStyles.push(styles)
+        evidenceEligibleStyleCaptures.push({ url: captureUrl, viewport: vpName, styles })
+        if (i === 0) {
+          evidenceMotion = motion
+          evidenceBreakpoints = breakpoints
+        }
+      }
+      if (i === 0) finalUrl = captureUrl
+      if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
       retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
       capturedPageEvidence.push({
         screenshot: pageScreenshot,
@@ -1040,7 +1110,7 @@ export async function analyze(
         health,
         supplementalImages,
       })
-      markPageReady(page.url())
+      markPageReady(captureUrl)
 
       if (page !== initialPage) await closeAnalysisPage(page, `${stagePrefix}:complete`)
     }
@@ -1096,6 +1166,8 @@ export async function analyze(
 
       let successfulSubPageCount = 0
       let attemptedSubPageCount = 0
+      let resolvedDuplicatePageCount = 0
+      const resolvedCandidatePageIdentities = new Set<string>()
       while (pendingPages.length > 0) {
         throwIfAnalysisAborted(analysisSignal)
         if (completionReason) break
@@ -1117,6 +1189,14 @@ export async function analyze(
 
         try {
           const subPageStatus = await navigatePage(subPage, subUrl, 15000)
+          const resolvedPageIdentity = pageIdentityUrl(subPage.url())
+          if (analyzedPages.has(resolvedPageIdentity) || resolvedCandidatePageIdentities.has(resolvedPageIdentity)) {
+            resolvedDuplicatePageCount += 1
+          }
+          resolvedCandidatePageIdentities.add(resolvedPageIdentity)
+          if (analyzedPages.has(resolvedPageIdentity)) {
+            continue
+          }
           if (subPageStatus && subPageStatus >= 400) continue
 
           const isHtmlDocument = await subPage.evaluate(
@@ -1161,8 +1241,6 @@ export async function analyze(
           let subStyles = await guardExtractionStage(extractionIssues, `${stagePrefix}:styles`, mergeStyles([]), () =>
             extractStyles(subPage),
           )
-          allStyles.push(subStyles)
-          styleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
           let pageInteractionStyles = await guardExtractionStage(
             extractionIssues,
             `${stagePrefix}:interaction-styles`,
@@ -1187,8 +1265,6 @@ export async function analyze(
           )
           if (health.status === 'unusable') {
             analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}`)
-            allStyles.pop()
-            styleCaptures.pop()
             continue
           }
           if (health.recovered) {
@@ -1198,12 +1274,6 @@ export async function analyze(
               subStyles,
               () => extractStyles(subPage),
             )
-            allStyles[allStyles.length - 1] = subStyles
-            styleCaptures[styleCaptures.length - 1] = {
-              url: subPage.url(),
-              viewport: mainViewportName,
-              styles: subStyles,
-            }
             pageInteractionStyles = await guardExtractionStage(
               extractionIssues,
               `${stagePrefix}:capture-health:refresh-interaction-styles`,
@@ -1223,45 +1293,31 @@ export async function analyze(
               () => detectPageBreakpoints(subPage),
             )
           }
-          const nestedPagesNeeded = Math.max(0, subPageLimit - (successfulSubPageCount + 1) - pendingPages.length)
+          const nestedPagesNeeded = Math.max(0, subPageLimit - (successfulSubPageCount + 1))
+          let nestedDiscovery: Awaited<ReturnType<typeof discoverPages>> | undefined
           if (!completionReason && nestedPagesNeeded > 0) {
-            const nestedDiscovery = await discoverPages(
+            nestedDiscovery = await discoverPages(
               subPage,
               discoveryRootUrl,
               Math.min(Number.MAX_SAFE_INTEGER, nestedPagesNeeded + 4),
               'links',
             )
-            enqueuePages(nestedDiscovery.pages)
-            extractionIssues.push(
-              ...nestedDiscovery.issues.map((issue) => ({
-                stage: `page-discovery:${issue.stage}`,
-                reason: issue.reason,
-              })),
-            )
           }
-          mergeInteractionStyles(allInteractions, pageInteractionStyles)
-          motion = mergeMotionTokens([motion, subPageMotion])
-          components = mergeComponentPatterns([components, subPageComponents])
-          breakpoints = mergeResponsiveBreakpoints([breakpoints, subPageBreakpoints])
-          analyzedPages.set(pageIdentityUrl(subPage.url()), {
-            source: discoveredPage.source,
-            kind: discoveredPage.kind,
-          })
-          if (health.evidenceEligible) {
-            evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
-            evidenceEligibleStyles.push(subStyles)
-            evidenceEligibleStyleCaptures.push({ url: subPage.url(), viewport: mainViewportName, styles: subStyles })
-            evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
-          }
-
           const screenshotPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}`)
           const evidenceSnapshot = await extractPageEvidence(subPage, mainViewportName)
+          const captureUrl = evidenceSnapshot.url
+          const captureIdentity = pageIdentityUrl(captureUrl)
+          if (analyzedPages.has(captureIdentity)) {
+            resolvedDuplicatePageCount += 1
+            continue
+          }
           runState.addTiming('extractionMs', Date.now() - extractionStartedAt)
           let interactionObservations: Awaited<ReturnType<typeof observeSafeInteractions>> = []
           const viewportPath = analysisAssetPath(`page-${i + 2}-${mainViewportName}-viewport`)
           const viewportCapture = await measure('screenshotCaptureMs', () =>
             captureValidatedViewport(subPage, viewportPath, mainViewport.width, mainViewport.height),
           )
+          const viewportCapturedAt = new Date().toISOString()
           if (!viewportCapture.valid) {
             recordScreenshotDimensionIssue(
               extractionIssues,
@@ -1277,6 +1333,7 @@ export async function analyze(
               path: viewportPath,
               width: viewportCapture.dimensions?.width || mainViewport.width,
               height: viewportCapture.dimensions?.height || mainViewport.height,
+              capturedAt: viewportCapturedAt,
               valid: viewportCapture.valid,
               sourceRect: {
                 x: 0,
@@ -1289,6 +1346,7 @@ export async function analyze(
           const overviewCapture = await measure('screenshotCaptureMs', () =>
             captureValidatedOverview(subPage, screenshotPath, evidenceSnapshot.width, evidenceSnapshot.height),
           )
+          const overviewCapturedAt = new Date().toISOString()
           if (!overviewCapture.valid) {
             recordScreenshotDimensionIssue(
               extractionIssues,
@@ -1299,10 +1357,11 @@ export async function analyze(
             )
           }
           const pageScreenshot = {
-            url: subPage.url(),
+            url: captureUrl,
             path: screenshotPath,
             viewport: mainViewportName,
             ...(overviewCapture.dimensions || {}),
+            capturedAt: overviewCapturedAt,
             valid: overviewCapture.valid,
           }
           if (accessMode === 'anonymous') {
@@ -1312,6 +1371,59 @@ export async function analyze(
               [],
               () => observeSafeInteractions(subPage, evidenceSnapshot, 4, 6_000),
             )
+          }
+          const finalHealthInspection = await runFinalHealthInspection('subpage', () =>
+            measure('healthGateMs', () =>
+              ensurePageHealth(subPage, { expectedUrl: captureUrl, responseStatus: subPageStatus }),
+            ),
+          )
+          if (!finalHealthInspection.ok) {
+            extractionIssues.push({
+              stage: `${stagePrefix}:final-health:inspection-failed`,
+              reason: extractionReason(finalHealthInspection.raceError),
+            })
+            analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}:final`)
+            continue
+          }
+          const finalHealth = finalHealthInspection.report
+          extractionIssues.push(
+            ...finalHealth.issues.map((issue) => ({
+              stage: `${stagePrefix}:final-health:${issue.code}`,
+              reason: issue.detail || issue.severity,
+            })),
+          )
+          if (
+            subPage.isClosed() ||
+            pageIdentityUrl(subPage.url()) !== captureIdentity ||
+            finalHealth.status === 'unusable' ||
+            finalHealth.recovered
+          ) {
+            analysisLimitations.push(`capture-excluded-page-health:${stagePrefix}:final`)
+            continue
+          }
+          health = {
+            ...finalHealth,
+            recovered: health.recovered || finalHealth.recovered,
+            attempts: health.attempts + finalHealth.attempts,
+          }
+          // Commit a sub-page only after its primary Evidence snapshot and screenshots are complete. Until this
+          // synchronous block, every extracted value is page-local so a failed alias can be retried without leaking
+          // styles, components, or a false analyzed-page identity into the final result.
+          allStyles.push(subStyles)
+          styleCaptures.push({ url: captureUrl, viewport: mainViewportName, styles: subStyles })
+          mergeInteractionStyles(allInteractions, pageInteractionStyles)
+          motion = mergeMotionTokens([motion, subPageMotion])
+          components = mergeComponentPatterns([components, subPageComponents])
+          breakpoints = mergeResponsiveBreakpoints([breakpoints, subPageBreakpoints])
+          analyzedPages.set(captureIdentity, {
+            source: discoveredPage.source,
+            kind: discoveredPage.kind,
+          })
+          if (health.evidenceEligible) {
+            evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
+            evidenceEligibleStyles.push(subStyles)
+            evidenceEligibleStyleCaptures.push({ url: captureUrl, viewport: mainViewportName, styles: subStyles })
+            evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
           }
           retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
           capturedPageEvidence.push({
@@ -1323,7 +1435,16 @@ export async function analyze(
             supplementalImages,
           })
           successfulSubPageCount += 1
-          markPageReady(subPage.url())
+          markPageReady(captureUrl)
+          if (nestedDiscovery) {
+            enqueuePages(nestedDiscovery.pages)
+            extractionIssues.push(
+              ...nestedDiscovery.issues.map((issue) => ({
+                stage: `page-discovery:${issue.stage}`,
+                reason: issue.reason,
+              })),
+            )
+          }
 
           const entryRole = capturedPageEvidence[0]?.snapshot.role
           const hasNovelBreakpoints = subPageBreakpoints.some(
@@ -1412,6 +1533,8 @@ export async function analyze(
               if (mobileHealth.recovered) {
                 mobileSnapshot = await runWithinDeadline(adaptiveDeadline, () => extractPageEvidence(subPage, 'mobile'))
               }
+              const mobileCaptureUrl = mobileSnapshot.url
+              const mobileCaptureIdentity = pageIdentityUrl(mobileCaptureUrl)
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               runState.addTiming('extractionMs', Date.now() - mobileExtractionStartedAt)
               const mobileOverviewPath = analysisAssetPath(`page-${i + 2}-mobile-adaptive`)
@@ -1427,6 +1550,7 @@ export async function analyze(
                   ),
                 ),
               )
+              const mobileViewportCapturedAt = new Date().toISOString()
               if (!withinAdaptiveBudget()) throw new Error('adaptive-mobile-budget-exceeded')
               const mobileOverviewWidth = mobileSnapshot.horizontalOverflow
                 ? Math.min(VIEWPORTS.mobile.width, mobileSnapshot.width)
@@ -1443,6 +1567,7 @@ export async function analyze(
                   ),
                 ),
               )
+              const mobileOverviewCapturedAt = new Date().toISOString()
               if (!mobileViewportCapture.valid) {
                 recordScreenshotDimensionIssue(
                   extractionIssues,
@@ -1462,10 +1587,11 @@ export async function analyze(
                 )
               }
               const mobilePageScreenshot = {
-                url: subPage.url(),
+                url: mobileCaptureUrl,
                 path: mobileOverviewPath,
                 viewport: 'mobile',
                 ...(mobileOverviewCapture.dimensions || {}),
+                capturedAt: mobileOverviewCapturedAt,
                 valid: mobileOverviewCapture.valid,
               }
               const supplementalImages: NonNullable<CapturedPageEvidence['supplementalImages']> = [
@@ -1474,6 +1600,7 @@ export async function analyze(
                   path: mobileViewportPath,
                   width: mobileViewportCapture.dimensions?.width || VIEWPORTS.mobile.width,
                   height: mobileViewportCapture.dimensions?.height || VIEWPORTS.mobile.height,
+                  capturedAt: mobileViewportCapturedAt,
                   valid: mobileViewportCapture.valid,
                   sourceRect: {
                     x: 0,
@@ -1483,6 +1610,44 @@ export async function analyze(
                   },
                 },
               ]
+              const finalMobileHealthInspection = await runFinalHealthInspection(
+                'adaptive',
+                () =>
+                  measure('healthGateMs', () =>
+                    runWithinDeadline(adaptiveDeadline, () =>
+                      ensurePageHealth(subPage, { expectedUrl: mobileCaptureUrl, responseStatus: mobilePageStatus }),
+                    ),
+                  ),
+                isAdaptiveMobileBudgetError,
+              )
+              if (!finalMobileHealthInspection.ok) {
+                extractionIssues.push({
+                  stage: `${mobileStagePrefix}:final-health:inspection-failed`,
+                  reason: extractionReason(finalMobileHealthInspection.raceError),
+                })
+                analysisLimitations.push(`capture-excluded-page-health:${mobileStagePrefix}:final`)
+                throw new Error('adaptive-mobile-final-health-inspection-failed')
+              }
+              const finalMobileHealth = finalMobileHealthInspection.report
+              extractionIssues.push(
+                ...finalMobileHealth.issues.map((issue) => ({
+                  stage: `${mobileStagePrefix}:final-health:${issue.code}`,
+                  reason: issue.detail || issue.severity,
+                })),
+              )
+              if (
+                subPage.isClosed() ||
+                pageIdentityUrl(subPage.url()) !== mobileCaptureIdentity ||
+                finalMobileHealth.status === 'unusable' ||
+                finalMobileHealth.recovered
+              ) {
+                throw new Error('adaptive-mobile-page-unusable')
+              }
+              mobileHealth = {
+                ...finalMobileHealth,
+                recovered: mobileHealth.recovered || finalMobileHealth.recovered,
+                attempts: mobileHealth.attempts + finalMobileHealth.attempts,
+              }
               retainAvailableScreenshot(screenshots, pageScreenshots, mobilePageScreenshot, supplementalImages)
               capturedPageEvidence.push({
                 screenshot: mobilePageScreenshot,
@@ -1506,12 +1671,22 @@ export async function analyze(
               if (optionalStyleDeadline - Date.now() >= 500) {
                 const optionalStyleStartedAt = Date.now()
                 try {
+                  if (pageIdentityUrl(subPage.url()) !== mobileCaptureIdentity) {
+                    throw new Error('adaptive-mobile-document-changed')
+                  }
                   const mobileStyles = await runWithinDeadline(optionalStyleDeadline, () => extractStyles(subPage))
+                  if (pageIdentityUrl(subPage.url()) !== mobileCaptureIdentity) {
+                    throw new Error('adaptive-mobile-document-changed')
+                  }
                   allStyles.push(mobileStyles)
-                  styleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+                  styleCaptures.push({ url: mobileCaptureUrl, viewport: 'mobile', styles: mobileStyles })
                   if (mobileHealth.evidenceEligible) {
                     evidenceEligibleStyles.push(mobileStyles)
-                    evidenceEligibleStyleCaptures.push({ url: subPage.url(), viewport: 'mobile', styles: mobileStyles })
+                    evidenceEligibleStyleCaptures.push({
+                      url: mobileCaptureUrl,
+                      viewport: 'mobile',
+                      styles: mobileStyles,
+                    })
                   }
                 } catch {
                   throwIfAnalysisAborted(analysisSignal)
@@ -1525,6 +1700,7 @@ export async function analyze(
           }
         } catch (error) {
           throwIfAnalysisAborted(analysisSignal)
+          if (error instanceof UnexpectedFinalHealthInspectionError) throw error
           // Sub-page failed to load, skip it
           const reason = extractionReason(error)
           if (adaptiveHealthIssueStartIndex !== undefined) {
@@ -1536,7 +1712,10 @@ export async function analyze(
           if (reason.includes('adaptive-mobile-budget-exceeded')) {
             analysisLimitations.push('adaptive-mobile-budget-exceeded')
             runState.addBudgetExceeded('adaptive-mobile')
-          } else if (reason.includes('adaptive-mobile-page-unusable')) {
+          } else if (
+            reason.includes('adaptive-mobile-page-unusable') ||
+            reason.includes('adaptive-mobile-final-health-inspection-failed')
+          ) {
             analysisLimitations.push(`capture-excluded-page-health:page-${i + 2}:mobile-adaptive`)
           } else {
             extractionIssues.push({ stage: `page-${i + 2}:${mainViewportName}`, reason })
@@ -1546,6 +1725,7 @@ export async function analyze(
           await closeAnalysisPage(subPage, `page-${i + 2}:${mainViewportName}:complete`)
         }
       }
+      selectedPageCount = Math.min(subPageLimit, Math.max(0, discoveredCandidateUrls.size - resolvedDuplicatePageCount))
     }
 
     // The Finish action governs page collection only. Once collection has ended, token generation is required to make
@@ -1601,12 +1781,22 @@ export async function analyze(
     }
     throwIfAnalysisAborted(analysisSignal)
 
+    for (const screenshot of pageScreenshots) {
+      screenshot.routeId = designEvidence.pages.find(
+        (page) =>
+          pageIdentityUrl(page.url) === pageIdentityUrl(screenshot.url) && page.viewport === screenshot.viewport,
+      )?.routeId
+    }
     const pageCoverage = {
       requested: pageLimit,
       discovered: discoveredPageCount,
       selected: selectedPageCount,
       analyzed: analyzedPages.size,
-      pages: [...analyzedPages].map(([pageUrl, metadata]) => ({ url: pageUrl, ...metadata })),
+      pages: [...analyzedPages].map(([pageUrl, metadata]) => ({
+        routeId: designEvidence.pages.find((page) => pageIdentityUrl(page.url) === pageUrl)?.routeId,
+        url: pageUrl,
+        ...metadata,
+      })),
     }
     const requestedViewports = viewportNames.map((name) => {
       const viewport = VIEWPORTS[name] || VIEWPORTS.desktop

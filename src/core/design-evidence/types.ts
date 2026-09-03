@@ -1,6 +1,7 @@
+import type { ComponentStatusBoundary } from '../analyzer/component-detect.js'
 import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
-import type { DesignToken, InteractionStyles } from '../analyzer/types.js'
+import type { DesignToken, InteractionStyles, RenderedTextPaintEvidence } from '../analyzer/types.js'
 
 export type PageRole = 'landing' | 'content' | 'product' | 'pricing' | 'profile' | 'account' | 'workspace' | 'unknown'
 export type SectionRole =
@@ -20,6 +21,8 @@ export interface EvidenceImage {
   path: string
   width: number
   height: number
+  /** Wall-clock time after the encoded pixels were written. */
+  capturedAt?: string
   contentHash?: string
   visualHash?: string
   sourceRect?: NormalizedRect
@@ -28,6 +31,8 @@ export interface EvidenceImage {
 
 export interface EvidencePage {
   id: string
+  /** Opaque document identity retained when public URL sanitization removes query text. */
+  routeId?: string
   url: string
   viewport: string
   title?: string
@@ -48,6 +53,10 @@ export interface EvidencePage {
   }>
   health?: PageHealthReport
   images: EvidenceImage[]
+}
+
+export interface ComponentTextStyleSource extends Omit<RenderedTextPaintEvidence, 'kind'> {
+  kind: 'direct-text' | 'descendant-text' | 'native-value' | 'native-placeholder' | 'native-selection'
 }
 
 export interface TopologyPage {
@@ -114,6 +123,11 @@ export interface ComponentEvidence {
   type: string
   elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
+  /** Where the rendered foreground and typography in `styles` were measured. */
+  textStyleOwner?: 'root' | 'descendant'
+  /** Observable facts proving that the typography source was visibly painted at capture time. */
+  textStyleSource?: ComponentTextStyleSource
+  statusBoundary?: ComponentStatusBoundary
   rect: NormalizedRect
   styles: Record<string, string>
   tokenRefs: string[]
@@ -141,8 +155,11 @@ export interface LayoutEvidenceNode {
   rect: NormalizedRect
   parentId?: string
   textRole?: 'display' | 'heading' | 'body' | 'label' | 'metadata'
+  /** Observable facts proving that `observedTypography` came from visibly painted text. */
+  textStyleSource?: ComponentTextStyleSource
   tokenRefs: string[]
   observedTypography?: {
+    color?: string
     fontFamily?: string
     fontSize?: string
     fontWeight?: string
@@ -159,7 +176,28 @@ export interface PseudoElementEvidence {
   target: string
   kind: 'before' | 'after' | 'first-letter'
   styles: Record<string, string>
+  paint?: PseudoElementPaintEvidence
   evidenceRefs: string[]
+}
+
+export interface PseudoElementPaintEvidence {
+  widthPx: number
+  heightPx: number
+  xPx: number
+  yPx: number
+  captureWidthPx: number
+  captureHeightPx: number
+  visibleWidthPx: number
+  visibleHeightPx: number
+  paintedAreaPx: number
+  captureIntersectionRatio: number
+  opacity: number
+  filterOpacity: number
+  filterChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
+  /** Always empty because masked pseudo paint is conservatively excluded. */
+  maskChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
+  /** Always empty because non-normal blending makes pseudo paint backdrop-dependent. */
+  blendChain: Array<{ value: string; owner: 'self' | 'ancestor' | 'paint' }>
 }
 
 export interface InteractionObservation {
@@ -167,6 +205,7 @@ export interface InteractionObservation {
   pageId: string
   sectionId: string
   targetId: string
+  targetKind?: 'component' | 'section' | 'page'
   driver: 'hover' | 'focus' | 'click' | 'disabled' | 'scroll' | 'time'
   safety: 'passive' | 'safe-active'
   trigger: {
@@ -204,6 +243,7 @@ export interface MediaLayerEvidence {
   sectionId: string
   kind: 'image' | 'video' | 'svg' | 'canvas' | 'css-background'
   role: 'ambient' | 'narrative' | 'product' | 'decorative' | 'icon' | 'unknown'
+  roleEvidence?: MediaRoleEvidence
   importance: 'major' | 'supporting' | 'icon'
   rect: NormalizedRect
   zIndex?: string
@@ -215,6 +255,18 @@ export interface MediaLayerEvidence {
   naturalSize?: { width: number; height: number }
   hasResponsiveSources?: boolean
 }
+
+export type MediaRoleEvidence =
+  | 'importance-icon'
+  | 'css-background-area'
+  | 'structured-product-semantics'
+  | 'accessible-non-decorative'
+  | 'media-element'
+  | 'figure-semantics'
+  | 'presentation-semantics'
+  | 'large-visual'
+  | 'positioned-visual'
+  | 'unknown'
 
 export interface EvidenceCoverage {
   pageCoverage: 'complete' | 'partial'
@@ -265,6 +317,8 @@ export interface DesignEvidence {
   schemaVersion: '1'
   analysisId: string
   source: {
+    /** Opaque identity of the entry document, retained when public URL sanitization removes query text. */
+    routeId?: string
     requestedUrl: string
     finalUrl: string
     accessMode: 'anonymous' | 'managed'

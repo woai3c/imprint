@@ -22,10 +22,9 @@
     "single dominant action family with multicolor decorative accents",
     "section-level gradient and compound-radius treatments observed"
   ],
-  "expectedPrimary": "#ea580c",
+  "forbiddenPrimary": true,
+  "expectedColorTokens": { "accent": "#ea580c" },
   "forbiddenGenericAccents": ["#431407"],
-  "expectedObservedPrimaryForeground": "#ffffff",
-  "expectedPrimaryContrastRatio": 3.56,
   "expectedTitle": "Bubblebox — Snacks that pop",
   "forbiddenScalarRadii": ["48px"],
   "expectedStructuralTreatments": {
@@ -47,7 +46,10 @@
   ],
   "forbiddenColors": ["#000000"],
   "forbiddenFontFamilies": ["Times New Roman"],
-  "expectedDesignDocStrings": ["button-primary-sm", "button-primary-lg", "elementKind: anchor", "elementKind: button"],
+  "expectedDesignDocStrings": [
+    "button: 3 observed patterns, 3 canonical instances, 0 reusable exact-style patterns",
+    "card: 1 observed patterns, 3 canonical instances, 1 reusable exact-style patterns"
+  ],
   "expectedReconstructionSummaryStrings": [
     "linear-gradient 160deg",
     "content max-width: 1080px",

@@ -1,4 +1,13 @@
-const BASE_ALL_FORMATS = ['design.md', 'tailwind', 'css', 'scss', 'json', 'evidence'] as const
+const BASE_ALL_FORMATS = [
+  'design.md',
+  'tailwind',
+  'css',
+  'scss',
+  'json',
+  'evidence',
+  'components',
+  'visual-qa',
+] as const
 
 export interface CliExportAvailability {
   hasProfile: boolean

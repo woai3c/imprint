@@ -152,7 +152,8 @@
       "noShadowScale": "- ✅ 未观察到稳定的阴影刻度；优先使用已观察到的边框与背景色变化建立层次",
       "observedResponsive": "- ✅ 保留已观察到的响应式行为及其视口差异",
       "declaredBreakpoints": "- 已声明断点，但本次捕获未观察到响应式行为",
-      "recurringSpacing": "- ✅ 重复间距优先使用间距刻度；组件和结构中的已观察例外保持精确值"
+      "recurringSpacing": "- ✅ 重复间距优先使用间距刻度；组件和结构中的已观察例外保持精确值",
+      "noGlobalRules": "- 没有站点级正确/禁止规则达到 P0 证据门槛；下方局部观察仅适用于其标注的证据场景。"
     },
     "donts": {
       "heading": "### 避免",
@@ -174,13 +175,42 @@
         "partial": "部分"
       }
     },
+    "typographyRole": {
+      "heading": "### 排版角色证据",
+      "countBasis": "> 计数口径：每个路由只使用一次证据有效且无严重溢出的代表性捕获；优先桌面端，其次平板和移动端。",
+      "header": "| 观察角色 | 独立元素数 | 字体 | 字号 | 字重 | 行高 |"
+    },
+    "topology": {
+      "heading": "### 页面拓扑",
+      "routeGroup_one": "`{{viewport}}` · {{count}} 个路由 · 示例：{{examples}}",
+      "routeGroup_other": "`{{viewport}}` · {{count}} 个路由 · 示例：{{examples}}"
+    },
+    "structure": {
+      "heading": "### 结构事实",
+      "ownerScope_one": "{{count}} 个独立元素 · 范围：{{scope}}",
+      "ownerScope_other": "{{count}} 个独立元素 · 范围：{{scope}}",
+      "scopeMore": "另 {{count}} 个范围"
+    },
+    "responsive": {
+      "heading": "### 响应式结构观察",
+      "groupLine": "- {{from}} → {{to}} · {{role}} · {{change}}（{{properties}}） · {{routeSupport}} · {{instanceSupport}} · {{examples}}",
+      "routeSupport_one": "支持：{{count}} 个路由",
+      "routeSupport_other": "支持：{{count}} 个路由",
+      "instanceSupport_one": "{{count}} 个观察实例",
+      "instanceSupport_other": "{{count}} 个观察实例",
+      "examples": "示例：{{examples}}",
+      "propertySeparator": "、",
+      "valueSeparator": "；"
+    },
     "limitations": {
       "selectedPagesIncomplete": "部分自动选定页面未能完成捕获；本文结论仅覆盖已完成页面。",
       "plannedCapturesIncomplete": "至少缺少一个计划中的页面×视口捕获；跨视口覆盖不完整。",
+      "queryRouteRedacted": "一个或多个已捕获文档使用查询参数路由；公开产物会隐藏查询文本，并使用不透明路由标识加以区分。",
       "adaptiveMobileBudgetExceeded": "移动端补充捕获超出预留时间预算，因此未被保留。",
       "adaptiveMobileSkippedBudget": "分析时间预算已耗尽，后续移动端补充捕获被跳过。",
       "adaptiveMobileHorizontalOverflow": "第 {{page}} 个页面的移动端补充捕获出现横向溢出（视口 {{viewport}}px，内容宽度 {{content}}px）。",
-      "responsiveSectionIdentityMismatch": "同一 DOM 路径在不同视口中具有不同的语义区块角色，因此该配对已从响应式声明中排除。",
+      "partialOverlay": "至少一个捕获包含非阻断式边缘遮挡；其证据仍可使用，但应复核被遮挡区域下方的内容。",
+      "responsiveSectionIdentityMismatch": "部分区块在不同视口间缺少唯一的语义身份，因此不安全的配对已从响应式结论中排除。",
       "breakpointStylesheetsUnreadable": "部分样式表规则无法通过浏览器 CSSOM 读取，因此声明断点列表并不完整；已观察到的响应式变化仍然有效。"
     },
     "stateEvidence": {
@@ -273,12 +303,21 @@
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px 圆角",
       "sourceInstances": "{{count}} 个观察实例",
+      "recipeEvidence": "{{count}} 个代表样式匹配实例，覆盖 {{pages}} 个页面 · 身份 {{identity}} · 复用 {{reuse}} · {{scope}}",
+      "reuseScopes": {
+        "isolated": "孤立观察",
+        "page-repeated": "单页重复",
+        "cross-page": "跨页观察"
+      },
       "useWhen": "适用场景",
       "observedRecipe": "观察配方",
+      "observedStyles": "代表性样式",
       "states": "已观察状态",
       "responsive": "已观察响应式行为",
       "restrictions": "限制",
       "noP1Recipes": "当前没有组件模式具备足够证据用于场景化复用。",
+      "omittedP1Recipes": "另有 {{count}} 个可复用契约在此仅作汇总，避免重复展开（{{summary}}）。完整契约见 `component-specs.json`。",
+      "omittedP1RecipeType": "{{component}}：{{count}}",
       "useWhenValues": {
         "primary-action": "目标页面需要一个主要操作时",
         "action": "目标页面需要次要或普通操作时",
@@ -305,6 +344,7 @@
       "localFacts": "已观察的局部事实",
       "localFactsScopeNotice": "以下每条事实只适用于其引用的采集范围；扩大复用范围前需要重新验证。",
       "localRecipes": "局部或专用组件模式",
+      "localRecipeSummary": "**{{component}}：** {{patterns}} 个局部模式，{{instances}} 个代表性实例",
       "unknownsHeading": "### 未知与覆盖不足",
       "unknowns": "未知或覆盖不足",
       "none": "无。",
@@ -676,6 +716,7 @@
       },
       "buttonVariants": {
         "primary": "主按钮",
+        "action": "操作按钮",
         "secondary": "次按钮",
         "destructive": "危险操作按钮",
         "text": "文字按钮",
@@ -774,6 +815,7 @@
       "compactRadiusSurfaces": "观察到以紧凑圆角为主的表面",
       "noStableShadowScale": "未观察到稳定阴影刻度",
       "layeredElevationSystem": "分层式高度系统",
+      "observedLayeredElevation": "观察到分层高度处理",
       "weightContrastHierarchy": "字重对比层级",
       "extensiveCssVariableUsage": "大量使用 CSS 变量",
       "sectionGradientAndCompoundRadius": "观察到区块级渐变与复合圆角处理",
@@ -818,7 +860,7 @@
           "fallback": "已观察但未分配语义"
         },
         "completeHeading": "### 核心便携颜色令牌\n",
-        "tokenHeader": "| 令牌 | 值 | 用途 | 置信度 |",
+        "tokenHeader": "| 令牌 | 值 | 独立元素数 | 置信度 |",
         "groupOmitted": "（另有 {{count}} 个，见完整表格）",
         "contexts": {
           "action": "操作",
@@ -827,6 +869,11 @@
           "background": "背景",
           "text": "文字",
           "border": "边框"
+        },
+        "confidence": {
+          "high": "高",
+          "medium": "中",
+          "low": "低"
         },
         "pageCountOne": "{{count}}页",
         "pageCountOther": "{{count}}页",
@@ -852,7 +899,7 @@
       },
       "typography": {
         "families": "**字体族：** {{values}}",
-        "systemDefault": "系统默认",
+        "noPortableFamilies": "尚未建立可移植字体族；选择字体前请查看局部排版证据。",
         "fullStacks": "\n**完整字体栈：**",
         "sizes": "\n**可复用字号阶梯：** {{values}}",
         "roleExceptionsHeading": "\n**已观察的角色级字号例外：**",
@@ -864,8 +911,9 @@
       "layout": {
         "spacingHeading": "### 可复用间距候选\n",
         "spacingLevel": "- 级别 {{level}}: `{{value}}`{{countSuffix}}",
+        "ownerCountSuffix": "（{{count}} 个独立元素）",
         "noSpacing": "- 未观察到可靠的间距刻度。",
-        "geometryNote": "\n> 超过 96px 的低频页面几何不进入可复用刻度；有代表性的结构尺寸与响应式变化已保留在本文档中。",
+        "geometryNote": "\n> 负偏移、大尺寸小数几何，以及每个路由仅有一个所有者且超过 96px 的布局偏移不进入可复用刻度；代表性结构尺寸与响应式变化保留在本文的证据章节中。",
         "breakpointHeading": "\n### CSS 中声明的响应式断点\n",
         "breakpointNote": "> 下列宽度来自 CSS media/container query；只有列出的变化才经过直接观察，空白不代表页面在该宽度没有变化。\n",
         "breakpointPartialNote": "> 部分样式表规则无法通过 CSSOM 读取，因此断点发现并不完整；不要把本表视为全部已声明断点。\n",
@@ -881,11 +929,14 @@
       },
       "shapes": {
         "radiusHeading": "### 圆角刻度\n",
+        "ownerCountSuffix": "（{{count}} 个独立元素）",
         "noRadius": "未观察到可靠的圆角刻度。",
         "structuralHeading": "\n### 结构圆角\n"
       },
       "components": {
         "canonicalNote": "> 实例数按每个页面的一次代表性捕获统计；优先使用桌面端。其他视口只用于响应式观察，不重复累计实例。\n",
+        "summaryIntro": "> 本节仅保留有界汇总。可复用的完全匹配样式规范位于 Component Specs JSON，全部实例保留在 Design Evidence JSON。\n",
+        "summary": "- {{type}}：{{patterns}} 个已观察模式，{{instances}} 个代表捕获实例，{{reusable}} 个可复用完全匹配样式模式",
         "header": "| 类型 | 实例数 | 身份置信度 | 复用置信度 | 复用范围 | 代表样式 |",
         "reuseScopes": {
           "isolated": "孤立观察",
@@ -905,11 +956,11 @@
   },
   "transferGrammar": {
     "evidenceNote": "支持该迁移配方的证据",
-    "recipeStatement": "下列令牌由同组实例中的至少 80% 共同引用（共观察到 {{count}} 个）；它们是已观察的共享子集，不是完整组件规范。",
-    "recipeSingleStatement": "下列令牌来自这个已观察实例；单个实例不能建立全站默认规则。",
-    "statusRecipeStatement": "下列令牌由同组实例中的至少 80% 共同引用（共观察到 {{count}} 个）；它们是已观察的共享子集，不是完整组件规范。",
-    "statusRecipeSingleStatement": "下列令牌来自这个已观察实例；单个实例不能建立全站默认规则。",
-    "recipeImplementation": "仅当目标界面包含对应组件和变体时，复用这组共同令牌。",
+    "recipeStatement": "代表性样式和已列令牌引用在这 {{count}} 个完全匹配的样式实例中重复出现；它们是已观察的共享子集，不是完整组件规范。",
+    "recipeSingleStatement": "代表性样式和令牌引用来自这个已观察实例；单个实例不能建立全站默认规则。",
+    "statusRecipeStatement": "代表性样式和已列令牌引用在这 {{count}} 个完全匹配的样式实例中重复出现；它们是已观察的共享子集，不是完整组件规范。",
+    "statusRecipeSingleStatement": "代表性样式和令牌引用来自这个已观察实例；单个实例不能建立全站默认规则。",
+    "recipeImplementation": "仅当目标界面包含对应组件和变体时，复用这一代表性处理方式。",
     "stateStatement": "观察到 {{driver}} 状态会改变 {{properties}}。",
     "stateImplementation": "只实现已列出的状态变化，不推断未观察状态。",
     "responsiveStatement": "从 {{from}} 到 {{to}} 时，组件所在区块发生 {{change}}；已观察到变化的属性为 {{properties}}。",
@@ -992,6 +1043,7 @@
       "componentVariantClause_other": "，包含以下变体：{{variants}}",
       "componentVariants": {
         "primary": "主按钮",
+        "action": "操作按钮",
         "secondary": "次按钮",
         "destructive": "危险操作按钮",
         "text": "文字按钮",
@@ -1059,8 +1111,8 @@
         "responsivePresenceReason": "某个区块只出现在一个对比采集中；仅凭缺失不能证明 CSS 隐藏或内容移除。",
         "responsivePresenceNeeded": "在两个视口间匹配同一区块，或直接观察 display / visibility。",
         "responsiveIdentityTopic": "跨视口区块身份",
-        "responsiveIdentityReason": "同一 DOM 路径在不同视口中具有不同的语义区块角色，因此未声明该配对存在响应式关系。",
-        "responsiveIdentityNeeded": "比较响应式变化前，先确认两个视口中的区块具有相同语义身份。",
+        "responsiveIdentityReason": "一个或多个区块无法通过稳定的语义身份在不同视口间唯一匹配。未匹配标签、重复身份和角色冲突均未被解释为响应式行为。",
+        "responsiveIdentityNeeded": "比较响应式变化前，先确认两个视口中的区块具有相同语义身份，或直接观察其可见性。",
         "overflowTopic": "严重横向溢出",
         "overflowReason": "至少一个采集被裁剪，已排除在可复用布局推断之外。",
         "overflowNeeded": "在推断响应式布局前采集一个无溢出的视口。",

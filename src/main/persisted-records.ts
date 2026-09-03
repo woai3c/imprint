@@ -52,6 +52,7 @@ function isRecordArray(value: unknown): value is Array<Record<string, unknown>> 
 function isPageScreenshotData(value: unknown): value is PageScreenshotData {
   if (!isRecord(value)) return false
   return (
+    (value.routeId === undefined || typeof value.routeId === 'string') &&
     typeof value.url === 'string' &&
     typeof value.path === 'string' &&
     typeof value.viewport === 'string' &&
@@ -252,6 +253,10 @@ export function analysisPreviewPath(
   if (!evidence) return screenshot.path
   const evidencePages = Array.isArray(evidence.pages) ? evidence.pages : []
   const page =
+    evidencePages.find(
+      (candidate) =>
+        screenshot.routeId && candidate.routeId === screenshot.routeId && candidate.viewport === screenshot.viewport,
+    ) ||
     evidencePages.find((candidate) => candidate.url === screenshot.url && candidate.viewport === screenshot.viewport) ||
     evidencePages.find((candidate) => candidate.url === screenshot.url) ||
     evidencePages[0]
@@ -335,10 +340,11 @@ export function readDarkModeExportData(
   baseTokens: DesignToken,
   method: unknown,
   selector?: unknown,
+  designEvidence?: Pick<DesignEvidence, 'pages'>,
 ): DarkModeExportData | undefined {
   if (typeof serialized !== 'string') return undefined
   try {
-    return restoreDarkModeExportData(JSON.parse(serialized) as unknown, baseTokens, method, selector)
+    return restoreDarkModeExportData(JSON.parse(serialized) as unknown, baseTokens, method, selector, designEvidence)
   } catch {
     return undefined
   }
@@ -351,6 +357,10 @@ export function referenceCaptureFromRecord(record: Record<string, unknown>): Ref
     return {
       analysisId: String(record.id),
       url: String(record.final_url || record.url || ''),
+      routeIdentity:
+        typeof record.route_identity === 'string' && record.route_identity.trim()
+          ? record.route_identity.trim()
+          : undefined,
       createdAt: typeof record.created_at === 'string' ? record.created_at : undefined,
       tokens,
       evidence: readDesignEvidence(record.design_evidence_json),

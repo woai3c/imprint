@@ -1,12 +1,14 @@
 import type { Page } from 'playwright-core'
 
-import { preparePageForExtraction, resetPageScroll } from './page-preparer.js'
+import { detectAuthWall } from './auth-wall.js'
+import { inspectDocumentObstructionsInBrowser, preparePageForExtraction, resetPageScroll } from './page-preparer.js'
 
 export type PageHealthStatus = 'healthy' | 'degraded' | 'unusable'
 
 export interface PageHealthIssue {
   code:
     | 'large-overlay'
+    | 'partial-overlay'
     | 'main-content-empty'
     | 'skeleton-heavy'
     | 'fonts-not-ready'
@@ -45,6 +47,48 @@ interface PageHealthOptions {
 const HEALTH_RECOVERY_TIMEOUT_MS = 14_000
 const EMPTY_CONTENT_RELOAD_TIMEOUT_MS = 6_000
 
+/** True only for browser lifecycle races that make a page-health inspection impossible to finish. */
+export function isPageInspectionRaceError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return /(?:execution context was destroyed|cannot find context with specified id|frame was detached|target (?:page, context or browser|closed)|page (?:has been |was )?closed|browser has been closed|context has been closed|most likely because of a navigation)/i.test(
+    error.message,
+  )
+}
+
+export type FinalHealthBoundary = 'entry' | 'subpage' | 'adaptive'
+
+export class UnexpectedFinalHealthInspectionError extends Error {
+  readonly boundary: FinalHealthBoundary
+  readonly originalError: unknown
+
+  constructor(boundary: FinalHealthBoundary, error: unknown) {
+    super(error instanceof Error ? error.message : String(error))
+    this.name = 'UnexpectedFinalHealthInspectionError'
+    this.boundary = boundary
+    this.originalError = error
+  }
+}
+
+export async function runFinalHealthInspection<T>(
+  boundary: FinalHealthBoundary,
+  inspect: () => Promise<T>,
+  isExpectedInterruption: (error: unknown) => boolean = () => false,
+): Promise<{ ok: true; report: T } | { ok: false; raceError: unknown }> {
+  try {
+    return { ok: true, report: await inspect() }
+  } catch (error) {
+    if (isPageInspectionRaceError(error)) return { ok: false, raceError: error }
+    if (isExpectedInterruption(error)) throw error
+    throw new UnexpectedFinalHealthInspectionError(boundary, error)
+  }
+}
+
+function isExpectedRecoveryFailure(error: unknown): boolean {
+  if (isPageInspectionRaceError(error)) return true
+  if (!(error instanceof Error)) return false
+  return error.name === 'TimeoutError'
+}
+
 function sameOrigin(first: string, second: string): boolean {
   try {
     return new URL(first).origin === new URL(second).origin
@@ -58,7 +102,6 @@ const EVIDENCE_UNSAFE_HEALTH_CODES = new Set<PageHealthIssue['code']>([
   'main-content-empty',
   'skeleton-heavy',
   'fonts-not-ready',
-  'dom-still-mutating',
   'auth-wall',
   'captcha',
   'error-page',
@@ -76,10 +119,9 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
   await resetPageScroll(page)
   const currentUrl = page.url()
   const responseStatus = options.responseStatus
+  const obstructionFacts = await page.evaluate(inspectDocumentObstructionsInBrowser, { dismiss: false })
   const facts = await page.evaluate(async () => {
     const root = document.scrollingElement || document.documentElement
-    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
-    let overlayAreaRatio = 0
     let visibleElements = 0
     let skeletonElements = 0
 
@@ -99,17 +141,9 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
         Number.parseFloat(style.opacity || '1') > 0.02
       if (!visible) continue
       visibleElements += 1
-      const identity = `${element.id} ${typeof element.className === 'string' ? element.className : ''}`
-      if (/skeleton|placeholder|shimmer|loading/i.test(identity)) skeletonElements += 1
-      const semanticOverlay = element.matches(
-        '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog[open]',
-      )
-      const fixedOverlay = ['fixed', 'sticky'].includes(style.position)
-      const area =
-        Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)) *
-        Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
-      const ratio = area / viewportArea
-      if ((semanticOverlay || fixedOverlay) && ratio >= 0.08) overlayAreaRatio = Math.max(overlayAreaRatio, ratio)
+      if (element.matches('[aria-busy="true"], progress:not([value]), [role="progressbar"]:not([aria-valuenow])')) {
+        skeletonElements += 1
+      }
     }
 
     let mutationCount = 0
@@ -125,11 +159,9 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     const main = document.querySelector('main, [role="main"]')
     const mainText = (main?.textContent || bodyText).replace(/\s+/g, ' ').trim()
     const meaningfulMedia = document.querySelectorAll('img[src], video, canvas, svg').length
-    const captcha = Boolean(
-      document.querySelector(
-        'iframe[src*="recaptcha" i], iframe[src*="hcaptcha" i], iframe[src*="captcha" i], [data-sitekey], [id*="recaptcha" i], [class*="recaptcha" i], [id*="hcaptcha" i], [class*="hcaptcha" i], input[name*="captcha" i]',
-      ),
-    )
+    // There is no reliable web-standard CAPTCHA marker. Vendor/class-name guessing would make restriction handling
+    // site-specific, so unknown challenges are reported through their observable overlay/content health effects.
+    const captcha = false
     const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
     let contentWidth = viewportWidth
     const overflowStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
@@ -201,26 +233,35 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       viewportHeight: Math.max(window.visualViewport?.height || window.innerHeight, 1),
       contentWidth: Math.ceil(contentWidth),
       contentHeight: Math.max(root.scrollHeight, document.documentElement.scrollHeight),
-      overlayAreaRatio,
       mutationCount,
       mainContentEmpty: mainText.length < 30 && bodyText.length < 80 && meaningfulMedia === 0,
       skeletonRatio: skeletonElements / Math.max(visibleElements, 1),
       fontsReady: !document.fonts || document.fonts.status === 'loaded',
-      authWall: !!document.querySelector('input[type="password"], input[autocomplete="current-password"]'),
       captcha,
     }
   })
+  const inspectedFacts = { ...facts, ...obstructionFacts }
+  const authWallDetected = (await detectAuthWall(page, responseStatus)).detected
 
   const issues: PageHealthIssue[] = []
   const add = (issue: PageHealthIssue) => issues.push(issue)
-  if (facts.overlayAreaRatio >= 0.08) {
-    add({ code: 'large-overlay', severity: facts.overlayAreaRatio >= 0.45 ? 'error' : 'warning', recoverable: true })
+  if (inspectedFacts.blockingOverlayAreaRatio > 0) {
+    add({ code: 'large-overlay', severity: 'error', recoverable: true })
+  } else if (inspectedFacts.partialOverlayAreaRatio >= 0.08) {
+    add({
+      code: 'partial-overlay',
+      severity: 'warning',
+      recoverable: false,
+      detail: inspectedFacts.partialOverlayAreaRatio.toFixed(3),
+    })
   }
   if (facts.mainContentEmpty) add({ code: 'main-content-empty', severity: 'error', recoverable: true })
   if (facts.skeletonRatio >= 0.12) add({ code: 'skeleton-heavy', severity: 'warning', recoverable: true })
   if (!facts.fontsReady) add({ code: 'fonts-not-ready', severity: 'warning', recoverable: true })
   if (facts.mutationCount >= 30) {
-    add({ code: 'dom-still-mutating', severity: 'warning', recoverable: true, detail: String(facts.mutationCount) })
+    // Mutation volume alone does not show that the rendered page is unsafe. Analytics, clocks, carousels, and
+    // framework telemetry can mutate indefinitely while the captured design remains stable and readable.
+    add({ code: 'dom-still-mutating', severity: 'warning', recoverable: false, detail: String(facts.mutationCount) })
   }
   if (facts.contentWidth > facts.viewportWidth + 4) {
     add({
@@ -230,7 +271,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       detail: `${facts.viewportWidth}/${facts.contentWidth}`,
     })
   }
-  if (facts.authWall) add({ code: 'auth-wall', severity: 'error', recoverable: false })
+  if (authWallDetected) add({ code: 'auth-wall', severity: 'error', recoverable: false })
   if (facts.captcha) add({ code: 'captcha', severity: 'error', recoverable: false })
   if (responseStatus === 429) add({ code: 'rate-limited', severity: 'error', recoverable: false })
   if (responseStatus !== undefined && responseStatus >= 400) {
@@ -261,7 +302,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     attempts: 1,
     viewport: { width: facts.viewportWidth, height: facts.viewportHeight },
     content: { width: facts.contentWidth, height: facts.contentHeight },
-    overlayAreaRatio: facts.overlayAreaRatio,
+    overlayAreaRatio: inspectedFacts.overlayAreaRatio,
     mutationCount: facts.mutationCount,
     evidenceEligible: false,
     issues,
@@ -299,15 +340,17 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
       // recovery for that state; access walls, HTTP errors, and unexpected navigation are never reloaded here.
       if (recovered.issues.some((issue) => issue.code === 'main-content-empty')) {
         const response = await page.reload({ waitUntil: 'commit', timeout: EMPTY_CONTENT_RELOAD_TIMEOUT_MS })
-        await page
-          .waitForFunction(
+        try {
+          await page.waitForFunction(
             () =>
               (document.contentType === 'text/html' || document.contentType === 'application/xhtml+xml') &&
               Boolean(document.body?.childElementCount),
             undefined,
             { timeout: EMPTY_CONTENT_RELOAD_TIMEOUT_MS },
           )
-          .catch(() => {})
+        } catch (error) {
+          if (!isExpectedRecoveryFailure(error)) throw error
+        }
         if (controller.signal.aborted) throw controller.signal.reason
         await preparePageForExtraction(page, { recovery: true, signal: controller.signal })
         if (controller.signal.aborted) throw controller.signal.reason
@@ -322,10 +365,15 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
     // Do not race the recovery promise. On timeout the page is closed above; awaiting the promise guarantees that
     // reload/prepare work has settled before the caller can continue with another capture.
     const recovered = await recovery
-    return { ...recovered, recovered: recovered.issues.length < initial.issues.length }
+    if (controller.signal.aborted) throw controller.signal.reason
+    // `recovered` is a transaction-safety fact: recovery preparation or reload ran and may have changed the page.
+    // Callers must refresh any earlier extraction, and a final-health caller must discard its pre-recovery capture,
+    // regardless of whether the resulting issue count happened to decrease.
+    return { ...recovered, recovered: true }
   } catch (error) {
     const timedOut = controller.signal.aborted
     if (forcedPageClose) await forcedPageClose
+    if (!timedOut && !isExpectedRecoveryFailure(error)) throw error
     const issues: PageHealthIssue[] = [
       ...initial.issues,
       {
@@ -337,7 +385,7 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
     ]
     return {
       ...initial,
-      ...(timedOut ? { status: 'unusable' as const } : {}),
+      status: 'unusable',
       evidenceEligible: false,
       attempts: 2,
       issues,

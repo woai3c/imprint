@@ -39,21 +39,17 @@ describe('shared action and status role candidates', () => {
     ).toBeNull()
   })
 
-  test('requires bounded delta/trend semantics and derives status intent', () => {
+  test('requires web-standard live-region semantics and keeps status intent neutral', () => {
     expect(
       classifyRoleCandidate({
         tagName: 'div',
-        className: 'delta up',
+        role: 'status',
         color: 'rgb(6, 118, 71)',
         isCandidateRoot: true,
       }),
-    ).toMatchObject({ elementKind: 'status', role: 'status', statusKind: 'delta', statusIntent: 'positive' })
+    ).toMatchObject({ elementKind: 'status', role: 'status', statusKind: 'status', statusIntent: 'neutral' })
     expect(classifyRoleCandidate({ tagName: 'div', className: 'up', isCandidateRoot: true })).toBeNull()
-    expect(classifyRoleCandidate({ tagName: 'span', className: 'status warn', isCandidateRoot: true })).toMatchObject({
-      role: 'status',
-      statusKind: 'status',
-      statusIntent: 'warning',
-    })
+    expect(classifyRoleCandidate({ tagName: 'span', className: 'status warn', isCandidateRoot: true })).toBeNull()
   })
 
   test('keeps interactive roots as actions when frameworks add live-region attributes', () => {
@@ -68,22 +64,64 @@ describe('shared action and status role candidates', () => {
     ).toMatchObject({ role: 'status', elementKind: 'status' })
   })
 
-  test('keeps primary and destructive action roles separate from status output', () => {
+  test('uses a sole native form submitter for primary actions and ignores framework naming conventions', () => {
+    expect(
+      classifyRoleCandidate({
+        tagName: 'button',
+        formAssociated: true,
+        formSubmitterCount: 1,
+        isCandidateRoot: true,
+      }),
+    ).toMatchObject({ role: 'primary-action' })
     expect(classifyRoleCandidate({ tagName: 'button', className: 'btn primary', isCandidateRoot: true })).toMatchObject(
-      { role: 'primary-action' },
+      {
+        role: 'action',
+      },
     )
     expect(classifyRoleCandidate({ tagName: 'button', className: 'btn danger', isCandidateRoot: true })).toMatchObject({
-      role: 'destructive-action',
+      role: 'action',
     })
   })
 
   test.each([
-    [{ tagName: 'input', type: 'submit', isCandidateRoot: true }, 'primary-action'],
-    [{ tagName: 'button', dataIntent: 'primary', text: 'متابعة', isCandidateRoot: true }, 'primary-action'],
-    [{ tagName: 'button', dataIntent: 'destructive', text: '削除', isCandidateRoot: true }, 'destructive-action'],
-    [{ tagName: 'button', className: 'danger', text: 'Eliminar', isCandidateRoot: true }, 'destructive-action'],
+    [
+      { tagName: 'input', type: 'submit', formAssociated: true, formSubmitterCount: 1, isCandidateRoot: true },
+      'primary-action',
+    ],
+    [
+      { tagName: 'input', type: 'image', formAssociated: true, formSubmitterCount: 1, isCandidateRoot: true },
+      'primary-action',
+    ],
+    [{ tagName: 'button', dataIntent: 'primary', text: 'متابعة', isCandidateRoot: true }, 'action'],
+    [{ tagName: 'button', dataIntent: 'destructive', text: '削除', isCandidateRoot: true }, 'action'],
+    [{ tagName: 'button', className: 'danger', text: 'Eliminar', isCandidateRoot: true }, 'action'],
   ] as const)('uses machine semantics consistently for %o', (candidate, role) => {
     expect(classifyRoleCandidate(candidate)).toMatchObject({ role })
+  })
+
+  test('keeps multiple or unassociated native submit controls hierarchy-neutral', () => {
+    for (const candidate of [
+      { tagName: 'button', formAssociated: true, formSubmitterCount: 2, isCandidateRoot: true },
+      { tagName: 'input', type: 'submit', formAssociated: true, formSubmitterCount: 2, isCandidateRoot: true },
+      { tagName: 'input', type: 'image', formAssociated: true, formSubmitterCount: 2, isCandidateRoot: true },
+      { tagName: 'input', type: 'submit', isCandidateRoot: true },
+    ]) {
+      expect(classifyRoleCandidate(candidate)).toMatchObject({ role: 'action' })
+    }
+  })
+
+  test('shares one standards-based selector contract for image submitters', () => {
+    expect(ROLE_CANDIDATE_RULES.nativeActionSelector).toContain('input[type="image" i]')
+    expect(ROLE_CANDIDATE_RULES.formSubmitterSelector).toContain('input[type="image" i]')
+    expect(
+      classifyRoleCandidate({
+        tagName: 'input',
+        type: 'image',
+        formAssociated: true,
+        formSubmitterCount: 2,
+        isCandidateRoot: true,
+      }),
+    ).toMatchObject({ elementKind: 'input', role: 'action' })
   })
 
   test.each(['确认', 'Delete', '删除', 'Eliminar', '削除', 'حذف'])(

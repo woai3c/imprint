@@ -2,9 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Page } from 'playwright-core'
 
-import { ensurePageHealth } from '../../src/core/analyzer/page-health.js'
+import {
+  UnexpectedFinalHealthInspectionError,
+  ensurePageHealth,
+  isPageInspectionRaceError,
+  runFinalHealthInspection,
+} from '../../src/core/analyzer/page-health.js'
 
 const pagePreparer = vi.hoisted(() => ({
+  inspectDocumentObstructionsInBrowser: vi.fn(),
   preparePageForExtraction: vi.fn(),
   resetPageScroll: vi.fn(),
 }))
@@ -17,6 +23,114 @@ afterEach(() => {
 })
 
 describe('page health recovery', () => {
+  it('distinguishes browser lifecycle races from unexpected inspection defects', () => {
+    expect(
+      isPageInspectionRaceError(new Error('Execution context was destroyed, most likely because of a navigation')),
+    ).toBe(true)
+    expect(isPageInspectionRaceError(new Error('Target page, context or browser has been closed'))).toBe(true)
+    expect(isPageInspectionRaceError(new Error('Frame was detached'))).toBe(true)
+    expect(isPageInspectionRaceError(new Error('sentinel internal health inspection defect'))).toBe(false)
+    expect(isPageInspectionRaceError(new TypeError('Cannot read properties of undefined'))).toBe(false)
+    expect(isPageInspectionRaceError('Execution context was destroyed')).toBe(false)
+  })
+
+  it.each(['entry', 'subpage', 'adaptive'] as const)(
+    'discards only lifecycle races at the %s final-health boundary',
+    async (boundary) => {
+      const race = new Error('Execution context was destroyed, most likely because of a navigation')
+      await expect(runFinalHealthInspection(boundary, async () => Promise.reject(race))).resolves.toEqual({
+        ok: false,
+        raceError: race,
+      })
+
+      const sentinel = new Error(`${boundary} sentinel internal health defect`)
+      await expect(runFinalHealthInspection(boundary, async () => Promise.reject(sentinel))).rejects.toMatchObject({
+        name: 'UnexpectedFinalHealthInspectionError',
+        boundary,
+        originalError: sentinel,
+      } satisfies Partial<UnexpectedFinalHealthInspectionError>)
+    },
+  )
+
+  it('preserves an expected adaptive deadline instead of wrapping it as an implementation defect', async () => {
+    const deadline = new Error('adaptive-mobile-budget-exceeded')
+    await expect(
+      runFinalHealthInspection(
+        'adaptive',
+        async () => Promise.reject(deadline),
+        (error) => error instanceof Error && error.message === 'adaptive-mobile-budget-exceeded',
+      ),
+    ).rejects.toBe(deadline)
+  })
+
+  it('propagates an unexpected exception thrown by real recovery preparation', async () => {
+    const sentinel = new Error('sentinel recovery implementation defect')
+    pagePreparer.resetPageScroll.mockResolvedValue(undefined)
+    pagePreparer.preparePageForExtraction.mockRejectedValue(sentinel)
+    const page = {
+      url: () => 'https://example.com/',
+      evaluate: vi.fn().mockResolvedValue({
+        viewportWidth: 1440,
+        viewportHeight: 900,
+        contentWidth: 1440,
+        contentHeight: 900,
+        overlayAreaRatio: 0,
+        blockingOverlayAreaRatio: 0,
+        partialOverlayAreaRatio: 0,
+        mutationCount: 0,
+        mainContentEmpty: false,
+        skeletonRatio: 0,
+        fontsReady: false,
+        captcha: false,
+      }),
+      isClosed: () => false,
+      close: vi.fn(),
+    } as unknown as Page
+
+    await expect(ensurePageHealth(page, { expectedUrl: 'https://example.com/' })).rejects.toBe(sentinel)
+  })
+
+  it('marks a completed remediation as recovered even when one warning replaces another', async () => {
+    pagePreparer.resetPageScroll.mockResolvedValue(undefined)
+    pagePreparer.preparePageForExtraction.mockResolvedValue({ issues: [] })
+    const healthFacts = (fontsReady: boolean) => ({
+      viewportWidth: 1440,
+      viewportHeight: 900,
+      contentWidth: 1440,
+      contentHeight: 900,
+      mutationCount: 0,
+      mainContentEmpty: false,
+      skeletonRatio: 0,
+      fontsReady,
+      captcha: false,
+    })
+    const obstructionFacts = (partialOverlayAreaRatio: number) => ({
+      dismissedObstructions: 0,
+      overlayAreaRatio: partialOverlayAreaRatio,
+      blockingOverlayAreaRatio: 0,
+      partialOverlayAreaRatio,
+    })
+    const page = {
+      url: () => 'https://example.com/',
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce(obstructionFacts(0))
+        .mockResolvedValueOnce(healthFacts(false))
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce(obstructionFacts(0.1))
+        .mockResolvedValueOnce(healthFacts(true))
+        .mockResolvedValueOnce({}),
+      isClosed: () => false,
+      close: vi.fn(),
+    } as unknown as Page
+
+    const result = await ensurePageHealth(page, { expectedUrl: 'https://example.com/' })
+
+    expect(result.recovered).toBe(true)
+    expect(result.issues).toHaveLength(1)
+    expect(result.issues[0].code).toBe('partial-overlay')
+  })
+
   it('closes and fully settles a timed-out recovery before returning control', async () => {
     vi.useFakeTimers()
     pagePreparer.resetPageScroll.mockResolvedValue(undefined)

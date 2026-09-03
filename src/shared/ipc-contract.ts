@@ -126,6 +126,7 @@ export interface AnalysisSummaryPageQuery {
 }
 
 export interface PageScreenshotData {
+  routeId?: string
   url: string
   path: string
   viewport: string

@@ -29,6 +29,16 @@ function tokens(overrides: Partial<DesignToken> = {}): DesignToken {
 describe('design feature tags', () => {
   const evidence = (overrides: Partial<DesignEvidence> = {}) =>
     ({
+      pages: [
+        {
+          id: 'page-desktop',
+          url: 'https://example.com/',
+          viewport: 'desktop',
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          images: [],
+        },
+      ],
       sections: [],
       ...overrides,
     }) as DesignEvidence
@@ -76,6 +86,26 @@ describe('design feature tags', () => {
 
     expect(generateFeatureTags(mixed, createExtractedStyles())).not.toContain('monospace typography')
     expect(generateFeatureTags(monospace, createExtractedStyles())).toContain('monospace typography')
+  })
+
+  test('derives primary font style only from parsed generic CSS fallbacks', () => {
+    const tagsFor = (fontFamily: string, fontStack: string) =>
+      generateFeatureTags(
+        tokens({
+          typography: {
+            ...tokens().typography,
+            fontFamilies: [fontFamily],
+            fontStacks: [fontStack],
+          },
+        }),
+        createExtractedStyles(),
+      )
+
+    expect(tagsFor('serif', '"serif", sans-serif')).not.toContain('serif editorial style')
+    expect(tagsFor('Monotype Grotesk', 'Monotype Grotesk, sans-serif')).not.toContain('monospace typography')
+    expect(tagsFor('Code Pro', 'Code Pro, sans-serif')).not.toContain('monospace typography')
+    expect(tagsFor('Georgia', 'Georgia, serif')).toContain('serif editorial style')
+    expect(tagsFor('Terminal', 'Terminal, m\\6f nospace')).toContain('monospace typography')
   })
 
   test('uses the observed radius distribution instead of pill and avatar sentinels', () => {
@@ -191,7 +221,13 @@ describe('design feature tags', () => {
 
     expect(claim).toMatchObject({ confidence: 'medium', provenance: expect.any(Array) })
     expect(claim?.reasons.join(' ')).not.toContain('#067647')
-    expect(claim?.evidenceRefs.length).toBeGreaterThan(0)
+    expect(claim?.evidenceRefs).toEqual(['page-desktop'])
+    expect(claim?.provenance).toContainEqual(
+      expect.objectContaining({
+        source: 'color-role-observation',
+        ref: expect.stringMatching(/^color-role:page-desktop\|/),
+      }),
+    )
   })
 
   test('describes one action family with multicolor decoration when section evidence supports it', () => {
@@ -341,6 +377,21 @@ describe('design feature tags', () => {
       shadows: ['0 1px 2px rgba(0, 0, 0, 0.08)', '0 4px 12px rgba(0, 0, 0, 0.12)', '0 12px 32px rgba(0, 0, 0, 0.18)'],
     })
     expect(generateFeatureTags(layered, createExtractedStyles())).toContain('layered elevation system')
+  })
+
+  test('keeps local rendered elevation hierarchy distinct from a portable shadow system', () => {
+    const styles = createExtractedStyles({
+      shadows: [
+        '0 1px 2px rgba(0, 0, 0, 0.08)',
+        '0 4px 12px rgba(0, 0, 0, 0.12)',
+        '0 16px 40px rgba(37, 99, 235, 0.22)',
+      ],
+    })
+    const tags = generateFeatureTags(tokens(), styles)
+
+    expect(tags).toContain('observed layered elevation')
+    expect(tags).not.toContain('layered elevation system')
+    expect(tags).not.toContain('no stable shadow scale observed')
   })
 
   test('does not infer flat-design intent when no stable shadow scale was observed', () => {

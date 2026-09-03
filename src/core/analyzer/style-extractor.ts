@@ -27,15 +27,35 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       zIndices: [],
       transitions: [],
       usageCount: {},
+      usageOwnerCounts: {},
+      usageOwnerIds: {},
       valueSources: {},
       valueSourceCounts: {},
+      valueSourceOwnerIds: {},
       colorRoleObservations: [],
       textColorPairObservations: [],
+      renderedTextStyleObservations: [],
     }
 
+    let currentOwner: string | null = null
+    const computedStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
+    const computedFor = (element: Element): CSSStyleDeclaration => {
+      const cached = computedStyleCache.get(element)
+      if (cached) return cached
+      const computed = getComputedStyle(element)
+      computedStyleCache.set(element, computed)
+      return computed
+    }
+    const usageOwners = new Map<string, Set<string>>()
+    const valueSourceOwners = new Map<string, Set<string>>()
     const countUsage = (category: string, value: string, amount = 1) => {
       const key = `${category}:${value}`
       styles.usageCount[key] = (styles.usageCount[key] || 0) + amount
+      if (currentOwner) {
+        const owners = usageOwners.get(key) || new Set<string>()
+        owners.add(currentOwner)
+        usageOwners.set(key, owners)
+      }
     }
     const addValueSource = (category: string, value: string, source: string) => {
       const key = `${category}:${value}`
@@ -43,7 +63,15 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (!sources.includes(source)) sources.push(source)
       if (styles.valueSources) styles.valueSources[key] = sources
       const sourceCounts = styles.valueSourceCounts?.[key] || {}
-      sourceCounts[source] = (sourceCounts[source] || 0) + 1
+      if (currentOwner) {
+        const ownerKey = `${key}\u0000${source}`
+        const owners = valueSourceOwners.get(ownerKey) || new Set<string>()
+        owners.add(currentOwner)
+        valueSourceOwners.set(ownerKey, owners)
+        sourceCounts[source] = owners.size
+      } else {
+        sourceCounts[source] = (sourceCounts[source] || 0) + 1
+      }
       if (styles.valueSourceCounts) styles.valueSourceCounts[key] = sourceCounts
     }
 
@@ -139,6 +167,271 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       return `rgb(${Math.round(composite.red)}, ${Math.round(composite.green)}, ${Math.round(composite.blue)})`
     }
 
+    const clipPathMetrics = (
+      value: string,
+      width: number,
+      height: number,
+    ): { left: number; top: number; right: number; bottom: number; fillRatio: number } | undefined => {
+      const normalized = value.trim().toLowerCase()
+      if (!normalized || normalized === 'none') return { left: 0, top: 0, right: width, bottom: height, fillRatio: 1 }
+      const length = (token: string, axis: number): number | undefined => {
+        if (token.endsWith('%')) return (Number.parseFloat(token) / 100) * axis
+        if (token.endsWith('px') || /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) return Number.parseFloat(token)
+        return undefined
+      }
+      const boundedMetrics = (left: number, top: number, right: number, bottom: number, fillRatio: number) => ({
+        left: Math.max(0, Math.min(width, left)),
+        top: Math.max(0, Math.min(height, top)),
+        right: Math.max(0, Math.min(width, right)),
+        bottom: Math.max(0, Math.min(height, bottom)),
+        fillRatio: Math.max(0, Math.min(1, fillRatio)),
+      })
+      const inset = /^inset\(([^)]*)\)/.exec(normalized)
+      if (inset) {
+        const values = inset[1]
+          .split(/\bround\b/)[0]
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+        if (values.length === 0 || values.length > 4) return undefined
+        const expanded =
+          values.length === 1
+            ? [values[0], values[0], values[0], values[0]]
+            : values.length === 2
+              ? [values[0], values[1], values[0], values[1]]
+              : values.length === 3
+                ? [values[0], values[1], values[2], values[1]]
+                : values
+        const top = length(expanded[0], height)
+        const right = length(expanded[1], width)
+        const bottom = length(expanded[2], height)
+        const left = length(expanded[3], width)
+        if ([top, right, bottom, left].some((item) => item === undefined || !Number.isFinite(item))) return undefined
+        return boundedMetrics(left!, top!, width - right!, height - bottom!, 1)
+      }
+      const circle = /^circle\(([^)]*)\)$/.exec(normalized)
+      if (circle) {
+        const [radiusValue, positionValue] = circle[1].split(/\s+at\s+/)
+        const position = (positionValue || '50% 50%').trim().split(/\s+/)
+        if (position.length !== 2) return undefined
+        const centerX = length(position[0], width)
+        const centerY = length(position[1], height)
+        const radius = radiusValue.trim().endsWith('%')
+          ? length(radiusValue.trim(), Math.hypot(width, height) / Math.SQRT2)
+          : length(radiusValue.trim(), Math.min(width, height))
+        if (![centerX, centerY, radius].every((item) => item !== undefined && Number.isFinite(item))) return undefined
+        return boundedMetrics(
+          centerX! - radius!,
+          centerY! - radius!,
+          centerX! + radius!,
+          centerY! + radius!,
+          Math.PI / 4,
+        )
+      }
+      const ellipse = /^ellipse\(([^)]*)\)$/.exec(normalized)
+      if (ellipse) {
+        const [radiiValue, positionValue] = ellipse[1].split(/\s+at\s+/)
+        const radii = radiiValue.trim().split(/\s+/)
+        const position = (positionValue || '50% 50%').trim().split(/\s+/)
+        if (radii.length !== 2 || position.length !== 2) return undefined
+        const radiusX = length(radii[0], width)
+        const radiusY = length(radii[1], height)
+        const centerX = length(position[0], width)
+        const centerY = length(position[1], height)
+        if (![radiusX, radiusY, centerX, centerY].every((item) => item !== undefined && Number.isFinite(item))) {
+          return undefined
+        }
+        return boundedMetrics(
+          centerX! - radiusX!,
+          centerY! - radiusY!,
+          centerX! + radiusX!,
+          centerY! + radiusY!,
+          Math.PI / 4,
+        )
+      }
+      const polygon = /^polygon\((.*)\)$/.exec(normalized)
+      if (polygon) {
+        const pointValues = polygon[1]
+          .replace(/^\s*(?:evenodd|nonzero)\s*,/i, '')
+          .split(',')
+          .map((point) => point.trim().split(/\s+/))
+        if (pointValues.length < 3 || pointValues.some((point) => point.length !== 2)) return undefined
+        const points = pointValues.map(([x, y]) => [length(x, width), length(y, height)] as const)
+        if (points.some(([x, y]) => x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y))) {
+          return undefined
+        }
+        const numericPoints = points as Array<readonly [number, number]>
+        const xs = numericPoints.map(([x]) => x)
+        const ys = numericPoints.map(([, y]) => y)
+        const area = Math.abs(
+          numericPoints.reduce((sum, [x, y], index) => {
+            const [nextX, nextY] = numericPoints[(index + 1) % numericPoints.length]
+            return sum + x * nextY - nextX * y
+          }, 0) / 2,
+        )
+        const left = Math.min(...xs)
+        const top = Math.min(...ys)
+        const right = Math.max(...xs)
+        const bottom = Math.max(...ys)
+        return boundedMetrics(left, top, right, bottom, area / Math.max(1, (right - left) * (bottom - top)))
+      }
+      return undefined
+    }
+
+    const filterOpacityFor = (value: string): number | undefined => {
+      const normalized = value.trim().toLowerCase()
+      if (!normalized || normalized === 'none') return 1
+      const calls = [...normalized.matchAll(/([a-z-]+)\(([^()]*)\)/g)]
+      if (calls.length === 0 || calls.map((match) => match[0]).join(' ') !== normalized.replace(/\s+/g, ' ')) {
+        return undefined
+      }
+      return calls.reduce<number | undefined>((product, match) => {
+        if (product === undefined) return undefined
+        if (match[1] !== 'opacity') return undefined
+        const token = match[2].trim()
+        const parsed = Number.parseFloat(token)
+        if (!Number.isFinite(parsed) || !/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?$/.test(token)) return undefined
+        const opacity = token.endsWith('%') ? parsed / 100 : parsed
+        return product * Math.max(0, Math.min(1, opacity))
+      }, 1)
+    }
+
+    const hasUnsupportedMask = (computed: CSSStyleDeclaration): boolean =>
+      ['mask-image', '-webkit-mask-image', 'mask-border-source', '-webkit-mask-box-image-source'].some((property) => {
+        const value = computed.getPropertyValue(property).trim().toLowerCase().replace(/\s+/g, ' ')
+        return Boolean(value && value !== 'none')
+      })
+
+    const hasContextDependentBlend = (computed: CSSStyleDeclaration): boolean => {
+      const value = computed.mixBlendMode.trim().toLowerCase()
+      return Boolean(value && value !== 'normal')
+    }
+
+    const effectivePaintVisibility = (element: Element) => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width <= 2 || rect.height <= 2 || element.getClientRects().length === 0) return undefined
+      const scrollingElement = document.scrollingElement || document.documentElement
+      const captureHeight = Math.max(
+        window.innerHeight,
+        scrollingElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+      )
+      let left = Math.max(0, rect.left)
+      let top = Math.max(0, rect.top)
+      let right = Math.min(window.innerWidth, rect.right)
+      let bottom = Math.min(captureHeight, rect.bottom)
+      const captureArea = Math.max(0, right - left) * Math.max(0, bottom - top)
+      const captureIntersectionRatio = captureArea / Math.max(1, rect.width * rect.height)
+      let opacity = 1
+      let filterOpacity = 1
+      let effectiveClipPathAreaRatio = 1
+      let ancestorClipCount = 0
+      const clipPathChain: Array<{
+        value: string
+        widthPx: number
+        heightPx: number
+        owner: 'self' | 'ancestor'
+      }> = []
+      let nonRectangularClipPathCount = 0
+      const filterChain: Array<{ value: string; owner: 'self' | 'ancestor' }> = []
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        const computed = computedFor(current)
+        if (
+          computed.display === 'none' ||
+          computed.visibility === 'hidden' ||
+          computed.visibility === 'collapse' ||
+          computed.getPropertyValue('content-visibility') === 'hidden' ||
+          hasUnsupportedMask(computed) ||
+          hasContextDependentBlend(computed)
+        ) {
+          return undefined
+        }
+        const currentOpacity = Number.parseFloat(computed.opacity || '1')
+        opacity *= Number.isFinite(currentOpacity) ? currentOpacity : 1
+        const filter = computed.filter.trim().toLowerCase().replace(/\s+/g, ' ')
+        if (filter && filter !== 'none') {
+          const currentFilterOpacity = filterOpacityFor(filter)
+          if (currentFilterOpacity === undefined || filter.length > 512 || filterChain.length >= 8) return undefined
+          filterOpacity *= currentFilterOpacity
+          filterChain.push({ value: filter, owner: current === element ? 'self' : 'ancestor' })
+        }
+        const currentRect = current.getBoundingClientRect()
+        const clipPath = clipPathMetrics(computed.clipPath, currentRect.width, currentRect.height)
+        if (!clipPath || (computed.clip !== '' && computed.clip !== 'auto')) return undefined
+        if (computed.clipPath !== '' && computed.clipPath !== 'none') {
+          if (clipPathChain.length >= 8) return undefined
+          const normalizedClipPath = computed.clipPath.trim().toLowerCase().replace(/\s+/g, ' ')
+          clipPathChain.push({
+            value: normalizedClipPath,
+            widthPx: currentRect.width,
+            heightPx: currentRect.height,
+            owner: current === element ? 'self' : 'ancestor',
+          })
+          if (/^(?:circle|ellipse|polygon)\(/.test(normalizedClipPath)) nonRectangularClipPathCount += 1
+          left = Math.max(left, currentRect.left + clipPath.left)
+          top = Math.max(top, currentRect.top + clipPath.top)
+          right = Math.min(right, currentRect.left + clipPath.right)
+          bottom = Math.min(bottom, currentRect.top + clipPath.bottom)
+          effectiveClipPathAreaRatio *= clipPath.fillRatio
+          if (current !== element) ancestorClipCount += 1
+        }
+        if (current !== element) {
+          const clipsX = ['auto', 'scroll', 'hidden', 'clip'].includes(computed.overflowX)
+          const clipsY = ['auto', 'scroll', 'hidden', 'clip'].includes(computed.overflowY)
+          const containsPaint = computed.contain.split(/\s+/).includes('paint')
+          if (clipsX || containsPaint) {
+            left = Math.max(left, currentRect.left)
+            right = Math.min(right, currentRect.right)
+            ancestorClipCount += 1
+          }
+          if (clipsY || containsPaint) {
+            top = Math.max(top, currentRect.top)
+            bottom = Math.min(bottom, currentRect.bottom)
+            if (!clipsX && !containsPaint) ancestorClipCount += 1
+          }
+        }
+      }
+      const visibleWidthPx = Math.max(0, right - left)
+      const visibleHeightPx = Math.max(0, bottom - top)
+      const effectiveScale = Math.sqrt(Math.max(0, Math.min(1, effectiveClipPathAreaRatio)))
+      const paintedAreaPx = visibleWidthPx * visibleHeightPx * effectiveClipPathAreaRatio
+      if (
+        visibleWidthPx <= 2 ||
+        visibleHeightPx <= 2 ||
+        visibleWidthPx * effectiveScale <= 2 ||
+        visibleHeightPx * effectiveScale <= 2 ||
+        paintedAreaPx <= 16 ||
+        opacity <= 0.02 ||
+        filterOpacity <= 0.02
+      ) {
+        return undefined
+      }
+      return {
+        widthPx: rect.width,
+        heightPx: rect.height,
+        visibleWidthPx,
+        visibleHeightPx,
+        visibleBounds: {
+          xPx: left - rect.left,
+          yPx: top - rect.top,
+          widthPx: visibleWidthPx,
+          heightPx: visibleHeightPx,
+        },
+        paintedAreaPx,
+        captureIntersectionRatio,
+        effectiveClipPathAreaRatio,
+        ancestorClipCount,
+        clientRectCount: element.getClientRects().length,
+        opacity,
+        filterOpacity,
+        filterChain,
+        maskChain: [],
+        blendChain: [],
+        clipPathChain,
+        nonRectangularClipPathCount,
+      }
+    }
+
     const colorProbe = document.createElement('span')
     colorProbe.setAttribute('aria-hidden', 'true')
     colorProbe.style.cssText = 'position:fixed;pointer-events:none;visibility:hidden'
@@ -148,6 +441,25 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       colorProbe.style.color = value
       if (!colorProbe.style.color) return null
       return normalizeObservedColor(getComputedStyle(colorProbe).color)
+    }
+    const glyphPaintFor = (
+      computed: CSSStyleDeclaration,
+    ):
+      | { kind: 'solid-color'; foreground: string }
+      | { kind: 'background-clip'; backgroundClip: string; backgroundImage: string }
+      | undefined => {
+      const declaredFill = computed.getPropertyValue('-webkit-text-fill-color').trim()
+      const fill = declaredFill && declaredFill.toLowerCase() !== 'currentcolor' ? declaredFill : computed.color
+      const foreground = normalizeObservedColor(fill)
+      if (foreground) return { kind: 'solid-color', foreground }
+      const backgroundClip = [computed.backgroundClip, computed.getPropertyValue('-webkit-background-clip')]
+        .map((value) => value.trim().toLowerCase())
+        .find((value) => value.split(/\s*,\s*/).includes('text'))
+      const backgroundImage = computed.backgroundImage.trim()
+      if (backgroundClip && backgroundImage && backgroundImage !== 'none' && backgroundImage.length <= 512) {
+        return { kind: 'background-clip', backgroundClip, backgroundImage }
+      }
+      return undefined
     }
 
     // 1. Extract effective CSS custom properties from accessible rules and the
@@ -218,29 +530,6 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     // still collected from `:root` above, so sample rendered styles from body downward.
     const elements = [document.body, ...document.querySelectorAll('body *')]
     const seen = new Set<string>()
-    const actionTokenPattern = new RegExp(candidateRules.actionTokenPattern, 'i')
-    const primaryActionPattern = new RegExp(candidateRules.primaryActionPattern, 'i')
-    const destructiveActionPattern = new RegExp(candidateRules.destructiveActionPattern, 'i')
-    const directStatusPattern = new RegExp(candidateRules.directStatusPattern, 'i')
-    const statusSubjectPattern = new RegExp(candidateRules.statusSubjectPattern, 'i')
-    const statusDirectionPattern = new RegExp(candidateRules.statusDirectionPattern, 'i')
-    const positiveStatusPattern = new RegExp(candidateRules.positiveStatusPattern, 'i')
-    const warningStatusPattern = new RegExp(candidateRules.warningStatusPattern, 'i')
-    const negativeStatusPattern = new RegExp(candidateRules.negativeStatusPattern, 'i')
-    const elementContext = (element: Element): string =>
-      [
-        typeof element.className === 'string' ? element.className : '',
-        element.id,
-        element.getAttribute('role'),
-        element.getAttribute('data-variant'),
-        element.getAttribute('data-intent'),
-        element.getAttribute('data-state'),
-        element.getAttribute('data-status'),
-        element.getAttribute('type'),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
     const locatorFor = (element: Element): string => {
       if (element === document.body) return 'body'
       const parts: string[] = []
@@ -255,56 +544,63 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       }
       return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
     }
-    const statusIntentFor = (context: string): 'positive' | 'warning' | 'negative' | 'neutral' => {
-      if (positiveStatusPattern.test(context)) return 'positive'
-      if (warningStatusPattern.test(context)) return 'warning'
-      if (negativeStatusPattern.test(context)) return 'negative'
-      return 'neutral'
-    }
-    const statusCandidateKind = (element: Element): 'native' | 'heuristic' | null => {
-      const statusContext = elementContext(element)
+    const statusCandidateKind = (element: Element): 'native' | null => {
       const role = element.getAttribute('role') || ''
       const ariaLive = element.getAttribute('aria-live')
       if (element.matches(candidateRules.broadActionSelector)) return null
       const nativeStatus = ['status', 'alert'].includes(role) || Boolean(ariaLive && ariaLive !== 'off')
-      if (nativeStatus) {
-        if (element.parentElement?.closest(candidateRules.nativeStatusSelector)) return null
-        return 'native'
-      }
-      if (
-        element.parentElement?.closest(`${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`)
-      ) {
-        return null
-      }
-      const boundedTrend = statusSubjectPattern.test(statusContext) && statusDirectionPattern.test(statusContext)
-      return directStatusPattern.test(statusContext) || boundedTrend ? 'heuristic' : null
+      if (nativeStatus) return 'native'
+      return null
     }
-    const statusCandidateKinds = new Map<Element, 'native' | 'heuristic'>()
+    const statusCandidateKinds = new Map<Element, 'native'>()
     for (const element of elements) {
       const kind = statusCandidateKind(element)
       if (kind) statusCandidateKinds.set(element, kind)
     }
     const statusCandidates = new Set(statusCandidateKinds.keys())
-    const candidatesWithNativeDescendants = new Set<Element>()
-    for (const [element, kind] of statusCandidateKinds) {
-      let ancestor = element.parentElement
-      while (ancestor) {
-        if (statusCandidates.has(ancestor)) {
-          if (kind === 'native') candidatesWithNativeDescendants.add(ancestor)
-        }
-        ancestor = ancestor.parentElement
-      }
-    }
-    const hasStrongStatusVisualBoundary = (element: Element): boolean => {
+    const statusBoundaryPaint = (element: Element) => {
       const computed = getComputedStyle(element)
+      if (!effectivePaintVisibility(element)) {
+        return { paintedFill: false, paintedBorder: false, paintedShadow: false }
+      }
       const paintedFill = Boolean(normalizeObservedColor(computed.backgroundColor))
       const paintedBorder = [
-        [computed.borderTopWidth, computed.borderTopStyle],
-        [computed.borderRightWidth, computed.borderRightStyle],
-        [computed.borderBottomWidth, computed.borderBottomStyle],
-        [computed.borderLeftWidth, computed.borderLeftStyle],
-      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
-      return paintedFill || paintedBorder
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+      ].some(
+        ([width, style, color]) =>
+          Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) && Boolean(normalizeObservedColor(color)),
+      )
+      const paintedShadow =
+        computed.boxShadow !== 'none' &&
+        computed.boxShadow.split(/,(?![^()]*\))/).some((layer) => {
+          const colorPattern = /transparent|#[\da-f]{3,8}\b|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\([^)]*\)/gi
+          const colors = layer.match(colorPattern) || []
+          if (!colors.some((color) => Boolean(normalizeObservedColor(color)))) return false
+          const dimensions = layer
+            .replace(colorPattern, ' ')
+            .replace(/\binset\b/gi, ' ')
+            .match(/-?(?:\d+(?:\.\d+)?|\.\d+)(?:[a-z%]+)?/gi)
+          return Boolean(
+            dimensions &&
+            dimensions.length >= 2 &&
+            dimensions.slice(0, 4).some((value) => Math.abs(Number.parseFloat(value)) > 0.01),
+          )
+        })
+      return { paintedFill, paintedBorder, paintedShadow }
+    }
+    const directlyOwnsRenderedStatusText = (element: Element): boolean => {
+      const textNodes = [...element.childNodes].filter(
+        (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.replace(/\s+/g, ' ').trim()),
+      )
+      if (textNodes.length === 0) return false
+      return textNodes.some((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return [...range.getClientRects()].some((rect) => rect.width > 2 && rect.height > 2)
+      })
     }
     const hasStatusEvidenceGeometry = (element: Element): boolean => {
       const rect = element.getBoundingClientRect()
@@ -312,61 +608,101 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       return (
         rect.width >= 4 &&
         rect.height >= 4 &&
+        computed.display !== 'none' &&
+        computed.visibility !== 'hidden' &&
+        computed.visibility !== 'collapse' &&
+        Number.parseFloat(computed.opacity || '1') > 0.02 &&
+        Boolean(effectivePaintVisibility(element)) &&
         (computed.clip === 'auto' || computed.clip === '') &&
         (computed.clipPath === 'none' || computed.clipPath === '')
       )
     }
-    const stronglyBoundedCandidates = new Set([...statusCandidates].filter(hasStrongStatusVisualBoundary))
-    const independentStrongDescendantCounts = new Map<Element, number>()
-    for (const element of stronglyBoundedCandidates) {
+    const isActionableStatusCandidate = (element: Element): boolean => {
+      const rect = element.getBoundingClientRect()
+      const viewportWidth = Math.max(1, window.innerWidth)
+      const viewportHeight = Math.max(1, window.innerHeight)
+      const areaRatio = (Math.max(0, rect.width) * Math.max(0, rect.height)) / (viewportWidth * viewportHeight)
+      const bounded = rect.height <= Math.min(240, viewportHeight * 0.45) && areaRatio <= 0.4
+      const compact = rect.height <= Math.min(160, viewportHeight * 0.25) && areaRatio <= 0.2
+      const compactWidth = rect.width <= Math.min(720, viewportWidth * 0.8)
+      return (
+        bounded &&
+        (Object.values(statusBoundaryPaint(element)).some(Boolean) ||
+          (directlyOwnsRenderedStatusText(element) && compact && compactWidth))
+      )
+    }
+    const preferredStatusCandidates = new Set([...statusCandidates].filter(hasStatusEvidenceGeometry))
+    const actionableStatusCandidates = new Set([...preferredStatusCandidates].filter(isActionableStatusCandidate))
+    const actionableDescendantCounts = new Map<Element, number>()
+    for (const element of actionableStatusCandidates) {
       let ancestor = element.parentElement
       while (ancestor) {
-        if (statusCandidates.has(ancestor)) {
-          independentStrongDescendantCounts.set(ancestor, (independentStrongDescendantCounts.get(ancestor) || 0) + 1)
-          if (stronglyBoundedCandidates.has(ancestor)) break
+        if (preferredStatusCandidates.has(ancestor)) {
+          actionableDescendantCounts.set(ancestor, (actionableDescendantCounts.get(ancestor) || 0) + 1)
+          if (actionableStatusCandidates.has(ancestor)) break
         }
         ancestor = ancestor.parentElement
       }
     }
-    const preferredStatusCandidates = new Set(
-      [...statusCandidates].filter((element) => {
-        if (!hasStatusEvidenceGeometry(element)) return false
-        if (statusCandidateKinds.get(element) === 'native') return true
-        if (candidatesWithNativeDescendants.has(element)) return false
-        return stronglyBoundedCandidates.has(element) || (independentStrongDescendantCounts.get(element) || 0) < 2
-      }),
-    )
     const statusRoots = new Set(
       [...preferredStatusCandidates].filter((element) => {
+        const actionable = actionableStatusCandidates.has(element)
+        if (!actionable && (actionableDescendantCounts.get(element) || 0) > 0) return false
         let ancestor = element.parentElement
         while (ancestor) {
-          if (preferredStatusCandidates.has(ancestor)) return false
+          if (preferredStatusCandidates.has(ancestor)) {
+            if (actionable && !actionableStatusCandidates.has(ancestor)) {
+              ancestor = ancestor.parentElement
+              continue
+            }
+            return false
+          }
           ancestor = ancestor.parentElement
         }
         return true
       }),
     )
+    const formSubmitterCounts = new WeakMap<HTMLFormElement, number>()
+    const enabledVisibleSubmitterCount = (form: HTMLFormElement): number => {
+      const cached = formSubmitterCounts.get(form)
+      if (cached !== undefined) return cached
+      const count = [...document.querySelectorAll<HTMLElement>(candidateRules.formSubmitterSelector)].filter(
+        (candidate) => {
+          const control = candidate as HTMLButtonElement | HTMLInputElement
+          if (
+            control.form !== form ||
+            control.disabled ||
+            candidate.matches(':disabled, [aria-disabled="true"]') ||
+            candidate.closest('[hidden], [aria-hidden="true"], [inert]')
+          ) {
+            return false
+          }
+          const candidateStyle = getComputedStyle(candidate)
+          return Boolean(effectivePaintVisibility(candidate)) && candidateStyle.pointerEvents !== 'none'
+        },
+      ).length
+      formSubmitterCounts.set(form, count)
+      return count
+    }
     const roleCandidateFor = (element: Element, computed: CSSStyleDeclaration, rect: DOMRect) => {
       if (statusCandidates.has(element)) {
-        if (!statusRoots.has(element)) return null
-        const statusContext = elementContext(element)
-        const delta = statusSubjectPattern.test(statusContext) && statusDirectionPattern.test(statusContext)
+        if (!statusRoots.has(element) || !actionableStatusCandidates.has(element)) return null
         return {
           elementKind: 'status' as const,
           role: 'status' as const,
-          statusKind: delta ? ('delta' as const) : ('status' as const),
-          statusIntent: statusIntentFor(statusContext),
+          statusKind: 'status' as const,
+          statusIntent: 'neutral' as const,
         }
       }
       const ancestorCandidate = element.parentElement?.closest(
         `${candidateRules.broadActionSelector}, ${candidateRules.nativeStatusSelector}`,
       )
       if (ancestorCandidate) return null
-      const actionContext = elementContext(element)
       const role = element.getAttribute('role') || ''
       const tagName = element.tagName.toLowerCase()
       const nativeButton = tagName === 'button'
-      const inputButton = tagName === 'input' && ['button', 'submit'].includes(element.getAttribute('type') || '')
+      const inputButton =
+        tagName === 'input' && ['button', 'submit', 'image'].includes((element as HTMLInputElement).type.toLowerCase())
       const roleButton = role === 'button'
       const anchor = tagName === 'a' && element.hasAttribute('href')
 
@@ -384,12 +720,18 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
           rect.height >= 28 &&
           (Number.parseFloat(computed.paddingLeft) + Number.parseFloat(computed.paddingRight) >= 16 ||
             Number.parseFloat(computed.paddingTop) + Number.parseFloat(computed.paddingBottom) >= 12)
-        if (!(actionTokenPattern.test(actionContext) && (paintedFill || paintedBorder || controlGeometry))) return null
+        if (!(paintedFill || paintedBorder || controlGeometry)) return null
       }
-      const roleCandidate = primaryActionPattern.test(actionContext)
-        ? ('primary-action' as const)
-        : destructiveActionPattern.test(actionContext)
-          ? ('destructive-action' as const)
+      const formControl = nativeButton
+        ? (element as HTMLButtonElement)
+        : inputButton
+          ? (element as HTMLInputElement)
+          : null
+      const form = formControl?.form || null
+      const submitCapable = Boolean(form && ['submit', 'image'].includes(formControl?.type.toLowerCase() || ''))
+      const roleCandidate =
+        submitCapable && form && enabledVisibleSubmitterCount(form) === 1
+          ? ('primary-action' as const)
           : ('action' as const)
       return {
         elementKind: anchor
@@ -405,20 +747,28 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
     const textColorPairFrequency = new Map<
       string,
-      { background: string; foreground: string; textRole: 'body' | 'heading' | 'label' | 'other'; count: number }
+      {
+        background: string
+        foreground: string
+        textRole: 'body' | 'heading' | 'label' | 'other'
+        ownerIds: Set<string>
+      }
     >()
 
     for (const el of elements) {
-      const computed = getComputedStyle(el)
-
-      // Skip hidden elements
-      if (computed.display === 'none' || computed.visibility === 'hidden' || computed.opacity === '0') continue
+      const computed = computedFor(el)
+      const paintVisibility = effectivePaintVisibility(el)
+      if (!paintVisibility) continue
       const rect = el.getBoundingClientRect()
-      if (el !== document.documentElement && el !== document.body && (rect.width <= 0 || rect.height <= 0)) continue
+      // The structural locator remains stable when the same page is sampled at multiple viewports. This lets evidence
+      // union genuinely distinct responsive owners without counting the same element once per capture.
+      currentOwner = locatorFor(el)
 
       // Colors
-      const color = normalizeObservedColor(computed.color)
-      const bgColor = normalizeObservedColor(computed.backgroundColor)
+      const glyphPaint = glyphPaintFor(computed)
+      const paintPreservesColor = paintVisibility.opacity >= 0.999 && paintVisibility.filterOpacity >= 0.999
+      const color = paintPreservesColor && glyphPaint?.kind === 'solid-color' ? glyphPaint.foreground : null
+      const bgColor = paintPreservesColor ? normalizeObservedColor(computed.backgroundColor) : null
       const interactive = Boolean(
         el.closest(
           'a, button, input, select, textarea, [role="button"], [role="link"], [aria-current], [aria-selected="true"]',
@@ -427,6 +777,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const structuralRoot = el.matches(
         'body, main, section, article, header, footer, nav, aside, [role="main"], [role="region"], [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]',
       )
+      const specializedContent = Boolean(el.closest('pre, code, kbd, samp, math, [role="code"]'))
       const headingOwner = el.matches('h1, h2, h3, h4, h5, h6, [role="heading"]')
         ? el
         : el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]')
@@ -437,46 +788,105 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
             ? 'display'
             : 'heading'
       const roleCandidate = roleCandidateFor(el, computed, rect)
-      const linkRoot = el.matches('a, [role="link"]')
-      const selectedRoot = el.matches('[aria-current], [aria-selected="true"], [data-state="active"]')
+      const linkRoot = Boolean(el.closest('a, [role="link"]'))
+      const selectedRoot = Boolean(el.closest('[aria-current], [aria-selected="true"]'))
 
-      const hasDirectText = [...el.childNodes].some(
+      const directTextNodes = [...el.childNodes].filter(
         (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.replace(/\s+/g, ' ').trim()),
       )
-      const textPairEligible =
-        hasDirectText &&
-        rect.width >= 2 &&
-        rect.height >= 2 &&
+      const glyphRects = directTextNodes.flatMap((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        return [...range.getClientRects()].filter((glyphRect) => glyphRect.width > 0 && glyphRect.height > 0)
+      })
+      const visibleGlyphRects = paintVisibility
+        ? glyphRects
+            .flatMap((glyphRect) => {
+              const visibleLeft = rect.left + paintVisibility.visibleBounds.xPx
+              const visibleTop = rect.top + paintVisibility.visibleBounds.yPx
+              const left = Math.max(glyphRect.left, visibleLeft)
+              const top = Math.max(glyphRect.top, visibleTop)
+              const right = Math.min(glyphRect.right, visibleLeft + paintVisibility.visibleBounds.widthPx)
+              const bottom = Math.min(glyphRect.bottom, visibleTop + paintVisibility.visibleBounds.heightPx)
+              const width = Math.max(0, right - left)
+              const height = Math.max(0, bottom - top)
+              return width > 1 && height > 1 && width * height > 4
+                ? [{ xPx: left - rect.left, yPx: top - rect.top, widthPx: width, heightPx: height }]
+                : []
+            })
+            .slice(0, 8)
+        : []
+      const visibleGlyphAreaPx = visibleGlyphRects.reduce(
+        (area, glyphRect) => area + glyphRect.widthPx * glyphRect.heightPx,
+        0,
+      )
+      const glyphRectCount = glyphRects.length
+      const textIndent = Number.parseFloat(computed.textIndent || '0')
+      const renderedTextSource =
+        directTextNodes.length > 0 &&
+        glyphRectCount > 0 &&
+        visibleGlyphRects.length > 0 &&
+        glyphPaint &&
+        paintVisibility.nonRectangularClipPathCount === 0 &&
         Number.parseFloat(computed.fontSize || '0') >= 8 &&
-        (computed.clip === 'auto' || computed.clip === '') &&
-        (computed.clipPath === 'none' || computed.clipPath === '') &&
-        !el.closest('[hidden], [aria-hidden="true"], [inert]')
-      if (color && textPairEligible) {
-        const background = effectiveBackgroundFor(el)
-        if (background) {
-          const textRole = semanticTextRole
-            ? ('heading' as const)
-            : interactive || el.closest('a, button, label, [role="button"], [role="link"]')
-              ? ('label' as const)
-              : el.matches('p, li, dd, dt, blockquote, figcaption, td, th')
-                ? ('body' as const)
-                : ('other' as const)
+        (!Number.isFinite(textIndent) || Math.abs(textIndent) <= Math.max(128, rect.width * 2))
+          ? {
+              kind: 'direct-text' as const,
+              ...paintVisibility,
+              glyphRectCount,
+              visibleGlyphRects,
+              visibleGlyphAreaPx,
+              clip: computed.clip.trim().toLowerCase(),
+              clipPath: computed.clipPath.trim().toLowerCase().replace(/\s+/g, ' '),
+              contentVisibility: computed.getPropertyValue('content-visibility'),
+              textIndentPx: Number.isFinite(textIndent) ? textIndent : 0,
+              filter: computed.filter.trim().toLowerCase().replace(/\s+/g, ' '),
+              glyphPaintKind: glyphPaint.kind,
+              ...(glyphPaint.kind === 'solid-color'
+                ? { foreground: glyphPaint.foreground }
+                : { backgroundClip: glyphPaint.backgroundClip, backgroundImage: glyphPaint.backgroundImage }),
+            }
+          : undefined
+      if (renderedTextSource) {
+        const background = paintPreservesColor ? effectiveBackgroundFor(el) : null
+        const textRole = semanticTextRole
+          ? ('heading' as const)
+          : interactive || el.closest('a, button, label, [role="button"], [role="link"]')
+            ? ('label' as const)
+            : el.matches('p, li, dd, dt, blockquote, figcaption, td, th')
+              ? ('body' as const)
+              : ('other' as const)
+        styles.renderedTextStyleObservations?.push({
+          ownerId: currentOwner,
+          textRole,
+          styles: {
+            ...(color ? { color } : {}),
+            ...(background ? { backgroundColor: background } : {}),
+            fontFamily: computed.fontFamily,
+            fontSize: computed.fontSize,
+            fontWeight: computed.fontWeight,
+            lineHeight: computed.lineHeight,
+            letterSpacing: computed.letterSpacing,
+          },
+          source: renderedTextSource,
+        })
+        if (background && color) {
           const key = `${background}|${color}|${textRole}`
           const existing = textColorPairFrequency.get(key)
           textColorPairFrequency.set(key, {
             background,
             foreground: color,
             textRole,
-            count: (existing?.count || 0) + 1,
+            ownerIds: new Set([...(existing?.ownerIds || []), currentOwner]),
           })
         }
       }
 
-      if (color) {
+      if (color && renderedTextSource) {
         styles.textColors.push(color)
         styles.colors.push(color)
         countUsage('textColor', color)
-        addValueSource('textColor', color, 'computed:text')
+        addValueSource('textColor', color, 'rendered:text')
         if (linkRoot && !roleCandidate) {
           countUsage('accentColor', color)
           addValueSource('accentColor', color, 'element:link')
@@ -495,6 +905,9 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         styles.colors.push(bgColor)
         countUsage('bgColor', bgColor)
         addValueSource('bgColor', bgColor, 'computed:background')
+        if (el === document.documentElement || el === document.body) {
+          addValueSource('bgColor', bgColor, 'element:page-background')
+        }
         if (selectedRoot && roleCandidate?.role !== 'status') {
           countUsage('selectedColor', bgColor)
           addValueSource('selectedColor', bgColor, 'element:selected')
@@ -518,9 +931,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
               }`
             : roleCandidate.role === 'primary-action'
               ? 'primaryAction'
-              : roleCandidate.role === 'destructive-action'
-                ? 'destructiveAction'
-                : 'action'
+              : 'action'
         if (color) {
           countUsage(`${categoryPrefix}ForegroundColor`, color)
           addValueSource(`${categoryPrefix}ForegroundColor`, color, `element:${roleCandidate.role}`)
@@ -535,16 +946,20 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
             addValueSource('accentColor', bgColor, `element:${roleCandidate.role}`)
           }
         }
-        const borderColor = [
-          [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
-          [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
-          [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
-          [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
-        ]
-          .flatMap(([width, style, value]) =>
-            Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) ? [normalizeObservedColor(value)] : [],
-          )
-          .find((value): value is string => Boolean(value))
+        const borderColor = paintPreservesColor
+          ? [
+              [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+              [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+              [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+              [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+            ]
+              .flatMap(([width, style, value]) =>
+                Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style)
+                  ? [normalizeObservedColor(value)]
+                  : [],
+              )
+              .find((value): value is string => Boolean(value))
+          : undefined
         styles.colorRoleObservations?.push({
           captureId: `${location.href}|${window.innerWidth}x${window.innerHeight}`,
           elementRef: locatorFor(el),
@@ -560,27 +975,34 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Only count borders that are actually painted. Sampling borderTopColor alone also records zero-width defaults
       // and misses bottom/side dividers, which can make a control or focus color look like the site's structural border.
-      const borderSides = [
-        [computed.borderTopWidth, computed.borderTopStyle, normalizeObservedColor(computed.borderTopColor), rect.width],
-        [
-          computed.borderRightWidth,
-          computed.borderRightStyle,
-          normalizeObservedColor(computed.borderRightColor),
-          rect.height,
-        ],
-        [
-          computed.borderBottomWidth,
-          computed.borderBottomStyle,
-          normalizeObservedColor(computed.borderBottomColor),
-          rect.width,
-        ],
-        [
-          computed.borderLeftWidth,
-          computed.borderLeftStyle,
-          normalizeObservedColor(computed.borderLeftColor),
-          rect.height,
-        ],
-      ] as const
+      const borderSides = paintPreservesColor
+        ? ([
+            [
+              computed.borderTopWidth,
+              computed.borderTopStyle,
+              normalizeObservedColor(computed.borderTopColor),
+              rect.width,
+            ],
+            [
+              computed.borderRightWidth,
+              computed.borderRightStyle,
+              normalizeObservedColor(computed.borderRightColor),
+              rect.height,
+            ],
+            [
+              computed.borderBottomWidth,
+              computed.borderBottomStyle,
+              normalizeObservedColor(computed.borderBottomColor),
+              rect.width,
+            ],
+            [
+              computed.borderLeftWidth,
+              computed.borderLeftStyle,
+              normalizeObservedColor(computed.borderLeftColor),
+              rect.height,
+            ],
+          ] as const)
+        : []
       const observedBorderColors = new Set<string>()
       const observedBorders = new Set<string>()
       for (const [width, style, borderColor, edgeLength] of borderSides) {
@@ -611,17 +1033,18 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
           observedBorders.add(borderValue)
           styles.borders.push(borderValue)
           countUsage('border', borderValue)
+          addValueSource('border', borderValue, 'computed:border')
         }
       }
 
       // Font families
       const fontFamily = computed.fontFamily
-      if (fontFamily && !seen.has(`font:${fontFamily}`)) {
+      if (fontFamily && renderedTextSource && !seen.has(`font:${fontFamily}`)) {
         seen.add(`font:${fontFamily}`)
         styles.fontFamilies.push(fontFamily)
       }
-      if (fontFamily) countUsage('fontFamily', fontFamily)
-      if (fontFamily) {
+      if (fontFamily && renderedTextSource) countUsage('fontFamily', fontFamily)
+      if (fontFamily && renderedTextSource) {
         let directTextLength = 0
         for (const node of el.childNodes) {
           if (node.nodeType === Node.TEXT_NODE) directTextLength += (node.textContent || '').trim().length
@@ -634,33 +1057,40 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
       // Font sizes
       const fontSize = computed.fontSize
-      if (fontSize && hasDirectText) {
+      if (fontSize && renderedTextSource) {
         styles.fontSizes.push(fontSize)
         countUsage('fontSize', fontSize)
+        addValueSource('fontSize', fontSize, 'rendered:text')
         if (semanticTextRole) countUsage(`${semanticTextRole}FontSize`, fontSize)
       }
 
       // Font weights
       const fontWeight = computed.fontWeight
-      if (fontWeight && hasDirectText) {
+      if (fontWeight && renderedTextSource) {
         styles.fontWeights.push(fontWeight)
         countUsage('fontWeight', fontWeight)
+        addValueSource('fontWeight', fontWeight, 'rendered:text')
         if (semanticTextRole) countUsage(`${semanticTextRole}FontWeight`, fontWeight)
       }
 
       // Line heights
       const lineHeight = computed.lineHeight
-      if (hasDirectText && lineHeight && lineHeight !== 'normal') {
+      if (renderedTextSource && lineHeight && lineHeight !== 'normal') {
         styles.lineHeights.push(lineHeight)
         countUsage('lineHeight', lineHeight)
-        if (fontSize) countUsage('typeMetric', `${fontSize}|${lineHeight}`)
+        addValueSource('lineHeight', lineHeight, 'rendered:text')
+        if (fontSize) {
+          countUsage('typeMetric', `${fontSize}|${lineHeight}`)
+          addValueSource('typeMetric', `${fontSize}|${lineHeight}`, 'rendered:text')
+        }
       }
 
       // Letter spacing
       const letterSpacing = computed.letterSpacing
-      if (hasDirectText && letterSpacing && letterSpacing !== 'normal' && letterSpacing !== '0px') {
+      if (renderedTextSource && letterSpacing && letterSpacing !== 'normal' && letterSpacing !== '0px') {
         styles.letterSpacings.push(letterSpacing)
         countUsage('letterSpacing', letterSpacing)
+        addValueSource('letterSpacing', letterSpacing, 'rendered:text')
       }
 
       // Z-index
@@ -668,6 +1098,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       if (zIndex && zIndex !== 'auto' && zIndex !== '0') {
         styles.zIndices.push(zIndex)
         countUsage('zIndex', zIndex)
+        addValueSource('zIndex', zIndex, 'computed:stacking')
       }
 
       // Transition duration
@@ -678,6 +1109,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
           if (d && d !== '0s') {
             styles.transitions.push(d)
             countUsage('transition', d)
+            addValueSource('transition', d, 'computed:transition')
           }
         }
       }
@@ -686,16 +1118,31 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       // distinct axis value once per element instead of counting the same authored decision up to three times.
       const spacingSource = interactive
         ? 'element:control-spacing'
-        : el.closest('pre, code, kbd, samp, math, [role="code"]')
+        : specializedContent
           ? 'element:specialized-spacing'
           : structuralRoot
             ? 'element:structural-spacing'
             : 'element:content-spacing'
-      const recordSpacing = (value: string) => {
+      const horizontalMargins = [computed.marginLeft, computed.marginRight].map(Number.parseFloat)
+      const parentRect = el.parentElement?.getBoundingClientRect()
+      const parentComputed = el.parentElement ? getComputedStyle(el.parentElement) : null
+      const parentInnerWidth = parentRect
+        ? parentRect.width -
+          Number.parseFloat(parentComputed?.paddingLeft || '0') -
+          Number.parseFloat(parentComputed?.paddingRight || '0')
+        : 0
+      const centeredInlineOffset =
+        parentInnerWidth > 0 &&
+        horizontalMargins.every((value) => Number.isFinite(value) && value > 0) &&
+        Math.abs(horizontalMargins[0] - horizontalMargins[1]) <= 1 &&
+        Math.abs(rect.width + horizontalMargins[0] + horizontalMargins[1] - parentInnerWidth) <= 4
+      const recordSpacing = (value: string, source = spacingSource) => {
         if (!value || value === '0px' || value === 'auto' || value === 'normal') return
+        const numeric = Number.parseFloat(value)
+        const observedSource = Number.isFinite(numeric) && numeric < 0 ? 'geometry:negative-offset' : source
         styles.spacings.push(value)
         countUsage('spacing', value)
-        addValueSource('spacing', value, spacingSource)
+        addValueSource('spacing', value, observedSource)
       }
       for (const prop of [
         'marginTop',
@@ -707,7 +1154,11 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         'paddingLeft',
         'paddingRight',
       ] as const) {
-        recordSpacing(computed[prop as keyof CSSStyleDeclaration] as string)
+        const centeredMargin = centeredInlineOffset && (prop === 'marginLeft' || prop === 'marginRight')
+        recordSpacing(
+          computed[prop as keyof CSSStyleDeclaration] as string,
+          centeredMargin ? 'geometry:centered-inline-offset' : spacingSource,
+        )
       }
       for (const gap of new Set([computed.rowGap, computed.columnGap])) recordSpacing(gap)
 
@@ -731,21 +1182,82 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         const geometryDependent =
           Number.isFinite(radiusPixels) && minimumDimension > 0 && radiusPixels >= minimumDimension * 0.45
         addValueSource('radius', radius, geometryDependent ? 'geometry:circle-or-pill' : 'computed:ordinary-radius')
+        addValueSource(
+          'radius',
+          radius,
+          interactive
+            ? 'element:control-radius'
+            : specializedContent
+              ? 'element:specialized-radius'
+              : structuralRoot
+                ? 'element:structural-radius'
+                : 'element:content-radius',
+        )
       }
 
       // Box shadow
       const shadow = computed.boxShadow
-      if (shadow && shadow !== 'none') {
+      if (paintPreservesColor && shadow && shadow !== 'none') {
         styles.shadows.push(shadow)
         countUsage('shadow', shadow)
+        addValueSource(
+          'shadow',
+          shadow,
+          interactive
+            ? 'element:control-shadow'
+            : specializedContent
+              ? 'element:specialized-shadow'
+              : structuralRoot
+                ? 'element:structural-shadow'
+                : 'element:content-shadow',
+        )
       }
     }
 
+    styles.usageOwnerCounts = Object.fromEntries(
+      [...usageOwners.entries()]
+        .map(([key, owners]): [string, number] => [key, owners.size])
+        .sort(([first], [second]) => first.localeCompare(second)),
+    )
+    styles.usageOwnerIds = Object.fromEntries(
+      [...usageOwners.entries()]
+        .map(([key, owners]): [string, string[]] => [
+          key,
+          [...owners].sort((first, second) => first.localeCompare(second)),
+        ])
+        .sort(([first], [second]) => first.localeCompare(second)),
+    )
+    const sourceOwnerIds: Record<string, Record<string, string[]>> = {}
+    for (const [ownerKey, owners] of valueSourceOwners) {
+      const separator = ownerKey.indexOf('\u0000')
+      if (separator < 0) continue
+      const key = ownerKey.slice(0, separator)
+      const source = ownerKey.slice(separator + 1)
+      const sources = sourceOwnerIds[key] || {}
+      sources[source] = [...owners].sort((first, second) => first.localeCompare(second))
+      sourceOwnerIds[key] = sources
+    }
+    styles.valueSourceOwnerIds = Object.fromEntries(
+      Object.entries(sourceOwnerIds)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, sources]) => [
+          key,
+          Object.fromEntries(Object.entries(sources).sort(([first], [second]) => first.localeCompare(second))),
+        ]),
+    )
+
     const captureId = `${location.href}|${window.innerWidth}x${window.innerHeight}`
     styles.textColorPairObservations = [...textColorPairFrequency.values()]
-      .sort((first, second) => second.count - first.count)
+      .sort((first, second) => second.ownerIds.size - first.ownerIds.size)
       .slice(0, 80)
-      .map((observation) => ({ captureId, ...observation }))
+      .map((observation) => ({
+        captureId,
+        background: observation.background,
+        foreground: observation.foreground,
+        textRole: observation.textRole,
+        count: observation.ownerIds.size,
+        ownerIds: [...observation.ownerIds].sort(),
+      }))
 
     return styles
   }, ROLE_CANDIDATE_RULES)

@@ -58,20 +58,32 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     zIndices: [],
     transitions: [],
     usageCount: {},
+    usageOwnerCounts: {},
+    usageOwnerIds: {},
     usageGroupCounts: {},
     valueSources: {},
     valueSourceCounts: {},
+    valueSourceOwnerIds: {},
     colorRoleObservations: [],
     textColorPairObservations: [],
+    renderedTextStyleObservations: [],
   }
 
-  for (const styles of stylesList) {
+  for (const [captureIndex, styles] of stylesList.entries()) {
     for (const field of MERGED_ARRAY_FIELDS) {
       merged[field].push(...(styles[field] || []))
     }
     Object.assign(merged.cssVariables, styles.cssVariables)
     for (const [key, count] of Object.entries(styles.usageCount)) {
       merged.usageCount[key] = (merged.usageCount[key] || 0) + count
+    }
+    for (const [key, count] of Object.entries(styles.usageOwnerCounts || {})) {
+      merged.usageOwnerCounts![key] = (merged.usageOwnerCounts![key] || 0) + count
+    }
+    for (const [key, ownerIds] of Object.entries(styles.usageOwnerIds || {})) {
+      merged.usageOwnerIds![key] = [
+        ...new Set([...(merged.usageOwnerIds![key] || []), ...ownerIds.map((ownerId) => `${captureIndex}:${ownerId}`)]),
+      ]
     }
     for (const [key, count] of Object.entries(styles.usageGroupCounts || {})) {
       merged.usageGroupCounts![key] = (merged.usageGroupCounts![key] || 0) + count
@@ -87,8 +99,26 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       }
       merged.valueSourceCounts![key] = mergedSourceCounts
     }
+    for (const [key, sourceOwners] of Object.entries(styles.valueSourceOwnerIds || {})) {
+      const mergedSourceOwners = merged.valueSourceOwnerIds![key] || {}
+      for (const [source, ownerIds] of Object.entries(sourceOwners)) {
+        mergedSourceOwners[source] = [
+          ...new Set([
+            ...(mergedSourceOwners[source] || []),
+            ...ownerIds.map((ownerId) => `${captureIndex}:${ownerId}`),
+          ]),
+        ]
+      }
+      merged.valueSourceOwnerIds![key] = mergedSourceOwners
+    }
     merged.colorRoleObservations!.push(...(styles.colorRoleObservations || []))
     merged.textColorPairObservations!.push(...(styles.textColorPairObservations || []))
+    merged.renderedTextStyleObservations!.push(
+      ...(styles.renderedTextStyleObservations || []).map((observation) => ({
+        ...observation,
+        ownerId: `${captureIndex}:${observation.ownerId}`,
+      })),
+    )
   }
 
   for (const field of DEDUPED_ARRAY_FIELDS) {
@@ -111,12 +141,19 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       observation.textRole,
     ])
     const existing = textColorPairs.get(key)
+    const ownerIds = [...new Set([...(existing?.ownerIds || []), ...(observation.ownerIds || [])])].sort()
     textColorPairs.set(key, {
       ...observation,
-      count: (existing?.count || 0) + observation.count,
+      count: ownerIds.length > 0 ? ownerIds.length : (existing?.count || 0) + observation.count,
+      ...(ownerIds.length > 0 ? { ownerIds } : {}),
     })
   }
   merged.textColorPairObservations = [...textColorPairs.values()]
+  merged.renderedTextStyleObservations = [
+    ...new Map(
+      (merged.renderedTextStyleObservations || []).map((observation) => [observation.ownerId, observation]),
+    ).values(),
+  ]
 
   return merged
 }
@@ -129,6 +166,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
 export function mergeStylesWithNormalizedUsage(
   stylesList: ExtractedStyles[],
   groupKeys: readonly string[] = stylesList.map((_styles, index) => String(index)),
+  viewportKeys: readonly string[] = stylesList.map(() => ''),
 ): ExtractedStyles {
   const merged = mergeStyles(stylesList)
   const normalizedUsage: Record<string, number> = {}
@@ -140,6 +178,8 @@ export function mergeStylesWithNormalizedUsage(
     string,
     { groupKey: string; key: string; category: string; source: string; count: number }
   >()
+  const groupedUsageOwners = new Map<string, { owners: Set<string>; priority: number }>()
+  const groupedValueSourceOwners = new Map<string, { owners: Set<string>; priority: number }>()
   const groupedTextPairCaptureCounts = new Map<string, number>()
   const groupedTextPairs = new Map<string, NonNullable<ExtractedStyles['textColorPairObservations']>[number]>()
   const groupedColorRoleCaptureCounts = new Map<string, number>()
@@ -153,6 +193,9 @@ export function mergeStylesWithNormalizedUsage(
   for (let index = 0; index < stylesList.length; index += 1) {
     const styles = stylesList[index]
     const groupKey = groupKeys[index] || String(index)
+    const viewport = viewportKeys[index] || ''
+    const viewportPriority = viewport === 'desktop' ? 3 : viewport === 'tablet' ? 2 : viewport === 'mobile' ? 1 : 0
+    const capturePriority = viewportPriority * 1_000_000 - index
     const captureColorRoles = new Map<string, ColorRoleObservation>()
     for (const observation of styles.colorRoleObservations || []) {
       const key = JSON.stringify([
@@ -195,8 +238,10 @@ export function mergeStylesWithNormalizedUsage(
         const key = JSON.stringify([groupKey, observation.background, observation.foreground, observation.textRole])
         const existing = groupedTextPairs.get(key)
         groupedTextPairs.set(key, {
-          ...observation,
           captureId: groupKey,
+          background: observation.background,
+          foreground: observation.foreground,
+          textRole: observation.textRole,
           count: (existing?.count || 0) + observation.count / textColorPairTotal,
         })
       }
@@ -219,6 +264,15 @@ export function mergeStylesWithNormalizedUsage(
       const groupUsage = groupedUsage.get(groupKey) || new Map<string, number>()
       groupUsage.set(normalizedKey, (groupUsage.get(normalizedKey) || 0) + count / total)
       groupedUsage.set(groupKey, groupUsage)
+
+      const ownerIds = styles.usageOwnerIds?.[key] || []
+      if (ownerIds.length > 0) {
+        const ownerKey = JSON.stringify([groupKey, normalizedKey])
+        const existing = groupedUsageOwners.get(ownerKey)
+        if (!existing || capturePriority > existing.priority) {
+          groupedUsageOwners.set(ownerKey, { owners: new Set(ownerIds), priority: capturePriority })
+        }
+      }
     }
     for (const category of categoryTotals.keys()) {
       const categoryKey = `${groupKey}\u0000${category}`
@@ -243,6 +297,15 @@ export function mergeStylesWithNormalizedUsage(
           count: (existing?.count || 0) + count,
         })
         sourceCategories.add(category)
+
+        const ownerIds = styles.valueSourceOwnerIds?.[key]?.[source] || []
+        if (ownerIds.length > 0) {
+          const ownerKey = JSON.stringify([groupKey, normalizedKey, source])
+          const existing = groupedValueSourceOwners.get(ownerKey)
+          if (!existing || capturePriority > existing.priority) {
+            groupedValueSourceOwners.set(ownerKey, { owners: new Set(ownerIds), priority: capturePriority })
+          }
+        }
       }
     }
     for (const category of sourceCategories) {
@@ -262,11 +325,31 @@ export function mergeStylesWithNormalizedUsage(
   }
 
   const normalizedValueSourceCounts: Record<string, Record<string, number>> = {}
+  const normalizedValueSourceOwnerIds: Record<string, Record<string, string[]>> = {}
   for (const { groupKey, key, category, source, count } of groupedValueSourceCounts.values()) {
     const divisor = groupedValueSourceCategoryCounts.get(`${groupKey}\u0000${category}`) || 1
     const sourceCounts = normalizedValueSourceCounts[key] || {}
-    sourceCounts[source] = (sourceCounts[source] || 0) + count / divisor
+    const ownerKey = JSON.stringify([groupKey, key, source])
+    const ownerIds = [...(groupedValueSourceOwners.get(ownerKey)?.owners || [])]
+    sourceCounts[source] = (sourceCounts[source] || 0) + (ownerIds.length > 0 ? ownerIds.length : count / divisor)
     normalizedValueSourceCounts[key] = sourceCounts
+    if (ownerIds.length > 0) {
+      const sourceOwners = normalizedValueSourceOwnerIds[key] || {}
+      sourceOwners[source] = [
+        ...(sourceOwners[source] || []),
+        ...ownerIds.map((ownerId) => `${groupKey}\u0000${ownerId}`),
+      ]
+      normalizedValueSourceOwnerIds[key] = sourceOwners
+    }
+  }
+
+  const normalizedUsageOwnerIds: Record<string, string[]> = {}
+  for (const [ownerKey, representative] of groupedUsageOwners) {
+    const [groupKey, key] = JSON.parse(ownerKey) as [string, string]
+    normalizedUsageOwnerIds[key] = [
+      ...(normalizedUsageOwnerIds[key] || []),
+      ...[...representative.owners].map((ownerId) => `${groupKey}\u0000${ownerId}`),
+    ]
   }
 
   return {
@@ -287,12 +370,34 @@ export function mergeStylesWithNormalizedUsage(
     usageGroupCounts: Object.fromEntries(
       Object.entries(usageGroupCounts).sort(([first], [second]) => first.localeCompare(second)),
     ),
+    usageOwnerIds: Object.fromEntries(
+      Object.entries(normalizedUsageOwnerIds)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, ownerIds]) => [key, [...new Set(ownerIds)].sort()]),
+    ),
+    usageOwnerCounts: Object.fromEntries(
+      Object.entries(normalizedUsageOwnerIds)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, ownerIds]) => [key, new Set(ownerIds).size]),
+    ),
     valueSourceCounts: Object.fromEntries(
       Object.entries(normalizedValueSourceCounts)
         .sort(([first], [second]) => first.localeCompare(second))
         .map(([key, sourceCounts]) => [
           key,
           Object.fromEntries(Object.entries(sourceCounts).sort(([first], [second]) => first.localeCompare(second))),
+        ]),
+    ),
+    valueSourceOwnerIds: Object.fromEntries(
+      Object.entries(normalizedValueSourceOwnerIds)
+        .sort(([first], [second]) => first.localeCompare(second))
+        .map(([key, sourceOwners]) => [
+          key,
+          Object.fromEntries(
+            Object.entries(sourceOwners)
+              .sort(([first], [second]) => first.localeCompare(second))
+              .map(([source, ownerIds]) => [source, [...new Set(ownerIds)].sort()]),
+          ),
         ]),
     ),
   }

@@ -69,6 +69,43 @@ describe('URL privacy', () => {
   })
 
   it('redacts token provenance page URLs', () => {
+    const renderedTextOwner = {
+      ownerId: 'body > p:nth-of-type(1)',
+      textRole: 'body' as const,
+      styles: {
+        color: 'rgb(18, 52, 86)',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '16px',
+        fontWeight: '400',
+        lineHeight: '24px',
+        letterSpacing: 'normal',
+      },
+      source: {
+        kind: 'direct-text' as const,
+        widthPx: 120,
+        heightPx: 24,
+        visibleWidthPx: 120,
+        visibleHeightPx: 24,
+        paintedAreaPx: 2880,
+        captureIntersectionRatio: 1,
+        effectiveClipPathAreaRatio: 1,
+        ancestorClipCount: 0,
+        clientRectCount: 1,
+        glyphRectCount: 1,
+        visibleBounds: { xPx: 0, yPx: 0, widthPx: 120, heightPx: 24 },
+        visibleGlyphRects: [{ xPx: 0, yPx: 0, widthPx: 120, heightPx: 24 }],
+        visibleGlyphAreaPx: 2880,
+        clip: 'auto',
+        clipPath: 'none',
+        contentVisibility: 'visible',
+        opacity: 1,
+        textIndentPx: 0,
+        foreground: 'rgb(18, 52, 86)',
+      },
+      page: 'https://example.com/path?owner=secret',
+      routeId: 'route-aaaaaaaaaaaa',
+      viewport: 'desktop',
+    }
     const tokens = {
       colors: {},
       typography: {
@@ -93,15 +130,71 @@ describe('URL privacy', () => {
           pageCount: 1,
           captureCount: 1,
           pages: ['https://example.com/path?token=secret'],
+          renderedTextOwners: [renderedTextOwner],
+          pairedSurface: {
+            background: '#ffffff',
+            pageCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            normalizedShare: 1,
+            normalizedMainTextShare: 1,
+            ownerCount: 1,
+            minimumPageOwnerCount: 1,
+            mainTextPageCount: 1,
+            mainTextOwnerCount: 1,
+            headingPageCount: 0,
+            headingOwnerCount: 0,
+            contrastRatio: 12.72,
+            textRoles: ['body'],
+            routeSupport: [
+              {
+                page: 'https://example.com/path?pair=secret',
+                routeId: 'route-bbbbbbbbbbbb',
+                supported: true,
+                ownerIds: ['body > p:nth-of-type(1)'],
+                totalOwnerIds: ['body > p:nth-of-type(1)'],
+                mainTextOwnerIds: ['body > p:nth-of-type(1)'],
+                headingOwnerIds: [],
+                textRoles: ['body'],
+                normalizedShare: 1,
+                normalizedMainTextShare: 1,
+              },
+            ],
+          },
           sources: ['computed-style'],
           reasons: ['computed-style'],
         },
       },
+      candidates: {
+        values: [
+          {
+            group: 'typography.fontFamilies',
+            value: 'Inter',
+            rejectionReason: 'local-scope',
+            evidence: {
+              value: 'Inter',
+              confidence: 'low',
+              observationCount: 1,
+              pageCount: 1,
+              captureCount: 1,
+              pages: ['https://example.com/path?candidate=secret'],
+              renderedTextOwners: [{ ...renderedTextOwner, page: 'https://example.com/path?candidate-owner=secret' }],
+              sources: ['rendered:text'],
+              reasons: ['rendered-use'],
+            },
+          },
+        ],
+      },
     } satisfies DesignToken
 
-    expect(sanitizeDesignTokensForPersistence(tokens).evidence?.['colors.primary'].pages).toEqual([
-      'https://example.com/path',
-    ])
+    const sanitized = sanitizeDesignTokensForPersistence(tokens)
+    expect(sanitized.evidence?.['colors.primary'].pages).toEqual(['https://example.com/path'])
+    expect(sanitized.evidence?.['colors.primary'].renderedTextOwners?.[0].page).toBe('https://example.com/path')
+    expect(sanitized.evidence?.['colors.primary'].renderedTextOwners?.[0].routeId).toBe('route-aaaaaaaaaaaa')
+    expect(sanitized.evidence?.['colors.primary'].pairedSurface?.routeSupport[0].page).toBe('https://example.com/path')
+    expect(sanitized.evidence?.['colors.primary'].pairedSurface?.routeSupport[0].routeId).toBe('route-bbbbbbbbbbbb')
+    expect(sanitized.candidates?.values?.[0].evidence.pages).toEqual(['https://example.com/path'])
+    expect(sanitized.candidates?.values?.[0].evidence.renderedTextOwners?.[0].page).toBe('https://example.com/path')
   })
 
   it('redacts color-role capture IDs while preserving their viewport suffix', () => {

@@ -1,4 +1,5 @@
 import type { DesignEvidence, DeterministicClaim } from '../design-evidence/types.js'
+import { cssGenericFontFamilies } from './font-family.js'
 import type { DesignToken, ExtractedStyles } from './types.js'
 
 function usageCount(styles: ExtractedStyles, category: string, value: string): number {
@@ -156,10 +157,10 @@ function shadowElevation(value: string): number | null {
   return Math.abs(offsetX) * 0.25 + Math.abs(offsetY) + Math.max(0, blur) + Math.abs(spread) * 0.5
 }
 
-function hasLayeredElevation(tokens: DesignToken): boolean {
+function hasLayeredElevation(shadows: readonly string[]): boolean {
   const levels = [
     ...new Set(
-      tokens.shadows
+      shadows
         .map(shadowElevation)
         .filter((level): level is number => level !== null)
         .map((level) => Math.round(level * 10) / 10),
@@ -182,16 +183,17 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
 
   // Font detection
   const fonts = tokens.typography.fontFamilies
-  const primaryFont = fonts[0]?.toLowerCase() || ''
-  // Font families are ordered by rendered text coverage. A secondary code font must not
-  // label an otherwise proportional site as a monospace typography system.
-  if (primaryFont.includes('mono') || primaryFont.includes('code')) {
+  const fontSystems = tokens.typography.fontStacks?.length ? tokens.typography.fontStacks : fonts
+  const primaryGeneric = cssGenericFontFamilies(fontSystems[0] || '')[0]
+  // Exact parsed generic fallbacks carry CSS semantics. Custom family names such as Code Pro, Monotype Grotesk, or
+  // quoted "serif" do not prove a monospace/serif system, and secondary code stacks do not describe the primary UI.
+  if (primaryGeneric === 'monospace' || primaryGeneric === 'ui-monospace') {
     tags.push('monospace typography')
   }
-  if (primaryFont.includes('serif') && !primaryFont.includes('sans')) {
+  if (primaryGeneric === 'serif' || primaryGeneric === 'ui-serif') {
     tags.push('serif editorial style')
   }
-  if (fonts.length === 1) {
+  if (fontSystems.length === 1) {
     tags.push('single-font system')
   }
 
@@ -218,10 +220,14 @@ export function generateFeatureTags(tokens: DesignToken, styles: ExtractedStyles
   }
 
   // Shadow analysis
-  if (tokens.shadows.length === 0) {
-    tags.push('no stable shadow scale observed')
-  } else if (hasLayeredElevation(tokens)) {
+  if (hasLayeredElevation(tokens.shadows)) {
     tags.push('layered elevation system')
+  } else if (hasLayeredElevation(styles.shadows)) {
+    // Multiple materially different rendered levels are useful local design evidence even when no individual shadow
+    // has enough support to enter the portable token catalog.
+    tags.push('observed layered elevation')
+  } else if (tokens.shadows.length === 0) {
+    tags.push('no stable shadow scale observed')
   }
 
   // Font weight analysis
@@ -301,17 +307,53 @@ function isCompoundSectionRadius(value: string | undefined): boolean {
 export function buildEvidenceBackedClaims(
   tokens: DesignToken,
   styles: ExtractedStyles,
-  evidence: Pick<DesignEvidence, 'sections'> & Partial<Pick<DesignEvidence, 'components'>>,
+  evidence: Pick<DesignEvidence, 'pages' | 'sections'> & Partial<Pick<DesignEvidence, 'components'>>,
 ): DeterministicClaim[] {
   const claims: DeterministicClaim[] = []
   const primaryRole = tokens.colorRoles?.primaryAction
-  const roleEvidenceRefs = (primaryRole?.provenance || []).map(
-    (item) => `color-role:${item.captureId}|${item.elementRef}`,
+  const actionRoleObservations = (styles.colorRoleObservations || []).filter(
+    (item) => (item.role === 'action' || item.role === 'primary-action') && item.background,
   )
-  const roleProvenance: DeterministicClaim['provenance'] = roleEvidenceRefs.map((ref) => ({
-    source: 'color-role-observation',
-    ref,
-  }))
+  const pageForCapture = (captureId: string) => {
+    const separator = captureId.lastIndexOf('|')
+    const dimensions = separator >= 0 ? /^(\d+)x(\d+)$/.exec(captureId.slice(separator + 1)) : null
+    if (!dimensions) return undefined
+    const url = captureId.slice(0, separator)
+    const normalizedUrl = (() => {
+      try {
+        return new URL(url).href
+      } catch {
+        return url
+      }
+    })()
+    return (evidence.pages || []).find((page) => {
+      let pageUrl = page.url
+      try {
+        pageUrl = new URL(page.url).href
+      } catch {
+        // Retain malformed-but-stable values for exact matching.
+      }
+      return (
+        pageUrl === normalizedUrl &&
+        page.viewportWidth === Number(dimensions[1]) &&
+        page.viewportHeight === Number(dimensions[2])
+      )
+    })
+  }
+  const roleObservations = [
+    ...actionRoleObservations,
+    ...(primaryRole?.provenance || []).map((item) => ({
+      captureId: item.captureId,
+      elementRef: item.elementRef,
+    })),
+  ].flatMap((item) => {
+    const page = pageForCapture(item.captureId)
+    return page ? [{ pageId: page.id, elementRef: item.elementRef }] : []
+  })
+  const roleEvidenceRefs = [...new Set(roleObservations.map((item) => item.pageId))]
+  const roleProvenance: DeterministicClaim['provenance'] = [
+    ...new Set(roleObservations.map((item) => `color-role:${item.pageId}|${item.elementRef}`)),
+  ].map((ref) => ({ source: 'color-role-observation', ref }))
   const actionFamilies = hueFamiliesForCategories(
     styles,
     new Set(['primaryActionBackgroundColor', 'actionBackgroundColor', 'primaryActionColor', 'actionColor']),
@@ -319,6 +361,10 @@ export function buildEvidenceBackedClaims(
   const statusFamilies = hueFamiliesForCategories(styles, STATUS_COLOR_CATEGORIES)
   const decorativeFamilies = decorativeHueFamilies(styles)
   for (const family of statusFamilies.keys()) decorativeFamilies.delete(family)
+  for (const observation of actionRoleObservations) {
+    const channels = parseColorChannels(observation.background || '')
+    if (channels) decorativeFamilies.delete(Math.floor(colorHue(channels) / 30))
+  }
   const primaryChannels = primaryRole ? parseColorChannels(primaryRole.observedBackground) : null
   if (primaryChannels) decorativeFamilies.delete(Math.floor(colorHue(primaryChannels) / 30))
   const gradientSections = evidence.sections.filter((section) => section.observedStyles?.gradient)
@@ -342,7 +388,7 @@ export function buildEvidenceBackedClaims(
     (usage) => usage.areaShare >= MIN_DECORATIVE_AREA_SHARE_PER_FAMILY,
   ).length
   const stableDecorativePalette = stableDecorativeFamilies.length >= 2
-  if (primaryRole && roleEvidenceRefs.length > 0) {
+  if (roleEvidenceRefs.length > 0) {
     if (dominantActionShare >= 0.6 && gradientSections.length > 0 && stableDecorativePalette) {
       const sectionRefs = gradientSections.map((section) => section.id)
       claims.push({

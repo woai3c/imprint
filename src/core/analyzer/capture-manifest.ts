@@ -1,5 +1,6 @@
 import type { DesignEvidence } from '../design-evidence/types.js'
 import type { CaptureManifest, CaptureViewportEnvironment, CaptureViewportManifest, PageCoverage } from './types.js'
+import { pageIdentityUrl } from './url-identity.js'
 
 export const CAPTURE_MANIFEST_SCHEMA_VERSION = '1' as const
 
@@ -60,27 +61,20 @@ function browserVersion(userAgent: string): string | null {
 }
 
 function routeIdentity(value: string): string {
-  try {
-    const url = new URL(value)
-    url.username = ''
-    url.password = ''
-    url.search = ''
-    url.hash = ''
-    const pathname = url.pathname.replace(/\/+$/, '') || '/'
-    return `${url.origin}${pathname}`
-  } catch {
-    return value.split(/[?#]/, 1)[0].replace(/\/+$/, '')
-  }
+  return pageIdentityUrl(value)
 }
 
 export function buildCaptureManifest(input: CaptureManifestInput): CaptureManifest {
   const captureCoverage = input.evidence.coverage.captureCoverage
+  const routeIdsByIdentity = new Map(
+    input.evidence.pages.map((page) => [routeIdentity(page.url), page.routeId || routeIdentity(page.url)]),
+  )
   const pageKeys = [
-    ...new Set(input.evidence.pages.map((page) => `${routeIdentity(page.url)}::${page.viewport}`)),
+    ...new Set(input.evidence.pages.map((page) => `${page.routeId || routeIdentity(page.url)}::${page.viewport}`)),
   ].sort()
   const animationFreezeOutcomes = new Map(
     input.animationFreezeAttempts.map((attempt) => [
-      `${routeIdentity(attempt.url)}::${attempt.viewport}`,
+      `${routeIdsByIdentity.get(routeIdentity(attempt.url)) || routeIdentity(attempt.url)}::${attempt.viewport}`,
       attempt.succeeded,
     ]),
   )

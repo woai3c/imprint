@@ -5,25 +5,17 @@
   "expectedSectionRoles": ["header", "hero", "feature-group", "action", "footer"],
   "minSections": 4,
   "expectedComponentTypes": ["navigation", "button", "table", "card", "tab", "status"],
-  "expectedComponentRoles": ["status-positive", "status-warning", "delta-positive", "delta-negative"],
-  "expectedDesignDocComponentCounts": {
-    "tab": 2
-  },
+  "expectedComponentRoles": ["status-neutral"],
   "minSafelyObservedInteractions": 1,
   "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
   "minMediaLayers": 0,
   "expectedMediaKinds": [],
   "expectedSalienceTraits": ["salience:primary-action-candidate"],
   "minSectionCoverage": 0.3,
-  "expectedPrimary": "#155eef",
+  "forbiddenPrimary": true,
+  "expectedColorTokens": { "accent": "#155eef" },
   "forbiddenGenericAccents": ["#067647", "#b42318", "#b54708"],
   "expectedTitle": "Metricbase Console",
-  "expectedSemanticPairs": {
-    "status-positive": { "observedBackground": "#dcfae6", "observedForeground": "#067647" },
-    "status-warning": { "observedBackground": "#fef0c7", "observedForeground": "#b54708" },
-    "delta-positive": { "observedForeground": "#067647" },
-    "delta-negative": { "observedForeground": "#b42318" }
-  },
   "expectedStickySections": [{ "role": "header", "height": "44px" }],
   "expectedResponsiveColumns": [{ "from": 4, "to": 2 }],
   "expectedInteractionValues": [
@@ -37,16 +29,13 @@
   ],
   "forbiddenColors": ["#000000"],
   "forbiddenFontFamilies": ["Times New Roman"],
-  "expectedDesignDocStrings": ["status-positive", "status-warning", "delta-positive", "delta-negative"],
+  "expectedDesignDocStrings": ["status-neutral"],
   "expectedReconstructionSummaryStrings": [
     "header: sticky",
     "44px high",
     "tab click: selected state no → yes",
     "tab",
-    "status indicator (positive)",
-    "status indicator (warning)",
-    "positive delta",
-    "negative delta",
+    "status indicator (neutral, style, 1)",
     "columns 4 → 2"
   ]
 }

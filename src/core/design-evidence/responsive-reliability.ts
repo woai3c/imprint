@@ -47,6 +47,9 @@ export function isUsefulResponsiveChange(
     return fromColumns === null || toColumns === null || fromColumns !== toColumns
   }
   if (['node.heading.fontSize', 'layoutMode', 'position', 'order', 'sequenceIndex'].includes(property)) return true
+  if (property === 'node.media.height') {
+    return Boolean(boundedPixelValue(values.from, 2_000) && boundedPixelValue(values.to, 2_000))
+  }
   if (property === 'height' || property.endsWith('.height')) {
     return (
       ['header', 'navigation', 'action'].includes(sectionRole || '') &&

@@ -185,26 +185,26 @@
         <h1>Production overview</h1>
         <button class="btn" type="button">New stream</button>
       </section>
-      <section class="kpis">
+      <section class="kpis" aria-label="Key metrics">
         <div class="kpi">
           <div class="label">Events / min</div>
           <div class="value">48,210</div>
-          <div class="delta up">+4.2%</div>
+          <div class="delta up" role="status">+4.2%</div>
         </div>
         <div class="kpi">
           <div class="label">Error rate</div>
           <div class="value">0.18%</div>
-          <div class="delta down">-0.03%</div>
+          <div class="delta down" role="status">-0.03%</div>
         </div>
         <div class="kpi">
           <div class="label">P95 latency</div>
           <div class="value">212ms</div>
-          <div class="delta up">-11ms</div>
+          <div class="delta up" role="status">-11ms</div>
         </div>
         <div class="kpi">
           <div class="label">Active sources</div>
           <div class="value">136</div>
-          <div class="delta up">+6</div>
+          <div class="delta up" role="status">+6</div>
         </div>
       </section>
       <section class="panel">
@@ -227,19 +227,19 @@
                 <td>api-gateway</td>
                 <td>us-east</td>
                 <td>21.4k/min</td>
-                <td><span class="status ok">healthy</span></td>
+                <td><span class="status ok" role="status">healthy</span></td>
               </tr>
               <tr>
                 <td>checkout-worker</td>
                 <td>eu-west</td>
                 <td>9.8k/min</td>
-                <td><span class="status ok">healthy</span></td>
+                <td><span class="status ok" role="status">healthy</span></td>
               </tr>
               <tr>
                 <td>legacy-importer</td>
                 <td>us-west</td>
                 <td>1.1k/min</td>
-                <td><span class="status warn">lagging</span></td>
+                <td><span class="status warn" role="status">lagging</span></td>
               </tr>
             </tbody>
           </table>

@@ -99,9 +99,19 @@ export interface ComponentRecipe {
   priority: 'P1' | 'P2'
   useWhen: ComponentRecipeUseWhen
   observed: DesignClaim
+  /** Bounded representative styles for component-scoped values that are not global tokens. */
+  observedStyles?: Record<string, string>
   states: DesignClaim[]
   responsive: DesignClaim[]
   restrictions: ComponentRecipeRestriction[]
+  /** Confidence that the observed elements have the stated component identity. */
+  identityConfidence?: number
+  /** Confidence that the representative complete style is reusable. */
+  reuseConfidence?: number
+  reuseScope?: 'isolated' | 'page-repeated' | 'cross-page'
+  matchingStyleInstances?: number
+  pageCount?: number
+  /** Recipe confidence is based on reuse, not identity. */
   confidence: Confidence
   sourceInstances: number
 }

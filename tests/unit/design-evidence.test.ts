@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
-import type { DesignToken } from '../../src/core/analyzer/types.js'
+import type { DesignToken, TokenEvidence } from '../../src/core/analyzer/types.js'
+import { opaqueRouteIdentity } from '../../src/core/analyzer/url-identity.js'
 import {
   buildDesignEvidence,
   createEvidenceId,
@@ -33,6 +34,39 @@ const tokens: DesignToken = {
   transitions: ['0.2s'],
 }
 
+function layoutTextSource(foreground = 'rgb(17, 24, 39)') {
+  return {
+    kind: 'direct-text' as const,
+    widthPx: 720,
+    heightPx: 64,
+    visibleWidthPx: 720,
+    visibleHeightPx: 64,
+    visibleBounds: { xPx: 0, yPx: 0, widthPx: 720, heightPx: 64 },
+    paintedAreaPx: 46_080,
+    captureIntersectionRatio: 1,
+    effectiveClipPathAreaRatio: 1,
+    ancestorClipCount: 0,
+    clientRectCount: 1,
+    glyphRectCount: 1,
+    visibleGlyphRects: [{ xPx: 0, yPx: 0, widthPx: 720, heightPx: 64 }],
+    visibleGlyphAreaPx: 46_080,
+    clipPathChain: [],
+    nonRectangularClipPathCount: 0,
+    clip: 'auto',
+    clipPath: 'none',
+    contentVisibility: 'visible',
+    opacity: 1,
+    filterOpacity: 1,
+    filterChain: [],
+    maskChain: [],
+    blendChain: [],
+    textIndentPx: 0,
+    filter: 'none',
+    glyphPaintKind: 'solid-color' as const,
+    foreground,
+  }
+}
+
 function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number): PageEvidenceSnapshot {
   const viewportWidth = { desktop: 1440, tablet: 768, mobile: 375 }[viewport]
   return {
@@ -62,6 +96,7 @@ function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number
     sections: [
       {
         key: 'navigation:0',
+        identityKey: 'section:navigation:site-navigation',
         order: 0,
         role: 'navigation',
         rect: { x: 0, y: 0, width: 1, height: 0.08 },
@@ -75,6 +110,7 @@ function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number
       },
       {
         key: 'hero:1',
+        identityKey: 'section:hero:page-heading',
         order: 1,
         role: 'hero',
         rect: {
@@ -109,9 +145,11 @@ function createSnapshot(viewport: 'desktop' | 'tablet' | 'mobile', width: number
     layoutNodes: [
       {
         key: 'hero:1:heading:0',
+        identityKey: 'node:heading:display:page-heading',
         sectionKey: 'hero:1',
         role: 'heading',
         textRole: 'display',
+        textStyleSource: layoutTextSource(),
         rect: { x: 0.2, y: 0.18, width: 0.5, height: 0.08 },
         styles: {
           color: 'rgb(17, 24, 39)',
@@ -177,6 +215,46 @@ function buildFixtureEvidence() {
 }
 
 describe('Design Evidence', () => {
+  it('refuses to manufacture a route reference for an unmatched token evidence page', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    const unmatchedTokens: DesignToken = {
+      ...tokens,
+      evidence: {
+        'colors.background': {
+          value: '#ffffff',
+          confidence: 'high',
+          observationCount: 4,
+          pageCount: 1,
+          captureCount: 1,
+          pages: ['https://orphan.example/'],
+          sources: ['computed:background'],
+          reasons: ['rendered-use'],
+        },
+      },
+    }
+
+    expect(() =>
+      buildDesignEvidence({
+        analysisId: 'unmatched-token-route',
+        requestedUrl: snapshot.url,
+        finalUrl: snapshot.url,
+        accessMode: 'anonymous',
+        expectedPageCount: 1,
+        tokens: unmatchedTokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures: [
+          {
+            screenshot: { url: snapshot.url, path: 'unmatched-route.png', viewport: 'desktop' },
+            snapshot,
+          },
+        ],
+      }),
+    ).toThrow('Token evidence page has no matching Evidence capture: https://orphan.example/')
+  })
+
   it('matches component tokens by CSS property as well as value', () => {
     const snapshot = createSnapshot('desktop', 1440)
     const source = snapshot.components[0]
@@ -218,6 +296,51 @@ describe('Design Evidence', () => {
     ])
   })
 
+  it('keeps equal color literals separated by CSS channel and semantic token role', () => {
+    const snapshot = createSnapshot('desktop', 1440)
+    const source = snapshot.components[0]
+    snapshot.components = [
+      { ...source, key: 'hero:1:text:wrong-role', styles: { color: '#ffffff' } },
+      { ...source, key: 'hero:1:surface:wrong-role', styles: { backgroundColor: '#111827' } },
+      { ...source, key: 'hero:1:border:wrong-role', styles: { borderTopColor: '#ffffff' } },
+      { ...source, key: 'hero:1:text:correct-role', styles: { color: '#111827' } },
+      { ...source, key: 'hero:1:surface:correct-role', styles: { backgroundColor: '#ffffff' } },
+      { ...source, key: 'hero:1:border:correct-role', styles: { borderTopColor: '#d1d5db' } },
+    ]
+    const collisionTokens: DesignToken = {
+      ...tokens,
+      colors: { background: '#ffffff', foreground: '#111827', border: '#d1d5db' },
+    }
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'semantic-color-token-matching',
+      requestedUrl: snapshot.url,
+      finalUrl: snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      tokens: collisionTokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: { url: snapshot.url, path: 'semantic-color-matching.png', viewport: 'desktop' },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.components.map((component) => component.tokenRefs)).toEqual([
+      [],
+      [],
+      [],
+      ['color.foreground'],
+      ['color.background'],
+      ['color.border'],
+    ])
+  })
+
   it('preserves anchor provenance as elementKind without changing the visual button type', () => {
     const snapshot = createSnapshot('desktop', 1440)
     snapshot.components[0].elementKind = 'anchor'
@@ -238,7 +361,7 @@ describe('Design Evidence', () => {
     expect(evidence.components[0]).toMatchObject({ type: 'button', elementKind: 'anchor' })
   })
 
-  it('keeps Evidence counts authoritative and adds only missing detector types or variants', () => {
+  it('uses the instance-backed Evidence catalog exclusively when evidence is available', () => {
     const evidence = buildFixtureEvidence()
     const detected = [
       {
@@ -269,15 +392,15 @@ describe('Design Evidence', () => {
       evidence,
     )
 
-    expect(document).toContain('| button-primary | 1 |')
-    expect(document).toMatch(/`sample: \d+×\d+px`/)
-    expect(document).not.toContain('| button-primary | 101 |')
-    expect(document).toContain('| card | 5 |')
+    expect(document).toContain('- button: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
+    expect(document).not.toContain('99 canonical instances')
+    expect(document).not.toContain('- card:')
+    expect(document).not.toContain('| Type | Instances |')
     expect(document).toContain('Instance counts use one canonical capture per page, preferring desktop')
-    expect(document).toContain('Detector supplement; aggregated pattern without instance-level provenance')
+    expect(document).not.toContain('Detector supplement; aggregated pattern without instance-level provenance')
   })
 
-  it('keeps an observed primary action visible when component classification misses its variant', () => {
+  it('keeps primary-action color evidence without inventing a component variant', () => {
     const evidence = buildFixtureEvidence()
     const primaryTokens = structuredClone(tokens)
     const desktop = evidence.pages.find((page) => page.viewport === 'desktop')!
@@ -314,8 +437,10 @@ describe('Design Evidence', () => {
       evidence,
     )
 
-    expect(document).toContain('| button-primary | 1 | 0.9 |')
-    expect(document).toContain('semanticRole: primary-action')
+    expect(document).toContain('**Component variants:** action button ×1')
+    expect(document).not.toContain('**Component variants:** primary button')
+    expect(document).toContain('- button: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
+    expect(document).toContain('primaryAction:')
     expect(document).toContain('observationCount: 1')
     expect(document).not.toContain('provenanceArtifact: design-evidence.json')
     expect(document).not.toContain('body > main > button:nth-of-type(1)')
@@ -629,9 +754,9 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
-    expect(summary).toContain('主按钮（小尺寸） ×1')
-    expect(summary).toContain('主按钮（大尺寸） ×1')
-    expect(summary).not.toContain('主按钮（小尺寸、圆角、描边）')
+    expect(summary).toContain('操作按钮（小尺寸） ×1')
+    expect(summary).toContain('操作按钮（大尺寸） ×1')
+    expect(summary).not.toContain('操作按钮（小尺寸、圆角、描边）')
     expect(summary).toContain('正向变化值 ×1')
     expect(summary).toContain('状态提示（警告） ×1')
     expect(summary).not.toContain('button-primary-')
@@ -707,6 +832,7 @@ describe('Design Evidence', () => {
     })
     const secondPage = evidence.pages.find((page) => page.viewport === 'mobile')!
     secondPage.url = 'https://example.com/creator'
+    secondPage.routeId = 'route-creator'
     const secondSection = evidence.sections.find((section) => section.pageId === secondPage.id)!
     secondSection.observedStyles = { layout: { maxWidth: '413px' } }
 
@@ -733,6 +859,7 @@ describe('Design Evidence', () => {
       evidence.pages.push({
         ...structuredClone(basePage),
         id: pageId,
+        routeId: `route-recurring-${index}`,
         url: `https://example.com/area-${index}`,
         images: [],
       })
@@ -780,9 +907,90 @@ describe('Design Evidence', () => {
 
     expect(brief).toContain('order change (order)')
     expect(brief).not.toContain('layout reflow (order)')
-    expect(chineseBrief).toContain('桌面端 → 移动端，顺序调整（顺序）')
+    expect(chineseBrief).toContain('桌面端 → 移动端 · 导航 · 顺序调整（顺序） · 支持：1 个路由 · 1 个观察实例')
     expect(chineseBrief).not.toContain('reorder')
     expect(chineseBrief).not.toContain('order')
+  })
+
+  it('groups identical responsive facts across sections and routes without merging different values', () => {
+    const evidence = buildFixtureEvidence()
+    const homeDesktop = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const homeMobile = evidence.pages.find((page) => page.viewport === 'mobile')!
+    const aboutDesktop = { ...structuredClone(homeDesktop), id: 'page-about-desktop', url: 'https://example.com/about' }
+    const aboutMobile = { ...structuredClone(homeMobile), id: 'page-about-mobile', url: 'https://example.com/about' }
+    homeDesktop.routeId = 'route-home'
+    homeMobile.routeId = 'route-home'
+    aboutDesktop.routeId = 'route-about'
+    aboutMobile.routeId = 'route-about'
+    evidence.pages.push(aboutDesktop, aboutMobile)
+
+    const sectionTemplate = evidence.sections.find(
+      (section) => section.pageId === homeDesktop.id && section.role === 'navigation',
+    )!
+    const section = (id: string, pageId: string) => ({
+      ...structuredClone(sectionTemplate),
+      id,
+      pageId,
+      role: 'content' as const,
+      componentRefs: [],
+      interactionRefs: [],
+      mediaLayerRefs: [],
+      evidenceRefs: [],
+    })
+    const sections = {
+      homeDesktopA: section('responsive-home-desktop-a', homeDesktop.id),
+      homeDesktopB: section('responsive-home-desktop-b', homeDesktop.id),
+      homeMobileA: section('responsive-home-mobile-a', homeMobile.id),
+      homeMobileB: section('responsive-home-mobile-b', homeMobile.id),
+      aboutDesktopA: section('responsive-about-desktop-a', aboutDesktop.id),
+      aboutDesktopB: section('responsive-about-desktop-b', aboutDesktop.id),
+      aboutMobileA: section('responsive-about-mobile-a', aboutMobile.id),
+      aboutMobileB: section('responsive-about-mobile-b', aboutMobile.id),
+    }
+    evidence.sections.push(...Object.values(sections))
+
+    const observation = (
+      id: string,
+      desktopSection: (typeof sections)['homeDesktopA'],
+      mobileSection: (typeof sections)['homeMobileA'],
+      from: string,
+      to: string,
+    ) => ({
+      id,
+      sectionId: desktopSection.id,
+      fromViewport: 'desktop',
+      toViewport: 'mobile',
+      changeType: 'reflow' as const,
+      changedProperties: ['gridTemplateColumns'],
+      changes: { gridTemplateColumns: { from, to } },
+      summary: 'Observed grid change.',
+      evidenceRefs: [desktopSection.id, mobileSection.id],
+    })
+    evidence.responsiveObservations = [
+      observation('responsive-home-a', sections.homeDesktopA, sections.homeMobileA, 'repeat(3, 1fr)', '1fr'),
+      observation('responsive-home-b', sections.homeDesktopB, sections.homeMobileB, 'repeat(3, 1fr)', '1fr'),
+      observation('responsive-about-a', sections.aboutDesktopA, sections.aboutMobileA, 'repeat(3, 1fr)', '1fr'),
+      observation(
+        'responsive-about-b',
+        sections.aboutDesktopB,
+        sections.aboutMobileB,
+        'repeat(4, 1fr)',
+        'repeat(2, 1fr)',
+      ),
+    ]
+
+    const english = generateDesignEvidenceBrief(evidence, 'en')
+    const chinese = generateDesignEvidenceBrief(evidence, 'zh-CN')
+    const englishResponsive = english.match(/### Responsive Structure Observations\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+    const chineseResponsive = chinese.match(/### 响应式结构观察\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+
+    expect(englishResponsive.match(/^- .*support:/gm)).toHaveLength(2)
+    expect(englishResponsive).toContain('support: 2 routes · 3 observed instances')
+    expect(englishResponsive).toContain('examples: https://example.com/about; https://example.com/')
+    expect(englishResponsive.match(/repeat\(3, 1fr\) → 1fr/g)).toHaveLength(1)
+    expect(englishResponsive).toContain('repeat(4, 1fr) → repeat(2, 1fr)')
+    expect(chineseResponsive).toContain('支持：2 个路由 · 3 个观察实例')
+    expect(chineseResponsive.match(/repeat\(3, 1fr\) → 1fr/g)).toHaveLength(1)
   })
 
   it('uses human-readable role and duration labels in DESIGN.md', () => {
@@ -802,7 +1010,9 @@ describe('Design Evidence', () => {
       evidence,
     )
 
-    expect(document).toContain('- content: `max-width: 960px` · `position: sticky`')
+    expect(document).toContain(
+      '- content · 1 independent owner · scope: `desktop` https://example.com/ — `max-width: 960px` · `position: sticky`',
+    )
     expect(document).not.toContain('section-')
     expect(document).toContain('- duration-6: `0.5s`')
     expect(document).not.toContain('- 5: `0.5s`')
@@ -863,8 +1073,10 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, evidence.source.requestedUrl, [], undefined, [], [], 'en', evidence)
     const frontMatter = parse(document.match(/^---\n([\s\S]*?)\n---/)?.[1] || '')
 
-    expect(document).toContain('| tab | 1 |')
-    expect(document).toContain('| status | 1 |')
+    expect(document).toContain('- tab: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
+    expect(document).toContain(
+      '- status indicator: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns',
+    )
     expect(frontMatter.components || {}).not.toHaveProperty('tab')
     expect(frontMatter.components || {}).not.toHaveProperty('status')
   })
@@ -1074,11 +1286,11 @@ describe('Design Evidence', () => {
     expect(brief).toContain('Responsive comparison pairs: 1/1 selected URLs')
   })
 
-  it('uses one page identity when responsive captures differ only by query or fragment', () => {
+  it('uses one page identity when responsive captures differ only by fragment', () => {
     const desktop = createSnapshot('desktop', 1440)
     const mobile = createSnapshot('mobile', 375)
     desktop.url = 'https://example.com/?theme=light#top'
-    mobile.url = 'https://example.com/?theme=dark#menu'
+    mobile.url = 'https://example.com/?theme=light#menu'
 
     const evidence = buildDesignEvidence({
       analysisId: 'analysis-url-identity',
@@ -1112,6 +1324,193 @@ describe('Design Evidence', () => {
     })
     expect(evidence.topology.crossPagePatternIds).toEqual([])
     expect(evidence.limitations).not.toContain('fewer-page-viewports-than-requested')
+    expect(evidence.limitations).toContain('query-route-redacted')
+    expect(new Set(evidence.pages.map((page) => page.routeId)).size).toBe(1)
+  })
+
+  it('keeps query-routed documents distinct while public artifacts redact their query text', () => {
+    const queryUrls = [
+      'https://example.com/app?doc=route_alpha_secret',
+      'https://example.com/app?doc=route_beta_secret',
+    ]
+    const queryTokenEvidence: TokenEvidence = {
+      value: '#ffffff',
+      confidence: 'high',
+      measurementConfidence: 'high',
+      semanticConfidence: 'high',
+      reuseScope: 'foundation',
+      observationCount: 4,
+      ownerCount: 2,
+      semanticAgreement: 1,
+      pageCount: 2,
+      captureCount: 4,
+      eligiblePageCount: 2,
+      pageSupportRatio: 1,
+      pages: queryUrls,
+      sources: ['computed:background'],
+      roleCounts: { background: 2 },
+      reasons: ['cross-page', 'rendered-use', 'computed-style'],
+    }
+    const queryForegroundEvidence: TokenEvidence = {
+      ...queryTokenEvidence,
+      value: '#111827',
+      observationCount: 2,
+      ownerCount: 2,
+      captureCount: 2,
+      sources: ['rendered:text', 'observed:text-background-pair'],
+      reasons: ['cross-page', 'rendered-use', 'computed-style', 'paired-surface'],
+      renderedTextOwners: queryUrls.map((page, index) => ({
+        page,
+        routeId: opaqueRouteIdentity(page),
+        viewport: 'desktop',
+        ownerId: `query-text-owner-${index}`,
+        textRole: 'body',
+        styles: {
+          color: '#111827',
+          backgroundColor: '#ffffff',
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '16px',
+          fontWeight: '400',
+          lineHeight: '24px',
+          letterSpacing: 'normal',
+        },
+        source: layoutTextSource('#111827'),
+      })),
+      pairedSurface: {
+        background: '#ffffff',
+        pageCount: 2,
+        eligiblePageCount: 2,
+        pageSupportRatio: 1,
+        normalizedShare: 1,
+        normalizedMainTextShare: 1,
+        ownerCount: 2,
+        minimumPageOwnerCount: 1,
+        mainTextPageCount: 2,
+        mainTextOwnerCount: 2,
+        headingPageCount: 0,
+        headingOwnerCount: 0,
+        contrastRatio: 17.74,
+        textRoles: ['body'],
+        routeSupport: queryUrls.map((page, index) => ({
+          page,
+          routeId: opaqueRouteIdentity(page),
+          supported: true,
+          ownerIds: [`query-text-owner-${index}`],
+          totalOwnerIds: [`query-text-owner-${index}`],
+          mainTextOwnerIds: [`query-text-owner-${index}`],
+          headingOwnerIds: [],
+          textRoles: ['body'],
+          normalizedShare: 1,
+          normalizedMainTextShare: 1,
+        })),
+      },
+    }
+    const queryTokens: DesignToken = {
+      ...structuredClone(tokens),
+      evidence: { 'colors.background': queryTokenEvidence, 'colors.foreground': queryForegroundEvidence },
+      candidates: {
+        values: [
+          {
+            id: 'candidate.colors.query-background',
+            group: 'colors',
+            role: 'background',
+            value: '#f8fafc',
+            provenance: 'observed-color',
+            rejectionReason: 'unassigned-role',
+            evidence: { ...queryTokenEvidence, value: '#f8fafc' },
+          },
+        ],
+      },
+    }
+    const captures = [
+      ['desktop', 1440, 'route_alpha_secret'],
+      ['mobile', 375, 'route_alpha_secret'],
+      ['desktop', 1440, 'route_beta_secret'],
+      ['mobile', 375, 'route_beta_secret'],
+    ].map(([viewport, width, document]) => {
+      const snapshot = createSnapshot(viewport as 'desktop' | 'mobile', Number(width))
+      snapshot.url = `https://example.com/app?doc=${document}`
+      return {
+        screenshot: { url: snapshot.url, path: `query-route-${viewport}.png`, viewport: String(viewport) },
+        snapshot,
+      }
+    })
+
+    const buildQueryEvidence = (orderedCaptures: typeof captures) =>
+      buildDesignEvidence({
+        analysisId: 'analysis-query-routes',
+        requestedUrl: captures[0].snapshot.url,
+        finalUrl: captures[0].snapshot.url,
+        accessMode: 'anonymous',
+        expectedPageCount: 2,
+        expectedViewports: ['desktop', 'mobile'],
+        expectedCaptureCount: 4,
+        tokens: queryTokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures: orderedCaptures,
+      })
+
+    const evidence = buildQueryEvidence(captures)
+    const reorderedEvidence = buildQueryEvidence([...captures].reverse())
+
+    const routeIds = [...new Set(evidence.pages.map((page) => page.routeId))]
+    const entryRouteId = evidence.pages.find((page) => page.url === captures[0].snapshot.url)?.routeId
+    expect(routeIds).toHaveLength(2)
+    expect(routeIds.every((routeId) => /^route-[a-f\d]{12}$/.test(routeId || ''))).toBe(true)
+    expect(evidence.pages).toHaveLength(4)
+    expect(evidence.coverage).toMatchObject({
+      urlCoverage: { requested: 2, captured: 2 },
+      captureCoverage: {
+        expected: 4,
+        captured: 4,
+        responsivePairs: { expectedUrls: 2, capturedUrls: 2, status: 'complete' },
+      },
+    })
+    expect(evidence.responsiveObservations.length).toBeGreaterThan(0)
+    expect(Object.fromEntries(evidence.pages.map((page) => [page.url, page.routeId]))).toEqual(
+      Object.fromEntries(reorderedEvidence.pages.map((page) => [page.url, page.routeId])),
+    )
+    expect(evidence.source.routeId).toBe(entryRouteId)
+    expect(reorderedEvidence.source.routeId).toBe(entryRouteId)
+    expect(new Set(evidence.tokens.evidence?.['colors.background']?.pageRefs)).toEqual(new Set(routeIds))
+    expect(
+      new Set(evidence.tokens.evidence?.['colors.foreground']?.renderedTextOwners?.map((owner) => owner.routeId)),
+    ).toEqual(new Set(routeIds))
+    expect(
+      new Set(
+        evidence.tokens.evidence?.['colors.foreground']?.pairedSurface?.routeSupport.map((route) => route.routeId),
+      ),
+    ).toEqual(new Set(routeIds))
+    expect(new Set(evidence.tokens.candidates?.values?.[0]?.evidence.pageRefs)).toEqual(new Set(routeIds))
+
+    const persisted = generateDesignEvidenceJson(evidence)
+    expect(persisted).not.toContain('doc=')
+    expect(persisted).not.toContain('route_alpha_secret')
+    expect(persisted).not.toContain('route_beta_secret')
+    const persistedEvidence = JSON.parse(persisted) as typeof evidence
+    expect(new Set(persistedEvidence.pages.map((page) => page.url))).toEqual(new Set(['https://example.com/app']))
+    expect(new Set(persistedEvidence.pages.map((page) => page.routeId))).toEqual(new Set(routeIds))
+    expect(persistedEvidence.source.routeId).toBe(entryRouteId)
+    expect(new Set(persistedEvidence.tokens.evidence?.['colors.background']?.pageRefs)).toEqual(new Set(routeIds))
+    expect(
+      new Set(
+        persistedEvidence.tokens.evidence?.['colors.foreground']?.renderedTextOwners?.map((owner) => owner.routeId),
+      ),
+    ).toEqual(new Set(routeIds))
+    expect(
+      new Set(
+        persistedEvidence.tokens.evidence?.['colors.foreground']?.pairedSurface?.routeSupport.map(
+          (route) => route.routeId,
+        ),
+      ),
+    ).toEqual(new Set(routeIds))
+    expect(
+      new Set(persistedEvidence.tokens.evidence?.['colors.foreground']?.renderedTextOwners?.map((owner) => owner.page)),
+    ).toEqual(new Set(['https://example.com/app']))
+    expect(new Set(persistedEvidence.tokens.candidates?.values?.[0]?.evidence.pageRefs)).toEqual(new Set(routeIds))
   })
 
   it('accounts for observed role sizes outside the reusable typography scale', () => {
@@ -1357,7 +1756,7 @@ describe('Design Evidence', () => {
     expect(evidence.coverage.viewportCoverage).toEqual(['desktop', 'tablet', 'mobile'])
   })
 
-  it('rejects cross-viewport pairs when a stable DOM path changes semantic section identity', () => {
+  it('rejects cross-viewport pairs when the semantic section identity changes', () => {
     const desktop = createSnapshot('desktop', 1440)
     const mobile = createSnapshot('mobile', 375)
     const mobileHero = mobile.sections.find((section) => section.key === 'hero:1')!
@@ -1389,7 +1788,142 @@ describe('Design Evidence', () => {
 
     expect(evidence.responsiveObservations.some((observation) => observation.sectionId === desktopHero.id)).toBe(false)
     expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
-    expect(generateDesignEvidenceBrief(evidence, 'en')).toContain('different semantic section roles across viewports')
+    expect(generateDesignEvidenceBrief(evidence, 'en')).toContain('lacked a unique semantic identity across viewports')
+  })
+
+  it('does not reinterpret a viewport-specific section label as hide and show behavior', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 375)
+    const desktopHero = desktop.sections.find((section) => section.key === 'hero:1')!
+    const mobileHero = mobile.sections.find((section) => section.key === 'hero:1')!
+    desktopHero.identityKey = 'section:hero:desktop-heading'
+    mobileHero.identityKey = 'section:hero:mobile-heading'
+    mobileHero.styles.paddingTop = '16px'
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-responsive-label-change',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+
+    expect(
+      evidence.responsiveObservations.some(
+        (observation) =>
+          observation.changeType === 'visibility' || observation.changedProperties.includes('visibility'),
+      ),
+    ).toBe(false)
+    expect(
+      evidence.responsiveObservations.some((observation) => observation.changedProperties.includes('paddingTop')),
+    ).toBe(false)
+    expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
+  })
+
+  it('does not pair an unlabeled responsive section by its capture-local path', () => {
+    const desktop = createSnapshot('desktop', 1_440)
+    const mobile = createSnapshot('mobile', 375)
+    const desktopHero = desktop.sections.find((section) => section.key === 'hero:1')!
+    const mobileHero = mobile.sections.find((section) => section.key === 'hero:1')!
+    delete desktopHero.identityKey
+    delete mobileHero.identityKey
+    desktopHero.styles.gridTemplateColumns = 'repeat(4, 1fr)'
+    mobileHero.styles.gridTemplateColumns = 'repeat(2, 1fr)'
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-unlabeled-responsive-section',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+
+    expect(
+      evidence.responsiveObservations.some((observation) =>
+        observation.changedProperties.includes('gridTemplateColumns'),
+      ),
+    ).toBe(false)
+    expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
+  })
+
+  it('pairs reordered sections by semantic identity instead of capture-local nth-of-type paths', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 375)
+    const desktopHero = desktop.sections.find((section) => section.role === 'hero')!
+    const mobileHero = mobile.sections.find((section) => section.role === 'hero')!
+    desktopHero.key = 'body > main:nth-of-type(1) > section:nth-of-type(1)'
+    desktop.components[0].sectionKey = desktopHero.key
+    desktop.layoutNodes[0].sectionKey = desktopHero.key
+    mobileHero.key = 'body > main:nth-of-type(1) > section:nth-of-type(2)'
+    mobileHero.order = 2
+    mobile.components[0].sectionKey = mobileHero.key
+    mobile.layoutNodes[0].sectionKey = mobileHero.key
+    mobile.sections.push({
+      key: 'body > main:nth-of-type(1) > section:nth-of-type(1)',
+      identityKey: 'section:content:mobile-promotion',
+      order: 1,
+      role: 'content',
+      rect: { x: 0.05, y: 0.1, width: 0.9, height: 0.08 },
+      layoutMode: 'flow',
+      styles: { display: 'block' },
+    })
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-responsive-semantic-identity',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const mobilePage = evidence.pages.find((page) => page.viewport === 'mobile')!
+    const desktopHeroEvidence = evidence.sections.find(
+      (section) => section.pageId === desktopPage.id && section.role === 'hero',
+    )!
+    const mobileHeroEvidence = evidence.sections.find(
+      (section) => section.pageId === mobilePage.id && section.role === 'hero',
+    )!
+    const insertedMobileSection = evidence.sections.find(
+      (section) => section.pageId === mobilePage.id && section.role === 'content',
+    )!
+    const observation = evidence.responsiveObservations.find(
+      (candidate) => candidate.sectionId === desktopHeroEvidence.id,
+    )!
+
+    expect(observation).toBeDefined()
+    expect(observation.evidenceRefs).toContain(mobileHeroEvidence.id)
+    expect(observation.evidenceRefs).not.toContain(insertedMobileSection.id)
+    expect(observation.changes.sequenceIndex).toEqual({ from: 1, to: 2 })
   })
 
   it('labels breakpoint discovery as partial when stylesheet rules were unreadable', () => {
@@ -1565,6 +2099,58 @@ describe('Design Evidence', () => {
     delete legacyEvidence.coverage.assetCoverage
     expect(generateDesignEvidenceBrief(legacyEvidence)).toContain(
       'Screenshot assets: 0/1 dimension-valid (partial; 1 issues)',
+    )
+  })
+
+  it('derives partial overview coverage from the images actually retained on each page', () => {
+    const complete = createSnapshot('desktop', 1440)
+    const clipped = createSnapshot('mobile', 10_374)
+    clipped.url = 'https://example.com/clipped'
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-observed-asset-coverage',
+      requestedUrl: complete.url,
+      finalUrl: complete.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      expectedViewports: ['desktop', 'mobile'],
+      expectedCaptureCount: 2,
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          screenshot: {
+            url: complete.url,
+            path: 'complete.png',
+            viewport: 'desktop',
+            width: 1440,
+            height: 1600,
+            valid: true,
+          },
+          snapshot: complete,
+        },
+        {
+          screenshot: {
+            url: clipped.url,
+            path: 'clipped.png',
+            viewport: 'mobile',
+            width: 375,
+            height: 1600,
+            valid: true,
+          },
+          snapshot: clipped,
+        },
+      ],
+    })
+
+    expect(evidence.coverage.captureCoverage).toMatchObject({ expected: 2, captured: 2, status: 'complete' })
+    expect(evidence.coverage.assetCoverage).toEqual({ expected: 2, valid: 1, status: 'partial', issueCount: 1 })
+    expect(evidence.limitations).toContain('partial-screenshot-asset-coverage')
+    expect(evidence.pages.find((page) => page.url.endsWith('/clipped'))?.images[0]?.kind).toBe('region-crop')
+    expect(generateDesignEvidenceBrief(evidence)).toContain(
+      'Screenshot assets: 1/2 dimension-valid (partial; 1 issues)',
     )
   })
 
@@ -1903,6 +2489,72 @@ describe('Design Evidence', () => {
     expect(heightChange).toMatchObject({ changeType: 'scale', changedProperties: ['height'] })
   })
 
+  it('reports a semantically paired media dimension change when its extracted owner changes', () => {
+    const desktop = createSnapshot('desktop', 1_440)
+    const mobile = createSnapshot('mobile', 375)
+    mobile.sections = structuredClone(desktop.sections)
+    mobile.sections.push({
+      key: 'mobile-media-wrapper',
+      identityKey: 'section:hero:mobile-media-wrapper',
+      order: 2,
+      role: 'hero',
+      rect: { x: 0.05, y: 0.16, width: 0.9, height: 0.12 },
+      layoutMode: 'flow',
+      styles: { display: 'block' },
+    })
+    desktop.layoutNodes = [
+      {
+        key: 'media:desktop-cover',
+        identityKey: 'node:media:none:cover',
+        sectionKey: 'hero:1',
+        role: 'media',
+        rect: { x: 0.2, y: 0.18, width: 0.5, height: 0.08 },
+        styles: { width: '640px', height: '180px' },
+        traits: [],
+      },
+    ]
+    mobile.layoutNodes = [
+      {
+        key: 'media:mobile-cover',
+        identityKey: 'node:media:none:cover',
+        sectionKey: 'mobile-media-wrapper',
+        role: 'media',
+        rect: { x: 0.05, y: 0.18, width: 0.9, height: 0.08 },
+        styles: { width: '343px', height: '120px' },
+        traits: [],
+      },
+    ]
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-media-scale',
+      requestedUrl: 'https://example.com',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const mediaChange = evidence.responsiveObservations.find((observation) =>
+      observation.changedProperties.includes('node.media.height'),
+    )
+
+    expect(mediaChange).toMatchObject({
+      changeType: 'scale',
+      changedProperties: ['node.media.width', 'node.media.height'],
+    })
+    expect(mediaChange?.changes).toMatchObject({
+      'node.media.width': { from: '640px', to: '343px' },
+      'node.media.height': { from: '180px', to: '120px' },
+    })
+  })
+
   it('humanizes detailed extraction issues without exposing raw page-health IDs', () => {
     const evidence = buildFixtureEvidence()
     evidence.limitations.push(
@@ -1914,6 +2566,24 @@ describe('Design Evidence', () => {
 
     expect(brief).toContain('提取阶段 page-1:desktop:styles：Timeout after 15000ms')
     expect(brief).not.toContain('page-health:horizontal-overflow')
+  })
+
+  it('discloses a non-blocking partial overlay without invalidating the remaining evidence', () => {
+    const evidence = buildFixtureEvidence()
+    evidence.limitations.push(
+      `page-health:partial-overlay@${evidence.pages[0].id}`,
+      `page-health:partial-overlay@${evidence.pages[1].id}`,
+    )
+
+    const english = generateDesignEvidenceBrief(evidence, 'en')
+    const chinese = generateDesignEvidenceBrief(evidence, 'zh-CN')
+
+    expect(english).toContain('non-blocking edge overlay')
+    expect(chinese).toContain('非阻断式边缘遮挡')
+    expect(english.match(/non-blocking edge overlay/g)).toHaveLength(1)
+    expect(chinese.match(/非阻断式边缘遮挡/g)).toHaveLength(1)
+    expect(english).not.toContain('page-health:partial-overlay')
+    expect(chinese).not.toContain('page-health:partial-overlay')
   })
 
   it('explains adaptive mobile capture limits and overflow without exposing internal codes', () => {
@@ -2166,11 +2836,13 @@ describe('Design Evidence', () => {
       ],
     })
     expect(designFrontMatter.components).toBeUndefined()
-    expect(designDoc).toContain('| button-primary | 1 | 0.98 |')
-    expect(designDoc).toContain('| tab | 1 | 0.98 |')
+    expect(designDoc).toContain('- button: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
+    expect(designDoc).toContain('- tab: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
     expect(designDoc).not.toContain('No component pattern was observed with enough confidence')
     expect(designDoc).toContain('### Typography Role Evidence')
-    expect(designDoc).toContain('| `display` | 2 | `Inter`')
+    expect(designDoc).toContain('one evidence-eligible canonical capture per route without severe horizontal overflow')
+    expect(designDoc).toContain('| Observed role | Independent owners | Font | Size | Weight | Line height |')
+    expect(designDoc).toContain('| `display` | 1 | `Inter`')
     expect(designDoc).toContain('`2rem`')
     expect(designDoc).toContain('`1.5`')
     expect(observedLineHeightBrief).toContain('`1.5`')
@@ -2183,11 +2855,265 @@ describe('Design Evidence', () => {
     expect(chineseDoc).not.toContain('AI')
     expect(chineseDoc).not.toContain('基于证据的确定性主张')
     expect(chineseDoc).not.toContain('跨页面 canonical')
+    expect(chineseDoc).toContain('每个路由只使用一次证据有效且无严重溢出的代表性捕获')
     expect(chineseDoc).not.toContain('一次 canonical 捕获')
     expect(chineseDoc).toContain('实例数按每个页面的一次代表性捕获统计；优先使用桌面端')
     expect(chineseDoc).toContain('观察到区块级复合圆角处理')
     expect(chineseDoc).not.toContain('section-level compound-radius treatments observed')
     expect(designFrontMatter['x-imprint'][0]).toMatchObject({ analysis: { mode: 'deterministic' } })
+  })
+
+  it('counts typography owners once per route and groups matching topology signatures by viewport', () => {
+    const captures = ['https://example.com/', 'https://example.com/about'].flatMap((url) =>
+      (['desktop', 'mobile'] as const).map((viewport) => {
+        const snapshot = createSnapshot(viewport, viewport === 'desktop' ? 1440 : 375)
+        snapshot.url = url
+        return {
+          screenshot: { url, path: `${url.endsWith('about') ? 'about' : 'home'}-${viewport}.png`, viewport },
+          snapshot,
+        }
+      }),
+    )
+    const evidence = buildDesignEvidence({
+      analysisId: 'canonical-owner-counts',
+      requestedUrl: 'https://example.com/',
+      finalUrl: 'https://example.com/',
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures,
+    })
+
+    const brief = generateDesignEvidenceBrief(evidence)
+    const topology = brief.match(/### Page Topology\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+
+    expect(brief).toContain('| `display` | 2 | `Inter`')
+    expect(brief).not.toContain('| `display` | 4 |')
+    expect(topology).toContain('`desktop` · 2 routes')
+    expect(topology).toContain('`mobile` · 2 routes')
+    expect(topology.match(/^- /gm)).toHaveLength(2)
+  })
+
+  it('groups identical horizontal-overflow geometry across routes but keeps distinct geometry separate', () => {
+    const captures = [
+      ['https://example.com/first', 2000],
+      ['https://example.com/second', 2000],
+      ['https://example.com/third', 2100],
+    ].map(([url, width]) => {
+      const snapshot = createSnapshot('desktop', Number(width))
+      snapshot.url = String(url)
+      return {
+        screenshot: { url: String(url), path: `${String(url).split('/').pop()}.png`, viewport: 'desktop' as const },
+        snapshot,
+      }
+    })
+    const evidence = buildDesignEvidence({
+      analysisId: 'grouped-overflow-geometry',
+      requestedUrl: 'https://example.com/first',
+      finalUrl: 'https://example.com/first',
+      accessMode: 'anonymous',
+      expectedPageCount: 3,
+      expectedViewports: ['desktop'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures,
+    })
+    const topology = generateDesignEvidenceBrief(evidence).match(/### Page Topology\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+
+    expect(topology.match(/horizontal overflow observed/g)).toHaveLength(2)
+    expect(topology.match(/content 2000px > viewport 1440px/g)).toHaveLength(1)
+    expect(topology).toContain('`desktop` · 2 routes')
+    expect(topology).toContain('content 2100px > viewport 1440px')
+  })
+
+  it('keeps page-owned overflow evidence when section topology has no entry for that page', () => {
+    const captures = ['https://example.com/first', 'https://example.com/second'].map((url) => {
+      const snapshot = createSnapshot('desktop', 2000)
+      snapshot.url = url
+      return {
+        screenshot: { url, path: `${url.split('/').pop()}.png`, viewport: 'desktop' as const },
+        snapshot,
+      }
+    })
+    const evidence = buildDesignEvidence({
+      analysisId: 'overflow-without-topology-index',
+      requestedUrl: captures[0].snapshot.url,
+      finalUrl: captures[0].snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 2,
+      expectedViewports: ['desktop'],
+      tokens,
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures,
+    })
+    evidence.topology.pages = evidence.topology.pages.filter((entry) => entry.pageId !== evidence.pages[1].id)
+
+    const topology = generateDesignEvidenceBrief(evidence).match(/### Page Topology\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+
+    expect(topology.match(/horizontal overflow observed/g)).toHaveLength(1)
+    expect(topology).toContain('`desktop` · 2 routes')
+    expect(topology).toContain('content 2000px > viewport 1440px')
+  })
+
+  it('selects the same healthy canonical capture regardless of responsive capture order', () => {
+    const buildResponsiveEvidence = (order: Array<'desktop' | 'tablet' | 'mobile'>) => {
+      const values = {
+        desktop: { width: 1440, fontSize: '41px', grid: '3fr 1fr' },
+        tablet: { width: 768, fontSize: '29px', grid: '2fr 1fr' },
+        mobile: { width: 375, fontSize: '21px', grid: '1fr' },
+      } as const
+      const captures = order.map((viewport) => {
+        const snapshot = createSnapshot(viewport, values[viewport].width)
+        snapshot.layoutNodes[0].styles.fontSize = values[viewport].fontSize
+        snapshot.sections[1].styles.gridTemplateColumns = values[viewport].grid
+        return {
+          screenshot: { url: snapshot.url, path: `${viewport}.png`, viewport },
+          snapshot,
+        }
+      })
+      const evidence = buildDesignEvidence({
+        analysisId: `canonical-fallback-${order.join('-')}`,
+        requestedUrl: 'https://example.com/',
+        finalUrl: 'https://example.com/',
+        accessMode: 'anonymous',
+        expectedPageCount: 1,
+        expectedViewports: ['desktop', 'tablet', 'mobile'],
+        tokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures,
+      })
+      const desktop = evidence.pages.find((page) => page.viewport === 'desktop')!
+      desktop.health = {
+        status: 'unusable',
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        recovered: false,
+        attempts: 1,
+        viewport: { width: 1440, height: 900 },
+        content: { width: 1440, height: 1600 },
+        overlayAreaRatio: 0,
+        mutationCount: 0,
+        evidenceEligible: false,
+        issues: [],
+      }
+      return evidence
+    }
+    const section = (document: string, heading: string) =>
+      document.match(new RegExp(`### ${heading}\\n([\\s\\S]*?)(?=\\n### |$)`))?.[1] || ''
+
+    const first = generateDesignEvidenceBrief(buildResponsiveEvidence(['mobile', 'desktop', 'tablet']))
+    const secondEvidence = buildResponsiveEvidence(['tablet', 'mobile', 'desktop'])
+    const second = generateDesignEvidenceBrief(secondEvidence)
+
+    expect(section(first, 'Typography Role Evidence')).toBe(section(second, 'Typography Role Evidence'))
+    expect(section(first, 'Structural Facts')).toBe(section(second, 'Structural Facts'))
+    expect(section(first, 'Typography Role Evidence')).toContain('`29px`')
+    expect(section(first, 'Typography Role Evidence')).not.toContain('`41px`')
+    expect(section(first, 'Typography Role Evidence')).not.toContain('`21px`')
+    expect(section(first, 'Structural Facts')).toContain('`grid: 2fr 1fr`')
+
+    const tablet = secondEvidence.pages.find((page) => page.viewport === 'tablet')!
+    tablet.horizontalOverflow = true
+    tablet.viewportWidth = 768
+    tablet.contentWidth = 2000
+    const overflowFallback = generateDesignEvidenceBrief(secondEvidence)
+    expect(section(overflowFallback, 'Typography Role Evidence')).toContain('`21px`')
+    expect(section(overflowFallback, 'Structural Facts')).toContain('`grid: 1fr`')
+  })
+
+  it('uses the entry route canonical capture for reconstruction hierarchy and omits unhealthy fallbacks', () => {
+    const buildResponsiveHierarchy = (order: Array<'desktop' | 'tablet' | 'mobile'>) => {
+      const roles = { desktop: 'action', tablet: 'media', mobile: 'footer' } as const
+      const widths = { desktop: 1440, tablet: 768, mobile: 375 } as const
+      const evidence = buildDesignEvidence({
+        analysisId: `summary-canonical-${order.join('-')}`,
+        requestedUrl: 'https://example.com/',
+        finalUrl: 'https://example.com/',
+        accessMode: 'anonymous',
+        expectedPageCount: 1,
+        expectedViewports: ['desktop', 'tablet', 'mobile'],
+        tokens,
+        featureTags: [],
+        interactionStyles: { hover: [], focus: [], active: [] },
+        breakpoints: [],
+        motion: [],
+        captures: order.map((viewport) => {
+          const snapshot = createSnapshot(viewport, widths[viewport])
+          snapshot.sections[1].role = roles[viewport]
+          return { screenshot: { url: snapshot.url, path: `${viewport}.png`, viewport }, snapshot }
+        }),
+      })
+      const desktop = evidence.pages.find((page) => page.viewport === 'desktop')!
+      desktop.health = {
+        status: 'unusable',
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        recovered: false,
+        attempts: 1,
+        viewport: { width: 1440, height: 900 },
+        content: { width: 1440, height: 1600 },
+        overlayAreaRatio: 0,
+        mutationCount: 0,
+        evidenceEligible: false,
+        issues: [],
+      }
+      return evidence
+    }
+    const hierarchy = (evidence: ReturnType<typeof buildResponsiveHierarchy>) =>
+      generateDesignDoc(tokens, evidence.source.finalUrl, [], undefined, [], [], 'en', evidence).match(
+        /^- \*\*Section hierarchy:\*\* (.+)$/m,
+      )?.[1]
+
+    const first = buildResponsiveHierarchy(['mobile', 'desktop', 'tablet'])
+    const second = buildResponsiveHierarchy(['tablet', 'mobile', 'desktop'])
+    expect(hierarchy(first)).toBe('navigation → media')
+    expect(hierarchy(second)).toBe('navigation → media')
+
+    const tablet = second.pages.find((page) => page.viewport === 'tablet')!
+    tablet.horizontalOverflow = true
+    tablet.viewportWidth = 768
+    tablet.contentWidth = 2000
+    expect(hierarchy(second)).toBe('navigation → footer')
+
+    const mobile = second.pages.find((page) => page.viewport === 'mobile')!
+    mobile.health = {
+      ...second.pages.find((page) => page.viewport === 'desktop')!.health!,
+      viewport: { width: 375, height: 812 },
+    }
+    expect(hierarchy(second)).toBeUndefined()
+  })
+
+  it('keeps general structural facts canonical and explicitly scoped', () => {
+    const evidence = buildFixtureEvidence()
+    for (const page of evidence.pages) {
+      const hero = evidence.sections.find((section) => section.pageId === page.id && section.role === 'hero')!
+      hero.observedStyles = {
+        ...hero.observedStyles,
+        layout: {
+          ...hero.observedStyles?.layout,
+          gridTemplateColumns: page.viewport === 'desktop' ? '2fr 1fr' : '1fr',
+        },
+      }
+    }
+
+    const brief = generateDesignEvidenceBrief(evidence)
+    const structural = brief.match(/### Structural Facts\n([\s\S]*?)(?=\n### |$)/)?.[1] || ''
+
+    expect(structural).toContain('1 independent owner · scope: `desktop` https://example.com/')
+    expect(structural).toContain('`grid: 2fr 1fr`')
+    expect(structural).not.toContain('`grid: 1fr`')
   })
 
   it('uses a sanitized public projection for shared DESIGN.md and Evidence JSON exports', () => {

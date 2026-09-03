@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../src/core/design-context/profile-export.js'
 import { isCurrentDesignProfile } from '../../src/core/design-context/types.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
+import { buildComponentSpecs } from '../../src/core/export/component-specs.js'
 import { generateDesignDoc, validateDesignDocSemantics } from '../../src/core/export/index.js'
 
 const tokens: DesignToken = {
@@ -170,7 +172,7 @@ describe('deterministic design context', () => {
     )
   })
 
-  it('keeps one-page foundations local while promoting an observed primary button to a conditional recipe', () => {
+  it('keeps one-page foundations and a singleton button local', () => {
     const evidence = createEvidence()
     evidence.layoutNodes = [
       {
@@ -200,7 +202,15 @@ describe('deterministic design context', () => {
     ])
     expect(grammar.componentRecipes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ component: 'button', variant: 'primary', priority: 'P1', useWhen: 'primary-action' }),
+        expect.objectContaining({
+          component: 'button',
+          variant: 'action',
+          priority: 'P2',
+          useWhen: 'action',
+          confidence: 'low',
+          matchingStyleInstances: 1,
+          responsive: [],
+        }),
       ]),
     )
     expect(grammar.localRules.length).toBeGreaterThan(0)
@@ -244,8 +254,9 @@ describe('deterministic design context', () => {
     const recipe = profile.transferGrammar!.componentRecipes.find((candidate) => candidate.component === 'button')
     const markdown = generateTransferComponentsMarkdown(profile, tokens, new Map(), evidence)
 
-    expect(recipe).toMatchObject({ variant: 'secondary', useWhen: 'primary-action', priority: 'P1' })
-    expect(markdown).toContain('#### button · primary action · low emphasis')
+    expect(recipe).toMatchObject({ variant: 'action', useWhen: 'primary-action', priority: 'P1' })
+    expect(markdown).toContain('#### button · action')
+    expect(markdown).toContain('the target needs its principal action')
     expect(markdown).not.toContain('#### button · secondary')
   })
 
@@ -269,13 +280,18 @@ describe('deterministic design context', () => {
     ).toBe('Primary action · low emphasis · Rounded · Tinted')
   })
 
-  it('resolves evidence claims against the evidence-owned token catalog', () => {
+  it('renders recipe token names without duplicating values already defined in token sections', () => {
     const evidence = createEvidence()
     evidence.tokens = {
       ...structuredClone(tokens),
       borders: ['1px solid #2563eb', '1px solid #d1d5db'],
     }
+    evidence.components[0].styles.border = '1px solid #2563eb'
     evidence.components[0].tokenRefs = [...evidence.components[0].tokenRefs, 'border.1']
+    evidence.components.push({
+      ...structuredClone(evidence.components[0]),
+      id: 'component-primary-repeat',
+    })
     const allCaptureTokens = {
       ...structuredClone(tokens),
       borders: ['1px solid #d1d5db', '1px solid #2563eb'],
@@ -284,8 +300,9 @@ describe('deterministic design context', () => {
     const profile = createDeterministicDesignContext(evidence, 'en').profile
     const markdown = generateTransferComponentsMarkdown(profile, allCaptureTokens, new Map(), evidence)
 
-    expect(markdown).toContain('`border.1` (1px solid #2563eb)')
-    expect(markdown).not.toContain('`border.1` (1px solid #d1d5db)')
+    expect(markdown).toContain('`border.1`')
+    expect(markdown).not.toContain('`border.1` (')
+    expect(markdown).not.toContain('1px solid #d1d5db')
   })
 
   it('fails before profile generation or export when token references are dangling', () => {
@@ -395,7 +412,7 @@ describe('deterministic design context', () => {
     )
   })
 
-  it('keeps component promotion conditional on explicit semantics or repeated visual evidence', () => {
+  it('requires repeated exact-style evidence even when a component has explicit semantics', () => {
     const evidence = createEvidence()
     const base = evidence.components[0]
     const add = (id: string, type: string, role?: string) => {
@@ -404,6 +421,21 @@ describe('deterministic design context', () => {
         id,
         type,
         role,
+        ...(type === 'status'
+          ? {
+              statusBoundary: {
+                strongVisualBoundary: true,
+                paintedFill: true,
+                paintedBorder: false,
+                paintedShadow: false,
+                directlyOwnedText: true,
+                widthPx: 320,
+                heightPx: 48,
+                viewportWidth: 1440,
+                viewportHeight: 900,
+              },
+            }
+          : {}),
         tokenRefs: ['color.foreground', 'spacing.1'],
       })
     }
@@ -420,8 +452,8 @@ describe('deterministic design context', () => {
 
     expect(recipes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ component: 'tab', priority: 'P1', useWhen: 'tab-navigation' }),
-        expect.objectContaining({ component: 'modal', priority: 'P1', useWhen: 'overlay-dialog' }),
+        expect.objectContaining({ component: 'tab', priority: 'P2', useWhen: 'tab-navigation' }),
+        expect.objectContaining({ component: 'modal', priority: 'P2', useWhen: 'overlay-dialog' }),
         expect.objectContaining({ component: 'list', priority: 'P1', useWhen: 'content-collection' }),
         expect.objectContaining({ component: 'table', priority: 'P1', useWhen: 'structured-data' }),
         expect.objectContaining({ component: 'status', priority: 'P1', useWhen: 'status-feedback' }),
@@ -484,6 +516,305 @@ describe('deterministic design context', () => {
     expect(textRecipes).not.toEqual(expect.arrayContaining([expect.objectContaining({ variant: 'text' })]))
   })
 
+  it('requires every P1 recipe to satisfy the shared reuse gate and exact-style support', () => {
+    const evidence = createEvidence()
+    const repeated = structuredClone(evidence.components[0])
+    evidence.components = Array.from({ length: 3 }, (_value, index) => ({
+      ...structuredClone(repeated),
+      id: `button-repeated-${index}`,
+      role: index === 2 ? 'action' : 'primary-action',
+      tokenRefs: ['color.primary', 'radius.1'],
+    }))
+
+    const recipes = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.componentRecipes
+    const promoted = recipes.filter((recipe) => recipe.priority === 'P1')
+
+    expect(promoted.length).toBeGreaterThan(0)
+    for (const recipe of promoted) {
+      expect(recipe.reuseConfidence).toBeGreaterThanOrEqual(0.55)
+      expect(recipe.matchingStyleInstances).toBeGreaterThanOrEqual(2)
+      expect(recipe.sourceInstances).toBeLessThanOrEqual(recipe.matchingStyleInstances || 0)
+      expect(recipe.responsive).toEqual([])
+    }
+    expect(promoted.find((recipe) => recipe.component === 'button')?.useWhen).toBe('action')
+  })
+
+  it('uses one semantic component partition for profile recipes and component specs', () => {
+    const evidence = createEvidence()
+    const groups = [
+      ['input', 'textbox', 'input-text'],
+      ['input', 'searchbox', 'input-search'],
+      ['input', 'combobox', 'input-combobox'],
+      ['modal', 'dialog', 'modal-default'],
+      ['modal', 'alertdialog', 'modal-alert'],
+    ] as const
+    evidence.components = groups.flatMap(([type, role, name], groupIndex) =>
+      Array.from({ length: 2 }, (_value, index) => ({
+        id: `${name}-${index + 1}`,
+        pageId: 'page-desktop',
+        sectionId: 'section-desktop',
+        type,
+        role,
+        elementKind: type === 'input' ? ('input' as const) : undefined,
+        rect: { x: 0.1, y: 0.1 + groupIndex * 0.08, width: 0.3, height: 0.05 },
+        styles:
+          type === 'input'
+            ? {
+                backgroundColor: '#ffffff',
+                color: '#111827',
+                border: '1px solid #d1d5db',
+                borderRadius: '12px',
+                padding: '8px 12px',
+              }
+            : {
+                backgroundColor: '#ffffff',
+                color: '#111827',
+                borderRadius: '12px',
+                padding: '24px',
+              },
+        tokenRefs: ['color.background', 'color.foreground', 'radius.1', 'spacing.1'],
+        stateRefs: [],
+        confidence: 0.96,
+        evidenceRefs: ['section-desktop', 'image-desktop'],
+      })),
+    )
+    evidence.sections[0].componentRefs = evidence.components.map((component) => component.id)
+
+    const recipes = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.componentRecipes.filter(
+      (recipe) => recipe.priority === 'P1' && ['input', 'modal'].includes(recipe.component),
+    )
+    const specs = buildComponentSpecs(evidence).filter((spec) => ['input', 'modal'].includes(spec.component))
+    const recipeKeys = recipes.map((recipe) => `${recipe.component}-${recipe.variant}`).sort()
+    const specKeys = specs.map((spec) => `${spec.component}-${spec.variant}`).sort()
+
+    expect(recipeKeys).toEqual(['input-combobox', 'input-search', 'input-text', 'modal-alert', 'modal-default'])
+    expect(specKeys).toEqual(recipeKeys)
+    for (const recipe of recipes) {
+      const spec = specs.find(
+        (candidate) => candidate.component === recipe.component && candidate.variant === recipe.variant,
+      )!
+      expect(spec).toMatchObject({
+        sourceInstances: recipe.matchingStyleInstances,
+        pageCount: recipe.pageCount,
+        identityConfidence: recipe.identityConfidence,
+        reuseConfidence: recipe.reuseConfidence,
+        reuseScope: recipe.reuseScope,
+      })
+      expect(
+        Object.fromEntries(Object.entries(spec.styles).map(([property, values]) => [property, values[0]])),
+      ).toEqual(recipe.observedStyles)
+    }
+  })
+
+  it('shares a deterministic route-balanced evidence sample when a component has more than 24 matches', () => {
+    const evidence = createEvidence()
+    evidence.pages = Array.from({ length: 5 }, (_value, routeIndex) => ({
+      id: `page-route-${routeIndex}`,
+      url: `https://example.com/route-${routeIndex}`,
+      viewport: 'desktop',
+      role: 'content',
+      images: [
+        {
+          id: `image-route-${routeIndex}`,
+          kind: 'overview' as const,
+          path: `route-${routeIndex}.png`,
+          width: 1440,
+          height: 1600,
+        },
+      ],
+    }))
+    evidence.sections = evidence.pages.map((page, routeIndex) => ({
+      id: `section-route-${routeIndex}`,
+      pageId: page.id,
+      order: 0,
+      role: 'content',
+      rect: { x: 0, y: 0, width: 1, height: 1 },
+      layoutMode: 'flow' as const,
+      tokenRefs: [],
+      componentRefs: Array.from({ length: 6 }, (_value, itemIndex) => `component-${routeIndex}-${itemIndex}`),
+      interactionRefs: [],
+      mediaLayerRefs: [],
+      evidenceRefs: [page.images[0].id],
+    }))
+    evidence.components = evidence.pages.flatMap((page, routeIndex) =>
+      Array.from({ length: 6 }, (_value, itemIndex) => ({
+        id: `component-${routeIndex}-${itemIndex}`,
+        pageId: page.id,
+        sectionId: `section-route-${routeIndex}`,
+        type: 'button' as const,
+        role: 'action',
+        rect: { x: 0.1, y: 0.1 + itemIndex * 0.05, width: 0.2, height: 0.04 },
+        styles: { backgroundColor: '#2563eb', borderRadius: '12px', padding: '8px' },
+        tokenRefs: ['color.primary', 'radius.1', 'spacing.1'],
+        stateRefs: [],
+        confidence: 0.96,
+        evidenceRefs: [`section-route-${routeIndex}`, page.images[0].id],
+      })),
+    )
+    evidence.topology.pages = evidence.pages.map((page, routeIndex) => ({
+      pageId: page.id,
+      role: 'content',
+      sectionIds: [`section-route-${routeIndex}`],
+    }))
+
+    const projection = (source: DesignEvidence) => {
+      const profile = createDeterministicDesignContext(source, 'en').profile
+      const recipe = profile.transferGrammar!.componentRecipes.find((candidate) => candidate.priority === 'P1')!
+      const spec = buildComponentSpecs(source)[0]
+      return {
+        recipe,
+        spec,
+        recipeRefs: recipe.observed.evidence.map((item) => item.evidenceId),
+        specRefs: spec.evidenceRefs,
+      }
+    }
+    const first = projection(evidence)
+    const reordered = structuredClone(evidence)
+    reordered.components.reverse()
+    const second = projection(reordered)
+
+    expect(first.recipe).toMatchObject({ sourceInstances: 30, pageCount: 5 })
+    expect(first.spec).toMatchObject({ sourceInstances: 30, pageCount: 5 })
+    expect(first.recipeRefs).toEqual(first.specRefs)
+    expect(first.recipeRefs).toHaveLength(24)
+    expect(new Set(first.specRefs.map((id) => id.split('-').slice(1, 2).join()))).toEqual(
+      new Set(['0', '1', '2', '3', '4']),
+    )
+    expect(second.recipeRefs).toEqual(first.recipeRefs)
+    expect(second.specRefs).toEqual(first.specRefs)
+  })
+
+  it('keeps the complete P1/P2 catalog while bounding and balancing DESIGN.md component details', () => {
+    const evidence = createEvidence()
+    const patternCounts = { button: 8, navigation: 4, list: 4, input: 3, card: 3 } as const
+    evidence.components = Object.entries(patternCounts).flatMap(([type, count], typeIndex) =>
+      Array.from({ length: count }, (_value, patternIndex) =>
+        Array.from({ length: 2 }, (_match, matchIndex) => ({
+          id: `${type}-${patternIndex}-${matchIndex}`,
+          pageId: 'page-desktop',
+          sectionId: 'section-desktop',
+          type: type as 'button' | 'navigation' | 'list' | 'input' | 'card',
+          role: type === 'navigation' ? 'navigation' : type === 'input' ? 'textbox' : 'action',
+          rect: {
+            x: 0.05 + typeIndex * 0.02,
+            y: 0.05 + patternIndex * 0.025,
+            width: 0.2,
+            height: 0.03,
+          },
+          styles: {
+            backgroundColor: patternIndex % 2 === 0 ? '#2563eb' : '#ffffff',
+            color: '#8491a5',
+            borderRadius: `${patternIndex + typeIndex + 1}px`,
+            padding: `${patternIndex + typeIndex + 4}px`,
+          },
+          ...(type === 'button' || type === 'input' ? { textStyleOwner: 'root' as const } : {}),
+          tokenRefs: ['color.primary', 'color.foreground', 'radius.1', 'spacing.1'],
+          stateRefs: [],
+          confidence: 0.96,
+          evidenceRefs: ['section-desktop', 'image-desktop'],
+        })),
+      ).flat(),
+    )
+    evidence.components.push({
+      ...structuredClone(evidence.components[0]),
+      id: 'table-singleton',
+      type: 'table',
+      role: 'table',
+      styles: { backgroundColor: '#ffffff' },
+      tokenRefs: ['color.background'],
+    })
+    evidence.sections[0].componentRefs = evidence.components.map((component) => component.id)
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const recipes = profile.transferGrammar!.componentRecipes
+    const p1Recipes = recipes.filter((recipe) => recipe.priority === 'P1')
+    const p2Recipes = recipes.filter((recipe) => recipe.priority === 'P2')
+    const specs = buildComponentSpecs(evidence)
+    const markdown = generateTransferComponentsMarkdown(profile, tokens, new Map(), evidence)
+    const boundaries = generateTransferBoundariesMarkdown(profile, tokens, new Map(), evidence)
+    const designDoc = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      evidence,
+      profile,
+    )
+    const frontMatter = parse(designDoc.match(/^---\n([\s\S]*?)\n---/)?.[1] || '') as {
+      components?: Record<string, unknown>
+      'x-imprint': Array<{ componentSummary: Record<string, number>; candidates?: unknown }>
+    }
+    const renderedHeadings = [...markdown.matchAll(/^#### /gm)].length
+
+    expect(p1Recipes).toHaveLength(22)
+    expect(specs.map((spec) => `${spec.component}\u0000${spec.variant}`).sort()).toEqual(
+      p1Recipes.map((recipe) => `${recipe.component}\u0000${recipe.variant}`).sort(),
+    )
+    expect(p2Recipes.some((recipe) => recipe.component === 'table')).toBe(true)
+    expect(renderedHeadings).toBe(14)
+    for (const component of Object.keys(patternCounts)) expect(markdown).toContain(`#### ${component} ·`)
+    expect(markdown).toContain('8 additional reusable contract(s)')
+    expect(boundaries).toContain('**table:** 1 local pattern(s)')
+    expect(boundaries).not.toContain('None recorded.')
+    expect(frontMatter['x-imprint'][0].componentSummary).toMatchObject({
+      patterns: 23,
+      reusablePatterns: 22,
+      actionablePatterns: 22,
+      renderedP1Patterns: 14,
+      omittedP1Patterns: 8,
+    })
+    expect(frontMatter['x-imprint'][0].componentSummary).not.toHaveProperty('details')
+    expect(Object.keys(frontMatter.components || {})).toHaveLength(14)
+    const renderedComponentNames = new Set(Object.keys(frontMatter.components || {}))
+    const contrastNames = [...designDoc.matchAll(/^- `([^`]+)`[:：] foreground/gm)].map((match) => match[1])
+    expect(contrastNames.length).toBeGreaterThan(0)
+    expect(contrastNames.every((name) => renderedComponentNames.has(name))).toBe(true)
+  })
+
+  it('preserves every exact-style distinction in both reusable component projections', () => {
+    const evidence = createEvidence()
+    const base = evidence.components[0]
+    evidence.components = ['grid', 'inline-flex'].flatMap((display) =>
+      Array.from({ length: 2 }, (_value, index) => ({
+        ...structuredClone(base),
+        id: `button-${display}-${index + 1}`,
+        role: 'action',
+        styles: {
+          ...structuredClone(base.styles),
+          display,
+          alignItems: display === 'grid' ? 'stretch' : 'center',
+        },
+        tokenRefs: ['color.primary', 'radius.1', 'spacing.1'],
+      })),
+    )
+    evidence.sections[0].componentRefs = evidence.components.map((component) => component.id)
+
+    const recipes = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.componentRecipes.filter(
+      (recipe) => recipe.component === 'button' && recipe.priority === 'P1',
+    )
+    const specs = buildComponentSpecs(evidence).filter((spec) => spec.component === 'button')
+
+    expect(recipes).toHaveLength(2)
+    expect(specs).toHaveLength(2)
+    expect(new Set(recipes.map((recipe) => recipe.variant)).size).toBe(2)
+    expect(recipes.map((recipe) => recipe.observedStyles.display).sort()).toEqual(['grid', 'inline-flex'])
+    expect(recipes.map((recipe) => recipe.observedStyles.alignItems).sort()).toEqual(['center', 'stretch'])
+    expect(specs.map((spec) => spec.styles.display?.[0]).sort()).toEqual(['grid', 'inline-flex'])
+    expect(specs.map((spec) => spec.styles.alignItems?.[0]).sort()).toEqual(['center', 'stretch'])
+    for (const recipe of recipes) {
+      const spec = specs.find(
+        (candidate) => candidate.component === recipe.component && candidate.variant === recipe.variant,
+      )
+      expect(spec).toBeDefined()
+      expect(
+        Object.fromEntries(Object.entries(spec!.styles).map(([property, values]) => [property, values[0]])),
+      ).toEqual(recipe.observedStyles)
+    }
+  })
+
   it('keeps a repeated component group in P2 when its shared tokens do not describe structure', () => {
     const evidence = createEvidence()
     const base = evidence.components[0]
@@ -492,6 +823,7 @@ describe('deterministic design context', () => {
       id: `navigation-${index}`,
       type: 'navigation',
       role: 'navigation',
+      styles: { backgroundColor: '#2563eb' },
       tokenRefs: ['color.foreground', 'typography.font-stack.1'],
     }))
 
@@ -504,18 +836,16 @@ describe('deterministic design context', () => {
     )
   })
 
-  it('deduplicates equivalent responsive evidence and localizes arbitrary node properties', () => {
+  it('keeps useful responsive evidence at section scope instead of attaching it to a component', () => {
     const evidence = createEvidence()
     evidence.responsiveObservations = [
       {
         ...evidence.responsiveObservations[0],
-        changedProperties: ['rect.width', 'node.action.fontSize'],
-        changes: { visibility: { from: 'absent', to: 'visible' } },
-      },
-      {
-        ...structuredClone(evidence.responsiveObservations[0]),
-        id: 'responsive-hero-duplicate',
-        changedProperties: ['node.action.fontSize', 'rect.width'],
+        changedProperties: ['layoutMode', 'node.heading.fontSize'],
+        changes: {
+          layoutMode: { from: 'grid', to: 'flow' },
+          'node.heading.fontSize': { from: '48px', to: '32px' },
+        },
       },
     ]
 
@@ -524,68 +854,50 @@ describe('deterministic design context', () => {
     const markdown = generateTransferComponentsMarkdown(profile, tokens, new Map(), evidence)
     const boundaries = generateTransferBoundariesMarkdown(profile, tokens, new Map(), evidence)
 
-    expect(recipe?.responsive).toHaveLength(1)
-    expect(recipe?.responsive[0].evidence).toHaveLength(2)
-    expect(markdown).toContain('操作字号、宽度')
-    expect(markdown).not.toContain('node.')
-    expect(boundaries).toContain('直接观察显示方式 / 可见性变化')
+    expect(recipe?.responsive).toEqual([])
+    expect(markdown).not.toContain('标题字号')
+    expect(boundaries).toContain('布局模式')
+    expect(boundaries).toContain('标题字号')
+    expect(boundaries).not.toContain('node.')
     expect(boundaries).not.toContain('变化变化')
   })
 
-  it('localizes internal responsive style properties in both exported languages', () => {
+  it('localizes supported section-responsive properties in both exported languages', () => {
     const evidence = createEvidence()
     evidence.responsiveObservations[0] = {
       ...evidence.responsiveObservations[0],
       changedProperties: [
-        'backgroundColor',
-        'borderBottomLeftRadius',
-        'borderTopRightRadius',
-        'interactionModel',
-        'node.body.fontSize',
-        'node.body.lineHeight',
+        'borderBottom',
+        'boxShadow',
+        'layoutMode',
         'node.heading.lineHeight',
-        'paddingLeft',
-        'top',
+        'node.heading.fontSize',
+        'order',
+        'position',
       ],
+      changes: {
+        borderBottom: { from: 'none', to: '1px solid #d1d5db' },
+        boxShadow: { from: 'none', to: '0 4px 12px rgba(0, 0, 0, 0.16)' },
+        layoutMode: { from: 'grid', to: 'flow' },
+        'node.heading.fontSize': { from: '48px', to: '32px' },
+        order: { from: '1', to: '2' },
+        position: { from: 'static', to: 'sticky' },
+      },
     }
 
     const chineseProfile = createDeterministicDesignContext(evidence, 'zh-CN').profile
-    const chineseMarkdown = generateTransferComponentsMarkdown(chineseProfile, tokens, new Map(), evidence)
+    const chineseMarkdown = generateTransferBoundariesMarkdown(chineseProfile, tokens, new Map(), evidence)
     const englishProfile = createDeterministicDesignContext(evidence, 'en').profile
-    const englishMarkdown = generateTransferComponentsMarkdown(englishProfile, tokens, new Map(), evidence)
+    const englishMarkdown = generateTransferBoundariesMarkdown(englishProfile, tokens, new Map(), evidence)
 
-    for (const term of [
-      '背景颜色',
-      '左下圆角',
-      '右上圆角',
-      '交互模型',
-      '正文字号',
-      '正文行高',
-      '标题行高',
-      '左内边距',
-      '顶部偏移',
-    ]) {
+    for (const term of ['下边框', '阴影', '布局模式', '标题字号', '顺序', '定位']) {
       expect(chineseMarkdown).toContain(term)
     }
-    expect(chineseMarkdown).not.toMatch(
-      /backgroundColor|borderBottomLeftRadius|borderTopRightRadius|interactionModel|heading行高|paddingLeft/,
-    )
-    for (const term of [
-      'background color',
-      'bottom-left radius',
-      'top-right radius',
-      'interaction model',
-      'body text font size',
-      'body text line height',
-      'heading line height',
-      'left padding',
-      'top offset',
-    ]) {
+    expect(chineseMarkdown).not.toMatch(/borderBottom|boxShadow|layoutMode|node\.|fontSize/)
+    for (const term of ['bottom border', 'shadow', 'layout mode', 'heading font size', 'order', 'position']) {
       expect(englishMarkdown).toContain(term)
     }
-    expect(englishMarkdown).not.toMatch(
-      /backgroundColor|borderBottomLeftRadius|borderTopRightRadius|interactionModel|paddingLeft|body text text/,
-    )
+    expect(englishMarkdown).not.toMatch(/borderBottom|boxShadow|layoutMode|node\.|fontSize/)
   })
 
   it('does not reinterpret localized English surface prose as a responsive change type', () => {
@@ -1044,7 +1356,7 @@ describe('deterministic design context', () => {
     expect(color?.claim.statement).not.toMatch(/content surface|muted text|border roles/)
     expect(grammar.componentRecipes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ component: 'button', variant: 'primary', priority: 'P1', sourceInstances: 2 }),
+        expect.objectContaining({ component: 'button', variant: 'action', priority: 'P1', sourceInstances: 2 }),
       ]),
     )
     expect(designDoc).toContain('### Design Transfer Guide')

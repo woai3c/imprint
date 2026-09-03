@@ -1,5 +1,6 @@
 import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
 import { hasVisibleShadow } from './component-detect.js'
+import { normalizeCssFontFamilyList, normalizeCssFontFamilyName, primaryCssFontFamily } from './font-family.js'
 import type { ColorRoleObservation, ColorTokenCandidate, DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 import { normalizeComputedLength, normalizeLengthUsageKey } from './value-normalization.js'
@@ -33,7 +34,7 @@ function parseColor(value: string | undefined): ParsedColor | null {
   }
 }
 
-function colorsAreRelated(first: string, second: string): boolean {
+export function colorsAreRelated(first: string, second: string): boolean {
   const firstRgb = parseColor(first)?.channels
   const secondRgb = parseColor(second)?.channels
   if (!firstRgb || !secondRgb) return false
@@ -89,7 +90,7 @@ function buildPrimaryActionColorRole(
   if (!normalizedPrimary) return undefined
   const matching = (styles.colorRoleObservations || []).filter(
     (observation) =>
-      (observation.role === 'action' || observation.role === 'primary-action') &&
+      observation.role === 'primary-action' &&
       observation.background !== undefined &&
       normalizeColorValue(observation.background) === normalizedPrimary,
   )
@@ -222,12 +223,15 @@ function buildSemanticColorPairs(
   )
 }
 
-function hasObservedActionBackground(observations: readonly ColorRoleObservation[] | undefined): boolean {
-  if (observations === undefined) return true
-  return observations.some(
-    (observation) =>
-      (observation.role === 'action' || observation.role === 'primary-action') && Boolean(observation.background),
-  )
+function hasObservedActionBackground(
+  styles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations'>,
+  role: 'action' | 'primary-action',
+): boolean {
+  if (styles.colorRoleObservations?.some((observation) => observation.role === role && observation.background)) {
+    return true
+  }
+  const category = role === 'primary-action' ? 'primaryActionBackgroundColor:' : 'actionBackgroundColor:'
+  return Object.entries(styles.usageCount).some(([key, count]) => key.startsWith(category) && count > 0)
 }
 
 function observedTextOnlyAccent(observations: readonly ColorRoleObservation[] | undefined): string | undefined {
@@ -333,6 +337,33 @@ function hasColorUsageInCategories(
   })
 }
 
+function hasObservedColorUsage(
+  styles: Pick<ExtractedStyles, 'usageCount'>,
+  value: string,
+  categories: readonly string[],
+): boolean {
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return false
+  const eligibleCategories = new Set(categories)
+  return Object.entries(styles.usageCount).some(([key, count]) => {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !Number.isFinite(count) || count <= 0) return false
+    if (!eligibleCategories.has(key.slice(0, separator))) return false
+    return normalizeColorValue(key.slice(separator + 1)) === normalized
+  })
+}
+
+const SPECIALIZED_COLOR_CATEGORIES = [
+  'primaryActionBackgroundColor',
+  'actionBackgroundColor',
+  'destructiveActionBackgroundColor',
+  'destructiveActionForegroundColor',
+  'statusBackgroundColor',
+  'statusForegroundColor',
+  'statusColor',
+  'selectedColor',
+] as const
+
 function isNeutralColor(value: string): boolean {
   const color = parseColor(value)
   if (!color) return false
@@ -342,45 +373,60 @@ function isNeutralColor(value: string): boolean {
   return colorChroma <= 24 || colorChroma / Math.max(1, maximum) <= 0.12
 }
 
-function observedForegroundsForBackground(
-  background: string | undefined,
+function observedForegroundsReadableOnFoundationSurfaces(
+  surfaces: readonly (string | undefined)[],
   observations: ExtractedStyles['textColorPairObservations'],
 ): string[] {
-  const normalizedBackground = background ? normalizeColorValue(background) : null
-  if (!normalizedBackground || !observations) return []
+  const normalizedSurfaces = new Set(surfaces.flatMap((surface) => (surface ? [normalizeColorValue(surface)] : [])))
+  normalizedSurfaces.delete(null)
+  if (normalizedSurfaces.size === 0 || !observations) return []
   const groups = new Map<
     string,
-    { foreground: string; count: number; roleWeight: number; captures: Set<string>; contrast: number | null }
+    {
+      foreground: string
+      count: number
+      roles: Set<'body' | 'heading' | 'label' | 'other'>
+      captures: Set<string>
+      contrast: number | null
+    }
   >()
-  const roleWeights = { body: 4, heading: 3, label: 2, other: 1 } as const
   for (const observation of observations) {
-    if (normalizeColorValue(observation.background) !== normalizedBackground) continue
+    const observedBackground = normalizeColorValue(observation.background)
+    if (!observedBackground || !normalizedSurfaces.has(observedBackground)) continue
     const foreground = normalizeColorValue(observation.foreground)
     if (!foreground) continue
     const count = Number.isFinite(observation.count) && observation.count > 0 ? observation.count : 1
+    const observedContrast = colorContrast(foreground, observedBackground)
     const group = groups.get(foreground) || {
       foreground,
       count: 0,
-      roleWeight: 0,
+      roles: new Set<'body' | 'heading' | 'label' | 'other'>(),
       captures: new Set<string>(),
-      contrast: colorContrast(foreground, normalizedBackground),
+      contrast: observedContrast,
     }
     group.count += count
-    group.roleWeight += count * roleWeights[observation.textRole]
+    group.roles.add(observation.textRole)
     group.captures.add(observation.captureId)
+    if (observedContrast !== null && (group.contrast === null || observedContrast > group.contrast)) {
+      group.contrast = observedContrast
+    }
     groups.set(foreground, group)
   }
   const candidates = [...groups.values()]
   const readableCandidates = candidates.filter((candidate) => candidate.contrast !== null && candidate.contrast >= 3)
   return (readableCandidates.length > 0 ? readableCandidates : candidates)
-    .sort(
-      (first, second) =>
+    .sort((first, second) => {
+      const firstSemanticText = first.roles.has('body') || first.roles.has('heading') ? 1 : 0
+      const secondSemanticText = second.roles.has('body') || second.roles.has('heading') ? 1 : 0
+      return (
         second.captures.size - first.captures.size ||
-        second.roleWeight - first.roleWeight ||
-        second.count - first.count ||
+        secondSemanticText - firstSemanticText ||
         (second.contrast || 0) - (first.contrast || 0) ||
-        first.foreground.localeCompare(second.foreground),
-    )
+        second.roles.size - first.roles.size ||
+        second.count - first.count ||
+        first.foreground.localeCompare(second.foreground)
+      )
+    })
     .map((candidate) => candidate.foreground)
 }
 
@@ -417,6 +463,7 @@ const RENDERED_COLOR_CATEGORIES = [
   'statusForegroundColor',
   'statusColor',
 ] as const
+const RENDERED_COLOR_CATEGORY_SET = new Set<string>(RENDERED_COLOR_CATEGORIES)
 
 function colorUsageForCategory(styles: Pick<ExtractedStyles, 'usageCount'>, category: string, value: string): number {
   const normalized = normalizeColorValue(value)
@@ -471,6 +518,40 @@ function declaredOnlyColorCandidates(styles: ExtractedStyles): ColorTokenCandida
   )
 }
 
+function observedColorCandidateCatalog(styles: ExtractedStyles): ColorTokenCandidate[] {
+  const candidates = new Map<string, ColorTokenCandidate>()
+  const record = (rawValue: string, observationCount: number): void => {
+    const value = normalizeColorValue(rawValue)
+    if (!value) return
+    const existing = candidates.get(value)
+    candidates.set(value, {
+      value,
+      kind: 'observed-unassigned',
+      // Category aliases describe the same rendered owner, so the preliminary catalog uses a maximum. The final
+      // evidence pass replaces this with capture- and owner-normalized support.
+      observationCount: Math.max(existing?.observationCount || 0, observationCount),
+      sources: colorSourcesForValue(styles, value, RENDERED_COLOR_CATEGORIES),
+    })
+  }
+  for (const [key, count] of Object.entries(styles.usageCount)) {
+    const separator = key.indexOf(':')
+    if (separator <= 0 || !RENDERED_COLOR_CATEGORY_SET.has(key.slice(0, separator))) continue
+    if (!Number.isFinite(count) || count <= 0) continue
+    record(key.slice(separator + 1), count)
+  }
+  for (const rawValue of styles.colors) {
+    const rendered = RENDERED_COLOR_CATEGORIES.reduce(
+      (total, category) => total + colorUsageForCategory(styles, category, rawValue),
+      0,
+    )
+    const declared = colorUsageForCategory(styles, 'declaredColor', rawValue)
+    if (rendered > 0 || declared === 0) record(rawValue, Math.max(1, rendered))
+  }
+  return [...candidates.values()].sort(
+    (first, second) => second.observationCount - first.observationCount || first.value.localeCompare(second.value),
+  )
+}
+
 function isMutedTextCandidate(
   background: string | undefined,
   foreground: string | undefined,
@@ -499,158 +580,8 @@ function normalizeLengthFrequency(frequency: ReadonlyMap<string, number>): Map<s
   return normalized
 }
 
-function selectFrequencyCoverage(
-  frequency: ReadonlyMap<string, number>,
-  candidates: readonly string[],
-  minimum: number,
-  limit: number,
-  targetCoverage: number,
-): string[] {
-  const entries = candidates
-    .map((value) => [value, frequency.get(value) || 0] as const)
-    .filter(([, count]) => count > 0)
-    .sort(
-      ([firstValue, firstCount], [secondValue, secondCount]) =>
-        secondCount - firstCount || firstValue.localeCompare(secondValue, 'en'),
-    )
-  const total = entries.reduce((sum, [, count]) => sum + count, 0)
-  const selected: string[] = []
-  let covered = 0
-  for (const [value, count] of entries) {
-    if (selected.length >= limit) break
-    if (selected.length >= minimum && total > 0 && covered / total >= targetCoverage) break
-    selected.push(value)
-    covered += count
-  }
-  return selected
-}
-
-function prioritizedTypographyValues(
-  styles: ExtractedStyles,
-  general: ReadonlyMap<string, number>,
-  displayCategory: 'displayFontSize' | 'displayFontWeight',
-  headingCategory: 'headingFontSize' | 'headingFontWeight',
-  limit: number,
-  normalize: (frequency: ReadonlyMap<string, number>) => ReadonlyMap<string, number> = (frequency) => frequency,
-  minimumGeneral = 2,
-  targetCoverage = 0.94,
-): string[] {
-  const display = sortByFrequency(normalize(frequencyForCategory(styles, displayCategory))).slice(0, 1)
-  const headings = sortByFrequency(normalize(frequencyForCategory(styles, headingCategory))).slice(0, 3)
-  const frequent = selectFrequencyCoverage(general, sortByFrequency(general), minimumGeneral, limit, targetCoverage)
-  return [...display, ...headings, ...frequent].filter(uniqueFilter()).slice(0, limit)
-}
-
-function normalizedValueSources(styles: ExtractedStyles, category: 'spacing' | 'radius', value: string): Set<string> {
-  const sources = new Set<string>()
-  const prefix = `${category}:`
-  for (const [key, keySources] of Object.entries(styles.valueSources || {})) {
-    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
-    keySources.forEach((source) => sources.add(source))
-  }
-  return sources
-}
-
-function normalizedValueSourceCounts(
-  styles: ExtractedStyles,
-  category: 'spacing' | 'radius',
-  value: string,
-): Map<string, number> {
-  const counts = new Map<string, number>()
-  const prefix = `${category}:`
-  for (const [key, keySourceCounts] of Object.entries(styles.valueSourceCounts || {})) {
-    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
-    for (const [source, count] of Object.entries(keySourceCounts)) {
-      if (!Number.isFinite(count) || count <= 0) continue
-      counts.set(source, (counts.get(source) || 0) + count)
-    }
-  }
-  return counts
-}
-
-function normalizedUsageGroupCount(styles: ExtractedStyles, category: string, value: string): number {
-  const prefix = `${category}:`
-  let groups = 0
-  for (const [key, count] of Object.entries(styles.usageGroupCounts || {})) {
-    if (!key.startsWith(prefix) || normalizeComputedLength(key.slice(prefix.length)) !== value) continue
-    // Current analysis normalizes before counting distinct URL groups. Legacy/raw inputs can still contain multiple
-    // aliases for one normalized value without group identities, so use the conservative maximum instead of summing.
-    if (Number.isFinite(count) && count > 0) groups = Math.max(groups, count)
-  }
-  return groups
-}
-
-function hasReusableSpacingScope(styles: ExtractedStyles, value: string): boolean {
-  const counts = normalizedValueSourceCounts(styles, 'spacing', value)
-  if (counts.size === 0) {
-    const sources = normalizedValueSources(styles, 'spacing', value)
-    return (
-      sources.size === 0 ||
-      [...sources].some((source) => !['element:control-spacing', 'element:specialized-spacing'].includes(source))
-    )
-  }
-  const control = counts.get('element:control-spacing') || 0
-  const specialized = counts.get('element:specialized-spacing') || 0
-  const structural = counts.get('element:structural-spacing') || 0
-  const reusable = [...counts.entries()].reduce(
-    (total, [source, count]) =>
-      total + (['element:control-spacing', 'element:specialized-spacing'].includes(source) ? 0 : count),
-    0,
-  )
-  const local = control + specialized
-  if (styles.usageGroupCounts && Number.parseFloat(value) < 2) {
-    const groupCount = normalizedUsageGroupCount(styles, 'spacing', value)
-    return groupCount >= 2 && structural >= 2 && structural / Math.max(reusable + local, 1) >= 0.25
-  }
-  if (local === 0) return reusable > 0
-  return reusable >= 2 && reusable / (local + reusable) >= 0.25
-}
-
-function hasStrongCrossPageStructuralSpacing(styles: ExtractedStyles, value: string): boolean {
-  if (!styles.usageGroupCounts) return false
-  const counts = normalizedValueSourceCounts(styles, 'spacing', value)
-  const structural = counts.get('element:structural-spacing') || 0
-  return structural >= 2 && normalizedUsageGroupCount(styles, 'spacing', value) >= 2
-}
-
-function hasReusableRadiusScope(styles: ExtractedStyles, value: string): boolean {
-  const counts = normalizedValueSourceCounts(styles, 'radius', value)
-  if (counts.size === 0) {
-    const sources = normalizedValueSources(styles, 'radius', value)
-    return !sources.has('geometry:circle-or-pill') || sources.has('computed:ordinary-radius')
-  }
-  const geometry = counts.get('geometry:circle-or-pill') || 0
-  const ordinary = counts.get('computed:ordinary-radius') || 0
-  if (geometry === 0) return ordinary > 0
-  return ordinary >= 2 && ordinary / (geometry + ordinary) >= 0.25
-}
-
 function isScalarLength(value: string): boolean {
   return /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em)$/i.test(value.trim())
-}
-
-function isStableFoundationSpacing(value: string): boolean {
-  const match = value.trim().match(/^(\d*\.?\d+)(px|rem|em)$/i)
-  if (!match) return false
-  if (match[2].toLowerCase() !== 'px') return true
-  const amount = Number.parseFloat(match[1])
-  return Number.isFinite(amount) && Math.abs(amount * 2 - Math.round(amount * 2)) <= 0.01
-}
-
-function inferredSpacingRhythm(values: readonly string[]): string[] {
-  const numeric = values.flatMap((value) => {
-    const match = value.match(/^(\d*\.?\d+)px$/i)
-    return match ? [[value, Number.parseFloat(match[1])] as const] : []
-  })
-  let best: { step: number; values: string[] } | undefined
-  for (const step of [8, 6, 5, 4, 3, 2]) {
-    const aligned = numeric.filter(([, amount]) => Math.abs(amount / step - Math.round(amount / step)) <= 0.01)
-    if (aligned.length >= 4 && aligned.length / Math.max(numeric.length, 1) >= 0.45) {
-      const alignedValues = aligned.map(([value]) => value)
-      if (!best || alignedValues.length > best.values.length) best = { step, values: alignedValues }
-    }
-  }
-  return best?.values || []
 }
 
 export function normalizeDesignTokenUsageCount(usageCount: Readonly<Record<string, number>>): Record<string, number> {
@@ -708,6 +639,20 @@ export function buildDesignTokens(
   clusteredColors: ClusteredColors,
   roleStyles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations' | 'textColorPairObservations'> = styles,
 ): DesignToken {
+  // Candidate discovery is intentionally complete and exact. Clustering below selects semantic role proposals, but it
+  // must never erase a rendered value before the evidence and promotion stages have evaluated it.
+  const observedColorCatalog = observedColorCandidateCatalog(styles)
+  for (const item of clusteredColors.palette) {
+    const value = normalizeColorValue(item.hex)
+    if (!value || observedColorCatalog.some((candidate) => candidate.value === value)) continue
+    observedColorCatalog.push({
+      value,
+      kind: 'observed-unassigned',
+      observationCount: item.count,
+      sources: colorSourcesForValue(styles, value, RENDERED_COLOR_CATEGORIES),
+    })
+  }
+
   // Build color map
   const colors: Record<string, string> = {}
 
@@ -724,8 +669,8 @@ export function buildDesignTokens(
 
   // Assign text colors
   if (clusteredColors.texts.length > 0) {
-    const observedForegrounds = observedForegroundsForBackground(
-      colors['background'],
+    const observedForegrounds = observedForegroundsReadableOnFoundationSurfaces(
+      [colors['background'], colors['surface']],
       roleStyles.textColorPairObservations,
     )
     const foreground =
@@ -736,17 +681,30 @@ export function buildDesignTokens(
       roleStyles.textColorPairObservations === undefined ? clusteredColors.texts : observedForegrounds.slice(1)
     const mutedForeground = mutedCandidates
       .filter((candidate) => normalizeColorValue(candidate) !== normalizeColorValue(foreground || ''))
+      // A hue used as a directly observed control, selection, or status treatment is a specialized semantic color.
+      // It may also occur in text (for example an eyebrow or action link), but that does not make it the site's
+      // ordinary muted-copy color. Generic accent/link observations remain eligible because inherited navigation
+      // links can legitimately use the muted foreground and do not establish an action hierarchy by themselves.
+      .filter((candidate) => !hasObservedColorUsage(roleStyles, candidate, SPECIALIZED_COLOR_CATEGORIES))
       .find((candidate) => isMutedTextCandidate(colors['background'], colors['foreground'], candidate))
     if (mutedForeground) colors['muted-foreground'] = mutedForeground
   }
   if (colors['background'] && colors['surface']) {
-    colors['secondary'] = secondarySurface(colors['background'], colors['surface'], colors['foreground'])
+    const secondaryCandidate = clusteredColors.backgrounds
+      .slice(2)
+      .find(
+        (candidate) =>
+          colorsAreRelated(colors['background'], candidate) &&
+          normalizeColorValue(candidate) !== normalizeColorValue(colors['surface']),
+      )
+    colors['secondary'] =
+      secondaryCandidate || secondarySurface(colors['background'], colors['surface'], colors['foreground'])
   }
 
   // A primary action is optional. Generic palette, decorative, border, and text-only
   // accents must not be promoted to an action role merely because they are chromatic.
   if (clusteredColors.accents.length > 0) {
-    if (hasObservedActionBackground(roleStyles.colorRoleObservations)) {
+    if (hasObservedActionBackground(roleStyles, 'primary-action')) {
       colors['primary'] = clusteredColors.accents[0]
       const secondaryAccent =
         observedSecondaryActionBackground(roleStyles.colorRoleObservations, colors['primary']) ||
@@ -760,6 +718,9 @@ export function buildDesignTokens(
             ]),
           )
       if (secondaryAccent) colors['accent'] = secondaryAccent
+    } else if (hasObservedActionBackground(roleStyles, 'action')) {
+      // A rendered generic button establishes an action accent, not the site's business-level primary action.
+      colors['accent'] = clusteredColors.accents[0]
     } else {
       colors['editorial-accent'] = clusteredColors.accents[0]
       const decorativeAccent = clusteredColors.accents
@@ -812,96 +773,64 @@ export function buildDesignTokens(
   // into the portable design system. This retains evidence such as editorial or code colors
   // without presenting it as a reusable semantic token.
   const takenColors = new Set(Object.values(colors).map((value) => normalizeColorValue(value) || value))
-  const observedColorCandidates = clusteredColors.palette.flatMap<ColorTokenCandidate>((item) => {
-    const normalized = normalizeColorValue(item.hex) || item.hex
-    if (takenColors.has(normalized)) return []
-    return [
-      {
-        value: normalized,
-        kind: 'observed-unassigned',
-        observationCount: item.count,
-        sources: colorSourcesForValue(styles, normalized, RENDERED_COLOR_CATEGORIES),
-      },
-    ]
-  })
+  const observedColorCandidates = observedColorCatalog.filter((candidate) => !takenColors.has(candidate.value))
   const colorCandidates = [...declaredOnlyColorCandidates(styles), ...observedColorCandidates]
 
-  // Typography - sort by frequency and pick unique values
-  // Computed font sizes frequently contain sub-pixel layout noise (for example
-  // 11.9062px beside an authored 12px). Normalize that noise before creating a
-  // reusable scale so one intended size cannot become two tokens.
+  // These arrays are the complete normalized candidate catalog, not the final portable scales. Evidence evaluation
+  // below this builder decides scope and promotion. Keeping selection caps here would silently delete valid local or
+  // component observations before they could be represented in structured candidates.
   const fontSizeFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'fontSize', styles.fontSizes))
   const sortedFontSizes = numericSort(
-    prioritizedTypographyValues(
-      styles,
-      fontSizeFreq,
-      'displayFontSize',
-      'headingFontSize',
-      8,
-      normalizeLengthFrequency,
-      3,
-      0.92,
-    )
+    [...fontSizeFreq.keys()]
+      .filter((value) => Number.parseFloat(value) > 0)
       .map(pxToRem)
       .filter(uniqueFilter()),
   )
 
   const fontWeightFreq = frequencyForCategory(styles, 'fontWeight', styles.fontWeights)
   const sortedFontWeights = numericSort(
-    prioritizedTypographyValues(styles, fontWeightFreq, 'displayFontWeight', 'headingFontWeight', 5),
+    [...fontWeightFreq.keys()].filter((value) => /^(?:[1-9]00|[1-9]\d{0,2})$/.test(value)).filter(uniqueFilter()),
   )
 
   const pairedLineHeights = pairedLineHeightFrequency(styles)
-  const lineHeightFreq =
-    pairedLineHeights.size > 0 ? pairedLineHeights : frequencyForCategory(styles, 'lineHeight', styles.lineHeights)
-  const sortedLineHeights = numericSort(
-    selectFrequencyCoverage(lineHeightFreq, sortByFrequency(lineHeightFreq), 2, 5, 0.94).filter(uniqueFilter()),
-  )
+  const fallbackUnitlessLineHeights = frequencyForCategory(styles, 'lineHeight', styles.lineHeights)
+  const lineHeightCandidates =
+    pairedLineHeights.size > 0
+      ? [...pairedLineHeights.keys()]
+      : [...fallbackUnitlessLineHeights.keys()].filter(
+          (value) => /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value) && Number.parseFloat(value) > 0,
+        )
+  const sortedLineHeights = numericSort(lineHeightCandidates.filter(uniqueFilter()))
 
-  // Spacing - extract unique values, sort numerically
+  // Spacing
   const spacingFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'spacing', styles.spacings))
-  const reusableSpacingCandidates = sortByFrequency(spacingFreq)
+  const spacings = [...spacingFreq.keys()]
     .filter((v) => {
       if (!isScalarLength(v)) return false
       const num = parseFloat(v)
-      return !isNaN(num) && num > 0 && num <= 96
+      return Number.isFinite(num) && num !== 0
     })
-    .filter((value) => hasReusableSpacingScope(styles, value))
-    .filter((value) => isStableFoundationSpacing(value) || hasStrongCrossPageStructuralSpacing(styles, value))
-    .filter(uniqueFilter())
-  const coveredSpacings = selectFrequencyCoverage(spacingFreq, reusableSpacingCandidates, 4, 12, 0.9)
-  // Frequency coverage is the primary scale. Preserve only a few additional cross-page structural or rhythm values;
-  // adding the entire inferred rhythm would simply refill the hard cap and undo the evidence-based stopping rule.
-  const supplementalSpacings = [
-    ...reusableSpacingCandidates.filter((value) => hasStrongCrossPageStructuralSpacing(styles, value)),
-    ...inferredSpacingRhythm(reusableSpacingCandidates),
-  ]
-    .filter((value) => !coveredSpacings.includes(value))
-    .filter(uniqueFilter())
-    .slice(0, Math.min(3, Math.max(0, 12 - coveredSpacings.length)))
-  const spacings = [...coveredSpacings, ...supplementalSpacings]
     .filter(uniqueFilter())
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Radii
   const radiusFreq = normalizeLengthFrequency(frequencyForCategory(styles, 'radius', styles.radii))
-  const radii = sortByFrequency(radiusFreq)
-    .filter((v) => parseFloat(v) > 0)
-    .filter((value) => hasReusableRadiusScope(styles, value))
+  const radii = [...radiusFreq.keys()]
+    .filter((value) => isScalarLength(value) && parseFloat(value) > 0)
     .filter(uniqueFilter())
-    .slice(0, 5)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
-  // Shadows - deduplicate
+  // Shadows
   const shadowFreq = frequencyForCategory(styles, 'shadow', styles.shadows)
-  const shadows = sortByFrequency(shadowFreq)
+  const shadows = [...shadowFreq.keys()]
     .filter(hasVisibleShadow)
-    .slice(0, 4)
     .sort((first, second) => shadowElevation(first) - shadowElevation(second))
 
   // Borders
   const borderFreq = frequencyForCategory(styles, 'border', styles.borders)
-  const borders = sortByFrequency(borderFreq).slice(0, 4)
+  const borders = sortByFrequency(borderFreq)
+    .filter((value) => value.trim() !== '')
+    .filter(uniqueFilter())
 
   // Font families - keep both primary names and full stacks
   const observedTextFamilies = frequencyForCategory(styles, 'fontTextFamily')
@@ -910,35 +839,43 @@ export function buildDesignTokens(
       ? observedTextFamilies
       : frequencyForCategory(styles, 'fontFamily', styles.fontFamilies)
   const fontStacks = sortByFrequency(fontFamilyFrequency)
-    .map((f) => f.replace(/"/g, '').trim())
+    .map((family) => family.trim())
     .filter((stack) => !/^(?:inherit|initial|unset|revert|revert-layer)$/i.test(stack))
-    .filter(uniqueFilter())
-    .slice(0, 5)
+    .filter((stack, index, values) => {
+      const normalized = normalizeCssFontFamilyList(stack)
+      return (
+        normalized !== '' &&
+        values.findIndex((candidate) => normalizeCssFontFamilyList(candidate) === normalized) === index
+      )
+    })
 
   const fontFamilies = fontStacks
-    .map((stack) => stack.split(',')[0].trim())
-    .filter(uniqueFilter())
-    .slice(0, 5)
+    .map(primaryCssFontFamily)
+    .filter((family) => family !== '')
+    .filter((family, index, values) => {
+      const normalized = normalizeCssFontFamilyName(family)
+      return values.findIndex((candidate) => normalizeCssFontFamilyName(candidate) === normalized) === index
+    })
 
   // Letter spacing
   const letterSpacingFreq = frequencyForCategory(styles, 'letterSpacing', styles.letterSpacings || [])
   const letterSpacings = sortByFrequency(letterSpacingFreq)
+    .filter((value) => value !== '0' && value !== '0px' && value !== 'normal')
     .filter(uniqueFilter())
-    .slice(0, 6)
     .sort((a, b) => parseFloat(a) - parseFloat(b))
 
   // Z-index layers
   const zIndexFreq = frequencyForCategory(styles, 'zIndex', styles.zIndices || [])
   const zIndices = sortByFrequency(zIndexFreq)
+    .filter((value) => /^-?\d+$/.test(value) && value !== '0')
     .filter(uniqueFilter())
-    .slice(0, 8)
     .sort((a, b) => parseInt(a) - parseInt(b))
 
   // Transitions
   const transitionFreq = frequencyForCategory(styles, 'transition', styles.transitions || [])
   const transitions = sortByFrequency(transitionFreq)
+    .filter((value) => Number.isFinite(durationInMilliseconds(value)) && durationInMilliseconds(value) > 0)
     .filter(uniqueFilter())
-    .slice(0, 6)
     .sort((first, second) => durationInMilliseconds(first) - durationInMilliseconds(second))
   const primaryAction = buildPrimaryActionColorRole(colors.primary, roleStyles, colors.foreground)
   const semanticPairs = buildSemanticColorPairs(roleStyles.colorRoleObservations)

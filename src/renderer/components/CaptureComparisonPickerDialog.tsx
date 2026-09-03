@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 import type { AnalysisRecord } from '../../shared/ipc-contract'
+import { laterRecordsFor } from '../lib/comparison-record-selection.js'
 import { loadComparisonRecords, peekComparisonRecords } from '../lib/comparison-records-cache.js'
 import { formatLocalDateTime } from '../lib/date-time'
 import { Button } from './ui/Button'
@@ -237,16 +238,6 @@ function CaptureSelector({
       )}
     </div>
   )
-}
-
-function laterRecordsFor(earlier: AnalysisRecord, records: AnalysisRecord[]): AnalysisRecord[] {
-  const earlierTime = Date.parse(earlier.created_at)
-  if (!earlier.route_identity || Number.isNaN(earlierTime)) return []
-  return records.filter((record) => {
-    if (record.id === earlier.id || record.route_identity !== earlier.route_identity) return false
-    const laterTime = Date.parse(record.created_at)
-    return !Number.isNaN(laterTime) && laterTime > earlierTime
-  })
 }
 
 function defaultPair(records: AnalysisRecord[]): { earlier: AnalysisRecord; later: AnalysisRecord } | null {

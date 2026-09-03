@@ -3,8 +3,8 @@ import {
   hasCrispEdgeShadow,
   hasDepthShadow,
   hasVisibleBorder,
+  hasVisibleColor,
   hasVisibleShadow,
-  isTransparentColor,
 } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
@@ -30,7 +30,7 @@ function boxShadow(owner: SurfaceEvidenceOwner): string | undefined {
 
 function hasVisibleBackground(owner: SurfaceEvidenceOwner): boolean {
   const color = backgroundColor(owner)
-  return Boolean(color && !isTransparentColor(color)) || Boolean(!('styles' in owner) && owner.observedStyles?.gradient)
+  return hasVisibleColor(color) || Boolean(!('styles' in owner) && owner.observedStyles?.gradient)
 }
 
 export function isSurfaceEvidenceOwner(owner: SurfaceEvidenceOwner): boolean {
@@ -58,7 +58,7 @@ function isSurfaceFillRef(ref: string): boolean {
 export function surfaceEvidenceTokenRefs(owner: SurfaceEvidenceOwner, tokens: DesignToken): string[] {
   const refs = new Set<string>()
   const color = backgroundColor(owner)
-  const normalizedBackground = color && !isTransparentColor(color) ? normalizeColorValue(color) : null
+  const normalizedBackground = color && hasVisibleColor(color) ? normalizeColorValue(color) : null
   if (normalizedBackground) {
     owner.tokenRefs.filter(isSurfaceFillRef).forEach((ref) => {
       const value = resolveDesignTokenRef(tokens, ref)

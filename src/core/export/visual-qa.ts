@@ -1,3 +1,4 @@
+import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 
 export type VisualQaStatus = 'pass' | 'warning' | 'fail'
@@ -51,14 +52,15 @@ export function generateLocalVisualQa(evidence: DesignEvidence): VisualQaReport 
 
   const byUrl = new Map<string, Set<string>>()
   evidence.pages.forEach((page) => {
-    const viewports = byUrl.get(page.url) || new Set<string>()
+    const routeIdentity = evidencePageRouteIdentity(page)
+    const viewports = byUrl.get(routeIdentity) || new Set<string>()
     viewports.add(page.viewport)
-    byUrl.set(page.url, viewports)
+    byUrl.set(routeIdentity, viewports)
   })
-  for (const [url, viewports] of byUrl) {
-    const pages = evidence.pages.filter((page) => page.url === url)
+  for (const [routeIdentity, viewports] of byUrl) {
+    const pages = evidence.pages.filter((page) => evidencePageRouteIdentity(page) === routeIdentity)
     checks.push({
-      id: `responsive:${pages[0]?.id || url}`,
+      id: `responsive:${pages[0]?.id || routeIdentity}`,
       status: viewports.size >= 2 ? 'pass' : 'warning',
       message:
         viewports.size >= 2

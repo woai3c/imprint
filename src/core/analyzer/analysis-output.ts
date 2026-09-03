@@ -2,13 +2,24 @@ import type { CapturedPageEvidence } from '../design-evidence/index.js'
 import { buildDesignEvidence } from '../design-evidence/index.js'
 import type { DesignEvidence, TechStackInfo } from '../design-evidence/types.js'
 import { clusterColors, normalizeColorValue } from './color-cluster.js'
+import { buildFoundationForegroundPairEvidence, isFoundationForegroundPair } from './color-pair-evidence.js'
+import { reselectPortableFoundationColors } from './color-role-promotion.js'
 import { appendExtractionIssueLimitation, isPageHealthExtractionIssue } from './extraction-limitations.js'
 import { buildEvidenceBackedClaims, generateFeatureTags } from './feature-tags.js'
 import type { MotionToken, ResponsiveBreakpoint } from './responsive-motion.js'
 import { mergeStyles, mergeStylesWithNormalizedUsage } from './style-merge.js'
 import { buildDesignTokens, normalizeDesignTokenUsageCount } from './token-builder.js'
+import { tokenCandidateId } from './token-catalog.js'
 import { type TokenEvidenceCapture, buildTokenEvidence, measurementConfidenceFor } from './token-evidence.js'
-import type { DesignToken, ExtractedStyles, ExtractionIssue, InteractionStyles } from './types.js'
+import { isPortableTokenEvidence, promotePortableDesignTokens } from './token-promotion.js'
+import type {
+  ColorTokenCandidate,
+  DesignToken,
+  ExtractedStyles,
+  ExtractionIssue,
+  InteractionStyles,
+  TokenValueCandidate,
+} from './types.js'
 import { pageIdentityUrl } from './url-identity.js'
 
 export interface BuildAnalysisOutputInput {
@@ -67,45 +78,6 @@ function emptyDesignTokens(): DesignToken {
   }
 }
 
-/** Keep isolated border samples as candidates without presenting them as a reusable surface contract. */
-export function demoteWeakSemanticBorderTokens(tokens: DesignToken): void {
-  for (const name of ['border', 'border-subtle']) {
-    const path = `colors.${name}`
-    const value = tokens.colors[name]
-    const evidence = tokens.evidence?.[path]
-    if (!value || evidence?.confidence !== 'low') continue
-    const normalizedValue = normalizeColorValue(value) || value
-    const usageFor = (category: string): number =>
-      Object.entries(tokens.usageCount || {}).reduce((total, [key, count]) => {
-        if (!key.startsWith(`${category}:`)) return total
-        return normalizeColorValue(key.slice(category.length + 1)) === normalizedValue ? total + count : total
-      }, 0)
-    const borderObservationCount = usageFor('borderColor') || usageFor('structuralBorderColor')
-    const observationCount = borderObservationCount || evidence.observationCount
-    if (observationCount > 1) continue
-
-    delete tokens.colors[name]
-    delete tokens.evidence?.[path]
-    const alreadyRepresented = Object.values(tokens.colors).some(
-      (candidate) => (normalizeColorValue(candidate) || candidate) === normalizedValue,
-    )
-    if (alreadyRepresented) continue
-    const candidates = tokens.candidates?.colors || []
-    if (!candidates.some((candidate) => normalizeColorValue(candidate.value) === normalizedValue)) {
-      candidates.push({
-        value: normalizedValue,
-        kind: 'observed-unassigned',
-        observationCount,
-        pageCount: evidence.pageCount,
-        captureCount: evidence.captureCount,
-        measurementConfidence: evidence.measurementConfidence || evidence.confidence,
-        sources: evidence.sources,
-      })
-    }
-    tokens.candidates = { ...tokens.candidates, colors: candidates }
-  }
-}
-
 const RENDERED_COLOR_CANDIDATE_CATEGORIES = new Set([
   'textColor',
   'bgColor',
@@ -127,22 +99,35 @@ const RENDERED_COLOR_CANDIDATE_CATEGORIES = new Set([
 ])
 
 export function colorCandidateObservationCount(
-  styles: Pick<ExtractedStyles, 'usageCount'>,
+  styles: Pick<ExtractedStyles, 'usageCount' | 'usageOwnerCounts' | 'usageOwnerIds'>,
   value: string,
   kind: 'declared-only' | 'observed-unassigned' = 'observed-unassigned',
 ): number {
   const normalized = normalizeColorValue(value)
   if (!normalized) return 0
   const counts = new Map<string, number>()
+  const owners = new Set<string>()
   for (const [key, count] of Object.entries(styles.usageCount)) {
     const separator = key.indexOf(':')
     if (separator <= 0 || !Number.isFinite(count) || count <= 0) continue
     const category = key.slice(0, separator)
     if (normalizeColorValue(key.slice(separator + 1)) !== normalized) continue
-    counts.set(category, (counts.get(category) || 0) + count)
+    const eligibleCategory =
+      kind === 'declared-only'
+        ? category === 'declaredColor'
+        : RENDERED_COLOR_CANDIDATE_CATEGORIES.has(category) && category !== 'bgArea'
+    if (eligibleCategory) (styles.usageOwnerIds?.[key] || []).forEach((owner) => owners.add(owner))
+    const ownerCount = styles.usageOwnerCounts?.[key]
+    const normalizedCount = Number.isFinite(ownerCount) && Number(ownerCount) > 0 ? Number(ownerCount) : count
+    counts.set(category, Math.max(counts.get(category) || 0, normalizedCount))
   }
+  if (owners.size > 0) return owners.size
   if (kind === 'declared-only') return counts.get('declaredColor') || 0
-  const baseRendered = (counts.get('bgColor') || 0) + (counts.get('textColor') || 0) + (counts.get('borderColor') || 0)
+  const baseRendered = Math.max(
+    counts.get('bgColor') || 0,
+    counts.get('textColor') || 0,
+    counts.get('borderColor') || 0,
+  )
   return (
     baseRendered ||
     Math.max(
@@ -154,12 +139,340 @@ export function colorCandidateObservationCount(
   )
 }
 
-function enrichColorCandidateEvidence(tokens: DesignToken, captures: TokenEvidenceCapture[]): void {
-  for (const candidate of tokens.candidates?.colors || []) {
+type ColorSemanticFamily =
+  'action-background' | 'action-foreground' | 'status' | 'accent' | 'background' | 'foreground' | 'border'
+type ColorPropertyChannel = 'background' | 'foreground' | 'border' | 'accent'
+
+const COLOR_SEMANTIC_FAMILY_PRIORITY: ColorSemanticFamily[] = [
+  'action-background',
+  'status',
+  'action-foreground',
+  'accent',
+  'background',
+  'foreground',
+  'border',
+]
+
+function colorSemanticFamily(category: string): ColorSemanticFamily | null {
+  if (
+    ['primaryActionBackgroundColor', 'actionBackgroundColor', 'primaryActionColor', 'actionColor'].includes(category)
+  ) {
+    return 'action-background'
+  }
+  if (
+    [
+      'destructiveActionBackgroundColor',
+      'destructiveActionForegroundColor',
+      'statusBackgroundColor',
+      'statusForegroundColor',
+      'statusColor',
+    ].includes(category)
+  ) {
+    return 'status'
+  }
+  if (['primaryActionForegroundColor', 'actionForegroundColor'].includes(category)) return 'action-foreground'
+  if (['selectedColor', 'accentColor', 'linkColor'].includes(category)) return 'accent'
+  if (['bgColor', 'bgArea'].includes(category)) return 'background'
+  if (category === 'textColor') return 'foreground'
+  if (['borderColor', 'structuralBorderColor'].includes(category)) return 'border'
+  return null
+}
+
+function colorPropertyChannel(category: string, sources: readonly string[]): ColorPropertyChannel {
+  if (['borderColor', 'structuralBorderColor'].includes(category)) return 'border'
+  if (
+    [
+      'primaryActionForegroundColor',
+      'actionForegroundColor',
+      'destructiveActionForegroundColor',
+      'statusForegroundColor',
+      'statusColor',
+      'linkColor',
+      'textColor',
+    ].includes(category)
+  ) {
+    return 'foreground'
+  }
+  if (category === 'accentColor') {
+    if (sources.some((source) => /^element:(?:primary-)?action$/.test(source))) return 'background'
+    if (sources.includes('element:link')) return 'foreground'
+    return 'accent'
+  }
+  if (category === 'selectedColor') return 'accent'
+  return 'background'
+}
+
+function colorCandidateSemanticAssessment(
+  captures: TokenEvidenceCapture[],
+  value: string,
+  eligiblePageCount: number,
+): {
+  roleCounts: Record<string, number>
+  dominantFamily?: ColorSemanticFamily
+  families: Array<{
+    family: ColorSemanticFamily
+    ownerCount: number
+    pageCount: number
+    pages: string[]
+    captureCount: number
+    sources: string[]
+    sourceCounts: Record<string, number>
+    semanticAgreement: number
+    semanticConfidence: 'low' | 'medium' | 'high'
+    reuseScope: 'foundation' | 'local' | 'unknown'
+  }>
+} {
+  const normalized = normalizeColorValue(value)
+  if (!normalized) return { roleCounts: {}, families: [] }
+  interface FamilyCaptureEvidence {
+    page: string
+    family: ColorSemanticFamily
+    channel: ColorPropertyChannel
+    ownerCount: number
+    sources: Set<string>
+    sourceCounts: Map<string, number>
+    priority: number
+  }
+  const representatives = new Map<string, FamilyCaptureEvidence>()
+  const captureCounts = new Map<ColorSemanticFamily, number>()
+  for (const [captureIndex, capture] of captures.entries()) {
+    const page = pageIdentityUrl(capture.url)
+    const ownerFamilies = new Map<string, Map<ColorPropertyChannel, Set<ColorSemanticFamily>>>()
+    const records: Array<{
+      family: ColorSemanticFamily
+      channel: ColorPropertyChannel
+      owners: string[]
+      sources: string[]
+      sourceOwners: Record<string, string[]>
+      sourceCounts: Record<string, number>
+      fallbackCount: number
+    }> = []
+    for (const [key, rawCount] of Object.entries(capture.styles.usageCount)) {
+      const separator = key.indexOf(':')
+      if (separator <= 0 || !Number.isFinite(rawCount) || rawCount <= 0) continue
+      if (normalizeColorValue(key.slice(separator + 1)) !== normalized) continue
+      const category = key.slice(0, separator)
+      const family = colorSemanticFamily(category)
+      if (!family) continue
+      const sources = capture.styles.valueSources?.[key] || []
+      const channel = colorPropertyChannel(category, sources)
+      const ownerIds = capture.styles.usageOwnerIds?.[key] || []
+      for (const ownerId of ownerIds) {
+        const channels = ownerFamilies.get(ownerId) || new Map<ColorPropertyChannel, Set<ColorSemanticFamily>>()
+        const families = channels.get(channel) || new Set<ColorSemanticFamily>()
+        families.add(family)
+        channels.set(channel, families)
+        ownerFamilies.set(ownerId, channels)
+      }
+      const usageOwnerCount = capture.styles.usageOwnerCounts?.[key]
+      const fallbackCount =
+        ownerIds.length > 0
+          ? ownerIds.length
+          : Number.isFinite(usageOwnerCount) && Number(usageOwnerCount) > 0
+            ? Number(usageOwnerCount)
+            : Number(rawCount)
+      records.push({
+        family,
+        channel,
+        owners: ownerIds,
+        sources,
+        sourceOwners: capture.styles.valueSourceOwnerIds?.[key] || {},
+        sourceCounts: capture.styles.valueSourceCounts?.[key] || {},
+        fallbackCount,
+      })
+    }
+    const selectedFamilyByOwnerChannel = new Map<string, Map<ColorPropertyChannel, ColorSemanticFamily>>()
+    for (const [owner, channels] of ownerFamilies) {
+      const selectedByChannel = new Map<ColorPropertyChannel, ColorSemanticFamily>()
+      for (const [channel, families] of channels) {
+        const selected = COLOR_SEMANTIC_FAMILY_PRIORITY.find((family) => families.has(family))
+        if (selected) selectedByChannel.set(channel, selected)
+      }
+      if (selectedByChannel.size > 0) selectedFamilyByOwnerChannel.set(owner, selectedByChannel)
+    }
+    const familyChannelsInCapture = new Map(
+      records.map((record) => [
+        `${record.channel}:${record.family}`,
+        { family: record.family, channel: record.channel },
+      ]),
+    )
+    const viewportPriority =
+      capture.viewport === 'desktop' ? 3 : capture.viewport === 'tablet' ? 2 : capture.viewport === 'mobile' ? 1 : 0
+    const capturedFamilies = new Set<ColorSemanticFamily>()
+    for (const { family, channel } of familyChannelsInCapture.values()) {
+      const familyOwners = new Set(
+        [...selectedFamilyByOwnerChannel].flatMap(([owner, selected]) =>
+          selected.get(channel) === family ? [owner] : [],
+        ),
+      )
+      const familyRecords = records.filter((record) => record.family === family && record.channel === channel)
+      const fallbackCount = Math.max(0, ...familyRecords.map((record) => record.fallbackCount))
+      const ownerCount = familyRecords.some((record) => record.owners.length > 0) ? familyOwners.size : fallbackCount
+      if (ownerCount <= 0) continue
+      const sources = new Set<string>()
+      const sourceOwners = new Map<string, Set<string>>()
+      const fallbackSourceCounts = new Map<string, number>()
+      for (const record of familyRecords) {
+        for (const source of record.sources) {
+          const declaredOwners = record.sourceOwners[source] || []
+          const relevantOwners = declaredOwners.length > 0 ? declaredOwners : record.owners
+          const owners = sourceOwners.get(source) || new Set<string>()
+          for (const owner of relevantOwners) {
+            if (selectedFamilyByOwnerChannel.get(owner)?.get(channel) === family) owners.add(owner)
+          }
+          if (owners.size > 0 || familyOwners.size === 0) sources.add(source)
+          sourceOwners.set(source, owners)
+          const amount = record.sourceCounts[source]
+          if (Number.isFinite(amount) && amount > 0) {
+            fallbackSourceCounts.set(source, Math.max(fallbackSourceCounts.get(source) || 0, amount))
+          }
+        }
+      }
+      const sourceCounts = new Map<string, number>()
+      for (const source of sources) {
+        sourceCounts.set(source, sourceOwners.get(source)?.size || fallbackSourceCounts.get(source) || 1)
+      }
+      const key = JSON.stringify([page, channel, family])
+      const priority = viewportPriority * 1_000_000 - captureIndex
+      const existing = representatives.get(key)
+      if (!existing || priority > existing.priority) {
+        representatives.set(key, { page, family, channel, ownerCount, sources, sourceCounts, priority })
+      }
+      capturedFamilies.add(family)
+    }
+    capturedFamilies.forEach((family) => captureCounts.set(family, (captureCounts.get(family) || 0) + 1))
+  }
+  const totals = new Map<ColorSemanticFamily, number>()
+  const totalsByChannel = new Map<ColorPropertyChannel, number>()
+  const channelsByFamily = new Map<ColorSemanticFamily, Set<ColorPropertyChannel>>()
+  const pagesByFamily = new Map<ColorSemanticFamily, Set<string>>()
+  const sourcesByFamily = new Map<ColorSemanticFamily, Set<string>>()
+  const sourceCountsByFamily = new Map<ColorSemanticFamily, Map<string, number>>()
+  for (const representative of representatives.values()) {
+    totals.set(representative.family, (totals.get(representative.family) || 0) + representative.ownerCount)
+    totalsByChannel.set(
+      representative.channel,
+      (totalsByChannel.get(representative.channel) || 0) + representative.ownerCount,
+    )
+    const familyChannels = channelsByFamily.get(representative.family) || new Set<ColorPropertyChannel>()
+    familyChannels.add(representative.channel)
+    channelsByFamily.set(representative.family, familyChannels)
+    const familyPages = pagesByFamily.get(representative.family) || new Set<string>()
+    familyPages.add(representative.page)
+    pagesByFamily.set(representative.family, familyPages)
+    const familySources = sourcesByFamily.get(representative.family) || new Set<string>()
+    representative.sources.forEach((source) => familySources.add(source))
+    sourcesByFamily.set(representative.family, familySources)
+    const familySourceCounts = sourceCountsByFamily.get(representative.family) || new Map<string, number>()
+    representative.sourceCounts.forEach((count, source) =>
+      familySourceCounts.set(source, (familySourceCounts.get(source) || 0) + count),
+    )
+    sourceCountsByFamily.set(representative.family, familySourceCounts)
+  }
+  const sortedFamilies = [...totals.entries()].sort(
+    ([firstFamily, firstCount], [secondFamily, secondCount]) =>
+      secondCount - firstCount ||
+      COLOR_SEMANTIC_FAMILY_PRIORITY.indexOf(firstFamily) - COLOR_SEMANTIC_FAMILY_PRIORITY.indexOf(secondFamily),
+  )
+  return {
+    roleCounts: Object.fromEntries(sortedFamilies),
+    dominantFamily: sortedFamilies[0]?.[0],
+    families: sortedFamilies.map(([family, familyOwnerCount]) => {
+      const familyPages = [...(pagesByFamily.get(family) || [])].sort()
+      const familySources = [...(sourcesByFamily.get(family) || [])].sort()
+      const familySourceCounts = Object.fromEntries(
+        [...(sourceCountsByFamily.get(family) || new Map<string, number>())].sort(([first], [second]) =>
+          first.localeCompare(second),
+        ),
+      )
+      const familyPageCount = familyPages.length
+      const comparableOwnerCount = [...(channelsByFamily.get(family) || [])].reduce(
+        (sum, channel) => sum + (totalsByChannel.get(channel) || 0),
+        0,
+      )
+      const semanticAgreement = comparableOwnerCount > 0 ? familyOwnerCount / comparableOwnerCount : 0
+      const semanticConfidence =
+        familyOwnerCount <= 0 || semanticAgreement < 0.6
+          ? ('low' as const)
+          : semanticAgreement >= 0.8 && familyPageCount >= 2
+            ? ('high' as const)
+            : ('medium' as const)
+      const pageSupportRatio = eligiblePageCount > 0 ? familyPageCount / eligiblePageCount : 0
+      const foundationSupport =
+        semanticConfidence !== 'low' &&
+        ((eligiblePageCount >= 2 && familyPageCount >= 2 && pageSupportRatio >= 0.75) ||
+          (eligiblePageCount === 1 && familyPageCount === 1 && familyOwnerCount >= 2))
+      return {
+        family,
+        ownerCount: familyOwnerCount,
+        pageCount: familyPageCount,
+        pages: familyPages,
+        captureCount: captureCounts.get(family) || 0,
+        sources: familySources,
+        sourceCounts: familySourceCounts,
+        semanticAgreement: Number(semanticAgreement.toFixed(3)),
+        semanticConfidence,
+        reuseScope: foundationSupport
+          ? ('foundation' as const)
+          : familyPageCount > 0
+            ? ('local' as const)
+            : ('unknown' as const),
+      }
+    }),
+  }
+}
+
+function representedColorFamilies(tokens: DesignToken): Map<string, Set<ColorSemanticFamily>> {
+  const represented = new Map<string, Set<ColorSemanticFamily>>()
+  const add = (value: string | undefined, ...families: ColorSemanticFamily[]) => {
+    const normalized = value ? normalizeColorValue(value) : null
+    if (!normalized) return
+    const existing = represented.get(normalized) || new Set<ColorSemanticFamily>()
+    families.forEach((family) => existing.add(family))
+    represented.set(normalized, existing)
+  }
+  for (const [role, value] of Object.entries(tokens.colors)) {
+    if (!isPortableTokenEvidence(tokens.evidence?.[`colors.${role}`])) continue
+    if (['background', 'surface', 'secondary'].includes(role)) add(value, 'background')
+    else if (['foreground', 'muted-foreground'].includes(role)) add(value, 'foreground')
+    else if (role.startsWith('border')) add(value, 'border')
+    else if (role === 'primary') add(value, 'action-background')
+    else if (role === 'danger') add(value, 'status')
+    else if (role === 'accent') add(value, 'action-background', 'accent')
+    else if (['editorial-accent', 'decorative-accent'].includes(role)) add(value, 'accent')
+  }
+  return represented
+}
+
+function completeColorCandidateCatalog(tokens: DesignToken, captures: TokenEvidenceCapture[]): ColorTokenCandidate[] {
+  const candidates = [...(tokens.candidates?.colors || [])]
+  const observedValues = new Set(
+    candidates
+      .filter((candidate) => candidate.kind === 'observed-unassigned')
+      .map((candidate) => normalizeColorValue(candidate.value) || candidate.value),
+  )
+  for (const rawValue of Object.values(tokens.colors)) {
+    const value = normalizeColorValue(rawValue)
+    if (!value || observedValues.has(value)) continue
+    const observationCount = captures.reduce(
+      (total, capture) => total + colorCandidateObservationCount(capture.styles, value),
+      0,
+    )
+    if (observationCount <= 0) continue
+    candidates.push({ value, kind: 'observed-unassigned', observationCount, sources: [] })
+    observedValues.add(value)
+  }
+  return candidates
+}
+
+export function enrichColorCandidateEvidence(tokens: DesignToken, captures: TokenEvidenceCapture[]): void {
+  const eligiblePageCount = new Set(captures.map((capture) => pageIdentityUrl(capture.url))).size
+  const valueCandidates = [...(tokens.candidates?.values || [])]
+  for (const candidate of completeColorCandidateCatalog(tokens, captures)) {
     const pages = new Set<string>()
     const sources = new Set(candidate.sources)
+    const observationsByPage = new Map<string, number>()
     let captureCount = 0
-    let observationCount = 0
     for (const capture of captures) {
       let matched = false
       for (const [key, count] of Object.entries(capture.styles.usageCount)) {
@@ -175,16 +488,185 @@ function enrichColorCandidateEvidence(tokens: DesignToken, captures: TokenEviden
         for (const source of capture.styles.valueSources?.[key] || []) sources.add(source)
       }
       if (!matched) continue
-      observationCount += colorCandidateObservationCount(capture.styles, candidate.value, candidate.kind)
+      const page = pageIdentityUrl(capture.url)
+      observationsByPage.set(
+        page,
+        Math.max(
+          observationsByPage.get(page) || 0,
+          colorCandidateObservationCount(capture.styles, candidate.value, candidate.kind),
+        ),
+      )
       captureCount += 1
-      pages.add(pageIdentityUrl(capture.url))
+      pages.add(page)
     }
+    const observationCount = [...observationsByPage.values()].reduce((total, count) => total + count, 0)
+    const measurementConfidence = measurementConfidenceFor(pages.size, captureCount, observationCount, sources)
+    const semantic =
+      candidate.kind === 'declared-only'
+        ? { roleCounts: {}, families: [] }
+        : colorCandidateSemanticAssessment(captures, candidate.value, eligiblePageCount)
+    const dominantSemantic = semantic.families[0]
+    const reasonsForSources = (familySources: readonly string[]) => [
+      ...(candidate.kind === 'declared-only' ? (['declared-only'] as const) : (['rendered-use'] as const)),
+      ...(familySources.some((source) => source.startsWith('computed:')) ? (['computed-style'] as const) : []),
+    ]
+    const dominantSources = dominantSemantic?.sources || [...sources].sort()
+    const dominantReasons = reasonsForSources(dominantSources)
+    const id = tokenCandidateId(
+      'colors',
+      candidate.value,
+      dominantSemantic?.family || '',
+      candidate.kind === 'declared-only' ? 'declared-color' : 'observed-color',
+    )
     candidate.observationCount = Number(observationCount.toFixed(3))
-    candidate.captureCount = captureCount
-    candidate.pageCount = pages.size
-    candidate.sources = [...sources].sort()
-    candidate.measurementConfidence = measurementConfidenceFor(pages.size, captureCount, observationCount, sources)
+    candidate.id = id
+    candidate.role = dominantSemantic?.family
+    candidate.captureCount = dominantSemantic?.captureCount || captureCount
+    candidate.pageCount = dominantSemantic?.pageCount || pages.size
+    candidate.eligiblePageCount = eligiblePageCount
+    candidate.pageSupportRatio =
+      eligiblePageCount > 0 ? Number(((dominantSemantic?.pageCount || pages.size) / eligiblePageCount).toFixed(3)) : 0
+    candidate.pages = dominantSemantic?.pages || [...pages].sort()
+    candidate.sources = dominantSources
+    candidate.measurementConfidence = dominantSemantic
+      ? measurementConfidenceFor(
+          dominantSemantic.pageCount,
+          dominantSemantic.captureCount,
+          dominantSemantic.ownerCount,
+          new Set(dominantSources),
+        )
+      : measurementConfidence
+    candidate.semanticConfidence = dominantSemantic?.semanticConfidence || 'low'
+    candidate.semanticAgreement = dominantSemantic?.semanticAgreement || 0
+    candidate.roleCounts = semantic.roleCounts
+    candidate.reuseScope =
+      candidate.kind === 'declared-only' ? 'declared-only' : dominantSemantic?.reuseScope || 'unknown'
+    candidate.reasons = dominantReasons
+    const semanticFamilies =
+      candidate.kind === 'declared-only' || semantic.families.length === 0
+        ? [
+            {
+              family: undefined,
+              ownerCount: candidate.observationCount,
+              pageCount: pages.size,
+              pages: candidate.pages,
+              captureCount,
+              sources: candidate.sources,
+              sourceCounts: {},
+              semanticAgreement: 0,
+              semanticConfidence: 'low' as const,
+              reuseScope: candidate.kind === 'declared-only' ? ('declared-only' as const) : ('unknown' as const),
+            },
+          ]
+        : semantic.families
+    for (const family of semanticFamilies) {
+      const pairedSurface =
+        family.family === 'foreground'
+          ? buildFoundationForegroundPairEvidence(
+              [tokens.colors.background, tokens.colors.surface, tokens.colors.secondary],
+              candidate.value,
+              captures,
+            )
+          : undefined
+      const renderedEvidence =
+        family.family === 'foreground'
+          ? buildTokenEvidence(
+              {
+                ...emptyDesignTokens(),
+                colors: {
+                  ...(pairedSurface ? { background: pairedSurface.background } : {}),
+                  foreground: candidate.value,
+                },
+              },
+              captures,
+            )['colors.foreground']
+          : undefined
+      const auditableRenderedEvidence = renderedEvidence?.renderedTextOwners?.length ? renderedEvidence : undefined
+      const auditablePairedSurface = auditableRenderedEvidence?.pairedSurface
+      const pairedFoundation = family.semanticConfidence !== 'low' && isFoundationForegroundPair(auditablePairedSurface)
+      const familyId = tokenCandidateId(
+        'colors',
+        candidate.value,
+        family.family || '',
+        candidate.kind === 'declared-only' ? 'declared-color' : 'observed-color',
+      )
+      const familyMeasurementConfidence = measurementConfidenceFor(
+        auditableRenderedEvidence?.pageCount ?? family.pageCount,
+        auditableRenderedEvidence?.captureCount ?? family.captureCount,
+        auditableRenderedEvidence?.ownerCount ?? family.ownerCount,
+        new Set([...(family.sources || []), ...(auditableRenderedEvidence?.sources || [])]),
+      )
+      const familySources = [...new Set([...family.sources, ...(auditableRenderedEvidence?.sources || [])])]
+        .filter((source) => source !== 'rendered:text' || Boolean(auditableRenderedEvidence))
+        .sort()
+      const familySourceCounts = Object.fromEntries(
+        Object.entries(family.sourceCounts).filter(([source]) => familySources.includes(source)),
+      )
+      const familyReasons = [
+        ...reasonsForSources(familySources),
+        ...(auditablePairedSurface ? (['paired-surface'] as const) : []),
+      ]
+      const familyCandidate: TokenValueCandidate = {
+        id: familyId,
+        group: 'colors',
+        ...(family.family ? { role: family.family } : {}),
+        value: candidate.value,
+        provenance: candidate.kind === 'declared-only' ? 'declared-color' : 'observed-color',
+        rejectionReason: candidate.kind === 'declared-only' ? 'declared-only' : 'unassigned-role',
+        evidence: {
+          value: candidate.value,
+          confidence: family.semanticConfidence,
+          measurementConfidence: familyMeasurementConfidence,
+          semanticConfidence: family.semanticConfidence,
+          reuseScope: pairedFoundation ? 'foundation' : family.reuseScope,
+          observationCount: Number((auditableRenderedEvidence?.observationCount ?? family.ownerCount).toFixed(3)),
+          ownerCount: Number((auditableRenderedEvidence?.ownerCount ?? family.ownerCount).toFixed(3)),
+          semanticAgreement: family.semanticAgreement,
+          pageCount: auditableRenderedEvidence?.pageCount ?? family.pageCount,
+          captureCount: auditableRenderedEvidence?.captureCount ?? family.captureCount,
+          eligiblePageCount: auditableRenderedEvidence?.eligiblePageCount ?? eligiblePageCount,
+          pageSupportRatio:
+            auditableRenderedEvidence?.pageSupportRatio ??
+            (eligiblePageCount > 0 ? Number((family.pageCount / eligiblePageCount).toFixed(3)) : 0),
+          pages: auditableRenderedEvidence?.pages ?? family.pages,
+          sources: familySources,
+          ...(Object.keys(familySourceCounts).length > 0 ? { sourceCounts: familySourceCounts } : {}),
+          roleCounts: family.family ? { [family.family]: family.ownerCount } : {},
+          ...(auditableRenderedEvidence?.renderedTextOwners
+            ? { renderedTextOwners: auditableRenderedEvidence.renderedTextOwners }
+            : {}),
+          ...(auditablePairedSurface ? { pairedSurface: auditablePairedSurface } : {}),
+          reasons: familyReasons,
+        },
+      }
+      const existingIndex = valueCandidates.findIndex((item) => item.id === familyId)
+      if (existingIndex >= 0) valueCandidates[existingIndex] = familyCandidate
+      else valueCandidates.push(familyCandidate)
+    }
   }
+  const represented = representedColorFamilies(tokens)
+  const unrepresentedCandidates = valueCandidates.filter((candidate) => {
+    if (candidate.group !== 'colors' || candidate.provenance !== 'observed-color' || !candidate.role) return true
+    const normalized = normalizeColorValue(candidate.value)
+    return !normalized || !represented.get(normalized)?.has(candidate.role as ColorSemanticFamily)
+  })
+  if (unrepresentedCandidates.length > 0) {
+    tokens.candidates = { ...tokens.candidates, values: unrepresentedCandidates }
+  } else if (tokens.candidates?.colors?.length) {
+    tokens.candidates = { colors: tokens.candidates.colors }
+  } else {
+    delete tokens.candidates
+  }
+}
+
+function finalizePortableTokens(tokens: DesignToken, captures: TokenEvidenceCapture[]): void {
+  tokens.evidence = buildTokenEvidence(tokens, captures)
+  reselectPortableFoundationColors(tokens, captures)
+  enrichColorCandidateEvidence(tokens, captures)
+  promotePortableDesignTokens(tokens)
+  // Promotion can remove and reorder array-backed values. Rebuild the catalog so every public token path and its
+  // evidence remain aligned for Desktop, CLI, MCP, and every exporter.
+  tokens.evidence = buildTokenEvidence(tokens, captures)
 }
 
 /** Builds tokens and evidence from completed captures without owning browser lifecycle or persistence. */
@@ -196,6 +678,7 @@ export function buildAnalysisOutput(
   const tokenSelectionStyles = mergeStylesWithNormalizedUsage(
     input.styles,
     input.styleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+    input.styleCaptures.map((capture) => capture.viewport),
   )
 
   stages.onClusteringColors?.()
@@ -204,9 +687,7 @@ export function buildAnalysisOutput(
   stages.onGeneratingTokens?.()
   const tokens = buildDesignTokens(tokenSelectionStyles, clusteredColors, tokenSelectionStyles)
   tokens.usageCount = normalizeDesignTokenUsageCount(mergedStyles.usageCount)
-  tokens.evidence = buildTokenEvidence(tokens, input.styleCaptures)
-  enrichColorCandidateEvidence(tokens, input.styleCaptures)
-  demoteWeakSemanticBorderTokens(tokens)
+  finalizePortableTokens(tokens, input.styleCaptures)
 
   let evidenceTokens = emptyDesignTokens()
   let evidenceMergedStyles = mergeStyles([])
@@ -215,16 +696,18 @@ export function buildAnalysisOutput(
     const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
       input.evidenceEligibleStyles,
       input.evidenceEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+      input.evidenceEligibleStyleCaptures.map((capture) => capture.viewport),
     )
     const evidenceColors = clusterColors(evidenceSelectionStyles.colors, evidenceSelectionStyles.usageCount)
     evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
     evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
-    evidenceTokens.evidence = buildTokenEvidence(evidenceTokens, input.evidenceEligibleStyleCaptures)
-    enrichColorCandidateEvidence(evidenceTokens, input.evidenceEligibleStyleCaptures)
-    demoteWeakSemanticBorderTokens(evidenceTokens)
+    finalizePortableTokens(evidenceTokens, input.evidenceEligibleStyleCaptures)
   }
 
-  let featureTags = generateFeatureTags(tokens, mergedStyles)
+  // Public tokens and claims share the page-health-eligible catalog embedded in Design Evidence. The all-capture
+  // snapshot remains available only as raw diagnostic styles; it must not create a second implementation catalog.
+  let portableTokens = input.evidenceEligibleStyles.length > 0 ? evidenceTokens : emptyDesignTokens()
+  let featureTags = generateFeatureTags(portableTokens, evidenceMergedStyles)
   const limitations = [...input.limitations]
   input.extractionIssues
     .filter((issue) => !isPageHealthExtractionIssue(issue))
@@ -240,11 +723,6 @@ export function buildAnalysisOutput(
     expectedPageCount: input.expectedPageCount,
     expectedViewports: input.expectedViewports,
     expectedCaptureCount: input.expectedCaptureCount,
-    screenshotAssetIssueCount: input.extractionIssues.filter(
-      (issue) =>
-        /:screenshot:overview$/.test(issue.stage) &&
-        /^screenshot-dimensions-(?:mismatch|unreadable)/.test(issue.reason),
-    ).length,
     tokens: evidenceTokens,
     featureTags,
     interactionStyles: input.interactionStyles,
@@ -254,7 +732,8 @@ export function buildAnalysisOutput(
     limitations,
     techStack: input.techStack,
   })
-  const deterministicClaims = buildEvidenceBackedClaims(evidenceTokens, evidenceMergedStyles, designEvidence)
+  portableTokens = designEvidence.tokens
+  const deterministicClaims = buildEvidenceBackedClaims(portableTokens, evidenceMergedStyles, designEvidence)
   featureTags = [...new Set([...deterministicClaims.map((claim) => claim.label), ...featureTags])].slice(0, 6)
   designEvidence = {
     ...designEvidence,
@@ -262,5 +741,5 @@ export function buildAnalysisOutput(
     ...(deterministicClaims.length > 0 ? { deterministicClaims } : {}),
   }
 
-  return { tokens, rawStyles: mergedStyles, designEvidence, featureTags }
+  return { tokens: portableTokens, rawStyles: mergedStyles, designEvidence, featureTags }
 }

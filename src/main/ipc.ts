@@ -32,7 +32,7 @@ import { getDb } from './database.js'
 import { addHistoryThumbnailPaths } from './history-thumbnails.js'
 import { log } from './logger.js'
 import { submitLoginDecision, waitForLoginDecision } from './login-decision.js'
-import { analysisSiteName, readDesignEvidence, readDesignTokens } from './persisted-records.js'
+import { analysisSiteName, readDesignEvidence, readStoredDesignTokens } from './persisted-records.js'
 import { getSettings } from './settings.js'
 import { registerSystemIpcHandlers } from './system-ipc.js'
 import { registerThemeIpcHandlers } from './theme-ipc.js'
@@ -315,7 +315,8 @@ export function registerIpcHandlers() {
       const evidence = readDesignEvidence(record.design_evidence_json)
       if (!evidence) return { error: true, message: 'Design evidence is required' }
       const evidenceTokens = evidence.tokens
-      const tokens = readDesignTokens(record.tokens_json) || evidenceTokens
+      const tokens = readStoredDesignTokens(record.tokens_json, evidence)
+      if (!tokens) return { error: true, message: 'Design tokens are required' }
       const storedContext = restoreDeterministicStoredContext(record, tokens, evidence)
       if (!storedContext.profile) return { error: true, message: 'A deterministic DesignProfile is required' }
       const profile = storedContext.profile
@@ -326,7 +327,13 @@ export function registerIpcHandlers() {
         analysisId,
       )
       return {
-        ...buildStoredAnalysisResult(record, tokens),
+        ...buildStoredAnalysisResult(
+          record,
+          tokens,
+          storedContext.designDoc,
+          storedContext.cssVariables,
+          storedContext.tailwindTheme,
+        ),
         designEvidence: evidence,
         designProfile: profile,
         reconstructionBrief: generateReconstructionBrief(profile, evidence, evidenceTokens),

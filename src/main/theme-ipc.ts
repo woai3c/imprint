@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { app, ipcMain } from 'electron'
 
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
+import { projectDesignEvidenceTokenReferences } from '../core/design-evidence/token-reference.js'
 import { generateDesignDoc } from '../core/export/index.js'
 import type { ThemeRecord, ThemeSaveResponse, ThemeSummaryRecord } from '../shared/ipc-contract.js'
 import { collectStoredAnalysisAssets, removeGeneratedAssets } from './analysis-assets.js'
@@ -10,11 +11,12 @@ import { getDb } from './database.js'
 import { saveTextFile } from './file-export.js'
 import { log } from './logger.js'
 import {
+  hasSuccessfullyRevalidatedDesignEvidenceTokens,
   readDarkModeExportData,
   readDesignEvidence,
   readDesignProfile,
-  readDesignTokens,
   readFirstScreenshotPath,
+  readStoredDesignTokens,
   toThemeSummary,
 } from './persisted-records.js'
 
@@ -198,16 +200,14 @@ export function registerThemeIpcHandlers(): void {
     let designDoc = theme.design_doc
     try {
       const evidence = readDesignEvidence(theme.design_evidence_json)
-      const tokens = readDesignTokens(theme.tokens_json) || evidence?.tokens
+      const tokens = readStoredDesignTokens(theme.tokens_json, evidence)
       if (!tokens) throw new Error('Invalid theme tokens')
-      const storedProfile = readDesignProfile(theme.design_profile_json)
-      if (evidence) {
-        const profile =
-          storedProfile ||
-          createDeterministicDesignContext(
-            evidence,
-            evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en',
-          ).profile
+      if (evidence && hasSuccessfullyRevalidatedDesignEvidenceTokens(evidence)) {
+        projectDesignEvidenceTokenReferences(evidence, evidence.tokens, tokens)
+        const storedProfile = readDesignProfile(theme.design_profile_json)
+        const language =
+          storedProfile?.language || (evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en')
+        const profile = createDeterministicDesignContext(evidence, language).profile
         const darkMode = readDarkModeExportData(
           theme.dark_tokens_json,
           tokens,

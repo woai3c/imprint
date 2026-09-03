@@ -312,13 +312,24 @@ function invalidateForegroundEvidenceWithoutEffectiveSurface(tokens: DesignToken
       .map((role) => normalizeColorValue(tokens.colors[role] ?? baseTokens.colors[role] ?? ''))
       .filter((value): value is string => value !== null),
   )
+  const effectiveGlobalBackground = tokens.colors.background ?? baseTokens.colors.background
+  const globalBackgroundChanged = effectiveGlobalBackground !== baseTokens.colors.background
   let invalidated = false
   for (const role of ['foreground', 'muted-foreground']) {
-    if (tokens.colors[role] === undefined || tokens.colors[role] === baseTokens.colors[role]) continue
+    if (
+      tokens.colors[role] === undefined ||
+      (tokens.colors[role] === baseTokens.colors[role] && !globalBackgroundChanged)
+    ) {
+      continue
+    }
     const path = `colors.${role}`
     const item = tokens.evidence?.[path]
     const pairedBackground = normalizeColorValue(item?.pairedSurface?.background || '')
     const hasEffectiveSurface = Boolean(item && pairedBackground && effectiveFoundationSurfaces.has(pairedBackground))
+    const globalContrast = effectiveGlobalBackground
+      ? colorContrast(tokens.colors[role], effectiveGlobalBackground)
+      : null
+    const isReadableAgainstGlobalBackground = !effectiveGlobalBackground || (globalContrast ?? 0) >= 4.5
     const hasMutedHierarchy =
       role !== 'muted-foreground' ||
       (() => {
@@ -332,7 +343,7 @@ function invalidateForegroundEvidenceWithoutEffectiveSurface(tokens: DesignToken
           mutedContrast <= foregroundContrast - 0.5
         )
       })()
-    if (hasEffectiveSurface && hasMutedHierarchy) continue
+    if (hasEffectiveSurface && isReadableAgainstGlobalBackground && hasMutedHierarchy) continue
     if (item) tokens.evidence![path] = withoutUnboundRenderedProvenance(item)
     invalidated = true
   }
@@ -345,6 +356,12 @@ function invalidateUnpairedChangedFoundationSurfaces(tokens: DesignToken, baseTo
     const value = tokens.colors[role]
     if (value === undefined || value === baseTokens.colors[role]) continue
     const normalizedSurface = normalizeColorValue(value)
+    const allGlobalForegroundsReadable =
+      role !== 'background' ||
+      ['foreground', 'muted-foreground'].every((foregroundRole) => {
+        const foreground = tokens.colors[foregroundRole] ?? baseTokens.colors[foregroundRole]
+        return !foreground || (colorContrast(foreground, value) ?? 0) >= 4.5
+      })
     const hasReadableForeground = ['foreground', 'muted-foreground'].some((foregroundRole) => {
       const foreground = tokens.colors[foregroundRole]
       const item = tokens.evidence?.[`colors.${foregroundRole}`]
@@ -356,7 +373,7 @@ function invalidateUnpairedChangedFoundationSurfaces(tokens: DesignToken, baseTo
         (colorContrast(foreground, value) || 0) >= 4.5,
       )
     })
-    if (hasReadableForeground) continue
+    if (hasReadableForeground && allGlobalForegroundsReadable) continue
     tokens.evidence = {
       ...tokens.evidence,
       [`colors.${role}`]: ungroundedRestoredEvidence(value),
@@ -367,12 +384,17 @@ function invalidateUnpairedChangedFoundationSurfaces(tokens: DesignToken, baseTo
 }
 
 function restrictGroundedDarkTokens(tokens: DesignToken, baseTokens: DesignToken): Record<string, string> {
-  let overrides = restrictDesignTokensToBaseCatalog(tokens, baseTokens)
-  const invalidForeground = invalidateForegroundEvidenceWithoutEffectiveSurface(tokens, baseTokens)
-  const invalidSurface = invalidateUnpairedChangedFoundationSurfaces(tokens, baseTokens)
-  if (invalidForeground || invalidSurface) {
+  let overrides: Record<string, string> = {}
+  let invalidated = false
+  let pass = 0
+  do {
     overrides = restrictDesignTokensToBaseCatalog(tokens, baseTokens)
-  }
+    const invalidForeground = invalidateForegroundEvidenceWithoutEffectiveSurface(tokens, baseTokens)
+    const invalidSurface = invalidateUnpairedChangedFoundationSurfaces(tokens, baseTokens)
+    invalidated = invalidForeground || invalidSurface
+    pass += 1
+  } while (invalidated && pass < 4)
+  if (invalidated) overrides = restrictDesignTokensToBaseCatalog(tokens, baseTokens)
   tokens.colors = Object.fromEntries(
     Object.entries(baseTokens.colors).map(([role, baseValue]) => [role, tokens.colors[role] ?? baseValue]),
   )

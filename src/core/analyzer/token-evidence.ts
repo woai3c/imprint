@@ -11,6 +11,7 @@ import type {
   DesignToken,
   ExtractedStyles,
   PairedSurfaceEvidence,
+  TokenCandidateGroup,
   TokenConfidence,
   TokenEvidence,
   TokenReuseScope,
@@ -78,6 +79,39 @@ function cssPixels(value: string): number | null {
   if (!match) return null
   const numeric = Number.parseFloat(match[1])
   return match[2].toLowerCase() === 'rem' ? numeric * 16 : numeric
+}
+
+/** Shared value-specific owner rules used by initial semantic assessment and persisted-token revalidation. */
+export function hasValueSpecificFoundationEvidence(
+  group: TokenCandidateGroup,
+  value: string,
+  support: {
+    pageCount: number
+    foundationPageCount: number
+    foundationOwnerCount: number
+    minimumPageFoundationOwnerCount: number
+    sourceCounts: ReadonlyMap<string, number>
+  },
+): boolean {
+  const everySupportingPageHasFoundationOwners = (minimum: number) =>
+    support.foundationPageCount === support.pageCount &&
+    support.minimumPageFoundationOwnerCount >= minimum &&
+    support.foundationOwnerCount >= support.pageCount * minimum
+  if (group === 'spacing') {
+    const pixels = cssPixels(value)
+    if (pixels !== null && pixels <= 0) return false
+    if (pixels !== null && pixels > 96) {
+      return Math.abs(pixels - Math.round(pixels)) <= 0.01 && everySupportingPageHasFoundationOwners(2)
+    }
+  }
+  if (group === 'radii') {
+    const circleOrPill = support.sourceCounts.get('geometry:circle-or-pill') || 0
+    const ordinaryRadius = support.sourceCounts.get('computed:ordinary-radius') || 0
+    if (circleOrPill > ordinaryRadius || !everySupportingPageHasFoundationOwners(1)) return false
+    const pixels = cssPixels(value)
+    if (pixels !== null && pixels > 96 && !everySupportingPageHasFoundationOwners(2)) return false
+  }
+  return true
 }
 
 function valuesMatch(entry: CanonicalTokenEntry, category: string, observedValue: string): boolean {
@@ -498,6 +532,20 @@ const INTERACTIVE_ELEMENT_SOURCES = new Set([
   'element:link',
 ])
 
+/** Matches the generic rendered fallback used when no explicit foundation/component owner scope was observed. */
+export function hasGenericRenderedFoundationFallback(
+  sourceCounts: ReadonlyMap<string, number>,
+  pageCount: number,
+): boolean {
+  const hasScopedOwners = [...FOUNDATION_SCOPE_SOURCES, ...COMPONENT_SCOPE_SOURCES].some(
+    (source) => (sourceCounts.get(source) || 0) > 0,
+  )
+  const hasGenericRenderedOwners = [...sourceCounts.entries()].some(
+    ([source, amount]) => amount > 0 && (source.startsWith('computed:') || source === 'rendered:text'),
+  )
+  return pageCount >= 2 && !hasScopedOwners && hasGenericRenderedOwners
+}
+
 function independentScopeOwnerCount(
   sourceCounts: ReadonlyMap<string, number>,
   sourceOwners: ReadonlyMap<string, ReadonlySet<string>>,
@@ -551,28 +599,17 @@ function semanticAssessment(
   )
   const agreement = scoped > 0 ? Math.max(component, foundation) / scoped : genericRendered ? 1 : 0
   const minimumFoundationOwners = Math.max(1, pageCount)
-  const everySupportingPageHasFoundationOwners = (minimum: number) =>
-    foundationOwnerCountsByPage.size === pageCount &&
-    [...foundationOwnerCountsByPage.values()].every((amount) => amount >= minimum)
-  let valueEligible = true
-  if (entry.group === 'spacing') {
-    const pixels = cssPixels(entry.value)
-    if (pixels !== null && pixels <= 0) valueEligible = false
-    if (pixels !== null && pixels > 96) {
-      const stableIntegralMeasurement = Math.abs(pixels - Math.round(pixels)) <= 0.01
-      valueEligible = stableIntegralMeasurement && everySupportingPageHasFoundationOwners(2)
-    }
-  }
-  if (entry.group === 'radii') {
-    const circleOrPill = sourceCounts.get('geometry:circle-or-pill') || 0
-    const ordinaryRadius = sourceCounts.get('computed:ordinary-radius') || 0
-    if (circleOrPill > ordinaryRadius) valueEligible = false
-    if (!everySupportingPageHasFoundationOwners(1)) valueEligible = false
-    const pixels = cssPixels(entry.value)
-    if (pixels !== null && pixels > 96 && !everySupportingPageHasFoundationOwners(2)) valueEligible = false
-  }
+  const valueEligible = hasValueSpecificFoundationEvidence(entry.group, entry.value, {
+    pageCount,
+    foundationPageCount: foundationOwnerCountsByPage.size,
+    foundationOwnerCount: foundation,
+    minimumPageFoundationOwnerCount:
+      foundationOwnerCountsByPage.size > 0 ? Math.min(...foundationOwnerCountsByPage.values()) : 0,
+    sourceCounts,
+  })
   const reusableSource =
-    valueEligible && (foundation >= minimumFoundationOwners || (scoped === 0 && genericRendered && pageCount >= 2))
+    valueEligible &&
+    (foundation >= minimumFoundationOwners || hasGenericRenderedFoundationFallback(sourceCounts, pageCount))
   const componentOnly = component > 0 && !reusableSource
   const confidence =
     agreement < 2 / 3 || ownerCount <= 0 ? 'low' : agreement >= 0.85 && pageCount >= 2 ? 'high' : 'medium'

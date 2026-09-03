@@ -13,6 +13,7 @@ const CANDIDATE_PREVIEW_LIMIT = 5
 const COMPONENT_DETAIL_LIMIT = 14
 const COMPONENT_DETAIL_LIMIT_PER_TYPE = 4
 const COMPONENT_EVIDENCE_SAMPLE_LIMIT = 24
+const GEOMETRY_RATIO_EPSILON = 1e-9
 const RADIUS_NAMES = ['sm', 'md', 'lg', 'xl', '2xl']
 const SHADOW_NAMES = ['sm', 'md', 'lg', 'xl']
 const DURATION_NAMES = ['fast', 'normal', 'slow', 'slower', 'slowest']
@@ -510,6 +511,10 @@ function validateFoundationForeground(tokens, hardFailures) {
   if (selectedContrast !== null && selectedContrast < 4.5) {
     hardFailures.push('foundation-foreground-background-low-contrast')
   }
+  const globalContrast = auditColorContrast(foreground, background)
+  if (globalContrast === null || globalContrast < 4.5) {
+    hardFailures.push('foundation-foreground-global-background-low-contrast')
+  }
   if (
     !finite(evidence.ownerCount) ||
     !finite(evidence.pageCount) ||
@@ -584,6 +589,10 @@ function validateFoundationForeground(tokens, hardFailures) {
     hardFailures,
   )
   if (!selectedMutedPair) return
+  const globalMutedContrast = auditColorContrast(mutedForeground, background)
+  if (globalMutedContrast === null || globalMutedContrast < 4.5) {
+    hardFailures.push('foundation-muted-foreground-global-background-low-contrast')
+  }
   if (
     !finite(mutedEvidence.ownerCount) ||
     !finite(mutedEvidence.pageCount) ||
@@ -1026,11 +1035,7 @@ function renderedTextOwnerSupports(evidencePath, value, owner, pairedBackground)
   if (typeof owner.page !== 'string' || !owner.page || typeof owner.viewport !== 'string' || !owner.viewport)
     return false
   if (typeof owner.ownerId !== 'string' || !owner.ownerId) return false
-  if (owner.source.glyphPaintKind === 'solid-color') {
-    if (!auditColorsEqual(owner.styles.color, owner.source.foreground)) return false
-  } else if (owner.styles.color !== undefined) {
-    return false
-  }
+  if (owner.source.glyphPaintKind === 'background-clip' && owner.styles.color !== undefined) return false
   if (evidencePath === 'typography.fontFamilies') {
     return normalizedPrimaryFontFamily(owner.styles.fontFamily) === normalizedPrimaryFontFamily(value)
   }
@@ -1061,6 +1066,7 @@ function renderedTextOwnerSupports(evidencePath, value, owner, pairedBackground)
   if (evidencePath.startsWith('colors.')) {
     return (
       auditColorsEqual(owner.styles.color, value) &&
+      auditColorsEqual(owner.source.foreground, value) &&
       (pairedBackground === undefined || auditColorsEqual(owner.styles.backgroundColor, pairedBackground)) &&
       owner.source.glyphPaintKind === 'solid-color' &&
       owner.source.opacity >= 0.999 &&
@@ -1234,7 +1240,7 @@ function auditValidPseudoPaintEvidence(paint) {
     paint.paintedAreaPx <= 16 ||
     !finite(paint.captureIntersectionRatio) ||
     paint.captureIntersectionRatio <= 0.02 ||
-    paint.captureIntersectionRatio > 1 ||
+    paint.captureIntersectionRatio > 1 + GEOMETRY_RATIO_EPSILON ||
     !finite(paint.opacity) ||
     paint.opacity <= 0.02 ||
     paint.opacity > 1 ||
@@ -2630,7 +2636,26 @@ function pageRefFailures(evidence, pathLabel, routeIds, canonicalCaptureByRoute)
   return failures
 }
 
-function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute) {
+const DEFERRED_COLOR_CANDIDATE_PROVENANCE_FAILURES = new Set([
+  'duplicate-or-invalid-rendered-text-owner',
+  'invalid-rendered-text-owner-evidence',
+  'missing-rendered-text-owner-evidence',
+  'missing-rendered-text-pair-evidence',
+  'missing-rendered-text-pair-source',
+  'missing-source-implied-paired-surface',
+  'missing-source-implied-rendered-text-owner',
+  'mixed-rendered-text-owner-viewports',
+  'rendered-text-observation-count-mismatch',
+  'rendered-text-owner-capture-mismatch',
+  'rendered-text-owner-count-mismatch',
+  'rendered-text-owner-value-mismatch',
+  'rendered-text-page-coverage-mismatch',
+  'rendered-text-pair-count-mismatch',
+  'rendered-text-pair-role-mismatch',
+  'rendered-text-pair-sample-mismatch',
+])
+
+function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute, warnings = []) {
   const failures = []
   const ids = []
   const identities = []
@@ -2697,14 +2722,15 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute)
     const candidateSources = Array.isArray(evidence.sources) ? evidence.sources : []
     const claimsRenderedText = candidateSources.includes('rendered:text')
     const claimsPairedSurface = candidateSources.includes('observed:text-background-pair')
+    const renderedProvenanceFailures = []
     if (
       claimsRenderedText &&
       (!Array.isArray(evidence.renderedTextOwners) || evidence.renderedTextOwners.length === 0)
     ) {
-      failures.push(`missing-source-implied-rendered-text-owner:${pathLabel}`)
+      renderedProvenanceFailures.push(`missing-source-implied-rendered-text-owner:${pathLabel}`)
     }
     if (claimsPairedSurface && !isObject(evidence.pairedSurface)) {
-      failures.push(`missing-source-implied-paired-surface:${pathLabel}`)
+      renderedProvenanceFailures.push(`missing-source-implied-paired-surface:${pathLabel}`)
     }
     if (
       (evidence.renderedTextOwners !== undefined ||
@@ -2715,7 +2741,21 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute)
       typeof candidate.value === 'string'
     ) {
       const evidencePath = candidate.group === 'colors' ? `colors.${index}` : `${candidate.group}.${index}`
-      validateRenderedTextOwnerProvenance(evidencePath, candidate.value, evidence, failures, canonicalCaptureByRoute)
+      validateRenderedTextOwnerProvenance(
+        evidencePath,
+        candidate.value,
+        evidence,
+        renderedProvenanceFailures,
+        canonicalCaptureByRoute,
+      )
+    }
+    for (const failure of renderedProvenanceFailures) {
+      const kind = failure.split(':')[0]
+      if (candidate.group === 'colors' && DEFERRED_COLOR_CANDIDATE_PROVENANCE_FAILURES.has(kind)) {
+        warnings.push(`deferred-color-candidate-provenance:${failure}`)
+      } else {
+        failures.push(failure)
+      }
     }
   }
   for (const id of duplicateValues(ids)) failures.push(`duplicate-candidate-id:${id}`)
@@ -3282,8 +3322,15 @@ function validateDesignDocOwnerCounts(source, tokens, hardFailures) {
   }
 }
 
-function validateTypographyFamilyProjection(source, tokens, evidence, hardFailures) {
-  const language = evidence?.source?.language === 'zh-CN' ? 'zh-CN' : 'en'
+function validateTypographyFamilyProjection(source, tokens, evidence, profile, hardFailures) {
+  const language =
+    profile?.language === 'zh-CN'
+      ? 'zh-CN'
+      : profile?.language === 'en'
+        ? 'en'
+        : evidence?.source?.language === 'zh-CN'
+          ? 'zh-CN'
+          : 'en'
   const typographyLocale = DESIGN_DOC_LOCALES[language]?.typography || {}
   const families = Array.isArray(tokens?.typography?.fontFamilies) ? tokens.typography.fontFamilies : []
   const values = families.join(', ') || typographyLocale.noPortableFamilies
@@ -3843,8 +3890,15 @@ function expectedResponsiveObservationLines(evidence, language) {
     })
 }
 
-function validateGroupedResponsiveObservations(source, evidence, hardFailures) {
-  const language = evidence?.source?.language === 'zh-CN' ? 'zh-CN' : 'en'
+function validateGroupedResponsiveObservations(source, evidence, profile, hardFailures) {
+  const language =
+    profile?.language === 'zh-CN'
+      ? 'zh-CN'
+      : profile?.language === 'en'
+        ? 'en'
+        : evidence?.source?.language === 'zh-CN'
+          ? 'zh-CN'
+          : 'en'
   const ownerHeading = language === 'zh-CN' ? '设计证据概览' : 'Design Evidence Overview'
   const responsiveHeading = language === 'zh-CN' ? '响应式结构观察' : 'Responsive Structure Observations'
   const allOwnerHeadings = new Set(['Design Evidence Overview', '设计证据概览'])
@@ -4873,9 +4927,15 @@ function auditComponentVariant(candidate) {
     candidate.widthPx !== undefined &&
     candidate.heightPx !== undefined &&
     Math.max(candidate.widthPx, candidate.heightPx) <= 36
-  if (icon && !hasVisibleText && (!primaryRole || compact)) return 'icon'
+  const squareIconGeometry =
+    candidate.widthPx !== undefined &&
+    candidate.heightPx !== undefined &&
+    Math.max(candidate.widthPx, candidate.heightPx) <= 64 &&
+    candidate.widthPx / candidate.heightPx >= 0.75 &&
+    candidate.widthPx / candidate.heightPx <= 1.33
+  if ((icon || squareIconGeometry) && !hasVisibleText && (!primaryRole || compact)) return 'icon'
   if (primaryRole && (referencesPrimary || (!transparent && alpha !== undefined && alpha >= 0.5))) return 'primary'
-  if (icon && !hasVisibleText) return 'icon'
+  if ((icon || squareIconGeometry) && !hasVisibleText) return 'icon'
   if (referencesPrimary) return 'action'
   if (transparent) return auditVisibleBorder(candidate.styles?.border) ? 'action' : 'text'
   return 'action'
@@ -6057,17 +6117,23 @@ function expectedDesignMdComponents(specs, colors, typography, rounded) {
       ),
     )
     const properties = {}
-    if (style.backgroundColor && !/^rgba\([^)]*,\s*(?:0|0\.\d+)\)$/i.test(style.backgroundColor)) {
+    const normalizedBackground = normalizedCandidateColor(style.backgroundColor)
+    if (
+      normalizedBackground &&
+      auditVisibleColor(style.backgroundColor) &&
+      (auditColorAlpha(style.backgroundColor) ?? 1) >= 0.999
+    ) {
       properties.backgroundColor =
-        referenceFor('colors', colorEntries, style.backgroundColor, normalizedFrontMatterColor, (name) =>
+        referenceFor('colors', colorEntries, style.backgroundColor, normalizedCandidateColor, (name) =>
           auditColorTokenRoleCompatible('backgroundColor', `color.${name}`),
-        ) || normalizedFrontMatterColor(style.backgroundColor)
+        ) || normalizedBackground
     }
-    if (style.color && !/(?:transparent|rgba\([^)]*,\s*0\s*\))/i.test(style.color)) {
+    const normalizedText = normalizedCandidateColor(style.color)
+    if (normalizedText && auditVisibleColor(style.color)) {
       properties.textColor =
-        referenceFor('colors', colorEntries, style.color, normalizedFrontMatterColor, (name) =>
+        referenceFor('colors', colorEntries, style.color, normalizedCandidateColor, (name) =>
           auditColorTokenRoleCompatible('color', `color.${name}`),
-        ) || normalizedFrontMatterColor(style.color)
+        ) || normalizedText
     }
     const radius = singleDesignMdDimension(style.borderRadius)
     if (radius && Math.abs(Number.parseFloat(radius)) > 0.001) {
@@ -6652,6 +6718,7 @@ export async function auditArtifactBundle(directory) {
         manualReview: [],
         metrics: {},
       }
+  const bundleWarnings = [...documentReport.warnings]
   hardFailures.push(...documentReport.hardFailures)
   bundleLimitations.push(...documentReport.limitations)
 
@@ -6815,6 +6882,7 @@ export async function auditArtifactBundle(directory) {
         'evidence.tokens.candidates.values',
         evidenceRouteIds,
         canonicalTokenEvidenceCaptures,
+        bundleWarnings,
       ),
     )
     validateFoundationForeground(tokens, hardFailures)
@@ -6854,7 +6922,13 @@ export async function auditArtifactBundle(directory) {
 
     const dtcgCandidates = dtcg.$extensions?.['com.imprint.candidates']?.values || []
     hardFailures.push(
-      ...candidateFailures(dtcgCandidates, 'dtcg.candidates.values', evidenceRouteIds, canonicalTokenEvidenceCaptures),
+      ...candidateFailures(
+        dtcgCandidates,
+        'dtcg.candidates.values',
+        evidenceRouteIds,
+        canonicalTokenEvidenceCaptures,
+        bundleWarnings,
+      ),
     )
     if (stableJson(canonicalCandidates) !== stableJson(dtcgCandidates)) {
       hardFailures.push('candidate-catalog-mismatch:evidence-vs-dtcg')
@@ -6935,6 +7009,7 @@ export async function auditArtifactBundle(directory) {
         'dtcg.dark.candidates.values',
         evidenceRouteIds,
         canonicalDarkTokenEvidenceCaptures,
+        bundleWarnings,
       ),
     )
     validateDarkFoundationForeground(tokens, darkImplementationTokens, darkEvidence, darkCandidates, hardFailures)
@@ -7008,11 +7083,11 @@ export async function auditArtifactBundle(directory) {
   }
   validateGuidanceScope(sources['DESIGN.md'] || '', profile, hardFailures)
   validateDesignDocOwnerCounts(sources['DESIGN.md'] || '', tokens, hardFailures)
-  validateTypographyFamilyProjection(sources['DESIGN.md'] || '', tokens, evidence, hardFailures)
+  validateTypographyFamilyProjection(sources['DESIGN.md'] || '', tokens, evidence, profile, hardFailures)
   validateTypographyRoleOwnerCounts(sources['DESIGN.md'] || '', evidence, hardFailures)
   validateScopedStructuralFacts(sources['DESIGN.md'] || '', hardFailures)
   validateGroupedPageTopology(sources['DESIGN.md'] || '', evidence, hardFailures)
-  validateGroupedResponsiveObservations(sources['DESIGN.md'] || '', evidence, hardFailures)
+  validateGroupedResponsiveObservations(sources['DESIGN.md'] || '', evidence, profile, hardFailures)
   validateReconstructionSummaryHierarchy(sources['DESIGN.md'] || '', evidence, hardFailures)
   validateFrontMatterAgreement(parsedFrontMatter.value, extension, tokens, componentSpecs, profile, hardFailures)
   validateCandidateProjection(extension, tokens, hardFailures)
@@ -7091,6 +7166,7 @@ export async function auditArtifactBundle(directory) {
           : 'pass',
     hardFailures: uniqueHardFailures,
     limitations: uniqueLimitations,
+    warnings: unique(bundleWarnings),
     metrics: {
       ...documentReport.metrics,
       bundleArtifacts: REQUIRED_BUNDLE_FILES.length,

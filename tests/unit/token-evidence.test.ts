@@ -289,6 +289,41 @@ describe('token evidence', () => {
     expect(fontTokens.typography.fontFamilies).toEqual(['Inter'])
   })
 
+  test('keeps portable typography when an opaque glyph paint outlives ancestor opacity compositing', () => {
+    const fontTokens: DesignToken = {
+      ...structuredClone(tokens),
+      colors: {},
+      typography: {
+        fontFamilies: ['Inter'],
+        fontStacks: [],
+        fontSizes: [],
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: [],
+      },
+      spacing: [],
+    }
+    const owners = ['owner-1', 'owner-2'].map((ownerId) => {
+      const owner = renderedFontOwner(ownerId, 'Inter, sans-serif')
+      delete (owner.styles as { color?: string }).color
+      owner.source.opacity = 0.92
+      return owner
+    })
+    const styles = createExtractedStyles({
+      usageCount: { 'fontTextFamily:Inter, sans-serif': 2 },
+      usageOwnerCounts: { 'fontTextFamily:Inter, sans-serif': 2 },
+      usageOwnerIds: { 'fontTextFamily:Inter, sans-serif': owners.map((owner) => owner.ownerId) },
+      valueSources: { 'fontTextFamily:Inter, sans-serif': ['rendered:text'] },
+      renderedTextStyleObservations: owners,
+    })
+    fontTokens.evidence = buildTokenEvidence(fontTokens, [{ url: 'https://example.com/', viewport: 'desktop', styles }])
+
+    promotePortableDesignTokens(fontTokens)
+
+    expect(fontTokens.typography.fontFamilies).toEqual(['Inter'])
+    expect(fontTokens.candidates?.values?.some((candidate) => candidate.value === 'Inter')).not.toBe(true)
+  })
+
   test('marks values with no browser evidence as low-confidence derived tokens', () => {
     const evidence = buildTokenEvidence(tokens, [
       { url: 'https://example.com/', viewport: 'desktop', styles: observedStyles() },

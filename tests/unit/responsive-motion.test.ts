@@ -19,6 +19,13 @@ describe('responsive breakpoint labels', () => {
     ])
   })
 
+  test('keeps decimal breakpoint labels valid as CSS custom-property identifiers', () => {
+    expect(labelBreakpointWidths([767.5, 768])).toEqual([
+      { width: 767.5, label: 'tablet-sm-767-5' },
+      { width: 768, label: 'tablet-sm-768' },
+    ])
+  })
+
   test('keeps a category boundary alongside the strongest repeated breakpoint', () => {
     expect(
       selectRepresentativeBreakpointWidths([

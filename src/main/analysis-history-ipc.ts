@@ -13,8 +13,8 @@ import {
   readCaptureManifest,
   readDarkModeExportData,
   readDesignEvidence,
-  readDesignTokens,
   readPageScreenshots,
+  readStoredDesignTokens,
   readStringList,
   toAnalysisSummary,
 } from './persisted-records.js'
@@ -137,7 +137,7 @@ export function registerAnalysisHistoryIpcHandlers(): void {
     if (!record) return null
 
     const designEvidence = readDesignEvidence(record.design_evidence_json)
-    const tokens = readDesignTokens(record.tokens_json) || designEvidence?.tokens
+    const tokens = readStoredDesignTokens(record.tokens_json, designEvidence)
     if (!tokens) return null
     const storedContext = restoreDeterministicStoredContext(record, tokens, designEvidence)
     const designProfile = storedContext.profile
@@ -173,8 +173,8 @@ export function registerAnalysisHistoryIpcHandlers(): void {
       createdAt: record.created_at,
       routeIdentity: record.route_identity || null,
       tokens,
-      cssVariables: record.css_variables || '',
-      tailwindTheme: record.tailwind_theme || '',
+      cssVariables: storedContext.cssVariables,
+      tailwindTheme: storedContext.tailwindTheme,
       designDoc: storedContext.designDoc,
       pageScreenshots,
       featureTags: readStringList(record.feature_tags_json),

@@ -2,10 +2,12 @@ import { compareReferenceCaptures } from '../core/analyzer/reference-compare.js'
 import type { DesignToken } from '../core/analyzer/types.js'
 import { createDeterministicDesignContext } from '../core/design-context/deterministic-context.js'
 import type { DesignProfile } from '../core/design-context/types.js'
+import { projectDesignEvidenceTokenReferences } from '../core/design-evidence/token-reference.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
-import { generateDesignDoc } from '../core/export/index.js'
+import { generateCssVariables, generateDesignDoc, generateTailwindTheme } from '../core/export/index.js'
 import { getDb } from './database.js'
 import {
+  hasSuccessfullyRevalidatedDesignEvidenceTokens,
   readAnalysisCompletion,
   readAnalysisTiming,
   readDarkModeExportData,
@@ -24,23 +26,25 @@ export function restoreDeterministicStoredContext(
   profile: DesignProfile | null
   validationReport: ReturnType<typeof createDeterministicDesignContext>['validationReport'] | null
   designDoc: string
+  cssVariables: string
+  tailwindTheme: string
 } {
   const currentProfile = readDesignProfile(record.design_profile_json)
   const currentValidationReport = readValidationReport(record.validation_report_json)
 
-  if (!evidence) {
+  if (!evidence || !hasSuccessfullyRevalidatedDesignEvidenceTokens(evidence)) {
     return {
       profile: currentProfile,
       validationReport: currentProfile ? currentValidationReport : null,
       designDoc: (record.design_doc as string) || '',
+      cssVariables: (record.css_variables as string) || '',
+      tailwindTheme: (record.tailwind_theme as string) || '',
     }
   }
+  projectDesignEvidenceTokenReferences(evidence, evidence.tokens, tokens)
   const language =
     currentProfile?.language || (evidence.source.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en')
-  const context =
-    currentProfile && currentValidationReport
-      ? { profile: currentProfile, validationReport: currentValidationReport }
-      : createDeterministicDesignContext(evidence, language)
+  const context = createDeterministicDesignContext(evidence, language)
   const darkMode = readDarkModeExportData(
     record.dark_tokens_json,
     tokens,
@@ -57,21 +61,42 @@ export function restoreDeterministicStoredContext(
     designEvidence: evidence,
     designProfile: context.profile,
   })
+  const cssVariables = generateCssVariables(tokens, darkMode, evidence.breakpoints)
+  const tailwindTheme = generateTailwindTheme(tokens, darkMode, evidence.breakpoints)
+  const tokensJson = JSON.stringify(tokens)
 
-  if (!currentProfile || !currentValidationReport || designDoc !== record.design_doc) {
+  if (
+    !currentProfile ||
+    !currentValidationReport ||
+    tokensJson !== record.tokens_json ||
+    cssVariables !== record.css_variables ||
+    tailwindTheme !== record.tailwind_theme ||
+    designDoc !== record.design_doc
+  ) {
     getDb()
       .prepare(
         `UPDATE analyses
-         SET design_profile_json = ?, validation_report_json = ?, design_doc = ?
+         SET tokens_json = ?, css_variables = ?, tailwind_theme = ?, design_profile_json = ?,
+             validation_report_json = ?, design_doc = ?
          WHERE id = ?`,
       )
-      .run(JSON.stringify(context.profile), JSON.stringify(context.validationReport), designDoc, record.id)
+      .run(
+        tokensJson,
+        cssVariables,
+        tailwindTheme,
+        JSON.stringify(context.profile),
+        JSON.stringify(context.validationReport),
+        designDoc,
+        record.id,
+      )
   }
 
   return {
     profile: context.profile,
     validationReport: context.validationReport,
     designDoc,
+    cssVariables,
+    tailwindTheme,
   }
 }
 
@@ -79,14 +104,16 @@ export function buildStoredAnalysisResult(
   record: Record<string, unknown>,
   tokens: DesignToken,
   designDoc = (record.design_doc as string) || '',
+  cssVariables = (record.css_variables as string) || '',
+  tailwindTheme = (record.tailwind_theme as string) || '',
 ) {
   const pageScreenshots = readPageScreenshots(record.page_screenshots_json)
   return {
     analysisId: record.id,
     savedThemeId: (record.theme_id as string | null) || null,
     tokens,
-    cssVariables: record.css_variables || '',
-    tailwindTheme: record.tailwind_theme || '',
+    cssVariables,
+    tailwindTheme,
     designDoc,
     screenshots: pageScreenshots.map((screenshot) => screenshot.path),
     pageScreenshots,

@@ -1,3 +1,4 @@
+import { buildCanonicalTokenCatalog } from '../analyzer/token-catalog.js'
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from './types.js'
 
@@ -26,6 +27,46 @@ export function resolveDesignTokenRef(tokens: DesignToken, ref: string): string 
   const index = Number.parseInt(ref.slice(dot + 1), 10)
   if (!Number.isInteger(index) || index < 1) return null
   return TOKEN_ARRAYS(tokens)[ref.slice(0, dot)]?.[index - 1] ?? null
+}
+
+/**
+ * Projects positional Evidence references from a previous portable catalog onto a filtered/reindexed catalog.
+ * Color references retain their semantic role; array references retain their group and exact observed value.
+ */
+export function projectDesignEvidenceTokenReferences(
+  evidence: DesignEvidence,
+  previousTokens: DesignToken,
+  nextTokens: DesignToken,
+): void {
+  const previousEntries = new Map(buildCanonicalTokenCatalog(previousTokens).map((entry) => [entry.id, entry]))
+  const nextEntries = buildCanonicalTokenCatalog(nextTokens)
+  const nextByIdentity = new Map(
+    nextEntries.map((entry) => [
+      entry.group === 'colors'
+        ? `${entry.group}\u0000${entry.role || ''}\u0000${entry.value}`
+        : `${entry.group}\u0000${entry.value}`,
+      entry.id,
+    ]),
+  )
+  const project = (refs: string[]): string[] => {
+    const projected: string[] = []
+    for (const ref of refs) {
+      const previous = previousEntries.get(ref)
+      if (!previous) continue
+      const identity =
+        previous.group === 'colors'
+          ? `${previous.group}\u0000${previous.role || ''}\u0000${previous.value}`
+          : `${previous.group}\u0000${previous.value}`
+      const next = nextByIdentity.get(identity)
+      if (next && !projected.includes(next)) projected.push(next)
+    }
+    return projected
+  }
+
+  for (const owner of [...evidence.sections, ...evidence.components, ...evidence.layoutNodes]) {
+    owner.tokenRefs = project(owner.tokenRefs)
+  }
+  evidence.tokens = nextTokens
 }
 
 export interface EvidenceTokenReferenceIntegrity {

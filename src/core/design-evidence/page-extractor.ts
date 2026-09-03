@@ -970,7 +970,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       let right = Math.min(window.innerWidth, rect.right)
       let bottom = Math.min(captureHeight, rect.bottom)
       const captureArea = Math.max(0, right - left) * Math.max(0, bottom - top)
-      const captureIntersectionRatio = captureArea / Math.max(1, rect.width * rect.height)
+      const captureIntersectionRatio = Math.max(0, Math.min(1, captureArea / Math.max(1, rect.width * rect.height)))
       let effectiveOpacity = 1
       let filterOpacity = 1
       let effectiveClipPathAreaRatio = 1
@@ -1936,7 +1936,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const visibleWidthPx = Math.max(0, visibleRight - visibleLeft)
       const visibleHeightPx = Math.max(0, visibleBottom - visibleTop)
       const paintedAreaPx = visibleWidthPx * visibleHeightPx
-      const captureIntersectionRatio = paintedAreaPx / Math.max(1, widthPx * heightPx)
+      const captureIntersectionRatio = Math.max(0, Math.min(1, paintedAreaPx / Math.max(1, widthPx * heightPx)))
       if (visibleWidthPx <= 2 || visibleHeightPx <= 2 || paintedAreaPx <= 16 || captureIntersectionRatio <= 0.02) {
         return undefined
       }

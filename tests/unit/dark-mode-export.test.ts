@@ -644,6 +644,82 @@ describe('dark mode export data', () => {
     expect(restored?.overrides).toMatchObject({ 'color.foreground': '#f5f5f5' })
   })
 
+  test('rejects a restored foreground that is readable only on a secondary surface', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    const foregroundEvidence = built?.evidence?.['colors.foreground']
+    if (!built || !foregroundEvidence?.pairedSurface || !foregroundEvidence.renderedTextOwners) {
+      throw new Error('Fixture must include a rendered foreground pair')
+    }
+    const mixedThemeBase = {
+      ...baseTokens,
+      colors: { ...baseTokens.colors, background: '#02090a', surface: '#ffffff', foreground: '#ffffff' },
+    }
+    built.colors = { ...built.colors, background: '#02090a', surface: '#ffffff', foreground: '#000000' }
+    foregroundEvidence.value = '#000000'
+    foregroundEvidence.pairedSurface.background = '#ffffff'
+    foregroundEvidence.pairedSurface.contrastRatio = 21
+    for (const owner of foregroundEvidence.renderedTextOwners) {
+      owner.styles.color = '#000000'
+      owner.styles.backgroundColor = '#ffffff'
+      owner.source.foreground = '#000000'
+    }
+
+    const restored = restoreDarkModeExportData(built, mixedThemeBase, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides?.['color.foreground']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(mixedThemeBase.colors.foreground)
+    expect(restored?.darkTokens?.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        group: 'colors',
+        role: 'foreground',
+        value: '#000000',
+        rejectionReason: 'ungrounded-dark-override',
+      }),
+    )
+  })
+
+  test('rejects a changed dark background that makes an unchanged muted foreground unreadable', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    const foregroundEvidence = built?.evidence?.['colors.foreground']
+    if (!built || !foregroundEvidence?.pairedSurface || !foregroundEvidence.renderedTextOwners) {
+      throw new Error('Fixture must include a rendered foreground pair')
+    }
+    const baseWithMuted = {
+      ...baseTokens,
+      colors: { ...baseTokens.colors, surface: '#ffffff', 'muted-foreground': '#555555' },
+    }
+    const mutedEvidence = structuredClone(foregroundEvidence)
+    mutedEvidence.value = '#555555'
+    mutedEvidence.pairedSurface!.background = '#ffffff'
+    mutedEvidence.pairedSurface!.contrastRatio = 7.46
+    for (const owner of mutedEvidence.renderedTextOwners!) {
+      owner.styles.color = '#555555'
+      owner.styles.backgroundColor = '#ffffff'
+      owner.source.foreground = '#555555'
+    }
+    built.colors = { ...built.colors, surface: '#ffffff', 'muted-foreground': '#555555' }
+    built.evidence = { ...built.evidence, 'colors.muted-foreground': mutedEvidence }
+
+    const restored = restoreDarkModeExportData(built, baseWithMuted, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides).toBeUndefined()
+    expect(restored?.darkTokens?.colors).toEqual(baseWithMuted.colors)
+    expect(restored?.darkTokens?.candidates?.values).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'background', value: '#16171d', rejectionReason: 'ungrounded-dark-override' }),
+        expect.objectContaining({ role: 'foreground', value: '#f5f5f5', rejectionReason: 'ungrounded-dark-override' }),
+      ]),
+    )
+  })
+
   test('binds restored dark evidence to the explicit entry route regardless of page order', () => {
     const entryUrl = 'https://example.com/'
     const subpageUrl = 'https://example.com/about'
@@ -796,7 +872,8 @@ describe('dark mode export data', () => {
 
     expect(restored?.overrides?.['color.muted-foreground']).toBeUndefined()
     expect(restored?.darkTokens?.colors['muted-foreground']).toBe(baseWithMuted.colors['muted-foreground'])
-    expect(restored?.darkTokens?.colors.foreground).toBe('#f5f5f5')
+    expect(restored?.overrides).toBeUndefined()
+    expect(restored?.darkTokens?.colors).toEqual(baseWithMuted.colors)
   })
 
   test('rejects a changed dark value carrying inherited light evidence at the same path', () => {

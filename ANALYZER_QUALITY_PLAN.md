@@ -2041,3 +2041,20 @@ The goal is complete when:
 - the corpus audit finds no systemic issue that would materially mislead an agent using DESIGN.md;
 - any remaining minor imperfections are isolated, honestly scoped, and do not affect agent design decisions;
 - every committed functional slice is complete and green, and the final corpus-validated code is committed.
+
+## Final closure (2026-09-04)
+
+- The final fresh empty-context review (`final_fresh_pass_11`) returned `PASS` with no material normal-path blocker.
+- Controlled validation passed: 73 unit-test files / 814 tests, type checking, lint, Desktop packaging, and
+  `git diff --check`. The browser gates completed earlier in this final slice with Design Evidence 26/26 and E2E
+  128/128; the later persistence-boundary fix does not change capture behavior.
+- The original 20 sites were attempted in two batches with no more than 10 concurrent analyses. Eighteen produced
+  usable degraded-but-truthful bundles with zero hard audit failures; Guardian and NPR were truthfully refused because
+  persistent overlays left no usable content.
+- The 18 usable bundles cover 142 pages and 160 captures, retain 743 portable Tokens with zero low-confidence portable
+  Tokens, and contain 131 P1 component recipes. DESIGN.md output totals 12,027 lines (538–815 per site), with candidate
+  previews capped at 15 entries rather than repeating the full Evidence catalog.
+- Shopify was rerun after the global theme correction. All 18 current Evidence catalogs, including Shopify, now pass
+  stored-token promotion preflight without hostname-specific logic.
+- Remaining isolated, non-blocking imperfections are recorded in `ANALYZER_QUALITY_TODO.md` under the agreed stopping
+  rule; none changes the foundation, component role, responsive behavior, or implementation Tokens an Agent should use.

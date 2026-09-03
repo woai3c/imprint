@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
 import { opaqueRouteIdentity } from '../../src/core/analyzer/url-identity.js'
+import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import { buildDarkModeExportData } from '../../src/core/export/index.js'
 import {
   compactTokenSnapshot,
@@ -13,9 +14,11 @@ import {
   readDesignTokens,
   readFirstScreenshotPath,
   readPageScreenshots,
+  readStoredDesignTokens,
   readStringList,
   readValidationReport,
   referenceCaptureFromRecord,
+  revalidateDesignTokens,
   toAnalysisSummary,
   toThemeSummary,
 } from '../../src/main/persisted-records.js'
@@ -77,6 +80,63 @@ describe('persisted record adapters', () => {
     expect(readStringList(JSON.stringify(['responsive', 'dark-mode']))).toEqual(['responsive', 'dark-mode'])
     expect(readValidationReport(JSON.stringify({ schemaVersion: '1' }))).toEqual({ schemaVersion: '1' })
     expect(readValidationReport('[]')).toBeNull()
+  })
+
+  it('revalidates complete stored token evidence before returning portable values', () => {
+    const staleTokens: DesignToken = {
+      colors: {},
+      typography: {
+        fontFamilies: [],
+        fontStacks: [],
+        fontSizes: [],
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: [],
+      },
+      spacing: ['2px'],
+      radii: [],
+      shadows: [],
+      borders: [],
+      zIndices: [],
+      transitions: [],
+      evidence: {
+        'spacing.0': {
+          value: '2px',
+          confidence: 'low',
+          measurementConfidence: 'high',
+          semanticConfidence: 'low',
+          reuseScope: 'local',
+          observationCount: 1,
+          ownerCount: 1,
+          foundationOwnerCount: 0,
+          minimumPageFoundationOwnerCount: 0,
+          semanticAgreement: 0.25,
+          pageCount: 1,
+          captureCount: 1,
+          eligiblePageCount: 1,
+          pageSupportRatio: 1,
+          pages: ['https://example.com/'],
+          sources: ['usage:gap'],
+          reasons: ['computed-style'],
+        },
+      },
+    }
+
+    const restored = revalidateDesignTokens(staleTokens)
+
+    expect(restored?.spacing).toEqual([])
+    expect(restored?.candidates?.values).toContainEqual(
+      expect.objectContaining({ group: 'spacing', value: '2px', rejectionReason: 'low-semantic-confidence' }),
+    )
+  })
+
+  it('prefers the Evidence-owned catalog over an incomplete standalone legacy snapshot', () => {
+    const stale = { ...tokens, colors: { background: '#ffffff', foreground: '#ffffff' } }
+    const observed = { ...tokens, colors: { background: '#ffffff', foreground: '#1f2328' } }
+
+    const restored = readStoredDesignTokens(JSON.stringify(stale), { tokens: observed } as DesignEvidence)
+
+    expect(restored?.colors).toEqual(observed.colors)
   })
 
   it('reads screenshot paths and tolerates malformed legacy screenshot arrays', () => {

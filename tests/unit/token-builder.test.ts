@@ -1481,6 +1481,72 @@ describe('design token builder', () => {
     expect(tokens.colors['muted-foreground']).toBe('#5b6578')
   })
 
+  test('does not export a foreground that is readable only on a secondary surface', () => {
+    const captures = Array.from({ length: 4 }, (_value, index) => {
+      const url = `https://example.com/page-${index + 1}`
+      const ownerIds = Array.from({ length: 12 }, (_item, owner) => `copy-${owner}`)
+      return {
+        url,
+        viewport: 'desktop',
+        styles: createExtractedStyles({
+          usageCount: {
+            'bgColor:rgb(2, 9, 10)': 1,
+            'bgColor:rgb(255, 255, 255)': 12,
+            'textColor:rgb(0, 0, 0)': 12,
+          },
+          usageOwnerCounts: {
+            'bgColor:rgb(2, 9, 10)': 1,
+            'bgColor:rgb(255, 255, 255)': 12,
+            'textColor:rgb(0, 0, 0)': 12,
+          },
+          usageOwnerIds: {
+            'bgColor:rgb(2, 9, 10)': ['body'],
+            'bgColor:rgb(255, 255, 255)': ownerIds,
+            'textColor:rgb(0, 0, 0)': ownerIds,
+          },
+          valueSources: {
+            'bgColor:rgb(2, 9, 10)': ['computed:background', 'element:page-background'],
+            'bgColor:rgb(255, 255, 255)': ['computed:background'],
+            'textColor:rgb(0, 0, 0)': ['rendered:text'],
+          },
+          textColorPairObservations: [
+            {
+              captureId: `${url}|desktop`,
+              background: 'rgb(255, 255, 255)',
+              foreground: 'rgb(0, 0, 0)',
+              textRole: 'body',
+              count: ownerIds.length,
+              ownerIds,
+            },
+          ],
+          renderedTextStyleObservations: renderedTextOwners('rgb(0, 0, 0)', 'rgb(255, 255, 255)', ownerIds, 'body'),
+        }),
+      }
+    })
+    const tokenProbe = buildDesignTokens(createExtractedStyles(), {
+      palette: [],
+      backgrounds: [],
+      texts: [],
+      accents: [],
+    })
+    tokenProbe.colors = { background: '#02090a', secondary: '#ffffff', foreground: '#000000' }
+    tokenProbe.evidence = buildTokenEvidence(tokenProbe, captures)
+    expect(tokenProbe.evidence['colors.foreground']).toMatchObject({
+      reuseScope: 'foundation',
+      pairedSurface: expect.objectContaining({ background: '#ffffff' }),
+    })
+
+    promotePortableDesignTokens(tokenProbe)
+
+    expect(tokenProbe.colors.background).toBe('#02090a')
+    expect(tokenProbe.colors.foreground).toBeUndefined()
+    expect(
+      tokenProbe.candidates?.values?.some(
+        (candidate) => candidate.group === 'colors' && candidate.role === 'foreground' && candidate.value === '#000000',
+      ),
+    ).toBe(true)
+  })
+
   test('keeps area-supported card and secondary surfaces in evidence order', () => {
     const styles = createExtractedStyles({
       colors: ['rgb(243, 246, 251)', 'rgb(255, 255, 255)', 'rgb(232, 238, 248)', 'rgb(23, 32, 51)'],

@@ -169,7 +169,7 @@ export function labelBreakpointWidths(widths: readonly number[]): Array<{ width:
   categorized.forEach(({ baseLabel }) => totals.set(baseLabel, (totals.get(baseLabel) || 0) + 1))
   return categorized.map(({ width, baseLabel }) => ({
     width,
-    label: (totals.get(baseLabel) || 0) > 1 ? `${baseLabel}-${width}` : baseLabel,
+    label: (totals.get(baseLabel) || 0) > 1 ? `${baseLabel}-${String(width).replace('.', '-')}` : baseLabel,
   }))
 }
 

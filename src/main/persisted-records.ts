@@ -1,12 +1,20 @@
 import { isPageHealthEvidenceEligible } from '../core/analyzer/page-health.js'
 import type { ReferenceCaptureInput } from '../core/analyzer/reference-compare.js'
+import { hasCompleteTokenPromotionEvidence, promotePortableDesignTokens } from '../core/analyzer/token-promotion.js'
 import type { AnalysisCompletion, AnalysisTiming, CaptureManifest, DesignToken } from '../core/analyzer/types.js'
 import { isCurrentDesignProfile } from '../core/design-context/types.js'
 import type { DesignProfile, ValidationReport } from '../core/design-context/types.js'
+import { projectDesignEvidenceTokenReferences } from '../core/design-evidence/token-reference.js'
 import type { DesignEvidence } from '../core/design-evidence/types.js'
 import { type DarkModeExportData, restoreDarkModeExportData } from '../core/export/index.js'
 import type { PageScreenshotData, ThemeSummaryRecord } from '../shared/ipc-contract.js'
 import { isRecord } from '../shared/type-guards.js'
+
+const successfullyRevalidatedEvidence = new WeakSet<DesignEvidence>()
+
+export type TokenRevalidationResult =
+  | { status: 'promoted'; tokens: DesignToken }
+  | { status: 'unverified'; reason: 'incomplete-evidence' | 'promotion-error'; tokens: DesignToken }
 
 export function compactTokenSnapshot(serialized: string | null): string | null {
   if (!serialized) return serialized
@@ -95,6 +103,33 @@ export function readDesignTokens(serialized: unknown): DesignToken | null {
   return isDesignToken(parsed) ? parsed : null
 }
 
+/** Structured Evidence owns the observed token catalog; the standalone JSON column is a legacy fallback only. */
+export function readStoredDesignTokens(serialized: unknown, evidence: DesignEvidence | null): DesignToken | null {
+  return evidence ? structuredClone(evidence.tokens) : readDesignTokens(serialized)
+}
+
+export function revalidateDesignTokens(tokens: DesignToken): DesignToken {
+  return revalidateDesignTokenCatalog(tokens).tokens
+}
+
+export function revalidateDesignTokenCatalog(tokens: DesignToken): TokenRevalidationResult {
+  const restored = structuredClone(tokens)
+  if (!hasCompleteTokenPromotionEvidence(restored)) {
+    return { status: 'unverified', reason: 'incomplete-evidence', tokens: restored }
+  }
+  try {
+    promotePortableDesignTokens(restored)
+    return { status: 'promoted', tokens: restored }
+  } catch {
+    // Structurally valid legacy snapshots can still lack newer nested provenance fields.
+    return { status: 'unverified', reason: 'promotion-error', tokens: structuredClone(tokens) }
+  }
+}
+
+export function hasSuccessfullyRevalidatedDesignEvidenceTokens(evidence: DesignEvidence): boolean {
+  return successfullyRevalidatedEvidence.has(evidence)
+}
+
 export function readStringList(serialized: unknown): string[] {
   const parsed = readJson(serialized)
   return isStringArray(parsed) ? parsed : []
@@ -143,6 +178,25 @@ function isEvidencePage(value: unknown): boolean {
   )
 }
 
+function isResponsiveBreakpoint(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.width === 'number' &&
+    Number.isFinite(value.width) &&
+    value.width > 0 &&
+    typeof value.label === 'string' &&
+    /^[a-z][a-z0-9-]*$/.test(value.label) &&
+    isStringArray(value.layoutChanges)
+  )
+}
+
+function isResponsiveBreakpointList(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(isResponsiveBreakpoint)) return false
+  const labels = value.map((breakpoint) => breakpoint.label)
+  const widths = value.map((breakpoint) => breakpoint.width)
+  return new Set(labels).size === labels.length && new Set(widths).size === widths.length
+}
+
 function isDesignEvidence(value: unknown): value is DesignEvidence {
   if (
     !isRecord(value) ||
@@ -169,7 +223,7 @@ function isDesignEvidence(value: unknown): value is DesignEvidence {
     !isRecordArray(value.interactionStyles.focus) ||
     !isRecordArray(value.interactionStyles.active) ||
     !isRecordArray(value.interactionObservations) ||
-    !isRecordArray(value.breakpoints) ||
+    !isResponsiveBreakpointList(value.breakpoints) ||
     !isRecordArray(value.responsiveObservations) ||
     !isRecordArray(value.motion) ||
     !isRecordArray(value.mediaLayers) ||
@@ -192,6 +246,10 @@ export function readDesignEvidence(serialized: unknown): DesignEvidence | null {
       if (!page.health) continue
       page.health.evidenceEligible = isPageHealthEvidenceEligible(page.health)
     }
+    const previousTokens = parsed.tokens
+    const revalidation = revalidateDesignTokenCatalog(previousTokens)
+    projectDesignEvidenceTokenReferences(parsed, previousTokens, revalidation.tokens)
+    if (revalidation.status === 'promoted') successfullyRevalidatedEvidence.add(parsed)
     return parsed
   } catch {
     return null
@@ -352,7 +410,12 @@ export function readDarkModeExportData(
 
 export function referenceCaptureFromRecord(record: Record<string, unknown>): ReferenceCaptureInput | null {
   try {
-    const tokens = readDesignTokens(record.tokens_json)
+    const hasStoredEvidence =
+      typeof record.design_evidence_json === 'string' && record.design_evidence_json.trim().length > 0
+    const evidence = readDesignEvidence(record.design_evidence_json)
+    if (hasStoredEvidence && !evidence) return null
+    if (evidence && !hasSuccessfullyRevalidatedDesignEvidenceTokens(evidence)) return null
+    const tokens = readStoredDesignTokens(record.tokens_json, evidence)
     if (!tokens) return null
     return {
       analysisId: String(record.id),
@@ -363,7 +426,7 @@ export function referenceCaptureFromRecord(record: Record<string, unknown>): Ref
           : undefined,
       createdAt: typeof record.created_at === 'string' ? record.created_at : undefined,
       tokens,
-      evidence: readDesignEvidence(record.design_evidence_json),
+      evidence,
       manifest: readCaptureManifest(record.capture_manifest_json),
     }
   } catch {

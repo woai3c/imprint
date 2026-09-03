@@ -1872,7 +1872,9 @@ function configureGeometrySeparatedButtonPatterns(
   artifacts: Record<string, string>,
   evidence: ReturnType<typeof bundleEvidence>,
 ) {
-  const sharedStyles = { backgroundColor: '#2255ff', padding: '16px 0px' }
+  // Non-zero horizontal padding excludes these square controls from the stricter icon-sized heuristic.
+  // Their lack of rendered text and compact square geometry must still keep them in the icon pattern.
+  const sharedStyles = { backgroundColor: '#2255ff', padding: '16px 8px' }
   for (const page of evidence.pages) {
     page.viewportWidth = page.viewport === 'desktop' ? 1000 : 375
     page.viewportHeight = page.viewport === 'desktop' ? 1000 : 667
@@ -1959,7 +1961,7 @@ function configureGeometrySeparatedButtonPatterns(
   const iconSpec = specs.components[0]
   iconSpec.variant = 'icon'
   iconSpec.role = 'action'
-  iconSpec.styles = { backgroundColor: ['#2255ff'], padding: ['16px 0px'] }
+  iconSpec.styles = { backgroundColor: ['#2255ff'], padding: ['16px 8px'] }
   artifacts['component-specs.json'] = JSON.stringify(specs)
 
   artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
@@ -1989,7 +1991,7 @@ _3 representative-style match(es) across 2 page(s) · identity 0.95 · reuse 0.8
 - **Use when:** the target needs a supporting or ordinary action
 - **Observed recipe:** The representative styles and listed token references recur across these 3 exact-style matches; they are an observed subset, not a complete component specification.
   - **Related tokens:** \`color.primary\`
-  - **Representative styles:** \`background-color: #2255ff\`, \`padding: 16px 0px\``,
+  - **Representative styles:** \`background-color: #2255ff\`, \`padding: 16px 8px\``,
     )
     .concat(
       `\n## Do's and Don'ts\n\n### Local Design Observations\n\n#### Local or specialized component patterns\n\n- **button:** 1 local pattern(s), 1 representative instance(s)\n`,
@@ -2308,6 +2310,25 @@ x-imprint:
       'rendered-text-owner-value-mismatch:colors.foreground',
     )
 
+    const wrongPaintDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111827', {
+        background: '#ffffff',
+        pageCount: 2,
+        eligiblePageCount: 2,
+        pageSupportRatio: 1,
+        normalizedShare: 1,
+        contrastRatio: 17.74,
+        textRoles: ['body'],
+      })
+      const tokenEvidence = evidence.tokens.evidence['colors.foreground'] as unknown as {
+        renderedTextOwners: Array<{ source: { foreground: string } }>
+      }
+      tokenEvidence.renderedTextOwners[0].source.foreground = '#ffffff'
+    })
+    expect((await auditArtifactBundle(wrongPaintDirectory)).hardFailures).toContain(
+      'rendered-text-owner-value-mismatch:colors.foreground',
+    )
+
     const inflatedSampleDirectory = await writeBundle((artifacts, evidence, dtcg) => {
       addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111827', {
         background: '#ffffff',
@@ -2347,6 +2368,44 @@ x-imprint:
     const result = await auditArtifactBundle(directory)
     expect(result.hardFailures).toContain('foundation-foreground-background-low-contrast')
     expect(result.hardFailures).toContain('foundation-foreground-pair-insufficient-support')
+  })
+
+  it('rejects a portable foreground that is readable only against a local paired surface', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, rawDtcg, '#000000', {
+        background: '#ffffff',
+        pageCount: 2,
+        eligiblePageCount: 2,
+        pageSupportRatio: 1,
+        normalizedShare: 1,
+        contrastRatio: 21,
+        textRoles: ['body', 'heading'],
+      })
+      const background = '#02090a'
+      evidence.tokens.colors.background = background
+      evidence.tokens.evidence['colors.background'].value = background
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      dtcg.color.background = { $type: 'color', $value: background }
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatter) => {
+        ;(frontMatter.colors as Record<string, string>).background = background
+      }).replace('| `--color-background` | `#ffffff` |', `| \`--color-background\` | \`${background}\` |`)
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '--color-background: #ffffff;',
+        `--color-background: ${background};`,
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss'].replace(
+        '$color-background: #ffffff;',
+        `$color-background: ${background};`,
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '--color-background: #ffffff;',
+        `--color-background: ${background};`,
+      )
+    })
+
+    const result = await auditArtifactBundle(directory)
+    expect(result.hardFailures).not.toContain('foundation-foreground-background-low-contrast')
+    expect(result.hardFailures).toContain('foundation-foreground-global-background-low-contrast')
   })
 
   it('independently rejects chromatic or surface-valued subtle border roles', async () => {
@@ -2493,6 +2552,11 @@ x-imprint:
     async (language) => {
       const baseline = await writeGate21Bundle(language)
       expect((await auditArtifactBundle(baseline)).hardFailures).toEqual([])
+
+      const pageLanguageDiffers = await writeGate21Bundle(language, (_artifacts, evidence) => {
+        evidence.source.language = language === 'zh-CN' ? 'en' : 'zh-CN'
+      })
+      expect((await auditArtifactBundle(pageLanguageDiffers)).hardFailures).toEqual([])
 
       const forgedDefault = await writeGate21Bundle(language, (artifacts) => {
         artifacts['DESIGN.md'] = artifacts['DESIGN.md'].replace(
@@ -3154,10 +3218,16 @@ x-imprint:
         delete candidateEvidence.pairedSurface
       })
     })
-    expect((await auditArtifactBundle(removedProvenanceDirectory)).hardFailures).toEqual(
+    const removedProvenance = await auditArtifactBundle(removedProvenanceDirectory)
+    expect(
+      removedProvenance.hardFailures.some(
+        (failure) => failure.includes('rendered-text-pair') || failure.includes('rendered-text-owner'),
+      ),
+    ).toBe(false)
+    expect(removedProvenance.warnings).toEqual(
       expect.arrayContaining([
-        'missing-source-implied-rendered-text-owner:evidence.tokens.candidates.values.0',
-        'missing-source-implied-paired-surface:evidence.tokens.candidates.values.0',
+        'deferred-color-candidate-provenance:missing-source-implied-rendered-text-owner:evidence.tokens.candidates.values.0',
+        'deferred-color-candidate-provenance:missing-source-implied-paired-surface:evidence.tokens.candidates.values.0',
       ]),
     )
   })
@@ -3780,6 +3850,23 @@ components:
     )
   })
 
+  it('accepts typography whose computed color is intentionally omitted after ancestor opacity', async () => {
+    const directory = await writeBundle((artifacts, evidence, dtcg) => {
+      addSingleFontArtifacts(artifacts, evidence, dtcg)
+      for (const path of ['typography.fontFamilies.0', 'typography.fontStacks.0']) {
+        const tokenEvidence = evidence.tokens.evidence[path] as unknown as {
+          renderedTextOwners: Array<{ styles: { color?: string }; source: { opacity: number } }>
+        }
+        for (const owner of tokenEvidence.renderedTextOwners) {
+          delete owner.styles.color
+          owner.source.opacity = 0.92
+        }
+      }
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
+  })
+
   it('recomputes rendered typography owner counts instead of trusting promotion metadata', async () => {
     const directory = await writeBundle((artifacts, evidence, dtcg) => {
       addSingleFontArtifacts(artifacts, evidence, dtcg)
@@ -4320,6 +4407,26 @@ components:
     expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
   })
 
+  it('accepts machine-epsilon drift in a pseudo capture intersection ratio', async () => {
+    const directory = await writeBundle((_artifacts, evidence) => {
+      const section = evidence.sections[0]
+      evidence.pseudoElements = [
+        {
+          id: 'pseudo-epsilon-home',
+          pageId: section.pageId,
+          sectionId: section.id,
+          target: 'body > main:nth-of-type(1)',
+          kind: 'before',
+          styles: { content: '""', backgroundColor: 'rgb(30, 120, 210)' },
+          paint: { ...visiblePseudoPaint(), captureIntersectionRatio: 1 + Number.EPSILON },
+          evidenceRefs: [section.id],
+        },
+      ]
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
+  })
+
   it('rejects empty pseudo evidence whose modern paint is fully transparent', async () => {
     const directory = await writeBundle((_artifacts, evidence) => {
       const section = evidence.sections[0]
@@ -4354,6 +4461,7 @@ components:
     ['zero geometry', { widthPx: 0 }],
     ['near-transparent paint', { opacity: 0.001 }],
     ['off-capture geometry', { xPx: -10_000 }],
+    ['meaningfully impossible ratio', { captureIntersectionRatio: 1.01 }],
     ['masked paint', { maskChain: [{ value: 'linear-gradient(transparent, transparent)', owner: 'paint' }] }],
     ['blended paint', { blendChain: [{ value: 'difference', owner: 'paint' }] }],
   ])('rejects %s pseudo paint provenance', async (_label, mutation) => {

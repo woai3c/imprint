@@ -155,6 +155,23 @@ function onePageRenderedTextEvidence(value: string, renderedTextOwners: Array<Re
   }
 }
 
+function portableRenderedTextEvidence(value: string, renderedTextOwners: Array<Record<string, unknown>>) {
+  const owners = renderedTextOwners.map((owner, index) =>
+    index % 2 === 0
+      ? { ...owner, page: 'https://example.com/', routeId: HOME_ROUTE_ID }
+      : { ...owner, page: 'https://example.com/about', routeId: ABOUT_ROUTE_ID },
+  )
+  return {
+    ...onePageRenderedTextEvidence(value, owners),
+    pageCount: 2,
+    captureCount: 2,
+    eligiblePageCount: 2,
+    pageSupportRatio: 1,
+    pages: ['https://example.com/', 'https://example.com/about'],
+    pageRefs: [HOME_ROUTE_ID, ABOUT_ROUTE_ID],
+  }
+}
+
 function directTextSource(foreground = '#111111') {
   return {
     kind: 'direct-text',
@@ -446,25 +463,37 @@ function addFoundationForegroundArtifacts(
   value: string,
   pairedSurface: ForegroundPairFixture,
 ) {
-  const decimalPlaces = String(pairedSurface.normalizedShare).split('.')[1]?.length || 0
+  const supportedPageShare = Math.min(
+    1,
+    pairedSurface.pageSupportRatio > 0
+      ? pairedSurface.normalizedShare / pairedSurface.pageSupportRatio
+      : pairedSurface.normalizedShare,
+  )
+  const decimalPlaces = String(supportedPageShare).split('.')[1]?.length || 0
   const totalOwnersPerPage = Math.max(1, 10 ** decimalPlaces)
-  const matchedOwnersPerPage = Math.max(1, Math.round(pairedSurface.normalizedShare * totalOwnersPerPage))
-  const routePages = portableEvidence.pages.slice(0, pairedSurface.pageCount)
-  const routeSupport = routePages.map((page, pageIndex) => {
+  const matchedOwnersPerPage = Math.max(1, Math.round(supportedPageShare * totalOwnersPerPage))
+  const routeCatalog = [
+    ...new Map(
+      evidence.pages.map((page) => [page.routeId, { page: page.url, routeId: page.routeId }] as const),
+    ).values(),
+  ].slice(0, pairedSurface.eligiblePageCount)
+  const supportedRoutes = routeCatalog.slice(0, pairedSurface.pageCount)
+  const routePages = supportedRoutes.map((route) => route.page)
+  const routeSupport = routeCatalog.map((route, pageIndex) => {
     const totalOwnerIds = Array.from(
       { length: totalOwnersPerPage },
       (_item, ownerIndex) => `pair-total-${pageIndex}-${ownerIndex}`,
     )
-    const ownerIds = totalOwnerIds.slice(0, matchedOwnersPerPage)
+    const supported = pageIndex < pairedSurface.pageCount
+    const ownerIds = supported ? totalOwnerIds.slice(0, matchedOwnersPerPage) : []
     return {
-      page,
-      routeId: page === 'https://example.com/' ? HOME_ROUTE_ID : ABOUT_ROUTE_ID,
-      supported: true,
+      ...route,
+      supported,
       ownerIds,
       totalOwnerIds,
       mainTextOwnerIds: ownerIds,
       headingOwnerIds: pairedSurface.textRoles.includes('heading') ? ownerIds : [],
-      textRoles: pairedSurface.textRoles,
+      textRoles: supported ? pairedSurface.textRoles : [],
       normalizedShare: ownerIds.length / totalOwnerIds.length,
       normalizedMainTextShare: ownerIds.length / totalOwnerIds.length,
     }
@@ -515,6 +544,7 @@ function addFoundationForegroundArtifacts(
     eligiblePageCount: pairedSurface.eligiblePageCount,
     pageSupportRatio: pairedSurface.pageSupportRatio,
     pages: routePages,
+    pageRefs: supportedRoutes.map((route) => route.routeId),
     sources: [...portableEvidence.sources, 'rendered:text', 'observed:text-background-pair'],
     reasons: [...portableEvidence.reasons, 'paired-surface'],
     renderedTextOwners,
@@ -644,8 +674,52 @@ function addDarkBundleArtifacts(
   const darkValue = '#101827'
   const { $schema: _schema, ...darkRoot } = structuredClone(dtcg)
   darkRoot.color.primary.$value = darkValue
+  const entryScopedEvidence = Object.fromEntries(
+    Object.entries(darkRoot.$extensions['com.imprint.tokenEvidence']).map(([path, rawItem]) => {
+      const item = rawItem as Record<string, unknown>
+      const renderedTextOwners = Array.isArray(item.renderedTextOwners)
+        ? item.renderedTextOwners.map((rawOwner) => ({
+            ...(rawOwner as Record<string, unknown>),
+            page: 'https://example.com/',
+            routeId: HOME_ROUTE_ID,
+          }))
+        : undefined
+      const pairedSurface =
+        item.pairedSurface && typeof item.pairedSurface === 'object' && !Array.isArray(item.pairedSurface)
+          ? {
+              ...(item.pairedSurface as Record<string, unknown>),
+              pageCount: 1,
+              eligiblePageCount: 1,
+              pageSupportRatio: 1,
+              routeSupport: Array.isArray((item.pairedSurface as Record<string, unknown>).routeSupport)
+                ? ((item.pairedSurface as Record<string, unknown>).routeSupport as Array<Record<string, unknown>>)
+                    .slice(0, 1)
+                    .map((route) => ({
+                      ...route,
+                      page: 'https://example.com/',
+                      routeId: HOME_ROUTE_ID,
+                    }))
+                : undefined,
+            }
+          : undefined
+      return [
+        path,
+        {
+          ...item,
+          pageCount: 1,
+          captureCount: 1,
+          eligiblePageCount: 1,
+          pageSupportRatio: 1,
+          pages: ['https://example.com/'],
+          pageRefs: [HOME_ROUTE_ID],
+          ...(renderedTextOwners ? { renderedTextOwners } : {}),
+          ...(pairedSurface ? { pairedSurface } : {}),
+        },
+      ]
+    }),
+  )
   darkRoot.$extensions['com.imprint.tokenEvidence'] = {
-    ...darkRoot.$extensions['com.imprint.tokenEvidence'],
+    ...entryScopedEvidence,
     'colors.primary': {
       ...portableEvidence,
       value: darkValue,
@@ -673,6 +747,9 @@ function addDarkBundleArtifacts(
         - color.primary
       overrides:
         color.primary: "${darkValue}"
+      colors:
+        background: "#ffffff"
+        primary: "${darkValue}"
       fontFamilies: {}
     componentSummary:`,
   )
@@ -712,6 +789,17 @@ $dark-spacing-2: 8px;
     --spacing-2: 8px;
   }
 }`
+  artifacts['DESIGN.md'] += `
+
+**Dark Mode:** Supported. Dark tokens were observed by emulating prefers-color-scheme: dark and reading computed styles; this does not imply the site loads in dark by default.
+
+### Dark Mode Colors
+
+| Token | Value |
+|-------|-------|
+| \`--color-background\` | \`#ffffff\` |
+| \`--color-primary\` | \`${darkValue}\` |
+`
   mutate?.(artifacts)
 }
 
@@ -776,19 +864,19 @@ function addMultipleFontArtifacts(
     renderedOwner(`${prefix}-1`, fontFamily),
     renderedOwner(`${prefix}-2`, fontFamily),
   ]
-  tokenEvidence['typography.fontFamilies.0'] = onePageRenderedTextEvidence(
+  tokenEvidence['typography.fontFamilies.0'] = portableRenderedTextEvidence(
     'Georgia',
     owners('font-georgia', 'Georgia, serif'),
   )
-  tokenEvidence['typography.fontFamilies.1'] = onePageRenderedTextEvidence(
+  tokenEvidence['typography.fontFamilies.1'] = portableRenderedTextEvidence(
     'Inter',
     owners('font-inter', 'Inter, sans-serif'),
   )
-  tokenEvidence['typography.fontStacks.0'] = onePageRenderedTextEvidence(
+  tokenEvidence['typography.fontStacks.0'] = portableRenderedTextEvidence(
     'Georgia, serif',
     owners('stack-georgia', 'Georgia, serif'),
   )
-  tokenEvidence['typography.fontStacks.1'] = onePageRenderedTextEvidence(
+  tokenEvidence['typography.fontStacks.1'] = portableRenderedTextEvidence(
     'Inter, sans-serif',
     owners('stack-inter', 'Inter, sans-serif'),
   )
@@ -877,11 +965,11 @@ function addSingleFontArtifacts(
       foreground: '#111111',
     },
   }
-  tokenEvidence['typography.fontFamilies.0'] = onePageRenderedTextEvidence('Inter', [
+  tokenEvidence['typography.fontFamilies.0'] = portableRenderedTextEvidence('Inter', [
     { ...renderedOwner, ownerId: 'font-inter-1' },
     { ...renderedOwner, ownerId: 'font-inter-2' },
   ])
-  tokenEvidence['typography.fontStacks.0'] = onePageRenderedTextEvidence('Inter, sans-serif', [
+  tokenEvidence['typography.fontStacks.0'] = portableRenderedTextEvidence('Inter, sans-serif', [
     { ...renderedOwner, ownerId: 'stack-inter-1' },
     { ...renderedOwner, ownerId: 'stack-inter-2' },
   ])
@@ -960,11 +1048,11 @@ function addEscapedGenericFontArtifacts(
       foreground: '#111111',
     },
   }
-  tokenEvidence['typography.fontFamilies.0'] = onePageRenderedTextEvidence(escapedSerif, [
+  tokenEvidence['typography.fontFamilies.0'] = portableRenderedTextEvidence(escapedSerif, [
     { ...renderedOwner, ownerId: 'font-serif-1' },
     { ...renderedOwner, ownerId: 'font-serif-2' },
   ])
-  tokenEvidence['typography.fontStacks.0'] = onePageRenderedTextEvidence(escapedSerif, [
+  tokenEvidence['typography.fontStacks.0'] = portableRenderedTextEvidence(escapedSerif, [
     { ...renderedOwner, ownerId: 'stack-serif-1' },
     { ...renderedOwner, ownerId: 'stack-serif-2' },
   ])
@@ -1102,11 +1190,11 @@ function addSparseTypographyArtifacts(
       foreground: '#111111',
     },
   }
-  tokenEvidence['typography.fontSizes.0'] = onePageRenderedTextEvidence('1.75rem', [
+  tokenEvidence['typography.fontSizes.0'] = portableRenderedTextEvidence('1.75rem', [
     renderedOwner,
     { ...renderedOwner, ownerId: 'font-size-28-2' },
   ])
-  tokenEvidence['typography.letterSpacings.0'] = onePageRenderedTextEvidence('1.12px', [
+  tokenEvidence['typography.letterSpacings.0'] = portableRenderedTextEvidence('1.12px', [
     { ...renderedOwner, ownerId: 'letter-spacing-1' },
     { ...renderedOwner, ownerId: 'letter-spacing-2' },
   ])
@@ -3266,6 +3354,78 @@ x-imprint:
     )
   })
 
+  it('uses the evidence-eligible canonical fallback for base and dark rendered token owners', async () => {
+    for (const excludedDesktop of ['ineligible', 'severe-overflow'] as const) {
+      const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+        addSingleFontArtifacts(artifacts, evidence, rawDtcg)
+        const homeDesktop = evidence.pages.find((page) => page.id === 'page-home-desktop') as
+          | ((typeof evidence.pages)[number] & {
+              viewportWidth?: number
+              contentWidth?: number
+              horizontalOverflow?: boolean
+              health: { checkedAt: string; evidenceEligible?: boolean }
+            })
+          | undefined
+        if (!homeDesktop) throw new Error('Fixture is missing the entry desktop capture')
+        if (excludedDesktop === 'ineligible') homeDesktop.health.evidenceEligible = false
+        else {
+          homeDesktop.viewportWidth = 100
+          homeDesktop.contentWidth = 400
+          homeDesktop.horizontalOverflow = true
+          artifacts['DESIGN.md'] += `
+
+### Page Topology
+
+- \`desktop\` · 1 route · example: https://example.com/: horizontal overflow observed (content 400px > viewport 100px); off-screen content is not evidence of hiding or reflow
+`
+        }
+        const baseEvidence = evidence.tokens.evidence as Record<string, Record<string, unknown>>
+        for (const item of Object.values(baseEvidence)) {
+          if (!Array.isArray(item.renderedTextOwners)) continue
+          item.renderedTextOwners = item.renderedTextOwners.map((rawOwner) => {
+            const owner = rawOwner as Record<string, unknown>
+            return owner.routeId === HOME_ROUTE_ID ? { ...owner, viewport: 'mobile' } : owner
+          })
+        }
+        const mobileHomeSection = {
+          id: 'section-page-home-mobile',
+          pageId: 'page-home-mobile',
+          role: 'content',
+          tokenRefs: [],
+          componentRefs: ['button-home-1', 'button-home-2'],
+          interactionRefs: [],
+          mediaLayerRefs: [],
+          evidenceRefs: [],
+        }
+        evidence.sections.push(mobileHomeSection)
+        evidence.topology.pages.push({ pageId: 'page-home-mobile', sectionIds: [mobileHomeSection.id] })
+        for (const component of evidence.components.filter((item) => item.pageId === 'page-home-desktop')) {
+          component.pageId = 'page-home-mobile'
+          component.sectionId = mobileHomeSection.id
+          component.evidenceRefs = [mobileHomeSection.id]
+        }
+        evidence.sections.find((section) => section.id === 'section-home')!.componentRefs = []
+        addDarkBundleArtifacts(artifacts, rawDtcg)
+        addDarkFontOverrideArtifacts(artifacts, rawDtcg)
+        const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+        const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<
+          string,
+          Record<string, unknown>
+        >
+        for (const item of Object.values(darkEvidence)) {
+          if (!Array.isArray(item.renderedTextOwners)) continue
+          item.renderedTextOwners = item.renderedTextOwners.map((rawOwner) => ({
+            ...(rawOwner as Record<string, unknown>),
+            viewport: 'mobile',
+          }))
+        }
+        evidence.pages.reverse()
+      })
+
+      expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
+    }
+  })
+
   it('rejects token provenance that does not resolve to every claimed opaque query route', async () => {
     const directory = await writeBundle((_artifacts, evidence) => {
       for (const page of evidence.pages) {
@@ -4654,9 +4814,584 @@ _2 representative-style match(es) across 2 page(s) · identity 0.90 · reuse 0.8
         'missing-dark-implementation-token:variables.css:--color-primary',
         'dark-implementation-token-value-mismatch:variables.scss:$dark-spacing-1',
         'missing-dark-implementation-token:variables.scss@mixin:--spacing-2',
-        'unexpected-dark-implementation-token:theme.css:--spacing-stale',
+        'invalid-dark-implementation-scope:theme.css',
       ]),
     )
+  })
+
+  it('binds dark token evidence to the explicit entry route regardless of Evidence page order', async () => {
+    const validDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      evidence.pages.reverse()
+    })
+    expect((await auditArtifactBundle(validDirectory)).hardFailures).toEqual([])
+
+    const subpageDirectory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      evidence.pages.reverse()
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, Record<string, unknown>>
+      for (const item of Object.values(darkEvidence)) {
+        item.pages = ['https://example.com/about']
+        item.pageRefs = [ABOUT_ROUTE_ID]
+        if (Array.isArray(item.renderedTextOwners)) {
+          item.renderedTextOwners = item.renderedTextOwners.map((rawOwner) => ({
+            ...(rawOwner as Record<string, unknown>),
+            page: 'https://example.com/about',
+            routeId: ABOUT_ROUTE_ID,
+          }))
+        }
+        if (item.pairedSurface && typeof item.pairedSurface === 'object' && !Array.isArray(item.pairedSurface)) {
+          const pair = item.pairedSurface as Record<string, unknown>
+          if (Array.isArray(pair.routeSupport)) {
+            pair.routeSupport = pair.routeSupport.map((rawRoute) => ({
+              ...(rawRoute as Record<string, unknown>),
+              page: 'https://example.com/about',
+              routeId: ABOUT_ROUTE_ID,
+            }))
+          }
+        }
+      }
+    })
+    expect((await auditArtifactBundle(subpageDirectory)).hardFailures).toEqual(
+      expect.arrayContaining(['evidence-page-ref-page-mismatch:dtcg.dark.tokenEvidence.colors.primary.pageRefs']),
+    )
+  })
+
+  it('rejects a changed dark foundation surface without an exact readable text pair', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      dtcg.dark.color.background.$value = '#000000'
+      ;(dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, unknown>)['colors.background'] = {
+        ...portableEvidence,
+        value: '#000000',
+        observationCount: 2,
+        ownerCount: 2,
+        pageCount: 1,
+        captureCount: 1,
+        eligiblePageCount: 1,
+        pageSupportRatio: 1,
+        pages: ['https://example.com/'],
+        pageRefs: [HOME_ROUTE_ID],
+      }
+      const darkMode = dtcg.$extensions['com.imprint.darkMode'] as { overrides: Record<string, string> }
+      darkMode.overrides['color.background'] = '#000000'
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const projected = extension.darkMode as {
+          overrideRefs: string[]
+          overrides: Record<string, string>
+          colors: Record<string, string>
+        }
+        projected.overrideRefs.unshift('color.background')
+        projected.overrides['color.background'] = '#000000'
+        projected.colors.background = '#000000'
+      }).replace('| `--color-background` | `#ffffff` |', '| `--color-background` | `#000000` |')
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-background: #ffffff;',
+        '    --color-background: #000000;',
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-background: #ffffff;',
+        '    --color-background: #000000;',
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-background: #ffffff;', '$dark-color-background: #000000;')
+        .replace('  --color-background: #ffffff;', '  --color-background: #000000;')
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'dark-background-missing-readable-foreground-pair',
+    )
+  })
+
+  it('rejects unsupported dark DTCG keys, orphan evidence, and forged unchanged evidence', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      ;(dtcg.dark.spacing as Record<string, unknown>).fabricated = { $type: 'dimension', $value: '13px' }
+      ;(dtcg.dark.color.background as Record<string, unknown>).$type = 'dimension'
+      ;(dtcg.dark.color.background as Record<string, unknown>).$fabricated = true
+      const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, Record<string, unknown>>
+      darkEvidence['colors.fabricated'] = { ...portableEvidence, value: '#ff00ff' }
+      darkEvidence['spacing.0'] = { ...darkEvidence['spacing.0'], observationCount: 999, semanticAgreement: 42 }
+      darkEvidence['spacing.1'] = { ...darkEvidence['spacing.1'], observationCount: 0.5, ownerCount: 0.5 }
+      darkEvidence['spacing.1'].pairedSurface = {}
+    })
+    const result = await auditArtifactBundle(directory)
+
+    expect(result.hardFailures).toEqual(
+      expect.arrayContaining([
+        'unexpected-dtcg-key:spacing.fabricated',
+        'invalid-dtcg-token-shape:color.background',
+        'stale-dark-token-evidence:colors.fabricated',
+        'dark-token-semantic-agreement-out-of-range:spacing.0',
+        'non-integer-dark-token-evidence:spacing.1.observationCount',
+        'non-integer-dark-token-evidence:spacing.1.ownerCount',
+        'unexpected-paired-surface-evidence:spacing.1',
+      ]),
+    )
+  })
+
+  it('rejects duplicate raw DTCG member names before JSON parsing collapses them', async () => {
+    const directory = await writeBundle()
+    const filename = path.join(directory, 'design-tokens.json')
+    const source = await fs.readFile(filename, 'utf8')
+    await fs.writeFile(filename, source.replace('"$value":"#ffffff"', '"$value":"#000000","$value":"#ffffff"'))
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('duplicate-json-key:design-tokens.json')
+  })
+
+  it('rejects out-of-range support ratios in the base portable evidence catalog', async () => {
+    const directory = await writeBundle((_artifacts, evidence, rawDtcg) => {
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.primary']
+      item.pageSupportRatio = 42
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      ;(dtcg.$extensions['com.imprint.tokenEvidence'] as Record<string, Record<string, unknown>>)[
+        'colors.primary'
+      ].pageSupportRatio = 42
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'portable-token-page-support-out-of-range:colors.primary',
+    )
+
+    const fractionalDirectory = await writeBundle((_artifacts, evidence, rawDtcg) => {
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.primary']
+      item.observationCount = 0.5
+      item.ownerCount = 0.5
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      const dtcgItem = (dtcg.$extensions['com.imprint.tokenEvidence'] as Record<string, Record<string, unknown>>)[
+        'colors.primary'
+      ]
+      dtcgItem.observationCount = 0.5
+      dtcgItem.ownerCount = 0.5
+    })
+    expect((await auditArtifactBundle(fractionalDirectory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'non-integer-portable-token-evidence:colors.primary.observationCount',
+        'non-integer-portable-token-evidence:colors.primary.ownerCount',
+      ]),
+    )
+
+    const insufficientDirectory = await writeBundle((_artifacts, evidence, rawDtcg) => {
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.primary']
+      item.eligiblePageCount = 4
+      item.pageSupportRatio = 0.5
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      const dtcgItem = (dtcg.$extensions['com.imprint.tokenEvidence'] as Record<string, Record<string, unknown>>)[
+        'colors.primary'
+      ]
+      dtcgItem.eligiblePageCount = 4
+      dtcgItem.pageSupportRatio = 0.5
+    })
+    expect((await auditArtifactBundle(insufficientDirectory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'invalid-portable-token-evidence-envelope:colors.primary',
+        'insufficient-portable-token-foundation-coverage:colors.primary',
+      ]),
+    )
+
+    const hiddenDenominatorDirectory = await writeBundle((_artifacts, evidence) => {
+      for (const [suffix, routeId] of [
+        ['contact', 'route-333333333333'],
+        ['legal', 'route-444444444444'],
+      ]) {
+        const page = structuredClone(evidence.pages[0])
+        page.id = `page-${suffix}-desktop`
+        page.url = `https://example.com/${suffix}`
+        page.routeId = routeId
+        page.images[0].id = `image-page-${suffix}-desktop`
+        evidence.pages.push(page)
+      }
+    })
+    expect((await auditArtifactBundle(hiddenDenominatorDirectory)).hardFailures).toContain(
+      'invalid-portable-token-evidence-envelope:colors.primary',
+    )
+  })
+
+  it('matches the producer threshold for a foreground pair supported by half of four routes', async () => {
+    const writeFourRoutePair = (supportedRouteCount: number) =>
+      writeBundle((artifacts, evidence, rawDtcg) => {
+        const pages = evidence.pages
+        Object.assign(pages[1], {
+          id: 'page-contact-desktop',
+          url: 'https://example.com/contact',
+          routeId: 'route-333333333333',
+          viewport: 'desktop',
+        })
+        Object.assign(pages[3], {
+          id: 'page-legal-desktop',
+          url: 'https://example.com/legal',
+          routeId: 'route-444444444444',
+          viewport: 'desktop',
+        })
+        const routeCatalog = pages.map((page) => ({ page: page.url, routeId: page.routeId }))
+        const tokenEvidence = evidence.tokens.evidence as Record<string, Record<string, unknown>>
+        for (const item of Object.values(tokenEvidence)) {
+          Object.assign(item, {
+            observationCount: 4,
+            ownerCount: 4,
+            pageCount: 4,
+            captureCount: 4,
+            eligiblePageCount: 4,
+            pageSupportRatio: 1,
+            pages: routeCatalog.map((route) => route.page),
+            pageRefs: routeCatalog.map((route) => route.routeId),
+          })
+          if (item.foundationOwnerCount !== undefined) {
+            item.foundationOwnerCount = 4
+            item.minimumPageFoundationOwnerCount = 1
+          }
+        }
+        artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+          const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+          ;(extension.evidence as Record<string, unknown>).pageCount = 4
+        })
+        addFoundationForegroundArtifacts(artifacts, evidence, rawDtcg, '#111111', {
+          background: '#ffffff',
+          pageCount: supportedRouteCount,
+          eligiblePageCount: 4,
+          pageSupportRatio: supportedRouteCount / 4,
+          normalizedShare: supportedRouteCount / 4,
+          normalizedMainTextShare: supportedRouteCount / 4,
+          contrastRatio: 18.88,
+          textRoles: ['body'],
+        })
+      })
+
+    expect((await auditArtifactBundle(await writeFourRoutePair(2))).hardFailures).toEqual([])
+    expect((await auditArtifactBundle(await writeFourRoutePair(1))).hardFailures).toEqual(
+      expect.arrayContaining([
+        'insufficient-rendered-text-promotion-evidence:colors.foreground',
+        'foundation-foreground-pair-insufficient-support',
+      ]),
+    )
+  })
+
+  it('rejects clipped or role-inconsistent rendered owners behind a foundation foreground pair', async () => {
+    const pairedSurface = {
+      background: '#ffffff',
+      pageCount: 2,
+      eligiblePageCount: 2,
+      pageSupportRatio: 1,
+      normalizedShare: 1,
+      contrastRatio: 18.88,
+      textRoles: ['body'],
+    }
+    const clippedDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111111', pairedSurface)
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.foreground']
+      const owners = item.renderedTextOwners as Array<{ source: Record<string, unknown> }>
+      owners[0].source.clipPathChain = [{ value: 'inset(49%)', widthPx: 160, heightPx: 24, owner: 'ancestor' }]
+    })
+    expect((await auditArtifactBundle(clippedDirectory)).hardFailures).toContain(
+      'invalid-rendered-text-owner-evidence:colors.foreground',
+    )
+
+    const roundedDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111111', pairedSurface)
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.foreground']
+      const owners = item.renderedTextOwners as Array<{ source: Record<string, unknown> }>
+      owners[0].source.clipPath = 'inset(0 round 50%)'
+      owners[0].source.clipPathChain = [{ value: 'inset(0 round 50%)', widthPx: 160, heightPx: 24, owner: 'self' }]
+    })
+    expect((await auditArtifactBundle(roundedDirectory)).hardFailures).toContain(
+      'invalid-rendered-text-owner-evidence:colors.foreground',
+    )
+
+    for (const { clipPath, bounds } of [
+      {
+        clipPath: 'inset(0 100px 0 0)',
+        bounds: { xPx: 100, yPx: 0, widthPx: 60, heightPx: 24 },
+      },
+      {
+        clipPath: 'inset(0 0 0 100px)',
+        bounds: { xPx: 0, yPx: 0, widthPx: 60, heightPx: 24 },
+      },
+      {
+        clipPath: 'inset(12px 0 0 0)',
+        bounds: { xPx: 0, yPx: 0, widthPx: 160, heightPx: 12 },
+      },
+      {
+        clipPath: 'inset(0 0 12px 0)',
+        bounds: { xPx: 0, yPx: 12, widthPx: 160, heightPx: 12 },
+      },
+    ]) {
+      const displacedDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+        addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111111', pairedSurface)
+        const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.foreground']
+        const owners = item.renderedTextOwners as Array<{ source: Record<string, unknown> }>
+        const source = owners[0].source
+        source.clipPath = clipPath
+        source.clipPathChain = [{ value: clipPath, widthPx: 160, heightPx: 24, owner: 'self' }]
+        source.visibleBounds = bounds
+        source.visibleGlyphRects = [bounds]
+        source.visibleWidthPx = bounds.widthPx
+        source.visibleHeightPx = bounds.heightPx
+        source.visibleGlyphAreaPx = bounds.widthPx * bounds.heightPx
+        source.paintedAreaPx = bounds.widthPx * bounds.heightPx
+      })
+      expect((await auditArtifactBundle(displacedDirectory)).hardFailures).toContain(
+        'invalid-rendered-text-owner-evidence:colors.foreground',
+      )
+    }
+
+    const roleDirectory = await writeBundle((artifacts, evidence, dtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111111', pairedSurface)
+      const item = (evidence.tokens.evidence as Record<string, Record<string, unknown>>)['colors.foreground']
+      const owners = item.renderedTextOwners as Array<{ textRole: string }>
+      for (const owner of owners) owner.textRole = 'label'
+    })
+    expect((await auditArtifactBundle(roleDirectory)).hardFailures).toContain(
+      'rendered-text-pair-role-mismatch:colors.foreground',
+    )
+  })
+
+  it('validates the complete localized DESIGN.md dark color and detection projection', async () => {
+    const validChineseDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['DESIGN.md'] = artifacts['DESIGN.md']
+        .replace('### Dark Mode Colors', '### 深色模式颜色')
+        .replace('| Token | Value |', '| 令牌 | 值 |')
+        .replace(
+          '**Dark Mode:** Supported. Dark tokens were observed by emulating prefers-color-scheme: dark and reading computed styles; this does not imply the site loads in dark by default.',
+          '**深色模式：** 支持。暗色令牌通过模拟 prefers-color-scheme: dark 后读取计算样式主动观察得到；不代表该站点默认以深色加载。',
+        )
+    })
+    expect((await auditArtifactBundle(validChineseDirectory)).hardFailures).toEqual([])
+
+    const invalidDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const projected = extension.darkMode as { colors: Record<string, string>; method: string }
+        projected.colors.fabricated = '#ff00ff'
+        projected.method = 'class-toggle'
+      })
+        .replace('| `--color-primary` | `#101827` |', '| `--color-primary` | `#ff00ff` |')
+        .concat(
+          '\n> **Dark Mode:** Supported. Dark tokens were observed by toggling .fabricated-dark and reading computed styles; this does not imply the site loads in dark by default.\n',
+        )
+    })
+    const result = await auditArtifactBundle(invalidDirectory)
+    expect(result.hardFailures).toEqual(
+      expect.arrayContaining([
+        'design-doc-dark-color-catalog-mismatch',
+        'design-doc-dark-color-table-mismatch',
+        'design-doc-dark-detection-mismatch',
+        'design-doc-dark-detection-projection-mismatch',
+      ]),
+    )
+  })
+
+  it('rejects additional dark color tables nested in Markdown containers', async () => {
+    const englishDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['DESIGN.md'] += `
+> ### Dark Mode Colors
+> | Token | Value |
+> | --- | --- |
+> | \`--color-primary\` | \`#ff00ff\` |
+`
+    })
+    expect((await auditArtifactBundle(englishDirectory)).hardFailures).toContain('design-doc-dark-color-table-mismatch')
+
+    const chineseDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['DESIGN.md'] += `
+- > ### 深色模式颜色
+  > | 令牌 | 值 |
+  > | --- | --- |
+  > | \`--color-primary\` | \`#ff00ff\` |
+`
+    })
+    expect((await auditArtifactBundle(chineseDirectory)).hardFailures).toContain('design-doc-dark-color-table-mismatch')
+  })
+
+  it('requires the exact dark activation scope and one declaration per implementation token', async () => {
+    const invalidScopeDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      for (const filename of ['variables.css', 'variables.scss', 'theme.css']) {
+        artifacts[filename] = artifacts[filename].replace('prefers-color-scheme: dark', 'prefers-color-scheme: light')
+      }
+    })
+    expect((await auditArtifactBundle(invalidScopeDirectory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'invalid-dark-implementation-scope:variables.css',
+        'invalid-dark-implementation-scope:variables.scss',
+        'invalid-dark-implementation-scope:theme.css',
+      ]),
+    )
+
+    const duplicateDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-primary: #ff00ff;',
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-primary: #ff00ff;',
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-primary: #101827;', '$dark-color-primary: #101827; $dark-color-primary: #ff00ff;')
+        .replace('  --color-primary: #101827;', '  --color-primary: #101827; --color-primary: #ff00ff;')
+    })
+    expect((await auditArtifactBundle(duplicateDirectory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'duplicate-dark-implementation-token:variables.css:--color-primary',
+        'duplicate-dark-implementation-token:variables.scss:$dark-color-primary',
+        'duplicate-dark-implementation-token:variables.scss@mixin:--color-primary',
+        'duplicate-dark-implementation-token:theme.css:--color-primary',
+      ]),
+    )
+
+    const escapedDuplicateDirectory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color\\-primary: #ff00ff;',
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color\\-primary: #ff00ff;',
+      )
+    })
+    expect((await auditArtifactBundle(escapedDuplicateDirectory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'duplicate-dark-implementation-token:variables.css:--color-primary',
+        'duplicate-dark-implementation-token:theme.css:--color-primary',
+      ]),
+    )
+  })
+
+  it('rejects duplicate base implementation declarations regardless of layout or CSS escaping', async () => {
+    const directory = await writeBundle((artifacts) => {
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '--color-primary: #2255ff;',
+        '--color-primary: #2255ff; --color\\-primary: #ff00ff;',
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '--color-primary: #2255ff;',
+        '--color-primary: #2255ff; --color-primary: #ff00ff;',
+      )
+      artifacts['variables.scss'] += ' $color-primary: #ff00ff;'
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'duplicate-implementation-token:variables.css:--color-primary',
+        'duplicate-implementation-token:variables.scss:$color-primary',
+        'duplicate-implementation-token:theme.css:--color-primary',
+      ]),
+    )
+  })
+
+  it('requires base implementation declarations to remain in their generated owners', async () => {
+    const directory = await writeBundle((artifacts) => {
+      artifacts['variables.css'] = artifacts['variables.css'].replace(':root {', '.wrong-scope {')
+      artifacts['theme.css'] = artifacts['theme.css'].replace('@theme {', '.wrong-scope {')
+      artifacts['variables.scss'] = `.wrong-scope {\n${artifacts['variables.scss']}\n}`
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'invalid-base-implementation-scope:variables.css',
+        'invalid-base-implementation-scope:variables.scss',
+        'invalid-base-implementation-scope:theme.css',
+      ]),
+    )
+  })
+
+  it('does not count comment-only declarations in dark implementation catalogs', async () => {
+    const directory = await writeBundle((artifacts, _evidence, dtcg) => {
+      addDarkBundleArtifacts(artifacts, dtcg)
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-primary: #101827;',
+        '    /* --color-primary: #101827; */',
+      )
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-primary: #101827;',
+        '    /* --color-primary: #101827; */',
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-primary: #101827;', '/* $dark-color-primary: #101827; */')
+        .replace('  --color-primary: #101827;', '  /* --color-primary: #101827; */')
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'missing-dark-implementation-token:variables.css:--color-primary',
+        'missing-dark-implementation-token:variables.scss:$dark-color-primary',
+        'missing-dark-implementation-token:variables.scss@mixin:--color-primary',
+        'missing-dark-implementation-token:theme.css:--color-primary',
+      ]),
+    )
+  })
+
+  it('accepts class-toggle dark scopes only when DTCG, DESIGN.md, and all implementations agree', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      const contract = dtcg.$extensions['com.imprint.darkMode'] as Record<string, unknown>
+      contract.method = 'class-toggle'
+      contract.selector = '.dark'
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const projected = extension.darkMode as Record<string, unknown>
+        projected.method = 'class-toggle'
+        projected.selector = '.dark'
+      }).replace(
+        'emulating prefers-color-scheme: dark and reading computed styles',
+        'toggling .dark and reading computed styles',
+      )
+      for (const filename of ['variables.css', 'theme.css']) {
+        artifacts[filename] = artifacts[filename].replace(
+          /@media \(prefers-color-scheme: dark\) \{\n  :root \{([\s\S]*?)\n  \}\n\}\s*$/,
+          '.dark {$1\n}',
+        )
+      }
+      artifacts['variables.scss'] = artifacts['variables.scss'].replace(
+        /@media \(prefers-color-scheme: dark\) \{\s*:root \{\s*@include imprint-dark-theme;\s*\}\s*\}\s*$/,
+        '.dark {\n  @include imprint-dark-theme;\n}',
+      )
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
+  })
+
+  it('accepts a quoted data-attribute dark selector through effective stylesheet parsing', async () => {
+    const selector = '[data-theme="dark"]'
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      const contract = dtcg.$extensions['com.imprint.darkMode'] as Record<string, unknown>
+      contract.method = 'class-toggle'
+      contract.selector = selector
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const projected = extension.darkMode as Record<string, unknown>
+        projected.method = 'class-toggle'
+        projected.selector = selector
+      }).replace(
+        'emulating prefers-color-scheme: dark and reading computed styles',
+        `toggling ${selector} and reading computed styles`,
+      )
+      for (const filename of ['variables.css', 'theme.css']) {
+        artifacts[filename] = artifacts[filename].replace(
+          /@media \(prefers-color-scheme: dark\) \{\n  :root \{([\s\S]*?)\n  \}\n\}\s*$/,
+          `${selector} {$1\n}`,
+        )
+      }
+      artifacts['variables.scss'] = artifacts['variables.scss'].replace(
+        /@media \(prefers-color-scheme: dark\) \{\s*:root \{\s*@include imprint-dark-theme;\s*\}\s*\}\s*$/,
+        `${selector} {\n  @include imprint-dark-theme;\n}`,
+      )
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
   })
 
   it('rejects dark candidate provenance that is not bound to a real Evidence capture', async () => {
@@ -4678,6 +5413,88 @@ _2 representative-style match(es) across 2 page(s) · identity 0.90 · reuse 0.8
     )
   })
 
+  it('rejects non-text dark candidate provenance that names a nonexistent Evidence route', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & {
+        dark: {
+          $extensions: Record<string, unknown>
+        }
+      }
+      dtcg.dark.$extensions['com.imprint.candidates'] = {
+        values: [
+          {
+            id: 'candidate.shadows.fabricated',
+            group: 'shadows',
+            value: '0 8px 24px rgb(0 0 0 / 40%)',
+            provenance: 'dark-mode',
+            rejectionReason: 'not-in-base-catalog',
+            evidence: {
+              ...portableEvidence,
+              value: '0 8px 24px rgb(0 0 0 / 40%)',
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pages: ['https://fabricated.invalid/'],
+              pageRefs: ['route-ffffffffffff'],
+              sources: ['element:structural-shadow'],
+            },
+          },
+        ],
+      }
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'unresolved-evidence-page-ref:dtcg.dark.candidates.values.0.pageRefs:route-ffffffffffff',
+        'evidence-page-ref-page-mismatch:dtcg.dark.candidates.values.0.pageRefs',
+      ]),
+    )
+  })
+
+  it('rejects colluding omission of every Evidence route ID and dark candidate page reference', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      for (const page of evidence.pages) delete (page as { routeId?: string }).routeId
+      for (const item of Object.values(evidence.tokens.evidence)) delete (item as { pageRefs?: string[] }).pageRefs
+
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      const baseEvidence = dtcg.$extensions['com.imprint.tokenEvidence'] as Record<string, { pageRefs?: string[] }>
+      for (const item of Object.values(baseEvidence)) delete item.pageRefs
+      const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, { pageRefs?: string[] }>
+      for (const item of Object.values(darkEvidence)) delete item.pageRefs
+      dtcg.dark.$extensions['com.imprint.candidates'] = {
+        values: [
+          {
+            id: 'candidate.shadows.unbound',
+            group: 'shadows',
+            value: '0 8px 24px rgb(0 0 0 / 40%)',
+            provenance: 'dark-mode',
+            rejectionReason: 'not-in-base-catalog',
+            evidence: {
+              ...portableEvidence,
+              value: '0 8px 24px rgb(0 0 0 / 40%)',
+              pageCount: 1,
+              captureCount: 1,
+              eligiblePageCount: 1,
+              pages: ['https://example.com/'],
+              pageRefs: undefined,
+              sources: ['element:structural-shadow'],
+            },
+          },
+        ],
+      }
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'missing-or-invalid-evidence-page-route-id:0',
+        'missing-evidence-route-catalog:dtcg.dark.candidates.values.0.pageRefs',
+        'missing-evidence-page-refs:dtcg.dark.candidates.values.0.pageRefs',
+      ]),
+    )
+  })
+
   it('rejects promoted dark override evidence that is not bound to a real Evidence capture', async () => {
     const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
       addDarkBundleArtifacts(artifacts, rawDtcg)
@@ -4690,6 +5507,224 @@ _2 representative-style match(es) across 2 page(s) · identity 0.90 · reuse 0.8
 
     expect((await auditArtifactBundle(directory)).hardFailures).toContain(
       'evidence-page-ref-page-mismatch:dtcg.dark.tokenEvidence.colors.primary.pageRefs',
+    )
+  })
+
+  it('derives required dark overrides from changed dark tokens instead of trusting the declared map', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & {
+        dark: ReturnType<typeof bundleDtcg>
+      }
+      const extensions = dtcg.$extensions as Record<string, { overrides?: Record<string, string> }>
+      delete extensions['com.imprint.darkMode'].overrides?.['color.primary']
+      const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, unknown>
+      delete darkEvidence['colors.primary']
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const darkMode = extension.darkMode as { overrideRefs: string[]; overrides: Record<string, string> }
+        darkMode.overrideRefs = []
+        darkMode.overrides = {}
+      })
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining(['dark-override-catalog-mismatch', 'ungrounded-dark-override:color.primary']),
+    )
+  })
+
+  it('rejects synchronized removal of a base token from the complete dark catalog', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      delete dtcg.dark.color.primary
+      delete (dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, unknown>)['colors.primary']
+      delete (dtcg.$extensions['com.imprint.darkMode'] as { overrides: Record<string, string> }).overrides[
+        'color.primary'
+      ]
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const darkMode = extension.darkMode as { overrideRefs: string[]; overrides: Record<string, string> }
+        darkMode.overrideRefs = []
+        darkMode.overrides = {}
+      })
+      artifacts['variables.css'] = artifacts['variables.css'].replace('    --color-primary: #101827;\n', '')
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-primary: #101827;\n', '')
+        .replace('  --color-primary: #101827;\n', '')
+      artifacts['theme.css'] = artifacts['theme.css'].replace('    --color-primary: #101827;\n', '')
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('missing-dark-base-token:color.primary')
+  })
+
+  it('rejects a dark foreground paired to a surface that is not effective in the exported dark theme', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      const routeId = HOME_ROUTE_ID
+      const page = 'https://example.com/'
+      const ownerIds = ['copy-1', 'copy-2']
+      const renderedOwners = ownerIds.map((ownerId) => ({
+        page,
+        routeId,
+        viewport: 'desktop',
+        ownerId,
+        textRole: 'body',
+        styles: {
+          color: '#111111',
+          backgroundColor: '#ffffff',
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '16px',
+          fontWeight: '400',
+          lineHeight: '24px',
+          letterSpacing: 'normal',
+        },
+        source: directTextSource('#111111'),
+      }))
+      const pairEvidence = {
+        background: '#ffffff',
+        pageCount: 1,
+        eligiblePageCount: 1,
+        pageSupportRatio: 1,
+        normalizedShare: 1,
+        normalizedMainTextShare: 1,
+        ownerCount: 2,
+        minimumPageOwnerCount: 2,
+        mainTextPageCount: 1,
+        mainTextOwnerCount: 2,
+        headingPageCount: 0,
+        headingOwnerCount: 0,
+        contrastRatio: 18.88,
+        textRoles: ['body'],
+        routeSupport: [
+          {
+            page,
+            routeId,
+            supported: true,
+            ownerIds,
+            totalOwnerIds: ownerIds,
+            mainTextOwnerIds: ownerIds,
+            headingOwnerIds: [],
+            textRoles: ['body'],
+            normalizedShare: 1,
+            normalizedMainTextShare: 1,
+          },
+        ],
+      }
+      const foregroundEvidence = {
+        ...onePageRenderedTextEvidence('#111111', renderedOwners),
+        sources: ['rendered:text', 'observed:text-background-pair'],
+        reasons: ['rendered-use', 'computed-style', 'paired-surface'],
+        pairedSurface: pairEvidence,
+      }
+      evidence.tokens.colors.foreground = '#111111'
+      ;(evidence.tokens.evidence as Record<string, unknown>)['colors.foreground'] = foregroundEvidence
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      ;(dtcg.color as Record<string, unknown>).foreground = { $type: 'color', $value: '#111111' }
+      ;(dtcg.$extensions['com.imprint.tokenEvidence'] as Record<string, unknown>)['colors.foreground'] =
+        foregroundEvidence
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        ;(frontMatterValue.colors as Record<string, string>).foreground = '#111111'
+      })
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '--color-background: #ffffff;',
+        '--color-background: #ffffff; --color-foreground: #111111;',
+      )
+      artifacts['variables.scss'] += '\n$color-foreground: #111111;'
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '--color-background: #ffffff;',
+        '--color-background: #ffffff; --color-foreground: #111111;',
+      )
+
+      addDarkBundleArtifacts(artifacts, dtcg)
+      dtcg.dark.color.foreground = { $type: 'color', $value: '#f5f5f5' }
+      const darkRenderedOwners = renderedOwners.map((owner) => ({
+        ...owner,
+        styles: { ...owner.styles, color: '#f5f5f5', backgroundColor: '#16171d' },
+        source: directTextSource('#f5f5f5'),
+      }))
+      const darkForegroundEvidence = {
+        ...onePageRenderedTextEvidence('#f5f5f5', darkRenderedOwners),
+        sources: ['rendered:text', 'observed:text-background-pair'],
+        reasons: ['rendered-use', 'computed-style', 'paired-surface'],
+        pairedSurface: { ...pairEvidence, background: '#16171d', contrastRatio: 16.53 },
+      }
+      ;(dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<string, unknown>)['colors.foreground'] =
+        darkForegroundEvidence
+      ;(dtcg.$extensions['com.imprint.darkMode'] as { overrides: Record<string, string> }).overrides[
+        'color.foreground'
+      ] = '#f5f5f5'
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatterValue) => {
+        const extension = (frontMatterValue['x-imprint'] as Array<Record<string, unknown>>)[0]
+        const darkMode = extension.darkMode as { overrideRefs: string[]; overrides: Record<string, string> }
+        darkMode.overrideRefs.push('color.foreground')
+        darkMode.overrides['color.foreground'] = '#f5f5f5'
+      })
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-foreground: #f5f5f5;',
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-primary: #101827;', '$dark-color-primary: #101827;\n$dark-color-foreground: #f5f5f5;')
+        .replace('  --color-primary: #101827;', '  --color-primary: #101827;\n  --color-foreground: #f5f5f5;')
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-foreground: #f5f5f5;',
+      )
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'dark-foreground-pair-background-not-effective',
+    )
+  })
+
+  it('rejects a dark-only global token even when every implementation format colludes', async () => {
+    const directory = await writeBundle((artifacts, _evidence, rawDtcg) => {
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & {
+        dark: ReturnType<typeof bundleDtcg>
+      }
+      ;(dtcg.dark.color as Record<string, unknown>).fabricated = { $type: 'color', $value: '#ff00ff' }
+      artifacts['variables.css'] = artifacts['variables.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-fabricated: #ff00ff;',
+      )
+      artifacts['variables.scss'] = artifacts['variables.scss']
+        .replace('$dark-color-primary: #101827;', '$dark-color-primary: #101827;\n$dark-color-fabricated: #ff00ff;')
+        .replace('  --color-primary: #101827;', '  --color-primary: #101827;\n  --color-fabricated: #ff00ff;')
+      artifacts['theme.css'] = artifacts['theme.css'].replace(
+        '    --color-primary: #101827;',
+        '    --color-primary: #101827;\n    --color-fabricated: #ff00ff;',
+      )
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'dark-token-outside-base-catalog:color.fabricated',
+    )
+  })
+
+  it('rejects forged dark typography observation counts and semantic agreement', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      addSingleFontArtifacts(artifacts, evidence, rawDtcg)
+      addDarkBundleArtifacts(artifacts, rawDtcg)
+      addDarkFontOverrideArtifacts(artifacts, rawDtcg)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg> & { dark: ReturnType<typeof bundleDtcg> }
+      const darkEvidence = dtcg.dark.$extensions['com.imprint.tokenEvidence'] as Record<
+        string,
+        { observationCount: number; semanticAgreement: number }
+      >
+      for (const path of ['typography.fontFamilies.0', 'typography.fontStacks.0']) {
+        darkEvidence[path].observationCount = 999
+        darkEvidence[path].semanticAgreement = 42
+      }
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'rendered-text-observation-count-mismatch:typography.fontFamilies.0',
+        'rendered-text-observation-count-mismatch:typography.fontStacks.0',
+        'dark-token-semantic-agreement-out-of-range:typography.fontFamilies.0',
+        'dark-token-semantic-agreement-out-of-range:typography.fontStacks.0',
+      ]),
     )
   })
 

@@ -493,9 +493,14 @@ test('requires the complete native text box when glyph rectangles are unavailabl
   await page.close()
 })
 
-test('does not attribute component typography to near-total circular, elliptical, or polygon label clips', async () => {
+test('does not attribute component typography to label clips without reconstructable glyph coverage', async () => {
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
-  for (const clipPath of ['circle(1px)', 'ellipse(1px 1px)', 'polygon(0 0, 1px 0, 1px 1px, 0 1px)']) {
+  for (const clipPath of [
+    'circle(1px)',
+    'ellipse(1px 1px)',
+    'polygon(0 0, 1px 0, 1px 1px, 0 1px)',
+    'inset(0 round 50%)',
+  ]) {
     await page.setContent(`<!doctype html>
       <style>
         button { width:160px; height:44px; background:rgb(225, 235, 245); border:1px solid rgb(90, 110, 130); }

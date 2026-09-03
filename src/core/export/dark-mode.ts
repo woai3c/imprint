@@ -1,10 +1,14 @@
-import { clusterColors } from '../analyzer/color-cluster.js'
+import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
 import { reselectPortableFoundationColors } from '../analyzer/color-role-promotion.js'
-import { buildDesignTokens } from '../analyzer/token-builder.js'
+import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
 import { buildTokenEvidence } from '../analyzer/token-evidence.js'
-import { promotePortableDesignTokens, restrictDesignTokensToBaseCatalog } from '../analyzer/token-promotion.js'
+import {
+  hasRequiredRenderedOwnerEvidence,
+  promotePortableDesignTokens,
+  restrictDesignTokensToBaseCatalog,
+} from '../analyzer/token-promotion.js'
 import type { DarkModeResult, DesignToken, TokenEvidence } from '../analyzer/types.js'
-import { opaqueRouteIdentity, pageIdentityUrl } from '../analyzer/url-identity.js'
+import { explicitSourceRouteIdentity, opaqueRouteIdentity, pageIdentityUrl } from '../analyzer/url-identity.js'
 import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
 import { canonicalEvidencePageIds } from '../design-evidence/canonical-pages.js'
 import type { DesignEvidence, EvidencePage } from '../design-evidence/types.js'
@@ -17,6 +21,8 @@ export interface DarkModeExportData {
   method?: 'media-query' | 'class-toggle' | 'none'
   selector?: string
 }
+
+type DarkEvidenceContext = Pick<DesignEvidence, 'pages'> & Partial<Pick<DesignEvidence, 'source'>>
 
 function namespaceDarkPaletteTokens(tokens: DesignToken): DesignToken {
   const rename = (name: string): string => (/^palette-\d+$/.test(name) ? `dark-${name}` : name)
@@ -161,19 +167,23 @@ function invalidateUnboundEvidence(tokens: DesignToken): void {
   }
 }
 
-function canonicalDarkCaptures(evidence: Pick<DesignEvidence, 'pages'> | undefined): Map<string, EvidencePage> {
+function canonicalDarkCaptures(evidence: DarkEvidenceContext | undefined): Map<string, EvidencePage> {
   if (!evidence) return new Map()
   const canonicalIds = canonicalEvidencePageIds(evidence)
-  return new Map(
-    evidence.pages
-      .filter((page) => canonicalIds.has(page.id) && page.routeId)
-      .map((page) => [page.routeId as string, page]),
+  // Dark extraction is intentionally performed against the entry route only. Bind restored evidence to that exact
+  // capture instead of either accepting every base route or pretending that unobserved routes were dark-sampled.
+  const canonicalRouteIds = new Set(
+    evidence.pages.filter((page) => canonicalIds.has(page.id) && page.routeId).map((page) => page.routeId as string),
   )
+  const entryRouteId =
+    explicitSourceRouteIdentity(evidence) || (canonicalRouteIds.size === 1 ? [...canonicalRouteIds][0] : undefined)
+  const entryCapture = evidence.pages.find((page) => canonicalIds.has(page.id) && page.routeId === entryRouteId)
+  return entryCapture?.routeId ? new Map([[entryCapture.routeId, entryCapture]]) : new Map()
 }
 
 function resolveCanonicalDarkSource(
   source: NonNullable<DarkModeResult['source']>,
-  evidence: Pick<DesignEvidence, 'pages'> | undefined,
+  evidence: DarkEvidenceContext | undefined,
 ): DarkCaptureBinding | undefined {
   if (!evidence) {
     return {
@@ -184,10 +194,16 @@ function resolveCanonicalDarkSource(
     }
   }
   const capture = canonicalDarkCaptures(evidence).get(opaqueRouteIdentity(source.url))
+  const sourceIdentity = pageIdentityUrl(source.url)
+  const sanitizedSourceIdentity = pageIdentityUrl(sanitizeUrlForPersistence(source.url))
+  const captureIdentity = capture ? pageIdentityUrl(capture.url) : ''
   if (
     !capture ||
-    pageIdentityUrl(capture.url) !== pageIdentityUrl(sanitizeUrlForPersistence(source.url)) ||
-    capture.viewport !== source.viewport
+    (captureIdentity !== sourceIdentity && captureIdentity !== sanitizedSourceIdentity) ||
+    capture.viewport !== source.viewport ||
+    // Modern analyzer captures must agree on their exact transaction, not merely their final URL and viewport.
+    // Permit the old URL/viewport binding only when both sides are genuinely legacy and therefore unkeyed.
+    (Boolean(source.captureKey || capture.captureKey) && source.captureKey !== capture.captureKey)
   ) {
     return undefined
   }
@@ -203,12 +219,21 @@ function hasBoundEvidenceCoverage(evidence: TokenEvidence, captures: ReadonlyMap
   const pageRefs = evidence.pageRefs || []
   const pages = evidence.pages.map(pageIdentityUrl)
   const expectedPages = pageRefs.map((routeId) => captures.get(routeId)?.url).filter((page): page is string => !!page)
+  const integerCounts = [
+    evidence.observationCount,
+    evidence.ownerCount,
+    evidence.pageCount,
+    evidence.captureCount,
+    evidence.eligiblePageCount,
+  ]
   return (
+    integerCounts.every((value) => Number.isInteger(value)) &&
     evidence.observationCount > 0 &&
     (evidence.ownerCount || 0) > 0 &&
     evidence.pageCount > 0 &&
     evidence.captureCount >= evidence.pageCount &&
     (evidence.eligiblePageCount || 0) >= evidence.pageCount &&
+    evidence.eligiblePageCount === captures.size &&
     Number.isFinite(evidence.semanticAgreement) &&
     Number.isFinite(evidence.pageSupportRatio) &&
     Math.abs((evidence.pageSupportRatio || 0) - evidence.pageCount / (evidence.eligiblePageCount || 1)) <= 0.001 &&
@@ -244,46 +269,131 @@ function hasBoundRenderedProvenance(evidence: TokenEvidence, captures: ReadonlyM
     return false
   }
   if (!claimsPair) return true
-  const routeIds = evidence.pairedSurface?.routeSupport.map((route) => route.routeId) || []
+  const routeSupport = evidence.pairedSurface?.routeSupport
+  if (!Array.isArray(routeSupport)) return false
+  const routeIds = routeSupport.map((route) => route.routeId)
   return Boolean(
     evidence.pairedSurface &&
     routeIds.length === evidence.pairedSurface.eligiblePageCount &&
     new Set(routeIds).size === routeIds.length &&
-    evidence.pairedSurface.routeSupport.every((route) => {
+    routeSupport.every((route) => {
       const capture = captures.get(route.routeId)
       return !!capture && pageRefs.has(route.routeId) && pageIdentityUrl(capture.url) === pageIdentityUrl(route.page)
     }),
   )
 }
 
-function validateRestoredDarkEvidence(tokens: DesignToken, evidence: Pick<DesignEvidence, 'pages'> | undefined): void {
+function validateRestoredDarkEvidence(tokens: DesignToken, evidence: DarkEvidenceContext | undefined): void {
   const captures = canonicalDarkCaptures(evidence)
-  const validate = (item: TokenEvidence): TokenEvidence => {
+  const validate = (path: string, item: TokenEvidence): TokenEvidence => {
     if (!hasBoundEvidenceCoverage(item, captures)) return ungroundedRestoredEvidence(item.value)
-    return hasBoundRenderedProvenance(item, captures) ? item : withoutUnboundRenderedProvenance(item)
+    if (!hasBoundRenderedProvenance(item, captures)) return withoutUnboundRenderedProvenance(item)
+    return hasRequiredRenderedOwnerEvidence(path, item) ? item : withoutUnboundRenderedProvenance(item)
   }
   if (tokens.evidence) {
-    tokens.evidence = Object.fromEntries(Object.entries(tokens.evidence).map(([path, item]) => [path, validate(item)]))
+    tokens.evidence = Object.fromEntries(
+      Object.entries(tokens.evidence).map(([path, item]) => [path, validate(path, item)]),
+    )
   }
   if (tokens.candidates?.values) {
     tokens.candidates.values = tokens.candidates.values.map((candidate) => ({
       ...candidate,
-      evidence: validate(candidate.evidence),
+      evidence: validate(
+        candidate.group === 'colors' && candidate.role ? `colors.${candidate.role}` : candidate.group,
+        candidate.evidence,
+      ),
     }))
   }
+}
+
+function invalidateForegroundEvidenceWithoutEffectiveSurface(tokens: DesignToken, baseTokens: DesignToken): boolean {
+  const effectiveFoundationSurfaces = new Set(
+    ['background', 'surface', 'secondary']
+      .map((role) => normalizeColorValue(tokens.colors[role] ?? baseTokens.colors[role] ?? ''))
+      .filter((value): value is string => value !== null),
+  )
+  let invalidated = false
+  for (const role of ['foreground', 'muted-foreground']) {
+    if (tokens.colors[role] === undefined || tokens.colors[role] === baseTokens.colors[role]) continue
+    const path = `colors.${role}`
+    const item = tokens.evidence?.[path]
+    const pairedBackground = normalizeColorValue(item?.pairedSurface?.background || '')
+    const hasEffectiveSurface = Boolean(item && pairedBackground && effectiveFoundationSurfaces.has(pairedBackground))
+    const hasMutedHierarchy =
+      role !== 'muted-foreground' ||
+      (() => {
+        const effectiveForeground = tokens.colors.foreground ?? baseTokens.colors.foreground
+        const foregroundContrast = colorContrast(effectiveForeground || '', pairedBackground || '')
+        const mutedContrast = colorContrast(tokens.colors[role], pairedBackground || '')
+        return (
+          foregroundContrast !== null &&
+          mutedContrast !== null &&
+          mutedContrast >= 4.5 &&
+          mutedContrast <= foregroundContrast - 0.5
+        )
+      })()
+    if (hasEffectiveSurface && hasMutedHierarchy) continue
+    if (item) tokens.evidence![path] = withoutUnboundRenderedProvenance(item)
+    invalidated = true
+  }
+  return invalidated
+}
+
+function invalidateUnpairedChangedFoundationSurfaces(tokens: DesignToken, baseTokens: DesignToken): boolean {
+  let invalidated = false
+  for (const role of ['background', 'surface', 'secondary']) {
+    const value = tokens.colors[role]
+    if (value === undefined || value === baseTokens.colors[role]) continue
+    const normalizedSurface = normalizeColorValue(value)
+    const hasReadableForeground = ['foreground', 'muted-foreground'].some((foregroundRole) => {
+      const foreground = tokens.colors[foregroundRole]
+      const item = tokens.evidence?.[`colors.${foregroundRole}`]
+      return Boolean(
+        foreground &&
+        item &&
+        hasRequiredRenderedOwnerEvidence(`colors.${foregroundRole}`, item) &&
+        normalizeColorValue(item.pairedSurface?.background || '') === normalizedSurface &&
+        (colorContrast(foreground, value) || 0) >= 4.5,
+      )
+    })
+    if (hasReadableForeground) continue
+    tokens.evidence = {
+      ...tokens.evidence,
+      [`colors.${role}`]: ungroundedRestoredEvidence(value),
+    }
+    invalidated = true
+  }
+  return invalidated
+}
+
+function restrictGroundedDarkTokens(tokens: DesignToken, baseTokens: DesignToken): Record<string, string> {
+  let overrides = restrictDesignTokensToBaseCatalog(tokens, baseTokens)
+  const invalidForeground = invalidateForegroundEvidenceWithoutEffectiveSurface(tokens, baseTokens)
+  const invalidSurface = invalidateUnpairedChangedFoundationSurfaces(tokens, baseTokens)
+  if (invalidForeground || invalidSurface) {
+    overrides = restrictDesignTokensToBaseCatalog(tokens, baseTokens)
+  }
+  tokens.colors = Object.fromEntries(
+    Object.entries(baseTokens.colors).map(([role, baseValue]) => [role, tokens.colors[role] ?? baseValue]),
+  )
+  return overrides
 }
 
 export function buildDarkModeExportData(
   darkMode: DarkModeResult | null | undefined,
   baseTokens?: DesignToken,
-  designEvidence?: Pick<DesignEvidence, 'pages'>,
+  designEvidence?: DarkEvidenceContext,
 ): DarkModeExportData | undefined {
   if (!darkMode?.hasDarkMode || !darkMode.darkStyles) return undefined
 
-  const clusteredColors = clusterColors(darkMode.darkStyles.colors, darkMode.darkStyles.usageCount)
-  const darkTokens = buildDesignTokens(darkMode.darkStyles, clusteredColors, darkMode.darkStyles)
   const source = darkMode.source?.url && darkMode.source.viewport ? darkMode.source : undefined
   const boundSource = source ? resolveCanonicalDarkSource(source, designEvidence) : undefined
+  // A fresh analyzer artifact with Evidence must never publish even rejected candidates from an unrelated transaction:
+  // once serialized, the private transaction identity is unavailable to downstream auditors.
+  if (designEvidence && !boundSource) return undefined
+
+  const clusteredColors = clusterColors(darkMode.darkStyles.colors, darkMode.darkStyles.usageCount)
+  const darkTokens = buildDesignTokens(darkMode.darkStyles, clusteredColors, darkMode.darkStyles)
   const captures = [
     {
       url: source?.url || 'imprint://dark-mode/',
@@ -299,7 +409,7 @@ export function buildDarkModeExportData(
   darkTokens.evidence = buildTokenEvidence(darkTokens, captures)
   let overrides: Record<string, string> | undefined
   if (baseTokens) {
-    overrides = restrictDesignTokensToBaseCatalog(darkTokens, baseTokens)
+    overrides = restrictGroundedDarkTokens(darkTokens, baseTokens)
   }
   if (boundSource) bindTokensToDarkCapture(darkTokens, boundSource)
   else if (designEvidence) invalidateUnboundEvidence(darkTokens)
@@ -308,7 +418,7 @@ export function buildDarkModeExportData(
     hasDarkMode: true,
     // Residual palette indexes are local to each independently clustered snapshot. Keeping
     // the same palette-N key would falsely imply a semantic light/dark override relationship.
-    darkTokens: namespaceDarkPaletteTokens(darkTokens),
+    darkTokens: baseTokens ? darkTokens : namespaceDarkPaletteTokens(darkTokens),
     ...(overrides && Object.keys(overrides).length > 0 ? { overrides } : {}),
     method: darkMode.method,
     selector: darkMode.selector,
@@ -340,7 +450,7 @@ export function restoreDarkModeExportData(
   baseTokens: DesignToken,
   method: unknown,
   selector?: unknown,
-  designEvidence?: Pick<DesignEvidence, 'pages'>,
+  designEvidence?: DarkEvidenceContext,
 ): DarkModeExportData | undefined {
   if (!storedDarkTokens || typeof storedDarkTokens !== 'object' || Array.isArray(storedDarkTokens)) return undefined
 
@@ -357,8 +467,8 @@ export function restoreDarkModeExportData(
       }
   if (Object.keys(restoredDarkTokens.colors).length === 0) return undefined
   validateRestoredDarkEvidence(restoredDarkTokens, designEvidence)
-  const overrides = restrictDesignTokensToBaseCatalog(restoredDarkTokens, baseTokens)
-  const darkTokens = namespaceDarkPaletteTokens(restoredDarkTokens)
+  const overrides = restrictGroundedDarkTokens(restoredDarkTokens, baseTokens)
+  const darkTokens = restoredDarkTokens
   const normalizedMethod = method === 'media-query' || method === 'class-toggle' ? method : 'media-query'
 
   return {

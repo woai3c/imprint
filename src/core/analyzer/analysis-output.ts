@@ -1,5 +1,7 @@
+import { canonicalEvidenceCaptureKeys } from '../design-evidence/canonical-pages.js'
 import type { CapturedPageEvidence } from '../design-evidence/index.js'
-import { buildDesignEvidence } from '../design-evidence/index.js'
+import { buildDesignEvidence, isInternallyConsistentCapturedPage } from '../design-evidence/index.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
 import type { DesignEvidence, TechStackInfo } from '../design-evidence/types.js'
 import { clusterColors, normalizeColorValue } from './color-cluster.js'
 import { buildFoundationForegroundPairEvidence, isFoundationForegroundPair } from './color-pair-evidence.js'
@@ -432,7 +434,7 @@ function representedColorFamilies(tokens: DesignToken): Map<string, Set<ColorSem
     represented.set(normalized, existing)
   }
   for (const [role, value] of Object.entries(tokens.colors)) {
-    if (!isPortableTokenEvidence(tokens.evidence?.[`colors.${role}`])) continue
+    if (!isPortableTokenEvidence(tokens.evidence?.[`colors.${role}`], `colors.${role}`)) continue
     if (['background', 'surface', 'secondary'].includes(role)) add(value, 'background')
     else if (['foreground', 'muted-foreground'].includes(role)) add(value, 'foreground')
     else if (role.startsWith('border')) add(value, 'border')
@@ -669,6 +671,110 @@ function finalizePortableTokens(tokens: DesignToken, captures: TokenEvidenceCapt
   tokens.evidence = buildTokenEvidence(tokens, captures)
 }
 
+function capturedPageJoinKey(capture: CapturedPageEvidence): string {
+  return `${pageIdentityUrl(capture.snapshot.url)}\u0000${capture.snapshot.viewport}`
+}
+
+function styleCaptureJoinKey(capture: TokenEvidenceCapture): string {
+  return `${pageIdentityUrl(capture.url)}\u0000${capture.viewport}`
+}
+
+function groupByKey<T>(values: readonly T[], keyFor: (value: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const value of values) {
+    const key = keyFor(value)
+    const group = groups.get(key) || []
+    group.push(value)
+    groups.set(key, group)
+  }
+  return groups
+}
+
+function deduplicateCapturedPages(capturedPages: readonly CapturedPageEvidence[]): CapturedPageEvidence[] {
+  const groups = groupByKey(capturedPages, capturedPageJoinKey)
+  return [...groups.values()].flatMap((group) => {
+    const captureKeys = group.map((capture) => capture.captureKey).filter((key): key is string => Boolean(key))
+    if (group.length > 1 && (captureKeys.length !== group.length || new Set(captureKeys).size !== captureKeys.length)) {
+      return []
+    }
+    const consistent = group.filter(isInternallyConsistentCapturedPage)
+    if (consistent.length === 0) return []
+    if (group.length === 1) return consistent
+    return [
+      consistent.sort(
+        (first, second) =>
+          Number(first.health?.evidenceEligible === false) - Number(second.health?.evidenceEligible === false) ||
+          Number(hasSevereHorizontalOverflow(first.snapshot)) - Number(hasSevereHorizontalOverflow(second.snapshot)) ||
+          (first.captureKey as string).localeCompare(second.captureKey as string),
+      )[0],
+    ]
+  })
+}
+
+function canonicalEvidenceStyleCaptures(
+  styleCaptures: readonly TokenEvidenceCapture[],
+  rawCapturedPages: readonly CapturedPageEvidence[],
+  retainedCapturedPages: readonly CapturedPageEvidence[],
+): TokenEvidenceCapture[] {
+  const capturedPageByCaptureKey = new Map(
+    rawCapturedPages.flatMap((capture) => (capture.captureKey ? [[capture.captureKey, capture] as const] : [])),
+  )
+  const capturedPagesByLegacyKey = groupByKey(rawCapturedPages, capturedPageJoinKey)
+  const styleCapturesByLegacyKey = groupByKey(styleCaptures, styleCaptureJoinKey)
+  const retainedCapturedPageSet = new Set(retainedCapturedPages)
+  const styleCaptureKeyCounts = new Map<string, number>()
+  const captureKeyCounts = new Map<string, number>()
+  for (const capture of styleCaptures) {
+    if (capture.captureKey) {
+      styleCaptureKeyCounts.set(capture.captureKey, (styleCaptureKeyCounts.get(capture.captureKey) || 0) + 1)
+    }
+  }
+  for (const capture of rawCapturedPages) {
+    if (capture.captureKey) {
+      captureKeyCounts.set(capture.captureKey, (captureKeyCounts.get(capture.captureKey) || 0) + 1)
+    }
+  }
+
+  const captureBySelectionKey = new Map<string, TokenEvidenceCapture>()
+  const candidates = styleCaptures.flatMap((capture) => {
+    const legacyKey = styleCaptureJoinKey(capture)
+    const capturedPage = capture.captureKey
+      ? styleCaptureKeyCounts.get(capture.captureKey) === 1 && captureKeyCounts.get(capture.captureKey) === 1
+        ? capturedPageByCaptureKey.get(capture.captureKey)
+        : undefined
+      : styleCapturesByLegacyKey.get(legacyKey)?.length === 1 && capturedPagesByLegacyKey.get(legacyKey)?.length === 1
+        ? capturedPagesByLegacyKey.get(legacyKey)?.[0]?.captureKey
+          ? undefined
+          : capturedPagesByLegacyKey.get(legacyKey)?.[0]
+        : undefined
+    if (
+      !capturedPage ||
+      !retainedCapturedPageSet.has(capturedPage) ||
+      capturedPageJoinKey(capturedPage) !== legacyKey
+    ) {
+      return []
+    }
+    const selectionKey = capture.captureKey ? `capture:${capture.captureKey}` : `legacy:${legacyKey}`
+    captureBySelectionKey.set(selectionKey, capture)
+    return [
+      {
+        key: selectionKey,
+        routeIdentity: pageIdentityUrl(capture.url),
+        viewport: capture.viewport,
+        viewportWidth: capturedPage.snapshot.viewportWidth,
+        contentWidth: capturedPage.snapshot.contentWidth,
+        horizontalOverflow: capturedPage.snapshot.horizontalOverflow,
+        health: capturedPage.health,
+      },
+    ]
+  })
+  const selectedKeys = canonicalEvidenceCaptureKeys(candidates)
+  return [...selectedKeys].flatMap((key) => {
+    const capture = captureBySelectionKey.get(key)
+    return capture ? [capture] : []
+  })
+}
+
 /** Builds tokens and evidence from completed captures without owning browser lifecycle or persistence. */
 export function buildAnalysisOutput(
   input: BuildAnalysisOutputInput,
@@ -691,22 +797,29 @@ export function buildAnalysisOutput(
 
   let evidenceTokens = emptyDesignTokens()
   let evidenceMergedStyles = mergeStyles([])
-  if (input.evidenceEligibleStyles.length > 0) {
-    evidenceMergedStyles = mergeStyles(input.evidenceEligibleStyles)
+  const evidenceCaptures = deduplicateCapturedPages(input.captures)
+  const canonicalStyleCaptures = canonicalEvidenceStyleCaptures(
+    input.evidenceEligibleStyleCaptures,
+    input.captures,
+    evidenceCaptures,
+  )
+  const canonicalStyles = canonicalStyleCaptures.map((capture) => capture.styles)
+  if (canonicalStyles.length > 0) {
+    evidenceMergedStyles = mergeStyles(canonicalStyles)
     const evidenceSelectionStyles = mergeStylesWithNormalizedUsage(
-      input.evidenceEligibleStyles,
-      input.evidenceEligibleStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
-      input.evidenceEligibleStyleCaptures.map((capture) => capture.viewport),
+      canonicalStyles,
+      canonicalStyleCaptures.map((capture) => pageIdentityUrl(capture.url)),
+      canonicalStyleCaptures.map((capture) => capture.viewport),
     )
     const evidenceColors = clusterColors(evidenceSelectionStyles.colors, evidenceSelectionStyles.usageCount)
     evidenceTokens = buildDesignTokens(evidenceSelectionStyles, evidenceColors, evidenceSelectionStyles)
     evidenceTokens.usageCount = normalizeDesignTokenUsageCount(evidenceMergedStyles.usageCount)
-    finalizePortableTokens(evidenceTokens, input.evidenceEligibleStyleCaptures)
+    finalizePortableTokens(evidenceTokens, canonicalStyleCaptures)
   }
 
   // Public tokens and claims share the page-health-eligible catalog embedded in Design Evidence. The all-capture
   // snapshot remains available only as raw diagnostic styles; it must not create a second implementation catalog.
-  let portableTokens = input.evidenceEligibleStyles.length > 0 ? evidenceTokens : emptyDesignTokens()
+  let portableTokens = canonicalStyles.length > 0 ? evidenceTokens : emptyDesignTokens()
   let featureTags = generateFeatureTags(portableTokens, evidenceMergedStyles)
   const limitations = [...input.limitations]
   input.extractionIssues
@@ -728,7 +841,7 @@ export function buildAnalysisOutput(
     interactionStyles: input.interactionStyles,
     breakpoints: input.breakpoints,
     motion: input.motion,
-    captures: input.captures,
+    captures: evidenceCaptures,
     limitations,
     techStack: input.techStack,
   })

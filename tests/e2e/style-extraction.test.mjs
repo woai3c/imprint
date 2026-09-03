@@ -405,6 +405,7 @@ test('excludes ancestor-hidden and near-total-clipped text from global typograph
       .circle { clip-path:circle(1px); }
       .ellipse { clip-path:ellipse(1px 1px); }
       .polygon { clip-path:polygon(0 0, 1px 0, 1px 1px, 0 1px); }
+      .rounded-inset { clip-path:inset(0 round 50%); }
       .ancestor-clip { position:relative; width:200px; height:100px; }
       .ancestor-clip > span { position:absolute; left:54px; top:8px; }
       .ancestor-circle { clip-path:circle(44px at 100px 50px); }
@@ -429,6 +430,7 @@ test('excludes ancestor-hidden and near-total-clipped text from global typograph
       <span class="poison circle">Tiny circular text</span>
       <span class="poison ellipse">Tiny elliptical text</span>
       <span class="poison polygon">Tiny polygon text</span>
+      <span class="poison rounded-inset">Unreconstructable rounded inset text</span>
       <div class="ancestor-clip ancestor-circle"><span class="poison">Outside circular paint one</span><span class="poison" style="top:48px">Outside circular paint two</span></div>
       <div class="ancestor-clip ancestor-ellipse"><span class="poison">Outside elliptical paint one</span><span class="poison" style="top:48px">Outside elliptical paint two</span></div>
       <div class="ancestor-clip ancestor-polygon"><span class="poison">Outside polygon paint one</span><span class="poison" style="top:48px">Outside polygon paint two</span></div>

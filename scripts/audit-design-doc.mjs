@@ -649,6 +649,59 @@ function validateFoundationForeground(tokens, hardFailures) {
   }
 }
 
+function validateDarkFoundationForeground(baseTokens, darkTokens, darkEvidence, darkCandidates, hardFailures) {
+  if (!isObject(darkTokens)) return
+  const effectiveTokens = {
+    ...darkTokens,
+    colors: { ...(baseTokens?.colors || {}), ...(darkTokens.colors || {}) },
+    evidence: { ...(baseTokens?.evidence || {}), ...(isObject(darkEvidence) ? darkEvidence : {}) },
+    candidates: { values: Array.isArray(darkCandidates) ? darkCandidates : [] },
+  }
+  validateFoundationForeground(effectiveTokens, hardFailures)
+
+  const foundationSurfaces = new Set(
+    ['background', 'surface', 'secondary']
+      .map((role) => normalizedCandidateColor(effectiveTokens.colors[role]))
+      .filter(Boolean),
+  )
+  for (const role of ['foreground', 'muted-foreground']) {
+    const value = darkTokens.colors?.[role]
+    if (typeof value !== 'string' || value === baseTokens?.colors?.[role]) continue
+    const pairedBackground = normalizedCandidateColor(darkEvidence?.[`colors.${role}`]?.pairedSurface?.background)
+    if (!pairedBackground || !foundationSurfaces.has(pairedBackground)) {
+      hardFailures.push(`dark-${role}-pair-background-not-effective`)
+    }
+  }
+  for (const surfaceRole of ['background', 'surface', 'secondary']) {
+    const surface = darkTokens.colors?.[surfaceRole]
+    if (typeof surface !== 'string' || surface === baseTokens?.colors?.[surfaceRole]) continue
+    const hasReadablePair = ['foreground', 'muted-foreground'].some((foregroundRole) => {
+      const foreground = darkTokens.colors?.[foregroundRole]
+      const evidence = darkEvidence?.[`colors.${foregroundRole}`]
+      if (
+        typeof foreground !== 'string' ||
+        !isObject(evidence?.pairedSurface) ||
+        normalizedCandidateColor(evidence.pairedSurface.background) !== normalizedCandidateColor(surface)
+      ) {
+        return false
+      }
+      const pairFailures = []
+      const pair = validatedForegroundPair(
+        foreground,
+        surface,
+        evidence.pairedSurface,
+        evidence.pageRefs,
+        `dark-${surfaceRole}-${foregroundRole}-pair`,
+        pairFailures,
+      )
+      const supported =
+        foregroundRole === 'foreground' ? auditPrimaryForegroundPair(pair) : auditFoundationForegroundPair(pair)
+      return pairFailures.length === 0 && supported && (auditColorContrast(foreground, surface) || 0) >= 4.5
+    })
+    if (!hasReadablePair) hardFailures.push(`dark-${surfaceRole}-missing-readable-foreground-pair`)
+  }
+}
+
 function auditNeutralBorderColor(value) {
   const color = parsedAuditColor(value)
   if (!color || color.alpha < 0.999) return false
@@ -1664,6 +1717,9 @@ function validateRenderedTextOwnerProvenance(evidencePath, value, item, hardFail
   ) {
     hardFailures.push(`rendered-text-owner-count-mismatch:${evidencePath}`)
   }
+  if (!finite(item.observationCount) || item.observationCount !== item.ownerCount) {
+    hardFailures.push(`rendered-text-observation-count-mismatch:${evidencePath}`)
+  }
 
   const sources = Array.isArray(item.sources) ? item.sources : []
   if (
@@ -1675,19 +1731,35 @@ function validateRenderedTextOwnerProvenance(evidencePath, value, item, hardFail
   if (evidencePath.startsWith('colors.') && Array.isArray(item?.pairedSurface?.routeSupport)) {
     const sampledOwnersByRoute = new Map()
     for (const owner of owners) {
-      const routeOwners = sampledOwnersByRoute.get(owner.routeId) || new Set()
-      routeOwners.add(owner.ownerId)
+      const routeOwners = sampledOwnersByRoute.get(owner.routeId) || new Map()
+      routeOwners.set(owner.ownerId, owner.textRole)
       sampledOwnersByRoute.set(owner.routeId, routeOwners)
     }
     for (const route of item.pairedSurface.routeSupport) {
       if (!route?.supported) continue
       const routeOwners = new Set(Array.isArray(route.ownerIds) ? route.ownerIds : [])
-      const sampledOwners = sampledOwnersByRoute.get(route.routeId) || new Set()
+      const mainTextOwners = new Set(Array.isArray(route.mainTextOwnerIds) ? route.mainTextOwnerIds : [])
+      const headingOwners = new Set(Array.isArray(route.headingOwnerIds) ? route.headingOwnerIds : [])
+      const routeTextRoles = new Set(Array.isArray(route.textRoles) ? route.textRoles : [])
+      const sampledOwners = sampledOwnersByRoute.get(route.routeId) || new Map()
       if (
         sampledOwners.size !== Math.min(RENDERED_TEXT_OWNER_PAGE_CAP, routeOwners.size) ||
-        [...sampledOwners].some((ownerId) => !routeOwners.has(ownerId))
+        [...sampledOwners.keys()].some((ownerId) => !routeOwners.has(ownerId))
       ) {
         hardFailures.push(`rendered-text-pair-sample-mismatch:${evidencePath}`)
+        break
+      }
+      if (
+        [...sampledOwners].some(([ownerId, textRole]) => {
+          const mainText = textRole === 'body' || textRole === 'heading'
+          return (
+            !routeTextRoles.has(textRole) ||
+            mainTextOwners.has(ownerId) !== mainText ||
+            headingOwners.has(ownerId) !== (textRole === 'heading')
+          )
+        })
+      ) {
+        hardFailures.push(`rendered-text-pair-role-mismatch:${evidencePath}`)
         break
       }
     }
@@ -1733,8 +1805,13 @@ function validateRenderedTextPromotionEvidence(evidencePath, value, item, hardFa
       (source.startsWith('css-variable:') || source === 'usage:declaredColor' || source === 'usage:brandTokenColor'),
   )
   const onePageMinimum = declared ? 1 : 2
-  const meetsFoundationThreshold =
-    item.eligiblePageCount === 1
+  const pairedForeground =
+    ['colors.foreground', 'colors.muted-foreground'].includes(evidencePath) && isObject(item.pairedSurface)
+  const meetsFoundationThreshold = pairedForeground
+    ? evidencePath === 'colors.foreground'
+      ? auditPrimaryForegroundPair(item.pairedSurface)
+      : auditFoundationForegroundPair(item.pairedSurface)
+    : item.eligiblePageCount === 1
       ? item.pageCount === 1 && uniqueOwnerCount >= onePageMinimum
       : item.pageCount >= 2 && item.pageCount / item.eligiblePageCount >= 0.75 && uniqueOwnerCount >= item.pageCount
   if (!meetsFoundationThreshold) hardFailures.push(`insufficient-rendered-text-promotion-evidence:${evidencePath}`)
@@ -2039,36 +2116,100 @@ function implementationCatalog(tokens, format, identityTokens = tokens) {
   return result
 }
 
-function parsedImplementationCatalog(source, format) {
-  const baseSource =
+function stylesheetLexicalSources(source, format) {
+  const input = String(source || '')
+  let effective = ''
+  let searchable = ''
+  let quote = ''
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]
+    const next = input[index + 1]
+    if (quote) {
+      effective += char
+      searchable += char === quote ? char : char === '\n' ? '\n' : ' '
+      if (char === '\\' && index + 1 < input.length) {
+        index += 1
+        effective += input[index]
+        searchable += input[index] === '\n' ? '\n' : ' '
+      } else if (char === quote) {
+        quote = ''
+      }
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      effective += char
+      searchable += char
+      continue
+    }
+    if (char === '/' && next === '*') {
+      effective += '  '
+      searchable += '  '
+      index += 2
+      while (index < input.length && !(input[index] === '*' && input[index + 1] === '/')) {
+        const replacement = input[index] === '\n' ? '\n' : ' '
+        effective += replacement
+        searchable += replacement
+        index += 1
+      }
+      if (index < input.length) {
+        effective += '  '
+        searchable += '  '
+        index += 1
+      }
+      continue
+    }
+    if (format === 'scss' && char === '/' && next === '/') {
+      effective += '  '
+      searchable += '  '
+      index += 2
+      while (index < input.length && input[index] !== '\n') {
+        effective += ' '
+        searchable += ' '
+        index += 1
+      }
+      if (index < input.length) {
+        effective += '\n'
+        searchable += '\n'
+      }
+      continue
+    }
+    effective += char
+    searchable += char
+  }
+  return { effective, searchable }
+}
+
+function parsedCatalogOccurrences(source, format) {
+  const result = new Map()
+  const { effective, searchable } = stylesheetLexicalSources(source, format)
+  const pattern =
     format === 'scss'
-      ? source.split('// Captured dark mode values', 1)[0]
-      : source.split('/* Dark mode overrides */', 1)[0]
-  const result = new Map()
-  const pattern = format === 'scss' ? /^\s*(\$[\w-]+)\s*:\s*([^;{}]+);/gm : /(--[\w-]+)\s*:\s*([^;{}]+);/g
-  for (const match of baseSource.matchAll(pattern)) {
-    if (!result.has(match[1])) result.set(match[1], normalizedCssValue(match[2]))
+      ? /(\$[\w-]+)\s*:\s*([^;{}]+);/g
+      : /(--(?:\\(?:[\da-f]{1,6}[ \t\r\n\f]?|[^\r\n\f\da-f])|[\w-])+)\s*:\s*([^;{}]+);/gi
+  for (const match of searchable.matchAll(pattern)) {
+    const name = format === 'scss' ? match[1] : decodedCssEscapes(match[1])
+    const values = result.get(name) || []
+    const valueStart = (match.index || 0) + match[0].indexOf(':') + 1
+    const valueEnd = (match.index || 0) + match[0].lastIndexOf(';')
+    values.push(normalizedCssValue(effective.slice(valueStart, valueEnd)))
+    result.set(name, values)
   }
   return result
 }
 
-function parsedCatalogFromSource(source, format) {
-  const result = new Map()
-  const pattern = format === 'scss' ? /^\s*(\$[\w-]+)\s*:\s*([^;{}]+);/gm : /(--[\w-]+)\s*:\s*([^;{}]+);/g
-  for (const match of String(source || '').matchAll(pattern)) {
-    if (!result.has(match[1])) result.set(match[1], normalizedCssValue(match[2]))
-  }
-  return result
-}
-
-function compareImplementationCatalog(expected, actual, filename, hardFailures, prefix = '') {
+function compareExactImplementationCatalog(expected, occurrences, filename, hardFailures, prefix = '') {
   for (const [name, value] of expected) {
-    if (!actual.has(name)) hardFailures.push(`missing-${prefix}implementation-token:${filename}:${name}`)
-    else if (actual.get(name) !== value)
+    const actualValues = occurrences.get(name) || []
+    if (actualValues.length === 0) hardFailures.push(`missing-${prefix}implementation-token:${filename}:${name}`)
+    else if (actualValues.length > 1) hardFailures.push(`duplicate-${prefix}implementation-token:${filename}:${name}`)
+    else if (actualValues[0] !== value) {
       hardFailures.push(`${prefix}implementation-token-value-mismatch:${filename}:${name}`)
+    }
   }
-  for (const name of actual.keys()) {
+  for (const [name, values] of occurrences) {
     if (!expected.has(name)) hardFailures.push(`unexpected-${prefix}implementation-token:${filename}:${name}`)
+    else if (values.length > 1) hardFailures.push(`duplicate-${prefix}implementation-token:${filename}:${name}`)
   }
 }
 
@@ -2106,7 +2247,65 @@ function designTokensFromDtcgRoot(root) {
   }
 }
 
-function validateDarkImplementationCatalog(source, filename, darkTokens, format, hardFailures, baseTokens) {
+function escapedRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function baseImplementationScopes(source, filename, format, hardFailures) {
+  const { effective, searchable } = stylesheetLexicalSources(source, format)
+  if (format === 'scss') {
+    const declarationPattern = /(\$[\w-]+)\s*:\s*([^;{}]+);/g
+    if (/[{}]/.test(searchable) || searchable.replace(declarationPattern, '').trim()) {
+      hardFailures.push(`invalid-base-implementation-scope:${filename}`)
+      return null
+    }
+    return { primary: effective, supplemental: '' }
+  }
+  if (format === 'css') {
+    const match = /^\s*:root\s*\{([^{}]*)\}\s*$/d.exec(searchable)
+    if (!match?.indices?.[1]) {
+      hardFailures.push(`invalid-base-implementation-scope:${filename}`)
+      return null
+    }
+    return { primary: effective.slice(...match.indices[1]), supplemental: '' }
+  }
+  const match = /^\s*@theme\s*\{([^{}]*)\}\s*(?::root\s*\{([^{}]*)\}\s*)?$/d.exec(searchable)
+  if (!match?.indices?.[1]) {
+    hardFailures.push(`invalid-base-implementation-scope:${filename}`)
+    return null
+  }
+  return {
+    primary: effective.slice(...match.indices[1]),
+    supplemental: match.indices[2] ? effective.slice(...match.indices[2]) : '',
+  }
+}
+
+function scopedDarkImplementationBody(source, filename, method, selector, hardFailures) {
+  const { effective, searchable } = stylesheetLexicalSources(source, 'css')
+  const searchableSelector = typeof selector === 'string' ? stylesheetLexicalSources(selector, 'css').searchable : ''
+  const pattern =
+    method === 'media-query'
+      ? /^\s*@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^{}]*)\}\s*\}\s*$/d
+      : method === 'class-toggle' && typeof selector === 'string'
+        ? new RegExp(`^\\s*${escapedRegex(searchableSelector)}\\s*\\{([^{}]*)\\}\\s*$`, 'd')
+        : null
+  const match = pattern?.exec(searchable)
+  if (!match?.indices?.[1]) {
+    hardFailures.push(`invalid-dark-implementation-scope:${filename}`)
+    return null
+  }
+  return effective.slice(...match.indices[1])
+}
+
+function validateDarkImplementationCatalog(
+  source,
+  filename,
+  darkTokens,
+  format,
+  hardFailures,
+  baseTokens,
+  darkModeContract,
+) {
   const marker = format === 'scss' ? '// Captured dark mode values' : '/* Dark mode overrides */'
   const markerIndex = String(source || '').indexOf(marker)
   if (!darkTokens) {
@@ -2118,14 +2317,18 @@ function validateDarkImplementationCatalog(source, filename, darkTokens, format,
     return
   }
   const darkSource = String(source || '').slice(markerIndex + marker.length)
+  const method = darkModeContract?.method
+  const selector = darkModeContract?.selector
   if (format !== 'scss') {
-    const actual = parsedCatalogFromSource(darkSource, format)
-    for (const name of actual.keys()) {
-      if (allowedDerivedImplementationName(name, format)) actual.delete(name)
+    const body = scopedDarkImplementationBody(darkSource, filename, method, selector, hardFailures)
+    if (body === null) return
+    const occurrences = parsedCatalogOccurrences(body, format)
+    for (const name of occurrences.keys()) {
+      if (allowedDerivedImplementationName(name, format)) occurrences.delete(name)
     }
-    compareImplementationCatalog(
+    compareExactImplementationCatalog(
       implementationCatalog(darkTokens, format, baseTokens),
-      actual,
+      occurrences,
       filename,
       hardFailures,
       'dark-',
@@ -2139,26 +2342,39 @@ function validateDarkImplementationCatalog(source, filename, darkTokens, format,
       value,
     ]),
   )
-  const variableSource = darkSource.split('@mixin imprint-dark-theme', 1)[0]
-  compareImplementationCatalog(
+  const { effective: effectiveDarkSource, searchable: searchableDarkSource } = stylesheetLexicalSources(
+    darkSource,
+    'scss',
+  )
+  const mixinStart = searchableDarkSource.indexOf('@mixin imprint-dark-theme')
+  const variableSource = mixinStart < 0 ? effectiveDarkSource : effectiveDarkSource.slice(0, mixinStart)
+  compareExactImplementationCatalog(
     expectedVariables,
-    parsedCatalogFromSource(variableSource, 'scss'),
+    parsedCatalogOccurrences(variableSource, 'scss'),
     filename,
     hardFailures,
     'dark-',
   )
-  const mixinMatch = /@mixin\s+imprint-dark-theme\s*\{([\s\S]*?)\}/.exec(darkSource)
-  if (!mixinMatch) {
+  const mixinMatch = /@mixin\s+imprint-dark-theme\s*\{([^{}]*)\}/d.exec(searchableDarkSource)
+  if (!mixinMatch?.indices?.[1] || !mixinMatch.indices[0]) {
     hardFailures.push(`missing-dark-implementation-mixin:${filename}`)
     return
   }
-  compareImplementationCatalog(
+  compareExactImplementationCatalog(
     implementationCatalog(darkTokens, 'css', baseTokens),
-    parsedCatalogFromSource(mixinMatch[1], 'css'),
+    parsedCatalogOccurrences(effectiveDarkSource.slice(...mixinMatch.indices[1]), 'css'),
     `${filename}@mixin`,
     hardFailures,
     'dark-',
   )
+  const invocation = effectiveDarkSource.slice(mixinMatch.indices[0][1]).trim()
+  const invocationPattern =
+    method === 'media-query'
+      ? /^@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{\s*@include\s+imprint-dark-theme\s*;\s*\}\s*\}\s*$/
+      : method === 'class-toggle' && typeof selector === 'string'
+        ? new RegExp(`^${escapedRegex(selector)}\\s*\\{\\s*@include\\s+imprint-dark-theme\\s*;\\s*\\}\\s*$`)
+        : null
+  if (!invocationPattern?.test(invocation)) hardFailures.push(`invalid-dark-implementation-scope:${filename}`)
 }
 
 function allowedDerivedImplementationName(name, format) {
@@ -2208,20 +2424,52 @@ function validateTypographyAliasSemantics(catalog, filename, hardFailures) {
   }
 }
 
-function validateImplementationCatalog(source, filename, tokens, format, hardFailures, darkTokens = null) {
+function validateImplementationCatalog(
+  source,
+  filename,
+  tokens,
+  format,
+  hardFailures,
+  darkTokens = null,
+  darkModeContract = null,
+) {
   const expected = implementationCatalog(tokens, format)
-  const actual = parsedImplementationCatalog(source || '', format)
-  for (const [name, value] of expected) {
-    if (!actual.has(name)) hardFailures.push(`missing-implementation-token:${filename}:${name}`)
-    else if (actual.get(name) !== value) hardFailures.push(`implementation-token-value-mismatch:${filename}:${name}`)
-  }
-  for (const name of actual.keys()) {
-    if (!expected.has(name) && !allowedDerivedImplementationName(name, format)) {
-      hardFailures.push(`unexpected-implementation-token:${filename}:${name}`)
+  const baseSource =
+    format === 'scss'
+      ? String(source || '').split('// Captured dark mode values', 1)[0]
+      : String(source || '').split('/* Dark mode overrides */', 1)[0]
+  const scopes = baseImplementationScopes(baseSource, filename, format, hardFailures)
+  if (scopes) {
+    const primaryOccurrences = parsedCatalogOccurrences(scopes.primary, format)
+    const supplementalOccurrences = parsedCatalogOccurrences(scopes.supplemental, format)
+    if (format === 'tailwind') {
+      const supplementalName = (name) =>
+        name.startsWith('--border-') || name.startsWith('--z-') || name.startsWith('--duration-')
+      const primaryExpected = new Map([...expected].filter(([name]) => !supplementalName(name)))
+      const supplementalExpected = new Map([...expected].filter(([name]) => supplementalName(name)))
+      for (const name of primaryOccurrences.keys()) {
+        if (name.startsWith('--breakpoint-')) primaryOccurrences.delete(name)
+      }
+      supplementalOccurrences.delete('--default-transition-duration')
+      compareExactImplementationCatalog(primaryExpected, primaryOccurrences, filename, hardFailures)
+      compareExactImplementationCatalog(supplementalExpected, supplementalOccurrences, filename, hardFailures)
+    } else {
+      for (const name of primaryOccurrences.keys()) {
+        if (allowedDerivedImplementationName(name, format)) primaryOccurrences.delete(name)
+      }
+      compareExactImplementationCatalog(expected, primaryOccurrences, filename, hardFailures)
     }
+    validateTypographyAliasSemantics(
+      new Map(
+        [...primaryOccurrences, ...supplementalOccurrences].flatMap(([name, values]) =>
+          values.length === 1 ? [[name, values[0]]] : [],
+        ),
+      ),
+      filename,
+      hardFailures,
+    )
   }
-  validateTypographyAliasSemantics(actual, filename, hardFailures)
-  validateDarkImplementationCatalog(source, filename, darkTokens, format, hardFailures, tokens)
+  validateDarkImplementationCatalog(source, filename, darkTokens, format, hardFailures, tokens, darkModeContract)
 }
 
 function dtcgTokenCatalog(dtcg) {
@@ -2268,7 +2516,7 @@ function dtcgTokenCatalog(dtcg) {
   return result
 }
 
-function validateDtcgKeys(dtcg, tokens, hardFailures) {
+function validateDtcgKeys(dtcg, tokens, hardFailures, allowDark = false) {
   const expectedGroups = {
     color: Object.keys(tokens?.colors || {}),
     typography: [
@@ -2285,21 +2533,79 @@ function validateDtcgKeys(dtcg, tokens, hardFailures) {
     zIndex: (tokens?.zIndices || []).map((_value, index) => `${(index + 1) * 10}`),
     transition: (tokens?.transitions || []).map((_value, index) => DURATION_NAMES[index] || `duration-${index + 1}`),
   }
+  const expectedTypeFor = (group, name) => {
+    if (group === 'color') return 'color'
+    if (group === 'typography') {
+      return {
+        fontFamilies: 'fontFamily',
+        fontStacks: 'fontFamily',
+        fontSizes: 'dimension',
+        fontWeights: 'fontWeight',
+        lineHeights: 'number',
+        letterSpacing: 'dimension',
+      }[name]
+    }
+    return {
+      spacing: 'dimension',
+      borderRadius: 'dimension',
+      shadow: 'shadow',
+      zIndex: 'number',
+      transition: 'duration',
+    }[group]
+  }
   for (const [group, expectedNames] of Object.entries(expectedGroups)) {
-    const actualNames = Object.keys(isObject(dtcg?.[group]) ? dtcg[group] : {})
+    const actualGroup = isObject(dtcg?.[group]) ? dtcg[group] : {}
+    const actualNames = Object.keys(actualGroup)
     for (const name of expectedNames) {
       if (!actualNames.includes(name)) hardFailures.push(`missing-dtcg-key:${group}.${name}`)
     }
     for (const name of actualNames) {
       if (!expectedNames.includes(name)) hardFailures.push(`unexpected-dtcg-key:${group}.${name}`)
+      const token = actualGroup[name]
+      const expectedType = expectedTypeFor(group, name)
+      const valueShapeValid = (() => {
+        if (!isObject(token)) return false
+        if (group === 'typography') {
+          if (!Array.isArray(token.$value)) return false
+          return token.$value.every((value) =>
+            name === 'lineHeights' ? finite(value) : typeof value === 'string' && value.length > 0,
+          )
+        }
+        if (group === 'zIndex') return finite(token.$value)
+        return typeof token.$value === 'string' && token.$value.length > 0
+      })()
+      if (
+        !expectedType ||
+        !isObject(token) ||
+        stableJson(Object.keys(token).sort()) !== stableJson(['$type', '$value']) ||
+        token.$type !== expectedType ||
+        !valueShapeValid
+      ) {
+        hardFailures.push(`invalid-dtcg-token-shape:${group}.${name}`)
+      }
     }
+  }
+  const allowedRootKeys = new Set([
+    '$schema',
+    '$extensions',
+    ...Object.keys(expectedGroups),
+    ...(allowDark ? ['dark'] : []),
+  ])
+  for (const key of Object.keys(dtcg || {})) {
+    if (!allowedRootKeys.has(key)) hardFailures.push(`unexpected-dtcg-root-key:${key}`)
   }
 }
 
 function pageRefFailures(evidence, pathLabel, routeIds, canonicalCaptureByRoute) {
   const failures = []
-  if (!(routeIds instanceof Set) || routeIds.size === 0) return failures
-  if (!Array.isArray(evidence?.pageRefs)) return [`missing-evidence-page-refs:${pathLabel}`]
+  if (!(routeIds instanceof Set)) return failures
+  if (routeIds.size === 0 && finite(evidence?.pageCount) && evidence.pageCount > 0) {
+    failures.push(`missing-evidence-route-catalog:${pathLabel}`)
+  }
+  if (!Array.isArray(evidence?.pageRefs)) {
+    failures.push(`missing-evidence-page-refs:${pathLabel}`)
+    return failures
+  }
   const pageRefs = evidence.pageRefs.filter((value) => typeof value === 'string' && value)
   if (pageRefs.length !== evidence.pageRefs.length || new Set(pageRefs).size !== pageRefs.length) {
     failures.push(`invalid-evidence-page-refs:${pathLabel}`)
@@ -2415,6 +2721,124 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute)
   for (const id of duplicateValues(ids)) failures.push(`duplicate-candidate-id:${id}`)
   for (const identity of duplicateValues(identities)) failures.push(`duplicate-candidate-identity:${identity}`)
   return failures
+}
+
+function meetsPortableFoundationCoverage(evidencePath, item) {
+  const permitsPairedCoverage = ['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)
+  if (isObject(item.pairedSurface)) return permitsPairedCoverage
+  const sources = Array.isArray(item.sources) ? item.sources : []
+  const declared = sources.some(
+    (source) =>
+      String(source).startsWith('css-variable:') ||
+      source === 'usage:declaredColor' ||
+      source === 'usage:brandTokenColor',
+  )
+  const rendered = sources.some(
+    (source) =>
+      source === 'rendered:text' ||
+      String(source).startsWith('computed:') ||
+      String(source).startsWith('element:') ||
+      (String(source).startsWith('usage:') && !['usage:declaredColor', 'usage:brandTokenColor'].includes(source)),
+  )
+  if (item.eligiblePageCount === 1) {
+    return (
+      item.pageCount === 1 &&
+      ((rendered && item.ownerCount >= 2) ||
+        (declared && rendered && item.ownerCount >= 1) ||
+        (sources.includes('element:page-background') && item.ownerCount >= 1))
+    )
+  }
+  return (
+    item.eligiblePageCount >= 2 &&
+    item.pageCount >= 2 &&
+    item.pageSupportRatio >= 0.75 &&
+    item.ownerCount >= item.pageCount
+  )
+}
+
+function validateDarkTokenEvidenceEntry(
+  evidencePath,
+  value,
+  item,
+  hardFailures,
+  routeIds,
+  canonicalCaptureByRoute,
+  availableCaptureCount,
+  requirePortable,
+) {
+  if (!isObject(item)) {
+    hardFailures.push(`invalid-dark-token-evidence:${evidencePath}`)
+    return
+  }
+  for (const field of [
+    'observationCount',
+    'ownerCount',
+    'semanticAgreement',
+    'pageCount',
+    'captureCount',
+    'eligiblePageCount',
+    'pageSupportRatio',
+  ]) {
+    if (!finite(item[field])) hardFailures.push(`non-finite-dark-token-evidence:${evidencePath}.${field}`)
+  }
+  for (const field of ['observationCount', 'ownerCount', 'pageCount', 'captureCount', 'eligiblePageCount']) {
+    if (finite(item[field]) && !Number.isInteger(item[field])) {
+      hardFailures.push(`non-integer-dark-token-evidence:${evidencePath}.${field}`)
+    }
+  }
+  for (const field of ['foundationOwnerCount', 'minimumPageFoundationOwnerCount']) {
+    if (item[field] !== undefined && (!Number.isInteger(item[field]) || item[field] < 0)) {
+      hardFailures.push(`non-integer-dark-token-evidence:${evidencePath}.${field}`)
+    }
+  }
+  for (const [group, counts] of [
+    ['sourceCounts', item.sourceCounts],
+    ['roleCounts', item.roleCounts],
+  ]) {
+    for (const [name, count] of Object.entries(isObject(counts) ? counts : {})) {
+      if (!Number.isInteger(count) || count < 0) {
+        hardFailures.push(`non-integer-dark-token-evidence:${evidencePath}.${group}.${name}`)
+      }
+    }
+  }
+  if (finite(item.semanticAgreement) && (item.semanticAgreement < 0 || item.semanticAgreement > 1)) {
+    hardFailures.push(`dark-token-semantic-agreement-out-of-range:${evidencePath}`)
+  }
+  if (finite(item.pageSupportRatio) && (item.pageSupportRatio < 0 || item.pageSupportRatio > 1)) {
+    hardFailures.push(`dark-token-page-support-out-of-range:${evidencePath}`)
+  }
+  if (String(item.value) !== String(value)) hardFailures.push(`dark-token-evidence-value-mismatch:${evidencePath}`)
+  if (
+    item.ownerCount <= 0 ||
+    item.observationCount <= 0 ||
+    item.pageCount <= 0 ||
+    item.captureCount < item.pageCount ||
+    item.captureCount > availableCaptureCount ||
+    item.eligiblePageCount < item.pageCount ||
+    item.eligiblePageCount !== canonicalCaptureByRoute.size ||
+    Math.abs(item.pageSupportRatio - item.pageCount / item.eligiblePageCount) > 0.001
+  ) {
+    hardFailures.push(`invalid-dark-token-evidence-envelope:${evidencePath}`)
+  }
+  if (requirePortable && ((item.semanticConfidence || item.confidence) === 'low' || item.reuseScope !== 'foundation')) {
+    hardFailures.push(`non-portable-dark-token-evidence:${evidencePath}`)
+  }
+  if (isObject(item.pairedSurface) && !['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)) {
+    hardFailures.push(`unexpected-paired-surface-evidence:${evidencePath}`)
+  }
+  if (requirePortable && !meetsPortableFoundationCoverage(evidencePath, item)) {
+    hardFailures.push(`insufficient-dark-token-foundation-coverage:${evidencePath}`)
+  }
+  if (
+    evidencePath.startsWith('typography.') ||
+    ['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)
+  ) {
+    validateRenderedTextPromotionEvidence(evidencePath, String(value), item, hardFailures, canonicalCaptureByRoute)
+  }
+  validatePortableGeometryEvidence(evidencePath, String(value), item, hardFailures)
+  hardFailures.push(
+    ...pageRefFailures(item, `dtcg.dark.tokenEvidence.${evidencePath}.pageRefs`, routeIds, canonicalCaptureByRoute),
+  )
 }
 
 export function auditDesignDoc(source, file = '<memory>') {
@@ -2638,6 +3062,11 @@ async function readBundleFile(directory, filename, hardFailures) {
 function parseJsonArtifact(source, filename, hardFailures) {
   if (source === null) return null
   try {
+    const document = parseDocument(source, { prettyErrors: true, uniqueKeys: true })
+    if (document.errors.some((error) => error.code === 'DUPLICATE_KEY')) {
+      hardFailures.push(`duplicate-json-key:${filename}`)
+      return null
+    }
     return JSON.parse(source)
   } catch {
     hardFailures.push(`invalid-json-artifact:${filename}`)
@@ -2903,18 +3332,24 @@ function markdownSubsectionLines(source, headings) {
 
 function canonicalTokenEvidenceCaptureByRoute(evidence) {
   const result = new Map()
-  const viewportRank = (viewport) =>
-    viewport === 'desktop' ? 3 : viewport === 'tablet' ? 2 : viewport === 'mobile' ? 1 : 0
-  for (const [index, page] of (Array.isArray(evidence?.pages) ? evidence.pages : []).entries()) {
+  const canonicalPageIds = canonicalEvidencePageIds(evidence)
+  for (const page of Array.isArray(evidence?.pages) ? evidence.pages : []) {
     const routeId = typeof page?.routeId === 'string' ? page.routeId : ''
     const pageUrl = typeof page?.url === 'string' ? page.url : ''
     const viewport = typeof page?.viewport === 'string' ? page.viewport : ''
-    if (!routeId || !pageUrl || !viewport) continue
-    const priority = viewportRank(viewport) * 1_000_000 - index
-    const existing = result.get(routeId)
-    if (!existing || priority > existing.priority) result.set(routeId, { page: pageUrl, viewport, priority })
+    if (!routeId || !pageUrl || !viewport || !canonicalPageIds.has(page?.id)) continue
+    result.set(routeId, { page: pageUrl, viewport })
   }
   return result
+}
+
+function canonicalDarkTokenEvidenceCaptureByRoute(evidence) {
+  // Dark extraction currently samples the entry route only. Use that real sampling catalog as the denominator;
+  // requiring all base routes here would turn unobserved routes into fictitious dark evidence.
+  const captures = canonicalTokenEvidenceCaptureByRoute(evidence)
+  const entryRouteId = explicitAuditSourceRouteIdentity(evidence)
+  const entryCapture = entryRouteId ? captures.get(entryRouteId) : undefined
+  return entryRouteId && entryCapture ? new Map([[entryRouteId, entryCapture]]) : new Map()
 }
 
 function canonicalEvidencePageIds(evidence) {
@@ -4540,11 +4975,8 @@ function auditClipPathMetrics(value, width, height) {
   })
   const inset = /^inset\(([^)]*)\)/.exec(normalized)
   if (inset) {
-    const values = inset[1]
-      .split(/\bround\b/)[0]
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
+    if (/\bround\b/.test(inset[1])) return null
+    const values = inset[1].trim().split(/\s+/).filter(Boolean)
     if (values.length === 0 || values.length > 4) return null
     const expanded =
       values.length === 1
@@ -4666,10 +5098,13 @@ function auditValidTextStyleSource(source) {
     source.visibleGlyphAreaPx < 0 ||
     !Array.isArray(source.clipPathChain) ||
     source.clipPathChain.length > 8 ||
+    // Persisted ancestor clips do not carry offsets relative to this owner, so their glyph intersection is unauditable.
+    source.clipPathChain.some((item) => item?.owner === 'ancestor') ||
     !Number.isInteger(source.nonRectangularClipPathCount) ||
     source.nonRectangularClipPathCount !== 0 ||
     !finite(source.opacity) ||
     source.opacity <= 0.02 ||
+    source.opacity > 1 ||
     !finite(source.filterOpacity) ||
     source.filterOpacity <= 0.02 ||
     source.filterOpacity > 1 ||
@@ -4863,6 +5298,10 @@ function auditValidTextStyleSource(source) {
     source.visibleHeightPx * effectiveScale <= 2 ||
     source.visibleWidthPx > clipWidth + 1 ||
     source.visibleHeightPx > clipHeight + 1 ||
+    visibleBounds.xPx < clipPathMetrics.left - 1 ||
+    visibleBounds.yPx < clipPathMetrics.top - 1 ||
+    visibleBounds.xPx + visibleBounds.widthPx > clipPathMetrics.right + 1 ||
+    visibleBounds.yPx + visibleBounds.heightPx > clipPathMetrics.bottom + 1 ||
     source.captureIntersectionRatio + 0.001 < visibleBoundsRatio ||
     source.effectiveClipPathAreaRatio > clipPathMetrics.fillRatio + 0.001 ||
     Math.abs(source.paintedAreaPx - expectedPaintedArea) > paintedAreaTolerance ||
@@ -5409,6 +5848,85 @@ function expectedDesignMdColors(tokens) {
   )
 }
 
+function designMdDarkColorEntries(tokens) {
+  return Object.entries(tokens?.colors || {}).flatMap(([sourceName, rawValue]) => {
+    const value = normalizedFrontMatterColor(rawValue)
+    if (!/^#[\da-f]{6}$|^rgba\(/i.test(value)) return []
+    let publicName = sourceName
+    if (/^(?:dark-)?palette-\d+$/.test(sourceName)) {
+      const rgba = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/i.exec(value)
+      const slug = rgba
+        ? `${rgba
+            .slice(1, 4)
+            .map((channel) => Number(channel).toString(16).padStart(2, '0'))
+            .join('')}-${Math.round(Number(rgba[4]) * 255)
+            .toString(16)
+            .padStart(2, '0')}`
+        : value.slice(1).toLowerCase()
+      publicName = `dark-observed-${slug}`
+    }
+    return [{ sourceName, publicName, value }]
+  })
+}
+
+function validateDesignDocDarkColorTable(source, darkTokens, hardFailures) {
+  const lines = String(source || '').split(/\r?\n/)
+  const normalizedLines = lines.map(normalizedMarkdownContainerLine)
+  const headings = new Set(['Dark Mode Colors', '深色模式颜色'])
+  const headingIndexes = normalizedLines.flatMap((line, index) => {
+    const match = /^###\s+(.+)$/.exec(line)
+    return match && headings.has(match[1].trim()) ? [index] : []
+  })
+  const rowPattern = /^\|\s*`--color-([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*$/
+  const allRows = normalizedLines.flatMap((line, index) => {
+    const match = rowPattern.exec(line)
+    return match ? [{ index, name: match[1], value: normalizedFrontMatterColor(match[2]) }] : []
+  })
+  if (!darkTokens) {
+    if (headingIndexes.length > 0 || allRows.length > 0) hardFailures.push('unexpected-design-doc-dark-color-table')
+    return
+  }
+  if (headingIndexes.length !== 1) {
+    hardFailures.push('design-doc-dark-color-table-mismatch')
+    return
+  }
+  const headingIndex = headingIndexes[0]
+  const sectionEnd = normalizedLines.findIndex((line, index) => index > headingIndex && /^#{2,3}\s+/.test(line))
+  const ownedRows = allRows.filter(({ index }) => index > headingIndex && (sectionEnd < 0 || index < sectionEnd))
+  if (ownedRows.length !== allRows.length) hardFailures.push('design-doc-dark-color-table-ownership-mismatch')
+  const actual = new Map()
+  for (const row of ownedRows) {
+    if (actual.has(row.name)) hardFailures.push(`duplicate-design-doc-dark-color-row:${row.name}`)
+    actual.set(row.name, row.value)
+  }
+  const expected = new Map(designMdDarkColorEntries(darkTokens).map(({ publicName, value }) => [publicName, value]))
+  if (stableJson([...actual].sort()) !== stableJson([...expected].sort())) {
+    hardFailures.push('design-doc-dark-color-table-mismatch')
+  }
+}
+
+function validateDesignDocDarkDetection(source, darkTokens, contract, hardFailures) {
+  if (!darkTokens) return
+  const lines = String(source || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\*\*(?:Dark Mode:|深色模式：)\*\*/.test(line))
+  const selector = contract?.selector
+  const englishDetection =
+    contract?.method === 'class-toggle'
+      ? `toggling ${selector} and reading computed styles`
+      : 'emulating prefers-color-scheme: dark and reading computed styles'
+  const chineseDetection =
+    contract?.method === 'class-toggle'
+      ? `切换 ${selector} 后读取计算样式`
+      : '模拟 prefers-color-scheme: dark 后读取计算样式'
+  const expected = new Set([
+    `**Dark Mode:** Supported. Dark tokens were observed by ${englishDetection}; this does not imply the site loads in dark by default.`,
+    `**深色模式：** 支持。暗色令牌通过${chineseDetection}主动观察得到；不代表该站点默认以深色加载。`,
+  ])
+  if (lines.length !== 1 || !expected.has(lines[0])) hardFailures.push('design-doc-dark-detection-projection-mismatch')
+}
+
 function expectedDesignMdFontFamilies(tokens, identityTokens = tokens) {
   const result = {}
   portableFontEntries(tokens?.typography || {}, identityTokens?.typography || {}).forEach(({ name, value }) => {
@@ -5441,8 +5959,10 @@ function expectedDesignMdTypography(tokens) {
   return result
 }
 
-function validateDesignDocDarkMode(extension, tokens, darkTokens, dtcg, hardFailures) {
+function validateDesignDocDarkMode(extension, tokens, darkTokens, dtcg, designSource, hardFailures) {
   const actual = isObject(extension?.darkMode) ? extension.darkMode : null
+  validateDesignDocDarkColorTable(designSource, darkTokens, hardFailures)
+  validateDesignDocDarkDetection(designSource, darkTokens, dtcg?.$extensions?.['com.imprint.darkMode'], hardFailures)
   if (!darkTokens) {
     if (actual) hardFailures.push('unexpected-design-doc-dark-mode')
     return
@@ -5461,6 +5981,16 @@ function validateDesignDocDarkMode(extension, tokens, darkTokens, dtcg, hardFail
   const expectedRefs = Object.keys(expectedOverrides).sort()
   const actualRefs = Array.isArray(actual.overrideRefs) ? [...actual.overrideRefs].sort() : []
   if (stableJson(actualRefs) !== stableJson(expectedRefs)) hardFailures.push('design-doc-dark-override-refs-mismatch')
+  const expectedMethod = dtcg?.$extensions?.['com.imprint.darkMode']?.method
+  const expectedSelector = dtcg?.$extensions?.['com.imprint.darkMode']?.selector
+  if (actual.method !== expectedMethod || actual.selector !== expectedSelector) {
+    hardFailures.push('design-doc-dark-detection-mismatch')
+  }
+  const expectedColors = expectedDesignMdColors(darkTokens)
+  const actualColors = isObject(actual.colors) ? actual.colors : {}
+  if (stableJson(actualColors) !== stableJson(expectedColors)) {
+    hardFailures.push('design-doc-dark-color-catalog-mismatch')
+  }
   const expectedFonts = expectedDesignMdFontFamilies(darkTokens, tokens)
   const actualFonts = isObject(actual.fontFamilies) ? actual.fontFamilies : {}
   if (stableJson(actualFonts) !== stableJson(expectedFonts)) {
@@ -6143,13 +6673,22 @@ export async function auditArtifactBundle(directory) {
       .filter((routeId) => typeof routeId === 'string' && routeId),
   )
   const canonicalTokenEvidenceCaptures = canonicalTokenEvidenceCaptureByRoute(evidence)
+  const canonicalDarkTokenEvidenceCaptures = canonicalDarkTokenEvidenceCaptureByRoute(evidence)
+  const availableTokenEvidenceCaptureCount = Array.isArray(evidence?.pages) ? evidence.pages.length : 0
+  const availableDarkTokenEvidenceCaptureCount = canonicalDarkTokenEvidenceCaptures.size
   const canonicalCandidates = tokens?.candidates?.values || []
+  const darkImplementationTokens = designTokensFromDtcgRoot(dtcgDarkRoot(dtcg))
   let screenshotMetrics = { expected: 0, valid: 0, status: 'partial', issueCount: 0, listedImages: 0 }
 
   if (!isObject(evidence) || !isObject(tokens)) {
     hardFailures.push('missing-evidence-token-catalog')
   } else {
     if (evidence.schemaVersion !== '1') hardFailures.push('unsupported-design-evidence-schema')
+    for (const [index, page] of (Array.isArray(evidence.pages) ? evidence.pages : []).entries()) {
+      if (typeof page?.routeId !== 'string' || !page.routeId.trim()) {
+        hardFailures.push(`missing-or-invalid-evidence-page-route-id:${index}`)
+      }
+    }
     validateComponentStyleOwnership(evidence, hardFailures)
     validateLayoutTextStyleOwnership(evidence, hardFailures)
     for (const [ownerKind, owners] of [
@@ -6194,6 +6733,44 @@ export async function auditArtifactBundle(directory) {
       ]) {
         if (!finite(item[field])) hardFailures.push(`non-finite-portable-token-evidence:${evidencePath}.${field}`)
       }
+      for (const field of ['observationCount', 'ownerCount', 'pageCount', 'captureCount', 'eligiblePageCount']) {
+        if (finite(item[field]) && !Number.isInteger(item[field])) {
+          hardFailures.push(`non-integer-portable-token-evidence:${evidencePath}.${field}`)
+        }
+      }
+      for (const field of ['foundationOwnerCount', 'minimumPageFoundationOwnerCount']) {
+        if (item[field] !== undefined && (!Number.isInteger(item[field]) || item[field] < 0)) {
+          hardFailures.push(`non-integer-portable-token-evidence:${evidencePath}.${field}`)
+        }
+      }
+      for (const [group, counts] of [
+        ['sourceCounts', item.sourceCounts],
+        ['roleCounts', item.roleCounts],
+      ]) {
+        for (const [name, count] of Object.entries(isObject(counts) ? counts : {})) {
+          if (!Number.isInteger(count) || count < 0) {
+            hardFailures.push(`non-integer-portable-token-evidence:${evidencePath}.${group}.${name}`)
+          }
+        }
+      }
+      if (finite(item.semanticAgreement) && (item.semanticAgreement < 0 || item.semanticAgreement > 1)) {
+        hardFailures.push(`portable-token-semantic-agreement-out-of-range:${evidencePath}`)
+      }
+      if (finite(item.pageSupportRatio) && (item.pageSupportRatio < 0 || item.pageSupportRatio > 1)) {
+        hardFailures.push(`portable-token-page-support-out-of-range:${evidencePath}`)
+      }
+      if (
+        item.ownerCount <= 0 ||
+        item.observationCount <= 0 ||
+        item.pageCount <= 0 ||
+        item.captureCount < item.pageCount ||
+        item.captureCount > availableTokenEvidenceCaptureCount ||
+        item.eligiblePageCount < item.pageCount ||
+        item.eligiblePageCount !== canonicalTokenEvidenceCaptures.size ||
+        Math.abs(item.pageSupportRatio - item.pageCount / item.eligiblePageCount) > 0.001
+      ) {
+        hardFailures.push(`invalid-portable-token-evidence-envelope:${evidencePath}`)
+      }
       if (String(item.value) !== value) hardFailures.push(`portable-token-evidence-value-mismatch:${evidencePath}`)
       const sources = Array.isArray(item.sources) ? item.sources : []
       const requiresRenderedTextOwners =
@@ -6204,6 +6781,12 @@ export async function auditArtifactBundle(directory) {
       }
       if ((item.semanticConfidence || item.confidence) === 'low' || item.reuseScope !== 'foundation') {
         hardFailures.push(`non-portable-token-in-catalog:${evidencePath}`)
+      }
+      if (isObject(item.pairedSurface) && !['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)) {
+        hardFailures.push(`unexpected-paired-surface-evidence:${evidencePath}`)
+      }
+      if (!meetsPortableFoundationCoverage(evidencePath, item)) {
+        hardFailures.push(`insufficient-portable-token-foundation-coverage:${evidencePath}`)
       }
       validatePortableGeometryEvidence(evidencePath, value, item, hardFailures)
       hardFailures.push(
@@ -6260,7 +6843,7 @@ export async function auditArtifactBundle(directory) {
     }
     const dtcgCatalog = dtcgTokenCatalog(dtcg)
     validateTypographyFeatureTags(extension, dtcg, hardFailures)
-    validateDtcgKeys(dtcg, tokens, hardFailures)
+    validateDtcgKeys(dtcg, tokens, hardFailures, true)
     for (const [ref, value] of catalog) {
       if (!dtcgCatalog.has(ref)) hardFailures.push(`missing-dtcg-token:${ref}`)
       else if (dtcgCatalog.get(ref) !== value) hardFailures.push(`dtcg-token-value-mismatch:${ref}`)
@@ -6281,77 +6864,94 @@ export async function auditArtifactBundle(directory) {
     if (JSON.stringify(dtcgEvidence || {}) !== JSON.stringify(tokens?.evidence || {})) {
       hardFailures.push('token-evidence-mismatch:evidence-vs-dtcg')
     }
-    const darkOverrides = dtcg.$extensions?.['com.imprint.darkMode']?.overrides
-    if (darkOverrides !== undefined && !isObject(darkOverrides)) {
+    const declaredDarkOverrides = dtcg.$extensions?.['com.imprint.darkMode']?.overrides
+    if (declaredDarkOverrides !== undefined && !isObject(declaredDarkOverrides)) {
       hardFailures.push('invalid-dark-override-map')
-    } else {
-      const darkEvidence = dtcg.dark?.$extensions?.['com.imprint.tokenEvidence'] || {}
-      const darkCatalog = dtcgTokenCatalog(dtcgDarkRoot(dtcg))
-      for (const [ref, value] of Object.entries(darkOverrides || {})) {
-        if (!catalog.has(ref)) hardFailures.push(`unresolved-dark-override-ref:${ref}`)
-        if (typeof value !== 'string' || !value.trim()) hardFailures.push(`invalid-dark-override-value:${ref}`)
-        if (darkCatalog.get(ref) !== value) hardFailures.push(`dark-override-value-mismatch:${ref}`)
-        const evidencePath = evidencePathForPublicRef(ref)
-        const item = evidencePath ? darkEvidence[evidencePath] : null
-        if (!isObject(item) || !evidencePath) {
-          hardFailures.push(`ungrounded-dark-override:${ref}`)
-          continue
-        }
-        for (const field of [
-          'observationCount',
-          'ownerCount',
-          'semanticAgreement',
-          'pageCount',
-          'captureCount',
-          'eligiblePageCount',
-          'pageSupportRatio',
-        ]) {
-          if (!finite(item[field])) hardFailures.push(`non-finite-dark-token-evidence:${evidencePath}.${field}`)
-        }
-        if (
-          String(item.value) !== value ||
-          item.ownerCount <= 0 ||
-          item.observationCount <= 0 ||
-          item.pageCount <= 0 ||
-          item.captureCount < item.pageCount ||
-          item.eligiblePageCount < item.pageCount ||
-          Math.abs(item.pageSupportRatio - item.pageCount / item.eligiblePageCount) > 0.001 ||
-          (item.semanticConfidence || item.confidence) === 'low' ||
-          item.reuseScope !== 'foundation'
-        ) {
-          hardFailures.push(`ungrounded-dark-override:${ref}`)
-        }
-        if (
-          evidencePath.startsWith('typography.') ||
-          ['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)
-        ) {
-          validateRenderedTextPromotionEvidence(
-            evidencePath,
-            String(value),
-            item,
-            hardFailures,
-            canonicalTokenEvidenceCaptures,
-          )
-        }
-        validatePortableGeometryEvidence(evidencePath, String(value), item, hardFailures)
-        hardFailures.push(
-          ...pageRefFailures(
-            item,
-            `dtcg.dark.tokenEvidence.${evidencePath}.pageRefs`,
-            evidenceRouteIds,
-            canonicalTokenEvidenceCaptures,
-          ),
-        )
+    }
+    const rawDarkEvidence = dtcg.dark?.$extensions?.['com.imprint.tokenEvidence']
+    const darkEvidence = isObject(rawDarkEvidence) ? rawDarkEvidence : {}
+    const darkCatalog = dtcgTokenCatalog(dtcgDarkRoot(dtcg))
+    if (isObject(dtcg.dark)) {
+      if (!isObject(rawDarkEvidence)) hardFailures.push('invalid-dark-token-evidence-catalog')
+      validateDtcgKeys(dtcg.dark, darkImplementationTokens, hardFailures)
+      for (const ref of catalog.keys()) {
+        if (!darkCatalog.has(ref)) hardFailures.push(`missing-dark-base-token:${ref}`)
+      }
+    }
+    for (const ref of darkCatalog.keys()) {
+      if (!catalog.has(ref)) hardFailures.push(`dark-token-outside-base-catalog:${ref}`)
+    }
+    const expectedDarkOverrides = Object.fromEntries(
+      [...darkCatalog].filter(([ref, value]) => catalog.has(ref) && catalog.get(ref) !== value),
+    )
+    const darkOverrides = isObject(declaredDarkOverrides) ? declaredDarkOverrides : {}
+    if (stableJson(darkOverrides) !== stableJson(expectedDarkOverrides)) {
+      hardFailures.push('dark-override-catalog-mismatch')
+    }
+    const changedDarkEvidencePaths = new Set(
+      Object.keys(expectedDarkOverrides)
+        .map(evidencePathForPublicRef)
+        .filter((evidencePath) => typeof evidencePath === 'string'),
+    )
+    const darkEvidencePaths = tokenEvidencePaths(darkImplementationTokens)
+    for (const [evidencePath, item] of Object.entries(darkEvidence)) {
+      if (!darkEvidencePaths.has(evidencePath)) {
+        hardFailures.push(`stale-dark-token-evidence:${evidencePath}`)
+        continue
+      }
+      validateDarkTokenEvidenceEntry(
+        evidencePath,
+        darkEvidencePaths.get(evidencePath),
+        item,
+        hardFailures,
+        evidenceRouteIds,
+        canonicalDarkTokenEvidenceCaptures,
+        availableDarkTokenEvidenceCaptureCount,
+        changedDarkEvidencePaths.has(evidencePath),
+      )
+    }
+    for (const [ref, value] of Object.entries(expectedDarkOverrides)) {
+      if (!catalog.has(ref)) hardFailures.push(`unresolved-dark-override-ref:${ref}`)
+      if (typeof value !== 'string' || !value.trim()) hardFailures.push(`invalid-dark-override-value:${ref}`)
+      if (darkCatalog.get(ref) !== value) hardFailures.push(`dark-override-value-mismatch:${ref}`)
+      const evidencePath = evidencePathForPublicRef(ref)
+      const item = evidencePath ? darkEvidence[evidencePath] : null
+      if (!isObject(item) || !evidencePath) {
+        hardFailures.push(`ungrounded-dark-override:${ref}`)
+        continue
+      }
+      if (
+        String(item.value) !== value ||
+        (item.semanticConfidence || item.confidence) === 'low' ||
+        item.reuseScope !== 'foundation'
+      ) {
+        hardFailures.push(`ungrounded-dark-override:${ref}`)
       }
     }
     const darkCandidates = dtcg.dark?.$extensions?.['com.imprint.candidates']?.values || []
     hardFailures.push(
-      ...candidateFailures(darkCandidates, 'dtcg.dark.candidates.values', undefined, canonicalTokenEvidenceCaptures),
+      ...candidateFailures(
+        darkCandidates,
+        'dtcg.dark.candidates.values',
+        evidenceRouteIds,
+        canonicalDarkTokenEvidenceCaptures,
+      ),
     )
+    validateDarkFoundationForeground(tokens, darkImplementationTokens, darkEvidence, darkCandidates, hardFailures)
   }
 
-  const darkImplementationTokens = designTokensFromDtcgRoot(dtcgDarkRoot(dtcg))
-  validateDesignDocDarkMode(extension, tokens, darkImplementationTokens, dtcg, hardFailures)
+  const rawDarkModeContract = dtcg?.$extensions?.['com.imprint.darkMode']
+  const darkModeContract = isObject(rawDarkModeContract) ? rawDarkModeContract : null
+  if (darkImplementationTokens) {
+    const validMethod = ['media-query', 'class-toggle'].includes(darkModeContract?.method)
+    const validSelector =
+      darkModeContract?.method === 'class-toggle'
+        ? darkModeContract.selector === '.dark' ||
+          (typeof darkModeContract.selector === 'string' && /^\[data-[\w-]+="dark"\]$/.test(darkModeContract.selector))
+        : darkModeContract?.selector === undefined
+    if (!validMethod || !validSelector) hardFailures.push('invalid-dark-mode-contract')
+  }
+  validateDesignDocDarkMode(extension, tokens, darkImplementationTokens, dtcg, sources['DESIGN.md'], hardFailures)
   validateImplementationCatalog(
     sources['variables.css'],
     'variables.css',
@@ -6359,6 +6959,7 @@ export async function auditArtifactBundle(directory) {
     'css',
     hardFailures,
     darkImplementationTokens,
+    darkModeContract,
   )
   validateImplementationCatalog(
     sources['variables.scss'],
@@ -6367,6 +6968,7 @@ export async function auditArtifactBundle(directory) {
     'scss',
     hardFailures,
     darkImplementationTokens,
+    darkModeContract,
   )
   validateImplementationCatalog(
     sources['theme.css'],
@@ -6375,6 +6977,7 @@ export async function auditArtifactBundle(directory) {
     'tailwind',
     hardFailures,
     darkImplementationTokens,
+    darkModeContract,
   )
 
   if (isObject(profile)) {

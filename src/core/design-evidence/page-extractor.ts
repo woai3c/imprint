@@ -845,11 +845,8 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       })
       const inset = /^inset\(([^)]*)\)/.exec(normalized)
       if (inset) {
-        const values = inset[1]
-          .split(/\bround\b/)[0]
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean)
+        if (/\bround\b/.test(inset[1])) return undefined
+        const values = inset[1].trim().split(/\s+/).filter(Boolean)
         if (values.length === 0 || values.length > 4) return undefined
         const expanded =
           values.length === 1

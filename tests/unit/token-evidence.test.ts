@@ -712,6 +712,90 @@ describe('token evidence', () => {
     expect(dtcg.$extensions['com.imprint.candidates'].values).toContainEqual(expect.objectContaining({ value: '2px' }))
   })
 
+  test('does not promote portable values backed by fractional evidence counts', () => {
+    const fractionalTokens: DesignToken = {
+      colors: {},
+      typography: {
+        fontFamilies: [],
+        fontStacks: [],
+        fontSizes: [],
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: [],
+      },
+      spacing: ['16px'],
+      radii: [],
+      shadows: [],
+      borders: [],
+      zIndices: [],
+      transitions: [],
+    }
+    const capture = (url: string) => ({
+      url,
+      viewport: 'desktop',
+      styles: createExtractedStyles({
+        usageCount: { 'spacing:16px': 4 },
+        usageOwnerIds: { 'spacing:16px': ['layout-1', 'layout-2'] },
+        valueSources: { 'spacing:16px': ['element:structural-spacing'] },
+      }),
+    })
+    fractionalTokens.evidence = buildTokenEvidence(fractionalTokens, [
+      capture('https://example.com/'),
+      capture('https://example.com/about'),
+    ])
+    fractionalTokens.evidence['spacing.0'].observationCount = 0.5
+    fractionalTokens.evidence['spacing.0'].ownerCount = 0.5
+
+    promotePortableDesignTokens(fractionalTokens)
+
+    expect(fractionalTokens.spacing).toEqual([])
+    expect(fractionalTokens.candidates?.values).toContainEqual(
+      expect.objectContaining({ group: 'spacing', value: '16px' }),
+    )
+  })
+
+  test('reapplies the foundation coverage threshold to persisted evidence before promotion', () => {
+    const underSupportedTokens: DesignToken = {
+      colors: {},
+      typography: {
+        fontFamilies: [],
+        fontStacks: [],
+        fontSizes: [],
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: [],
+      },
+      spacing: ['16px'],
+      radii: [],
+      shadows: [],
+      borders: [],
+      zIndices: [],
+      transitions: [],
+    }
+    const capture = (url: string) => ({
+      url,
+      viewport: 'desktop',
+      styles: createExtractedStyles({
+        usageCount: { 'spacing:16px': 4 },
+        usageOwnerIds: { 'spacing:16px': ['layout-1', 'layout-2'] },
+        valueSources: { 'spacing:16px': ['element:structural-spacing'] },
+      }),
+    })
+    underSupportedTokens.evidence = buildTokenEvidence(underSupportedTokens, [
+      capture('https://example.com/'),
+      capture('https://example.com/about'),
+    ])
+    underSupportedTokens.evidence['spacing.0'].eligiblePageCount = 4
+    underSupportedTokens.evidence['spacing.0'].pageSupportRatio = 0.5
+
+    promotePortableDesignTokens(underSupportedTokens)
+
+    expect(underSupportedTokens.spacing).toEqual([])
+    expect(underSupportedTokens.candidates?.values).toContainEqual(
+      expect.objectContaining({ group: 'spacing', value: '16px' }),
+    )
+  })
+
   test('counts the structural border alias once when it describes the same computed border', () => {
     const borderTokens: DesignToken = { ...tokens, colors: { border: '#b5bac2' } }
     const styles = createExtractedStyles({

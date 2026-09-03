@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DesignToken } from '../../src/core/analyzer/types.js'
+import { opaqueRouteIdentity } from '../../src/core/analyzer/url-identity.js'
+import { buildDarkModeExportData } from '../../src/core/export/index.js'
 import {
   compactTokenSnapshot,
   readAnalysisCompletion,
@@ -18,6 +20,7 @@ import {
   toThemeSummary,
 } from '../../src/main/persisted-records.js'
 import type { ThemeSummaryRecord } from '../../src/shared/ipc-contract.js'
+import { createExtractedStyles } from './analyzer-fixtures.js'
 
 const tokens: DesignToken = {
   colors: { background: '#ffffff' },
@@ -230,47 +233,117 @@ describe('persisted record adapters', () => {
   })
 
   it('restores dark tokens and comparison captures from valid records', () => {
-    const darkTokens = {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const ownerIds = ['copy-1', 'copy-2', 'copy-3', 'copy-4']
+    const baseTokens = {
       ...tokens,
-      colors: { background: '#000000' },
-      evidence: {
-        'colors.background': {
-          value: '#000000',
-          confidence: 'medium' as const,
-          measurementConfidence: 'medium' as const,
-          semanticConfidence: 'medium' as const,
-          reuseScope: 'foundation' as const,
-          observationCount: 4,
-          ownerCount: 4,
-          semanticAgreement: 1,
-          pageCount: 1,
-          captureCount: 1,
-          eligiblePageCount: 1,
-          pageSupportRatio: 1,
-          pages: ['https://example.com/'],
-          pageRefs: ['route-0f115db062b7'],
-          sources: ['usage:bgColor'],
-          reasons: ['rendered-use' as const],
-        },
-      },
+      colors: { background: '#ffffff', foreground: '#111111' },
     }
-    const restoredDarkTokens = readDarkModeExportData(JSON.stringify(darkTokens), tokens, 'media-query', undefined, {
-      pages: [
-        {
-          id: 'page-home-desktop',
-          routeId: 'route-0f115db062b7',
-          url: 'https://example.com/',
-          viewport: 'desktop',
-          images: [],
-        },
-      ],
-    })?.darkTokens
+    const builtDarkMode = buildDarkModeExportData(
+      {
+        hasDarkMode: true,
+        method: 'media-query',
+        source: { url: sourceUrl, viewport: 'desktop' },
+        darkStyles: createExtractedStyles({
+          colors: ['rgb(0, 0, 0)', 'rgb(255, 255, 255)'],
+          backgroundColors: ['rgb(0, 0, 0)'],
+          textColors: ['rgb(255, 255, 255)'],
+          usageCount: {
+            'bgColor:rgb(0, 0, 0)': 4,
+            'textColor:rgb(255, 255, 255)': 4,
+          },
+          usageOwnerIds: {
+            'bgColor:rgb(0, 0, 0)': ['page-root'],
+            'textColor:rgb(255, 255, 255)': ownerIds,
+          },
+          valueSources: {
+            'bgColor:rgb(0, 0, 0)': ['element:page-background'],
+            'textColor:rgb(255, 255, 255)': ['rendered:text'],
+          },
+          textColorPairObservations: [
+            {
+              captureId: 'dark-home|desktop',
+              background: 'rgb(0, 0, 0)',
+              foreground: 'rgb(255, 255, 255)',
+              textRole: 'body',
+              count: ownerIds.length,
+              ownerIds,
+            },
+          ],
+          renderedTextStyleObservations: ownerIds.map((ownerId) => ({
+            ownerId,
+            textRole: 'body' as const,
+            styles: {
+              color: 'rgb(255, 255, 255)',
+              backgroundColor: 'rgb(0, 0, 0)',
+              fontFamily: 'Inter, sans-serif',
+              fontSize: '16px',
+              fontWeight: '400',
+              lineHeight: '24px',
+              letterSpacing: 'normal',
+            },
+            source: {
+              kind: 'direct-text' as const,
+              widthPx: 160,
+              heightPx: 24,
+              visibleWidthPx: 160,
+              visibleHeightPx: 24,
+              paintedAreaPx: 3840,
+              captureIntersectionRatio: 1,
+              effectiveClipPathAreaRatio: 1,
+              ancestorClipCount: 0,
+              clientRectCount: 1,
+              glyphRectCount: 1,
+              visibleBounds: { xPx: 0, yPx: 0, widthPx: 160, heightPx: 24 },
+              visibleGlyphRects: [{ xPx: 0, yPx: 0, widthPx: 160, heightPx: 24 }],
+              visibleGlyphAreaPx: 3840,
+              clipPathChain: [],
+              nonRectangularClipPathCount: 0,
+              clip: 'auto',
+              clipPath: 'none',
+              contentVisibility: 'visible',
+              opacity: 1,
+              filterOpacity: 1,
+              filterChain: [],
+              maskChain: [],
+              blendChain: [],
+              textIndentPx: 0,
+              filter: 'none',
+              glyphPaintKind: 'solid-color' as const,
+              foreground: 'rgb(255, 255, 255)',
+            },
+          })),
+        }),
+      },
+      baseTokens,
+    )
+    expect(builtDarkMode?.darkTokens).toBeDefined()
+    if (!builtDarkMode?.darkTokens) throw new Error('Fixture must produce a valid paired dark theme')
+    const darkTokens = builtDarkMode.darkTokens
+    const restoredDarkTokens = readDarkModeExportData(
+      JSON.stringify(darkTokens),
+      baseTokens,
+      'media-query',
+      undefined,
+      {
+        pages: [
+          {
+            id: 'page-home-desktop',
+            routeId,
+            url: sourceUrl,
+            viewport: 'desktop',
+            images: [],
+          },
+        ],
+      },
+    )?.darkTokens
     expect(restoredDarkTokens).toMatchObject(darkTokens)
     expect(restoredDarkTokens?.evidence?.['colors.background']).toMatchObject({
       semanticConfidence: 'medium',
       reuseScope: 'foundation',
     })
-    expect(readDarkModeExportData('{invalid', tokens, 'media-query')).toBeUndefined()
+    expect(readDarkModeExportData('{invalid', baseTokens, 'media-query')).toBeUndefined()
 
     expect(
       referenceCaptureFromRecord({

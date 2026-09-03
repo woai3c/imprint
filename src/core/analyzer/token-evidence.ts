@@ -19,6 +19,8 @@ import { opaqueRouteIdentity } from './url-identity.js'
 import { pageIdentityUrl } from './url-identity.js'
 
 export interface TokenEvidenceCapture {
+  /** Internal transaction identity used to bind styles to the exact committed page capture. */
+  captureKey?: string
   url: string
   viewport: string
   styles: ExtractedStyles

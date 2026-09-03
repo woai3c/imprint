@@ -490,6 +490,8 @@ export interface DarkModeResult {
   selector?: string
   /** Exact page capture from which dark styles were observed. Absent only on legacy records and direct callers. */
   source?: {
+    /** Internal transaction identity. It is intentionally non-enumerable on analyzer results. */
+    captureKey?: string
     url: string
     viewport: string
   }

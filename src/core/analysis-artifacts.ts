@@ -68,11 +68,13 @@ export function buildAnalysisArtifacts(
   // boundary. Legacy records without those optional fields retain their historical indices for compatibility.
   if (hasCompleteTokenPromotionEvidence(tokens)) promotePortableDesignTokens(tokens)
   const evidence = sanitizeDesignEvidenceForPersistence(contextEvidence)
-  const rawDarkMode = buildDarkModeExportData(result.darkMode, tokens, contextEvidence)
+  // Dark provenance must be checked against the analyzer's transaction-bearing Evidence before public sanitization
+  // intentionally removes that internal identity. Every generated artifact below consumes only the sanitized copy.
+  const rawDarkMode = buildDarkModeExportData(result.darkMode, tokens, result.designEvidence)
   const darkMode = rawDarkMode?.darkTokens
     ? { ...rawDarkMode, darkTokens: sanitizeDesignTokensForPersistence(rawDarkMode.darkTokens) }
     : rawDarkMode
-  const designContext = createDeterministicDesignContext(contextEvidence, language)
+  const designContext = createDeterministicDesignContext(evidence, language)
   const cssVariables = generateCssVariables(tokens, darkMode, result.breakpoints)
   const tailwindTheme = generateTailwindTheme(tokens, darkMode, result.breakpoints)
   const designDoc = generateDesignDoc({
@@ -83,7 +85,7 @@ export function buildAnalysisArtifacts(
     breakpoints: result.breakpoints,
     components: result.components,
     language,
-    designEvidence: contextEvidence,
+    designEvidence: evidence,
     designProfile: designContext.profile,
   })
 

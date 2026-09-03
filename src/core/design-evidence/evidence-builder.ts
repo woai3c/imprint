@@ -18,6 +18,7 @@ import type {
   ComponentEvidence,
   DesignEvidence,
   EvidenceImage,
+  EvidencePage,
   LayoutEvidenceNode,
   MediaLayerEvidence,
   PseudoElementEvidence,
@@ -26,6 +27,8 @@ import type {
 } from './types.js'
 
 export interface CapturedPageEvidence {
+  /** Internal transaction identity; never exported as public Evidence. */
+  captureKey?: string
   screenshot: PageScreenshot
   snapshot: PageEvidenceSnapshot
   /** Supplemental captures inform responsive evidence but do not satisfy the user-requested capture plan. */
@@ -34,6 +37,14 @@ export interface CapturedPageEvidence {
   interactionObservations?: InteractionObservationSnapshot[]
   health?: PageHealthReport
   supplementalImages?: Array<Omit<EvidenceImage, 'id' | 'sectionId'> & { sectionKey?: string; valid?: boolean }>
+}
+
+/** Rejects page/image metadata that cannot describe one traceable browser capture transaction. */
+export function isInternallyConsistentCapturedPage(capture: CapturedPageEvidence): boolean {
+  return (
+    pageIdentityUrl(capture.snapshot.url) === pageIdentityUrl(capture.screenshot.url) &&
+    capture.snapshot.viewport === capture.screenshot.viewport
+  )
 }
 
 export interface BuildDesignEvidenceInput {
@@ -528,6 +539,7 @@ function buildResponsiveObservations(
 }
 
 export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvidence {
+  const captures = input.captures.filter(isInternallyConsistentCapturedPage)
   const tokenIndex = buildTokenIndex(input.tokens)
   const pages: DesignEvidence['pages'] = []
   const sections: SectionEvidence[] = []
@@ -539,7 +551,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const sectionIds = new Map<string, string>()
   const imageIds = new Map<string, string>()
   const routeIdsByIdentity = new Map<string, string>()
-  for (const capture of input.captures) {
+  for (const capture of captures) {
     const identityUrl = pageIdentityUrl(capture.snapshot.url)
     if (routeIdsByIdentity.has(identityUrl)) continue
     // The digest keeps query text out of public artifacts while remaining stable when discovery order changes.
@@ -547,7 +559,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   }
   const evidenceTokens = designTokensWithRouteRefs(input.tokens, routeIdsByIdentity)
 
-  for (const capture of input.captures) {
+  for (const capture of captures) {
     const identityUrl = pageIdentityUrl(capture.snapshot.url)
     const routeId = routeIdsByIdentity.get(identityUrl)!
     const captureKey = `${identityUrl}|${capture.snapshot.viewport}`
@@ -654,7 +666,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         ? { status: capture.health.status, issueCodes: capture.health.issues.map((issue) => issue.code) }
         : undefined,
     })
-    pages.push({
+    const evidencePage: EvidencePage = {
       id: pageId,
       routeId,
       url: capture.snapshot.url,
@@ -675,7 +687,9 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       ),
       health: capture.health,
       images: evidenceImages,
-    })
+    }
+    if (capture.captureKey) Object.defineProperty(evidencePage, 'captureKey', { value: capture.captureKey })
+    pages.push(evidencePage)
 
     const page = pages[pages.length - 1]
     for (const image of page.images) {
@@ -892,7 +906,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     }
   }
 
-  input.captures.forEach((capture, captureIndex) => {
+  captures.forEach((capture, captureIndex) => {
     const identityUrl = pageIdentityUrl(capture.snapshot.url)
     const routeId = routeIdsByIdentity.get(identityUrl)!
     const pageIdIdentity = sanitizeUrlForPersistence(identityUrl) === identityUrl ? identityUrl : routeId
@@ -949,7 +963,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   const expectedCaptureCount =
     input.expectedCaptureCount ?? input.expectedPageCount * Math.max(1, expectedViewports.length)
   const expectedViewportSet = new Set(expectedViewports)
-  const requestedCaptures = input.captures.filter((capture) => capture.captureScope !== 'supplemental')
+  const requestedCaptures = captures.filter((capture) => capture.captureScope !== 'supplemental')
   const capturedExpectedCombinations = new Set(
     requestedCaptures
       .filter((capture) => expectedViewportSet.has(capture.snapshot.viewport))
@@ -990,7 +1004,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     for (const issue of page.health?.issues || []) limitations.push(`page-health:${issue.code}@${page.id}`)
   }
   if (sections.length === 0) limitations.push('no-sections-detected')
-  const interactionCandidateCount = input.captures.reduce(
+  const interactionCandidateCount = captures.reduce(
     (sum, capture) => sum + capture.snapshot.interactionCandidates.length,
     0,
   )
@@ -999,7 +1013,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
   ).length
   if (interactionCandidateCount > safelyObservedCount) limitations.push('some-safe-interactions-skipped')
   const skippedCandidateLabels: string[] = []
-  for (const capture of input.captures) {
+  for (const capture of captures) {
     const observedKeys = new Set((capture.interactionObservations || []).map((observation) => observation.key))
     for (const candidate of capture.snapshot.interactionCandidates) {
       if (!observedKeys.has(candidate.key)) {
@@ -1059,7 +1073,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
     crossPagePatternIds,
   }
 
-  const responsiveResult = buildResponsiveObservations(input.captures, sectionIds, imageIds)
+  const responsiveResult = buildResponsiveObservations(captures, sectionIds, imageIds)
   const responsiveObservations = responsiveResult.observations
   if (responsiveResult.identityMismatchCount > 0) {
     limitations.push('responsive-section-identity-mismatch')
@@ -1097,11 +1111,10 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       issueCount: assetIssueCount,
     },
     sectionCoverage:
-      input.captures.length === 0
+      captures.length === 0
         ? 0
         : Math.round(
-            (input.captures.filter((capture) => capture.snapshot.sections.length > 0).length / input.captures.length) *
-              100,
+            (captures.filter((capture) => capture.snapshot.sections.length > 0).length / captures.length) * 100,
           ) / 100,
     viewportCoverage,
     interactionCoverage: {
@@ -1135,7 +1148,7 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
       requestedUrl: input.requestedUrl,
       finalUrl: input.finalUrl,
       accessMode: input.accessMode,
-      language: input.captures[0]?.snapshot.language,
+      language: captures[0]?.snapshot.language,
       ...(entryPage?.title ? { title: entryPage.title } : {}),
       ...(entryPage?.siteName ? { siteName: entryPage.siteName } : {}),
     },

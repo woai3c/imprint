@@ -31,6 +31,8 @@ export interface EvidenceImage {
 
 export interface EvidencePage {
   id: string
+  /** Internal capture transaction identity. Analyzer-built values are non-enumerable and never exported. */
+  captureKey?: string
   /** Opaque document identity retained when public URL sanitization removes query text. */
   routeId?: string
   url: string

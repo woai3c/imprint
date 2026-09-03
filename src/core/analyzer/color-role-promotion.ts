@@ -183,7 +183,9 @@ export function reselectPortableFoundationColors(tokens: DesignToken, captures: 
             emptyProbe('foreground', candidate.value, pairedSurface?.background),
             captures,
           )['colors.foreground']
-          return pairedSurface && isPortableTokenEvidence(tokenEvidence) ? [{ candidate, evidence: pairedSurface }] : []
+          return pairedSurface && isPortableTokenEvidence(tokenEvidence, 'colors.foreground')
+            ? [{ candidate, evidence: pairedSurface }]
+            : []
         })
         .sort(
           (first, second) =>
@@ -220,7 +222,9 @@ export function reselectPortableFoundationColors(tokens: DesignToken, captures: 
           const evidence = buildTokenEvidence(emptyProbe(role, candidate.value, pairedBackground), captures)[
             `colors.${role}`
           ]
-          return pairedSurface && isPortableTokenEvidence(evidence) ? [{ candidate, pairedSurface }] : []
+          return pairedSurface && isPortableTokenEvidence(evidence, `colors.${role}`)
+            ? [{ candidate, pairedSurface }]
+            : []
         })
         .sort(
           (first, second) =>
@@ -237,7 +241,7 @@ export function reselectPortableFoundationColors(tokens: DesignToken, captures: 
       currentRoleEligible = isFoundationColorRoleEligible(role, normalizedCurrent, currentEvidence, tokens)
       // Re-selection repairs an absent or unsupported proposal. If the role that the semantic builder selected is
       // already portable, retain it instead of replacing it with an equally supported literal by lexical tie-break.
-      if (isPortableTokenEvidence(currentEvidence) && currentRoleEligible) continue
+      if (isPortableTokenEvidence(currentEvidence, `colors.${role}`) && currentRoleEligible) continue
     }
     const occupiedValues = new Set(
       Object.entries(tokens.colors)
@@ -250,7 +254,7 @@ export function reselectPortableFoundationColors(tokens: DesignToken, captures: 
         const evidence = buildTokenEvidence(emptyProbe(role, candidate.value), captures)[`colors.${role}`]
         return { candidate, evidence }
       })
-      .filter((item) => isPortableTokenEvidence(item.evidence))
+      .filter((item) => isPortableTokenEvidence(item.evidence, `colors.${role}`))
       .filter((item) => isFoundationColorRoleEligible(role, item.candidate.value, item.evidence, tokens))
       .filter(
         (item) =>

@@ -78,6 +78,45 @@ function darkRenderedTextOwners(ownerIds: string[]) {
   }))
 }
 
+function builtPairedDarkTokens(sourceUrl: string, ownerIds: string[]): DesignToken | undefined {
+  return buildDarkModeExportData(
+    {
+      hasDarkMode: true,
+      method: 'media-query',
+      source: { url: sourceUrl, viewport: 'desktop' },
+      darkStyles: createExtractedStyles({
+        colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
+        backgroundColors: ['rgb(22, 23, 29)'],
+        textColors: ['rgb(245, 245, 245)'],
+        usageCount: {
+          'bgColor:rgb(22, 23, 29)': 2,
+          'textColor:rgb(245, 245, 245)': 2,
+        },
+        usageOwnerIds: {
+          'bgColor:rgb(22, 23, 29)': ['page-root'],
+          'textColor:rgb(245, 245, 245)': ownerIds,
+        },
+        valueSources: {
+          'bgColor:rgb(22, 23, 29)': ['element:page-background'],
+          'textColor:rgb(245, 245, 245)': ['rendered:text'],
+        },
+        textColorPairObservations: [
+          {
+            captureId: 'dark-home|desktop',
+            background: 'rgb(22, 23, 29)',
+            foreground: 'rgb(245, 245, 245)',
+            textRole: 'body',
+            count: ownerIds.length,
+            ownerIds,
+          },
+        ],
+        renderedTextStyleObservations: darkRenderedTextOwners(ownerIds),
+      }),
+    },
+    baseTokens,
+  )?.darkTokens
+}
+
 describe('dark mode export data', () => {
   test('builds deterministic dark tokens once for every export entry point', () => {
     const darkTextOwnerIds = Array.from({ length: 20 }, (_value, index) => `dark-copy-${index}`)
@@ -154,11 +193,12 @@ describe('dark mode export data', () => {
     const sourceUrl = 'https://example.com/?access_token=private-value#panel'
     const publicUrl = 'https://example.com/'
     const routeId = opaqueRouteIdentity(sourceUrl)
+    const ownerIds = ['copy-1', 'copy-2', 'copy-3', 'copy-4']
     const darkMode = buildDarkModeExportData(
       {
         hasDarkMode: true,
         method: 'media-query',
-        source: { url: sourceUrl, viewport: 'desktop' },
+        source: { captureKey: 'entry-desktop', url: sourceUrl, viewport: 'desktop' },
         darkStyles: createExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
@@ -170,16 +210,38 @@ describe('dark mode export data', () => {
           },
           usageOwnerIds: {
             'bgColor:rgb(22, 23, 29)': ['page-root'],
-            'textColor:rgb(245, 245, 245)': ['copy-1', 'copy-2', 'copy-3', 'copy-4'],
+            'textColor:rgb(245, 245, 245)': ownerIds,
           },
           valueSources: {
             'bgColor:rgb(22, 23, 29)': ['element:page-background'],
             'textColor:rgb(245, 245, 245)': ['rendered:text'],
           },
+          textColorPairObservations: [
+            {
+              captureId: 'dark-query|desktop',
+              background: 'rgb(22, 23, 29)',
+              foreground: 'rgb(245, 245, 245)',
+              textRole: 'body',
+              count: ownerIds.length,
+              ownerIds,
+            },
+          ],
+          renderedTextStyleObservations: darkRenderedTextOwners(ownerIds),
         }),
       },
       baseTokens,
-      { pages: [{ id: 'page-home-desktop', routeId, url: publicUrl, viewport: 'desktop', images: [] }] },
+      {
+        pages: [
+          {
+            id: 'page-home-desktop',
+            captureKey: 'entry-desktop',
+            routeId,
+            url: publicUrl,
+            viewport: 'desktop',
+            images: [],
+          },
+        ],
+      },
     )
 
     expect(darkMode?.darkTokens?.colors.background).toBe('#16171d')
@@ -380,31 +442,8 @@ describe('dark mode export data', () => {
     const evidence = {
       pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
     }
-    const darkEvidence = (value: string) => ({
-      value,
-      confidence: 'medium' as const,
-      measurementConfidence: 'medium' as const,
-      semanticConfidence: 'medium' as const,
-      reuseScope: 'foundation' as const,
-      observationCount: 4,
-      ownerCount: 4,
-      semanticAgreement: 1,
-      pageCount: 1,
-      captureCount: 1,
-      eligiblePageCount: 1,
-      pageSupportRatio: 1,
-      pages: [sourceUrl],
-      pageRefs: [routeId],
-      sources: ['usage:bgColor'],
-      reasons: ['rendered-use' as const],
-    })
-    const fullDarkTokens = {
-      ...baseTokens,
-      colors: { background: '#16171d' },
-      evidence: {
-        'colors.background': darkEvidence('#16171d'),
-      },
-    }
+    const fullDarkTokens = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    if (!fullDarkTokens) throw new Error('Fixture must build full dark tokens')
     const restoredFull = restoreDarkModeExportData(
       fullDarkTokens,
       baseTokens,
@@ -412,17 +451,17 @@ describe('dark mode export data', () => {
       '[data-theme="dark"]',
       evidence,
     )
-    const restoredLegacy = restoreDarkModeExportData(fullDarkTokens.colors, baseTokens, 'media-query')
+    const restoredLegacy = restoreDarkModeExportData({ background: '#16171d' }, baseTokens, 'media-query')
 
     expect(restoredFull?.darkTokens).toMatchObject(fullDarkTokens)
     expect(restoredFull?.darkTokens?.evidence?.['colors.background']).toMatchObject({
-      semanticConfidence: 'medium',
+      semanticConfidence: expect.any(String),
       reuseScope: 'foundation',
     })
     expect(restoredFull?.method).toBe('class-toggle')
     expect(restoredFull?.selector).toBe('[data-theme="dark"]')
     expect(restoredLegacy?.darkTokens?.typography).toEqual(baseTokens.typography)
-    expect(restoredLegacy?.darkTokens?.colors).toEqual({})
+    expect(restoredLegacy?.darkTokens?.colors).toEqual(baseTokens.colors)
     expect(restoredLegacy?.overrides).toBeUndefined()
     expect(restoredLegacy?.darkTokens?.candidates?.values).toEqual(
       expect.arrayContaining([
@@ -471,7 +510,7 @@ describe('dark mode export data', () => {
     )
 
     expect(restored?.overrides).toBeUndefined()
-    expect(restored?.darkTokens?.colors.foreground).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
     expect(restored?.darkTokens?.candidates?.values).toContainEqual(
       expect.objectContaining({
         group: 'colors',
@@ -480,6 +519,65 @@ describe('dark mode export data', () => {
         rejectionReason: 'ungrounded-dark-override',
       }),
     )
+  })
+
+  test('rejects a restored dark foreground with bound text owners but no observed surface pair', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const ownerIds = ['copy-1', 'copy-2']
+    const renderedTextOwners = darkRenderedTextOwners(ownerIds).map((owner) => ({
+      ...owner,
+      page: sourceUrl,
+      routeId,
+      viewport: 'desktop',
+    }))
+    const restored = restoreDarkModeExportData(
+      {
+        ...baseTokens,
+        colors: { foreground: '#f5f5f5' },
+        evidence: {
+          'colors.foreground': {
+            value: '#f5f5f5',
+            confidence: 'high',
+            measurementConfidence: 'high',
+            semanticConfidence: 'high',
+            reuseScope: 'foundation',
+            observationCount: ownerIds.length,
+            ownerCount: ownerIds.length,
+            semanticAgreement: 1,
+            pageCount: 1,
+            captureCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            pages: [sourceUrl],
+            pageRefs: [routeId],
+            sources: ['rendered:text'],
+            reasons: ['rendered-use'],
+            renderedTextOwners,
+          },
+        },
+      },
+      baseTokens,
+      'media-query',
+      undefined,
+      { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+    )
+
+    expect(restored?.overrides).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
+    const candidate = restored?.darkTokens?.candidates?.values?.find(
+      (item) => item.group === 'colors' && item.role === 'foreground' && item.value === '#f5f5f5',
+    )
+    expect(candidate).toEqual(
+      expect.objectContaining({
+        group: 'colors',
+        role: 'foreground',
+        value: '#f5f5f5',
+        rejectionReason: 'ungrounded-dark-override',
+      }),
+    )
+    expect(candidate?.evidence.renderedTextOwners).toBeUndefined()
+    expect(candidate?.evidence.pairedSurface).toBeUndefined()
   })
 
   test('rejects a restored dark override whose page reference contradicts canonical Evidence', () => {
@@ -517,7 +615,7 @@ describe('dark mode export data', () => {
     )
 
     expect(restored?.overrides).toBeUndefined()
-    expect(restored?.darkTokens?.colors.background).toBeUndefined()
+    expect(restored?.darkTokens?.colors.background).toBe(baseTokens.colors.background)
     expect(restored?.darkTokens?.candidates?.values).toContainEqual(
       expect.objectContaining({
         group: 'colors',
@@ -532,48 +630,173 @@ describe('dark mode export data', () => {
     const sourceUrl = 'https://example.com/'
     const routeId = opaqueRouteIdentity(sourceUrl)
     const ownerIds = ['copy-1', 'copy-2']
-    const built = buildDarkModeExportData(
-      {
-        hasDarkMode: true,
-        method: 'media-query',
-        source: { url: sourceUrl, viewport: 'desktop' },
-        darkStyles: createExtractedStyles({
-          colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
-          backgroundColors: ['rgb(22, 23, 29)'],
-          textColors: ['rgb(245, 245, 245)'],
-          usageCount: {
-            'bgColor:rgb(22, 23, 29)': 2,
-            'textColor:rgb(245, 245, 245)': 2,
-          },
-          usageOwnerIds: {
-            'bgColor:rgb(22, 23, 29)': ['page-root'],
-            'textColor:rgb(245, 245, 245)': ownerIds,
-          },
-          valueSources: {
-            'bgColor:rgb(22, 23, 29)': ['element:page-background'],
-            'textColor:rgb(245, 245, 245)': ['rendered:text'],
-          },
-          textColorPairObservations: [
-            {
-              captureId: 'dark-home|desktop',
-              background: 'rgb(22, 23, 29)',
-              foreground: 'rgb(245, 245, 245)',
-              textRole: 'body',
-              count: ownerIds.length,
-              ownerIds,
-            },
-          ],
-          renderedTextStyleObservations: darkRenderedTextOwners(ownerIds),
-        }),
-      },
+    const restored = restoreDarkModeExportData(
+      builtPairedDarkTokens(sourceUrl, ownerIds),
       baseTokens,
+      'media-query',
+      undefined,
+      {
+        pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+      },
     )
-    const restored = restoreDarkModeExportData(built?.darkTokens, baseTokens, 'media-query', undefined, {
-      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
-    })
 
     expect(restored?.darkTokens?.colors.foreground).toBe('#f5f5f5')
     expect(restored?.overrides).toMatchObject({ 'color.foreground': '#f5f5f5' })
+  })
+
+  test('binds restored dark evidence to the explicit entry route regardless of page order', () => {
+    const entryUrl = 'https://example.com/'
+    const subpageUrl = 'https://example.com/about'
+    const entryRouteId = opaqueRouteIdentity(entryUrl)
+    const subpageRouteId = opaqueRouteIdentity(subpageUrl)
+    const designEvidence = {
+      source: {
+        routeId: entryRouteId,
+        requestedUrl: entryUrl,
+        finalUrl: entryUrl,
+        accessMode: 'anonymous' as const,
+      },
+      pages: [
+        { id: 'page-about-desktop', routeId: subpageRouteId, url: subpageUrl, viewport: 'desktop', images: [] },
+        { id: 'page-home-desktop', routeId: entryRouteId, url: entryUrl, viewport: 'desktop', images: [] },
+      ],
+    }
+    const entryTokens = builtPairedDarkTokens(entryUrl, ['entry-copy-1', 'entry-copy-2'])
+    const subpageTokens = builtPairedDarkTokens(subpageUrl, ['subpage-copy-1', 'subpage-copy-2'])
+
+    const restoredEntry = restoreDarkModeExportData(entryTokens, baseTokens, 'media-query', undefined, designEvidence)
+    const restoredSubpage = restoreDarkModeExportData(
+      subpageTokens,
+      baseTokens,
+      'media-query',
+      undefined,
+      designEvidence,
+    )
+
+    expect(restoredEntry?.overrides).toMatchObject({
+      'color.background': '#16171d',
+      'color.foreground': '#f5f5f5',
+    })
+    expect(restoredSubpage?.overrides).toBeUndefined()
+    expect(restoredSubpage?.darkTokens?.colors).toEqual(baseTokens.colors)
+  })
+
+  test('rejects a restored foreground when its observed dark surface is not effective in the exported theme', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const ownerIds = ['copy-1', 'copy-2']
+    const built = builtPairedDarkTokens(sourceUrl, ownerIds)
+    const restored = restoreDarkModeExportData(
+      built ? { ...built, colors: { foreground: '#f5f5f5' } } : undefined,
+      baseTokens,
+      'media-query',
+      undefined,
+      { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+    )
+
+    expect(restored?.overrides).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
+    expect(restored?.darkTokens?.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        group: 'colors',
+        role: 'foreground',
+        value: '#f5f5f5',
+        rejectionReason: 'ungrounded-dark-override',
+      }),
+    )
+  })
+
+  test('rejects a restored foreground when pair owner IDs do not match its rendered owner sample', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    const foregroundEvidence = built?.evidence?.['colors.foreground']
+    if (!foregroundEvidence?.pairedSurface) throw new Error('Fixture must include a foreground pair')
+    foregroundEvidence.pairedSurface.routeSupport[0].ownerIds = ['unrelated-1', 'unrelated-2']
+    foregroundEvidence.pairedSurface.routeSupport[0].totalOwnerIds = ['unrelated-1', 'unrelated-2']
+    foregroundEvidence.pairedSurface.routeSupport[0].mainTextOwnerIds = ['unrelated-1', 'unrelated-2']
+
+    const restored = restoreDarkModeExportData(built, baseTokens, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides?.['color.foreground']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
+    expect(restored?.overrides?.['color.background']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.background).toBe(baseTokens.colors.background)
+  })
+
+  test.each([
+    [
+      'forged pair aggregate counts',
+      (tokens: DesignToken) => {
+        const pair = tokens.evidence?.['colors.foreground']?.pairedSurface
+        if (!pair) throw new Error('Fixture must include a foreground pair')
+        pair.ownerCount = 999
+        pair.minimumPageOwnerCount = 999
+        pair.mainTextOwnerCount = 999
+      },
+    ],
+    [
+      'forged pair contrast',
+      (tokens: DesignToken) => {
+        const pair = tokens.evidence?.['colors.foreground']?.pairedSurface
+        if (!pair) throw new Error('Fixture must include a foreground pair')
+        pair.contrastRatio = 99
+      },
+    ],
+    [
+      'rendered owner styles that do not support the claimed pair',
+      (tokens: DesignToken) => {
+        const owners = tokens.evidence?.['colors.foreground']?.renderedTextOwners
+        if (!owners) throw new Error('Fixture must include rendered foreground owners')
+        for (const owner of owners) {
+          owner.styles.color = '#ff0000'
+          owner.styles.backgroundColor = '#ffffff'
+          owner.source.foreground = '#ff0000'
+        }
+      },
+    ],
+  ])('rejects a restored foreground with %s', (_label, mutate) => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    if (!built) throw new Error('Fixture must build dark tokens')
+    mutate(built)
+
+    const restored = restoreDarkModeExportData(built, baseTokens, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides?.['color.foreground']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
+    expect(restored?.overrides?.['color.background']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.background).toBe(baseTokens.colors.background)
+  })
+
+  test('rejects a restored muted foreground that is not subordinate to the effective foreground', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    const foregroundEvidence = built?.evidence?.['colors.foreground']
+    if (!built || !foregroundEvidence) throw new Error('Fixture must include foreground evidence')
+    built.colors['muted-foreground'] = '#f5f5f5'
+    built.evidence = {
+      ...built.evidence,
+      'colors.muted-foreground': structuredClone(foregroundEvidence),
+    }
+    const baseWithMuted = {
+      ...baseTokens,
+      colors: { ...baseTokens.colors, 'muted-foreground': '#6b7280' },
+    }
+
+    const restored = restoreDarkModeExportData(built, baseWithMuted, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides?.['color.muted-foreground']).toBeUndefined()
+    expect(restored?.darkTokens?.colors['muted-foreground']).toBe(baseWithMuted.colors['muted-foreground'])
+    expect(restored?.darkTokens?.colors.foreground).toBe('#f5f5f5')
   })
 
   test('rejects a changed dark value carrying inherited light evidence at the same path', () => {
@@ -605,7 +828,7 @@ describe('dark mode export data', () => {
       'media-query',
     )
 
-    expect(restored?.darkTokens?.colors.background).toBeUndefined()
+    expect(restored?.darkTokens?.colors.background).toBe(baseTokens.colors.background)
     expect(restored?.overrides).toBeUndefined()
     expect(restored?.darkTokens?.candidates?.values).toContainEqual(
       expect.objectContaining({
@@ -615,6 +838,229 @@ describe('dark mode export data', () => {
         evidence: expect.objectContaining({ value: '#16171d', ownerCount: 0 }),
       }),
     )
+  })
+
+  test('rejects a restored dark font whose aggregate owner count exceeds its unsaturated sample', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const [owner] = darkRenderedTextOwners(['copy-1']).map((item) => ({
+      ...item,
+      page: sourceUrl,
+      routeId,
+      viewport: 'desktop',
+      styles: { ...item.styles, fontFamily: 'Georgia, serif' },
+    }))
+    const restored = restoreDarkModeExportData(
+      {
+        ...baseTokens,
+        typography: { ...baseTokens.typography, fontFamilies: ['Georgia'] },
+        evidence: {
+          'typography.fontFamilies.0': {
+            value: 'Georgia',
+            confidence: 'high',
+            measurementConfidence: 'high',
+            semanticConfidence: 'high',
+            reuseScope: 'foundation',
+            observationCount: 999,
+            ownerCount: 999,
+            semanticAgreement: 1,
+            pageCount: 1,
+            captureCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            pages: [sourceUrl],
+            pageRefs: [routeId],
+            sources: ['rendered:text'],
+            reasons: ['rendered-use'],
+            renderedTextOwners: [owner],
+          },
+        },
+      },
+      baseTokens,
+      'media-query',
+      undefined,
+      { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+    )
+
+    expect(restored?.overrides?.['typography.font-family.1']).toBeUndefined()
+    expect(restored?.darkTokens?.typography.fontFamilies).toEqual(baseTokens.typography.fontFamilies)
+    expect(restored?.darkTokens?.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        group: 'typography.fontFamilies',
+        value: 'Georgia',
+        rejectionReason: 'ungrounded-dark-override',
+      }),
+    )
+  })
+
+  test('rejects restored dark fonts with invalid semantic or paint provenance', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const renderedTextOwners = darkRenderedTextOwners(['copy-1', 'copy-2']).map((item) => ({
+      ...item,
+      page: sourceUrl,
+      routeId,
+      viewport: 'desktop',
+      styles: { ...item.styles, fontFamily: 'Georgia, serif' },
+    }))
+    const validEvidence = {
+      value: 'Georgia',
+      confidence: 'high' as const,
+      measurementConfidence: 'high' as const,
+      semanticConfidence: 'high' as const,
+      reuseScope: 'foundation' as const,
+      observationCount: 2,
+      ownerCount: 2,
+      semanticAgreement: 1,
+      pageCount: 1,
+      captureCount: 1,
+      eligiblePageCount: 1,
+      pageSupportRatio: 1,
+      pages: [sourceUrl],
+      pageRefs: [routeId],
+      sources: ['rendered:text'],
+      reasons: ['rendered-use' as const],
+      renderedTextOwners,
+    }
+    const restore = (evidence: typeof validEvidence) =>
+      restoreDarkModeExportData(
+        {
+          ...baseTokens,
+          typography: { ...baseTokens.typography, fontFamilies: ['Georgia'] },
+          evidence: { 'typography.fontFamilies.0': evidence },
+        },
+        baseTokens,
+        'media-query',
+        undefined,
+        { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+      )
+
+    const invalidSemantic = restore({ ...validEvidence, semanticAgreement: 42 })
+    const invisibleOwners = structuredClone(validEvidence)
+    invisibleOwners.renderedTextOwners[0].source.opacity = 0
+    const invalidPaint = restore(invisibleOwners)
+    const ancestorClippedOwners = structuredClone(validEvidence)
+    ancestorClippedOwners.renderedTextOwners[0].source.clipPathChain = [
+      { value: 'inset(49%)', widthPx: 160, heightPx: 24, owner: 'ancestor' },
+    ]
+    const invalidAncestorClip = restore(ancestorClippedOwners)
+    const roundedClippedOwners = structuredClone(validEvidence)
+    roundedClippedOwners.renderedTextOwners[0].source.clipPath = 'inset(0 round 50%)'
+    roundedClippedOwners.renderedTextOwners[0].source.clipPathChain = [
+      { value: 'inset(0 round 50%)', widthPx: 160, heightPx: 24, owner: 'self' },
+    ]
+    const invalidRoundedClip = restore(roundedClippedOwners)
+    const fractionalCounts = restore({ ...validEvidence, observationCount: 0.5, ownerCount: 0.5 })
+    const insufficientCoverage = restore({ ...validEvidence, eligiblePageCount: 2, pageSupportRatio: 0.5 })
+    const irrelevantPair = structuredClone(validEvidence) as typeof validEvidence & { pairedSurface: object }
+    irrelevantPair.pairedSurface = {}
+    const invalidIrrelevantPair = restore(irrelevantPair)
+    const displacedClipCases = [
+      {
+        clipPath: 'inset(0 100px 0 0)',
+        bounds: { xPx: 100, yPx: 0, widthPx: 60, heightPx: 24 },
+      },
+      {
+        clipPath: 'inset(0 0 0 100px)',
+        bounds: { xPx: 0, yPx: 0, widthPx: 60, heightPx: 24 },
+      },
+      {
+        clipPath: 'inset(12px 0 0 0)',
+        bounds: { xPx: 0, yPx: 0, widthPx: 160, heightPx: 12 },
+      },
+      {
+        clipPath: 'inset(0 0 12px 0)',
+        bounds: { xPx: 0, yPx: 12, widthPx: 160, heightPx: 12 },
+      },
+    ].map(({ clipPath, bounds }) => {
+      const displaced = structuredClone(validEvidence)
+      const source = displaced.renderedTextOwners[0].source
+      source.clipPath = clipPath
+      source.clipPathChain = [{ value: clipPath, widthPx: 160, heightPx: 24, owner: 'self' }]
+      source.visibleBounds = bounds
+      source.visibleGlyphRects = [bounds]
+      source.visibleWidthPx = bounds.widthPx
+      source.visibleHeightPx = bounds.heightPx
+      source.visibleGlyphAreaPx = bounds.widthPx * bounds.heightPx
+      source.paintedAreaPx = bounds.widthPx * bounds.heightPx
+      return restore(displaced)
+    })
+
+    for (const restored of [
+      invalidSemantic,
+      invalidPaint,
+      invalidAncestorClip,
+      invalidRoundedClip,
+      fractionalCounts,
+      insufficientCoverage,
+      invalidIrrelevantPair,
+      ...displacedClipCases,
+    ]) {
+      expect(restored?.overrides?.['typography.font-family.1']).toBeUndefined()
+      expect(restored?.darkTokens?.typography.fontFamilies).toEqual(baseTokens.typography.fontFamilies)
+      expect(restored?.darkTokens?.candidates?.values).toContainEqual(
+        expect.objectContaining({
+          group: 'typography.fontFamilies',
+          value: 'Georgia',
+          rejectionReason: 'ungrounded-dark-override',
+        }),
+      )
+    }
+  })
+
+  test('rejects a restored foreground whose sampled owner roles contradict its pair aggregates', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const built = builtPairedDarkTokens(sourceUrl, ['copy-1', 'copy-2'])
+    const owners = built?.evidence?.['colors.foreground']?.renderedTextOwners
+    if (!built || !owners) throw new Error('Fixture must include paired rendered owners')
+    for (const owner of owners) owner.textRole = 'label'
+
+    const restored = restoreDarkModeExportData(built, baseTokens, 'media-query', undefined, {
+      pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }],
+    })
+
+    expect(restored?.overrides?.['color.foreground']).toBeUndefined()
+    expect(restored?.overrides?.['color.background']).toBeUndefined()
+    expect(restored?.darkTokens?.colors.foreground).toBe(baseTokens.colors.foreground)
+    expect(restored?.darkTokens?.colors.background).toBe(baseTokens.colors.background)
+  })
+
+  test('does not retain invalid evidence attached to an unchanged restored dark token', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const restored = restoreDarkModeExportData(
+      {
+        ...baseTokens,
+        evidence: {
+          'colors.primary': {
+            value: baseTokens.colors.primary,
+            confidence: 'high',
+            measurementConfidence: 'high',
+            semanticConfidence: 'high',
+            reuseScope: 'foundation',
+            observationCount: 2,
+            ownerCount: 2,
+            semanticAgreement: 42,
+            pageCount: 1,
+            captureCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            pages: [sourceUrl],
+            pageRefs: [routeId],
+            sources: ['usage:accentColor'],
+            reasons: ['rendered-use'],
+          },
+        },
+      },
+      baseTokens,
+      'media-query',
+      undefined,
+      { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+    )
+
+    expect(restored?.darkTokens?.colors.primary).toBe(baseTokens.colors.primary)
+    expect(restored?.darkTokens?.evidence?.['colors.primary']).toBeUndefined()
   })
 
   test('does not treat independently clustered dark palette indexes as base token overrides', () => {
@@ -648,6 +1094,57 @@ describe('dark mode export data', () => {
         group: 'colors',
         role: 'palette-3',
         value: '#0084ff',
+        rejectionReason: 'not-in-base-catalog',
+      }),
+    )
+  })
+
+  test('keeps a base-owned palette reference stable and demotes a changed mode-local palette value', () => {
+    const sourceUrl = 'https://example.com/'
+    const routeId = opaqueRouteIdentity(sourceUrl)
+    const baseWithPalette = {
+      ...baseTokens,
+      colors: { ...baseTokens.colors, 'palette-1': '#abcdef' },
+    }
+    const restored = restoreDarkModeExportData(
+      {
+        ...baseWithPalette,
+        colors: { ...baseWithPalette.colors, 'palette-1': '#123456' },
+        evidence: {
+          'colors.palette-1': {
+            value: '#123456',
+            confidence: 'high',
+            measurementConfidence: 'high',
+            semanticConfidence: 'high',
+            reuseScope: 'foundation',
+            observationCount: 2,
+            ownerCount: 2,
+            semanticAgreement: 1,
+            pageCount: 1,
+            captureCount: 1,
+            eligiblePageCount: 1,
+            pageSupportRatio: 1,
+            pages: [sourceUrl],
+            pageRefs: [routeId],
+            sources: ['usage:bgColor'],
+            reasons: ['rendered-use'],
+          },
+        },
+      },
+      baseWithPalette,
+      'media-query',
+      undefined,
+      { pages: [{ id: 'page-home-desktop', routeId, url: sourceUrl, viewport: 'desktop', images: [] }] },
+    )
+
+    expect(restored?.darkTokens?.colors['palette-1']).toBe('#abcdef')
+    expect(restored?.darkTokens?.colors['dark-palette-1']).toBeUndefined()
+    expect(restored?.overrides?.['color.palette-1']).toBeUndefined()
+    expect(restored?.darkTokens?.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        group: 'colors',
+        role: 'palette-1',
+        value: '#123456',
         rejectionReason: 'not-in-base-catalog',
       }),
     )

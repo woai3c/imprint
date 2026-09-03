@@ -156,7 +156,7 @@ export function sanitizeDesignEvidenceForPersistence(evidence: DesignEvidence): 
       requestedUrl: sanitizeUrlForPersistence(evidence.source.requestedUrl),
       finalUrl: sanitizeUrlForPersistence(evidence.source.finalUrl),
     },
-    pages: evidence.pages.map((page) => ({
+    pages: evidence.pages.map(({ captureKey: _captureKey, ...page }) => ({
       ...page,
       url: sanitizeUrlForPersistence(page.url),
       ...(page.health

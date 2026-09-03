@@ -259,6 +259,7 @@ describe('URL privacy', () => {
       },
       pages: [
         {
+          captureKey: 'internal-transaction',
           url: 'https://example.com/path?session=secret',
           health: {
             status: 'degraded',
@@ -284,7 +285,8 @@ describe('URL privacy', () => {
       tokens,
     } as DesignEvidence
 
-    expect(sanitizeDesignEvidenceForPersistence(evidence)).toMatchObject({
+    const sanitized = sanitizeDesignEvidenceForPersistence(evidence)
+    expect(sanitized).toMatchObject({
       source: {
         requestedUrl: 'https://example.com/path',
         finalUrl: 'https://example.com/path',
@@ -302,5 +304,6 @@ describe('URL privacy', () => {
         },
       ],
     })
+    expect(sanitized.pages[0]).not.toHaveProperty('captureKey')
   })
 })

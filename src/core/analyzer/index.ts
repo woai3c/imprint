@@ -814,7 +814,7 @@ export async function analyze(
 
       if (i === 0 && request.extractDarkMode) {
         darkModeResult = await guardExtractionStage(extractionIssues, `${stagePrefix}:dark-mode`, null, () =>
-          extractDarkMode(page, styles, vpName),
+          extractDarkMode(page, styles, vpName, stagePrefix),
         )
       }
 
@@ -888,7 +888,7 @@ export async function analyze(
               extractionIssues,
               `${stagePrefix}:capture-health:refresh-dark-mode`,
               darkModeResult,
-              () => extractDarkMode(page, styles, vpName),
+              () => extractDarkMode(page, styles, vpName, stagePrefix),
             )
           }
         }
@@ -1088,12 +1088,12 @@ export async function analyze(
         attempts: health.attempts + finalHealth.attempts,
       }
       allStyles.push(styles)
-      styleCaptures.push({ url: captureUrl, viewport: vpName, styles })
+      styleCaptures.push({ captureKey: stagePrefix, url: captureUrl, viewport: vpName, styles })
       mergeInteractionStyles(allInteractions, pageInteractionStyles)
       analyzedPages.set(pageIdentityUrl(captureUrl), { source: 'requested', kind: 'entry' })
       if (health.evidenceEligible) {
         evidenceEligibleStyles.push(styles)
-        evidenceEligibleStyleCaptures.push({ url: captureUrl, viewport: vpName, styles })
+        evidenceEligibleStyleCaptures.push({ captureKey: stagePrefix, url: captureUrl, viewport: vpName, styles })
         if (i === 0) {
           evidenceMotion = motion
           evidenceBreakpoints = breakpoints
@@ -1103,6 +1103,7 @@ export async function analyze(
       if (i === 0) entryStructure = pageStructureTraits(evidenceSnapshot)
       retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
       capturedPageEvidence.push({
+        captureKey: stagePrefix,
         screenshot: pageScreenshot,
         snapshot: evidenceSnapshot,
         interactionStyles: pageInteractionStyles,
@@ -1410,7 +1411,12 @@ export async function analyze(
           // synchronous block, every extracted value is page-local so a failed alias can be retried without leaking
           // styles, components, or a false analyzed-page identity into the final result.
           allStyles.push(subStyles)
-          styleCaptures.push({ url: captureUrl, viewport: mainViewportName, styles: subStyles })
+          styleCaptures.push({
+            captureKey: stagePrefix,
+            url: captureUrl,
+            viewport: mainViewportName,
+            styles: subStyles,
+          })
           mergeInteractionStyles(allInteractions, pageInteractionStyles)
           motion = mergeMotionTokens([motion, subPageMotion])
           components = mergeComponentPatterns([components, subPageComponents])
@@ -1422,11 +1428,17 @@ export async function analyze(
           if (health.evidenceEligible) {
             evidenceMotion = mergeMotionTokens([evidenceMotion, subPageMotion])
             evidenceEligibleStyles.push(subStyles)
-            evidenceEligibleStyleCaptures.push({ url: captureUrl, viewport: mainViewportName, styles: subStyles })
+            evidenceEligibleStyleCaptures.push({
+              captureKey: stagePrefix,
+              url: captureUrl,
+              viewport: mainViewportName,
+              styles: subStyles,
+            })
             evidenceBreakpoints = mergeResponsiveBreakpoints([evidenceBreakpoints, subPageBreakpoints])
           }
           retainAvailableScreenshot(screenshots, pageScreenshots, pageScreenshot, supplementalImages)
           capturedPageEvidence.push({
+            captureKey: stagePrefix,
             screenshot: pageScreenshot,
             snapshot: evidenceSnapshot,
             interactionStyles: pageInteractionStyles,
@@ -1650,6 +1662,7 @@ export async function analyze(
               }
               retainAvailableScreenshot(screenshots, pageScreenshots, mobilePageScreenshot, supplementalImages)
               capturedPageEvidence.push({
+                captureKey: mobileStagePrefix,
                 screenshot: mobilePageScreenshot,
                 snapshot: mobileSnapshot,
                 captureScope: 'supplemental',
@@ -1679,10 +1692,16 @@ export async function analyze(
                     throw new Error('adaptive-mobile-document-changed')
                   }
                   allStyles.push(mobileStyles)
-                  styleCaptures.push({ url: mobileCaptureUrl, viewport: 'mobile', styles: mobileStyles })
+                  styleCaptures.push({
+                    captureKey: mobileStagePrefix,
+                    url: mobileCaptureUrl,
+                    viewport: 'mobile',
+                    styles: mobileStyles,
+                  })
                   if (mobileHealth.evidenceEligible) {
                     evidenceEligibleStyles.push(mobileStyles)
                     evidenceEligibleStyleCaptures.push({
+                      captureKey: mobileStagePrefix,
                       url: mobileCaptureUrl,
                       viewport: 'mobile',
                       styles: mobileStyles,

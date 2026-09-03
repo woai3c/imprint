@@ -116,8 +116,10 @@ export async function extractDarkMode(
   page: Page,
   lightStyles: ExtractedStyles,
   viewport = 'desktop',
+  captureKey?: string,
 ): Promise<DarkModeResult> {
   const source = { url: page.url(), viewport }
+  if (captureKey) Object.defineProperty(source, 'captureKey', { value: captureKey })
   // Probe the browser media state directly. Stylesheet introspection alone misses
   // cross-origin sheets, nested @layer blocks, and JavaScript matchMedia listeners.
   await page.emulateMedia({ colorScheme: 'dark' })

@@ -215,6 +215,38 @@ function buildFixtureEvidence() {
 }
 
 describe('Design Evidence', () => {
+  it.each([
+    ['URL', { url: 'https://other.example/', viewport: 'desktop' }],
+    ['viewport', { url: 'https://example.com/', viewport: 'mobile' }],
+  ])('rejects a capture whose screenshot %s contradicts its snapshot', (_label, screenshotIdentity) => {
+    const snapshot = createSnapshot('desktop', 1440)
+    const evidence = buildDesignEvidence({
+      analysisId: 'mismatched-screenshot-identity',
+      requestedUrl: snapshot.url,
+      finalUrl: snapshot.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop'],
+      expectedCaptureCount: 1,
+      tokens: { ...tokens, colors: {}, typography: { ...tokens.typography, fontFamilies: [], fontStacks: [] } },
+      featureTags: [],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        {
+          captureKey: 'mismatched-transaction',
+          screenshot: { ...screenshotIdentity, path: '/tmp/wrong-capture.png' },
+          snapshot,
+        },
+      ],
+    })
+
+    expect(evidence.pages).toEqual([])
+    expect(evidence.coverage.captureCoverage.captured).toBe(0)
+    expect(evidence.coverage.assetCoverage.expected).toBe(0)
+  })
+
   it('refuses to manufacture a route reference for an unmatched token evidence page', () => {
     const snapshot = createSnapshot('desktop', 1440)
     const unmatchedTokens: DesignToken = {

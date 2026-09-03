@@ -1,4 +1,8 @@
 import { normalizeColorValue } from './color-cluster.js'
+import { isFoundationForegroundPair, isPrimaryForegroundPair } from './color-pair-evidence.js'
+import { normalizeCssFontFamilyList, normalizeCssFontFamilyName, primaryCssFontFamily } from './font-family.js'
+import { hasValidRenderedTextPaintEvidence } from './rendered-text-evidence.js'
+import { colorContrast } from './token-builder.js'
 import { canonicalTokenEntriesForGroup, tokenCandidateId } from './token-catalog.js'
 import type { DesignToken, TokenCandidateGroup, TokenEvidence, TokenValueCandidate } from './types.js'
 import { isOpaqueRouteIdentity } from './url-identity.js'
@@ -16,8 +20,128 @@ const TYPOGRAPHY_GROUPS = [
 
 const ARRAY_GROUPS = ['spacing', 'radii', 'shadows', 'borders', 'zIndices', 'transitions'] as const
 
+const RENDERED_TEXT_OWNER_PAGE_CAP = 8
+
+function approximatelyEqual(first: number | undefined, second: number, tolerance = 0.0015): boolean {
+  return Number.isFinite(first) && Math.abs((first as number) - second) <= tolerance
+}
+
+function cssPixels(value: string | undefined): number | null {
+  const match = value?.trim().match(/^(-?\d*\.?\d+)(px|rem)$/i)
+  if (!match) return null
+  const amount = Number.parseFloat(match[1])
+  return match[2].toLowerCase() === 'rem' ? amount * 16 : amount
+}
+
+function renderedOwnerSupportsEvidence(path: string, evidence: TokenEvidence): boolean {
+  const owners = evidence.renderedTextOwners || []
+  const groupPath = path.replace(/\.\d+$/, '')
+  const pairedBackground = normalizeColorValue(evidence.pairedSurface?.background || '')
+  return owners.every((owner) => {
+    if (!owner.ownerId || !hasValidRenderedTextPaintEvidence(owner.source)) return false
+    if (owner.source.glyphPaintKind === 'solid-color') {
+      const styleColor = normalizeColorValue(owner.styles.color || '')
+      const sourceColor = normalizeColorValue(owner.source.foreground || '')
+      if (!styleColor || styleColor !== sourceColor) return false
+    } else if (owner.styles.color !== undefined) {
+      return false
+    }
+    if (groupPath === 'typography.fontFamilies') {
+      return (
+        normalizeCssFontFamilyName(primaryCssFontFamily(owner.styles.fontFamily)) ===
+        normalizeCssFontFamilyName(evidence.value)
+      )
+    }
+    if (groupPath === 'typography.fontStacks') {
+      return normalizeCssFontFamilyList(owner.styles.fontFamily) === normalizeCssFontFamilyList(evidence.value)
+    }
+    if (groupPath === 'typography.fontSizes') {
+      const ownerPixels = cssPixels(owner.styles.fontSize)
+      const valuePixels = cssPixels(evidence.value)
+      return ownerPixels !== null && valuePixels !== null && Math.abs(ownerPixels - valuePixels) < 0.01
+    }
+    if (groupPath === 'typography.fontWeights') return owner.styles.fontWeight === evidence.value
+    if (groupPath === 'typography.lineHeights') {
+      const fontSize = Number.parseFloat(owner.styles.fontSize)
+      const lineHeight = Number.parseFloat(owner.styles.lineHeight)
+      const ratio = fontSize > 0 && lineHeight > 0 ? lineHeight / fontSize : Number.NaN
+      return owner.styles.lineHeight === evidence.value || approximatelyEqual(ratio, Number.parseFloat(evidence.value))
+    }
+    if (groupPath === 'typography.letterSpacings') return owner.styles.letterSpacing === evidence.value
+    if (groupPath.startsWith('colors.')) {
+      const value = normalizeColorValue(evidence.value)
+      const ownerForeground = normalizeColorValue(owner.styles.color || '')
+      const sourceForeground = normalizeColorValue(owner.source.foreground || '')
+      const ownerBackground = normalizeColorValue(owner.styles.backgroundColor || '')
+      return (
+        value !== null &&
+        value === ownerForeground &&
+        value === sourceForeground &&
+        pairedBackground !== null &&
+        pairedBackground === ownerBackground &&
+        owner.source.glyphPaintKind === 'solid-color' &&
+        owner.source.opacity >= 0.999 &&
+        owner.source.filterOpacity >= 0.999
+      )
+    }
+    return true
+  })
+}
+
 function semanticConfidence(evidence: TokenEvidence): TokenEvidence['confidence'] {
   return evidence.semanticConfidence || evidence.confidence
+}
+
+function hasPortableEvidenceCoverage(evidence: TokenEvidence, sourcePath: string | undefined): boolean {
+  const requiredCounts = [
+    evidence.observationCount,
+    evidence.ownerCount,
+    evidence.pageCount,
+    evidence.captureCount,
+    evidence.eligiblePageCount,
+  ]
+  const optionalCounts = [evidence.foundationOwnerCount, evidence.minimumPageFoundationOwnerCount].filter(
+    (value) => value !== undefined,
+  )
+  const aggregateCounts = [...Object.values(evidence.sourceCounts || {}), ...Object.values(evidence.roleCounts || {})]
+  const declared = evidence.sources.some(
+    (source) =>
+      source.startsWith('css-variable:') || source === 'usage:declaredColor' || source === 'usage:brandTokenColor',
+  )
+  const rendered = evidence.sources.some(
+    (source) =>
+      source === 'rendered:text' ||
+      source.startsWith('computed:') ||
+      source.startsWith('element:') ||
+      (source.startsWith('usage:') && !['usage:declaredColor', 'usage:brandTokenColor'].includes(source)),
+  )
+  const pageSupportRatio = evidence.pageCount / (evidence.eligiblePageCount || 1)
+  const permitsPairedCoverage = ['colors.foreground', 'colors.muted-foreground'].includes(sourcePath || '')
+  const meetsFoundationCoverage =
+    evidence.pairedSurface && permitsPairedCoverage
+      ? hasConsistentRenderedPairOwners(evidence)
+      : evidence.eligiblePageCount === 1
+        ? evidence.pageCount === 1 &&
+          ((rendered && (evidence.ownerCount || 0) >= 2) ||
+            (declared && rendered && (evidence.ownerCount || 0) >= 1) ||
+            (evidence.sources.includes('element:page-background') && (evidence.ownerCount || 0) >= 1))
+        : (evidence.eligiblePageCount || 0) >= 2 &&
+          evidence.pageCount >= 2 &&
+          pageSupportRatio >= 0.75 &&
+          (evidence.ownerCount || 0) >= evidence.pageCount
+  return (
+    requiredCounts.every((value) => Number.isInteger(value)) &&
+    optionalCounts.every((value) => Number.isInteger(value) && (value as number) >= 0) &&
+    aggregateCounts.every((value) => Number.isInteger(value) && value >= 0) &&
+    (!evidence.pairedSurface || permitsPairedCoverage) &&
+    evidence.observationCount > 0 &&
+    (evidence.ownerCount || 0) > 0 &&
+    evidence.pageCount > 0 &&
+    evidence.captureCount >= evidence.pageCount &&
+    (evidence.eligiblePageCount || 0) >= evidence.pageCount &&
+    approximatelyEqual(evidence.pageSupportRatio, pageSupportRatio) &&
+    meetsFoundationCoverage
+  )
 }
 
 function hasContextIndependentRenderedOwners(evidence: TokenEvidence): boolean {
@@ -35,6 +159,48 @@ function hasContextIndependentRenderedOwners(evidence: TokenEvidence): boolean {
   )
 }
 
+function hasFoundationRenderedOwnerSupport(evidence: TokenEvidence): boolean {
+  const owners = evidence.renderedTextOwners || []
+  const ownersByRoute = new Map<string, Set<string>>()
+  const pageByRoute = new Map<string, string>()
+  for (const owner of owners) {
+    const routeOwners = ownersByRoute.get(owner.routeId) || new Set<string>()
+    if (!owner.ownerId || routeOwners.has(owner.ownerId)) return false
+    const routePage = pageByRoute.get(owner.routeId)
+    if (routePage !== undefined && routePage !== owner.page) return false
+    routeOwners.add(owner.ownerId)
+    ownersByRoute.set(owner.routeId, routeOwners)
+    pageByRoute.set(owner.routeId, owner.page)
+  }
+
+  const uniqueOwnerCount = [...ownersByRoute.values()].reduce((total, routeOwners) => total + routeOwners.size, 0)
+  const saturated = [...ownersByRoute.values()].some((routeOwners) => routeOwners.size >= RENDERED_TEXT_OWNER_PAGE_CAP)
+  const routeIds = [...ownersByRoute.keys()].sort()
+  const pages = [...pageByRoute.values()].sort()
+  const declared = evidence.sources.some(
+    (source) =>
+      source.startsWith('css-variable:') || source === 'usage:declaredColor' || source === 'usage:brandTokenColor',
+  )
+  const onePageMinimum = declared ? 1 : 2
+  const meetsFoundationThreshold =
+    evidence.eligiblePageCount === 1
+      ? evidence.pageCount === 1 && uniqueOwnerCount >= onePageMinimum
+      : (evidence.pageCount || 0) >= 2 &&
+        (evidence.pageSupportRatio || 0) >= 0.75 &&
+        uniqueOwnerCount >= (evidence.pageCount || 0)
+
+  return (
+    routeIds.length === evidence.pageCount &&
+    (evidence.pageRefs === undefined || [...evidence.pageRefs].sort().join('\u0000') === routeIds.join('\u0000')) &&
+    [...evidence.pages].sort().join('\u0000') === pages.join('\u0000') &&
+    Number.isFinite(evidence.ownerCount) &&
+    (evidence.ownerCount || 0) >= uniqueOwnerCount &&
+    (saturated || evidence.ownerCount === uniqueOwnerCount) &&
+    evidence.observationCount === evidence.ownerCount &&
+    meetsFoundationThreshold
+  )
+}
+
 function hasAuditablePairedRoutes(evidence: TokenEvidence): boolean {
   if (!evidence.pairedSurface) return true
   const routes = evidence.pairedSurface.routeSupport || []
@@ -46,9 +212,138 @@ function hasAuditablePairedRoutes(evidence: TokenEvidence): boolean {
   )
 }
 
-export function isPortableTokenEvidence(evidence: TokenEvidence | undefined): boolean {
+function hasConsistentRenderedPairOwners(evidence: TokenEvidence): boolean {
+  const pairedSurface = evidence.pairedSurface
+  const renderedOwners = evidence.renderedTextOwners || []
+  if (!pairedSurface || renderedOwners.length === 0) return false
+
+  const sampledOwnersByRoute = new Map<string, Set<string>>()
+  for (const owner of renderedOwners) {
+    if (!owner.ownerId) return false
+    const routeOwners = sampledOwnersByRoute.get(owner.routeId) || new Set<string>()
+    if (routeOwners.has(owner.ownerId)) return false
+    routeOwners.add(owner.ownerId)
+    sampledOwnersByRoute.set(owner.routeId, routeOwners)
+  }
+
+  let ownerCount = 0
+  let minimumPageOwnerCount = Number.POSITIVE_INFINITY
+  let mainTextPageCount = 0
+  let mainTextOwnerCount = 0
+  let headingPageCount = 0
+  let headingOwnerCount = 0
+  let normalizedShare = 0
+  let normalizedMainTextShare = 0
+  const supportedRouteIds = new Set<string>()
+  const supportedPages: string[] = []
+  const textRoles = new Set<string>()
+  for (const route of pairedSurface.routeSupport) {
+    const ownerIds = new Set(route.ownerIds)
+    const totalOwnerIds = new Set(route.totalOwnerIds)
+    const mainTextOwnerIds = new Set(route.mainTextOwnerIds)
+    const headingOwnerIds = new Set(route.headingOwnerIds)
+    if (
+      ownerIds.size !== route.ownerIds.length ||
+      totalOwnerIds.size !== route.totalOwnerIds.length ||
+      mainTextOwnerIds.size !== route.mainTextOwnerIds.length ||
+      headingOwnerIds.size !== route.headingOwnerIds.length ||
+      [...ownerIds].some((ownerId) => !ownerId || !totalOwnerIds.has(ownerId)) ||
+      [...mainTextOwnerIds].some((ownerId) => !ownerIds.has(ownerId)) ||
+      [...headingOwnerIds].some((ownerId) => !mainTextOwnerIds.has(ownerId)) ||
+      route.supported !== ownerIds.size > 0
+    ) {
+      return false
+    }
+    const expectedShare = totalOwnerIds.size > 0 ? ownerIds.size / totalOwnerIds.size : 0
+    const expectedMainTextShare = totalOwnerIds.size > 0 ? mainTextOwnerIds.size / totalOwnerIds.size : 0
+    if (
+      !approximatelyEqual(route.normalizedShare, expectedShare) ||
+      !approximatelyEqual(route.normalizedMainTextShare, expectedMainTextShare)
+    ) {
+      return false
+    }
+    for (const role of route.textRoles) textRoles.add(role)
+    const sampledOwners = sampledOwnersByRoute.get(route.routeId) || new Set<string>()
+    if (!route.supported) {
+      if (sampledOwners.size > 0) return false
+      continue
+    }
+    if (
+      sampledOwners.size !== Math.min(RENDERED_TEXT_OWNER_PAGE_CAP, ownerIds.size) ||
+      [...sampledOwners].some((ownerId) => !ownerIds.has(ownerId))
+    ) {
+      return false
+    }
+    const sampledOwnerRecords = renderedOwners.filter((owner) => owner.routeId === route.routeId)
+    if (
+      sampledOwnerRecords.some((owner) => {
+        const mainText = owner.textRole === 'body' || owner.textRole === 'heading'
+        return (
+          !route.textRoles.includes(owner.textRole) ||
+          mainTextOwnerIds.has(owner.ownerId) !== mainText ||
+          headingOwnerIds.has(owner.ownerId) !== (owner.textRole === 'heading')
+        )
+      })
+    ) {
+      return false
+    }
+    supportedRouteIds.add(route.routeId)
+    supportedPages.push(route.page)
+    ownerCount += ownerIds.size
+    minimumPageOwnerCount = Math.min(minimumPageOwnerCount, ownerIds.size)
+    normalizedShare += expectedShare
+    normalizedMainTextShare += expectedMainTextShare
+    if (mainTextOwnerIds.size > 0) mainTextPageCount += 1
+    mainTextOwnerCount += mainTextOwnerIds.size
+    if (headingOwnerIds.size > 0) headingPageCount += 1
+    headingOwnerCount += headingOwnerIds.size
+  }
+
+  const eligiblePageCount = pairedSurface.routeSupport.length
+  const pageCount = supportedRouteIds.size
+  const claimedRouteIds = [...(evidence.pageRefs || [])].sort()
+  const claimedPages = [...evidence.pages].sort()
+  const contrast = colorContrast(evidence.value, pairedSurface.background)
+  return (
+    [...sampledOwnersByRoute.keys()].every((routeId) => supportedRouteIds.has(routeId)) &&
+    pairedSurface.eligiblePageCount === eligiblePageCount &&
+    pairedSurface.pageCount === pageCount &&
+    pairedSurface.ownerCount === ownerCount &&
+    pairedSurface.minimumPageOwnerCount === (pageCount > 0 ? minimumPageOwnerCount : 0) &&
+    pairedSurface.mainTextPageCount === mainTextPageCount &&
+    pairedSurface.mainTextOwnerCount === mainTextOwnerCount &&
+    pairedSurface.headingPageCount === headingPageCount &&
+    pairedSurface.headingOwnerCount === headingOwnerCount &&
+    approximatelyEqual(pairedSurface.pageSupportRatio, pageCount / Math.max(eligiblePageCount, 1)) &&
+    approximatelyEqual(pairedSurface.normalizedShare, normalizedShare / Math.max(eligiblePageCount, 1)) &&
+    approximatelyEqual(
+      pairedSurface.normalizedMainTextShare,
+      normalizedMainTextShare / Math.max(eligiblePageCount, 1),
+    ) &&
+    [...textRoles].sort().join('\u0000') === [...pairedSurface.textRoles].sort().join('\u0000') &&
+    (evidence.pageRefs === undefined ||
+      claimedRouteIds.join('\u0000') === [...supportedRouteIds].sort().join('\u0000')) &&
+    claimedPages.join('\u0000') === supportedPages.sort().join('\u0000') &&
+    evidence.ownerCount === pairedSurface.ownerCount &&
+    evidence.observationCount === pairedSurface.ownerCount &&
+    evidence.pageCount === pairedSurface.pageCount &&
+    evidence.eligiblePageCount === pairedSurface.eligiblePageCount &&
+    approximatelyEqual(evidence.pageSupportRatio, pairedSurface.pageSupportRatio) &&
+    contrast !== null &&
+    approximatelyEqual(pairedSurface.contrastRatio, contrast, 0.011)
+  )
+}
+
+export function isPortableTokenEvidence(evidence: TokenEvidence | undefined, sourcePath?: string): boolean {
   return Boolean(
     evidence &&
+    hasPortableEvidenceCoverage(evidence, sourcePath) &&
+    Number.isFinite(evidence.semanticAgreement) &&
+    (evidence.semanticAgreement || 0) >= 0 &&
+    (evidence.semanticAgreement || 0) <= 1 &&
+    Number.isFinite(evidence.pageSupportRatio) &&
+    (evidence.pageSupportRatio || 0) >= 0 &&
+    (evidence.pageSupportRatio || 0) <= 1 &&
     semanticConfidence(evidence) !== 'low' &&
     evidence.reuseScope === 'foundation' &&
     hasAuditablePairedRoutes(evidence) &&
@@ -58,10 +353,26 @@ export function isPortableTokenEvidence(evidence: TokenEvidence | undefined): bo
 }
 
 export function hasRequiredRenderedOwnerEvidence(path: string, evidence: TokenEvidence): boolean {
-  if (!path.startsWith('typography.') && !['colors.foreground', 'colors.muted-foreground'].includes(path)) {
-    return true
+  if (path.startsWith('typography.')) {
+    return (
+      evidence.sources.includes('rendered:text') &&
+      hasContextIndependentRenderedOwners(evidence) &&
+      hasFoundationRenderedOwnerSupport(evidence) &&
+      renderedOwnerSupportsEvidence(path, evidence)
+    )
   }
-  return evidence.sources.includes('rendered:text') && hasContextIndependentRenderedOwners(evidence)
+  if (!['colors.foreground', 'colors.muted-foreground'].includes(path)) return true
+  const hasPairMarkers =
+    evidence.sources.includes('rendered:text') &&
+    evidence.sources.includes('observed:text-background-pair') &&
+    evidence.reasons.includes('paired-surface')
+  if (!hasPairMarkers || !hasContextIndependentRenderedOwners(evidence) || !hasAuditablePairedRoutes(evidence)) {
+    return false
+  }
+  if (!hasConsistentRenderedPairOwners(evidence) || !renderedOwnerSupportsEvidence(path, evidence)) return false
+  return path === 'colors.foreground'
+    ? isPrimaryForegroundPair(evidence.pairedSurface)
+    : isFoundationForegroundPair(evidence.pairedSurface)
 }
 
 export function hasCompleteTokenPromotionEvidence(tokens: DesignToken): boolean {
@@ -226,7 +537,7 @@ function filterArrayGroup(
   return values.filter((value, index) => {
     const sourcePath = `${group}.${index}`
     const evidence = requiredEvidence(tokens, sourcePath)
-    if (isPortableTokenEvidence(evidence) && hasRequiredRenderedOwnerEvidence(sourcePath, evidence)) {
+    if (isPortableTokenEvidence(evidence, sourcePath) && hasRequiredRenderedOwnerEvidence(sourcePath, evidence)) {
       retainedEvidence[`${group}.${retainedIndex}`] = cloneEvidence(evidence)
       retainedIndex += 1
       return true
@@ -256,7 +567,7 @@ export function promotePortableDesignTokens(tokens: DesignToken): void {
     Object.entries(tokens.colors).filter(([role, value]) => {
       const sourcePath = `colors.${role}`
       const evidence = requiredEvidence(tokens, sourcePath)
-      if (isPortableTokenEvidence(evidence) && hasRequiredRenderedOwnerEvidence(sourcePath, evidence)) {
+      if (isPortableTokenEvidence(evidence, sourcePath) && hasRequiredRenderedOwnerEvidence(sourcePath, evidence)) {
         retainedEvidence[sourcePath] = cloneEvidence(evidence)
         return true
       }
@@ -388,12 +699,11 @@ function alignDarkArrayGroup(
     const sourcePath = `${group}.0`
     const darkEvidence = evidenceOrUnknown(tokens, sourcePath, values[0])
     const changed = values[0] !== baseValues[0]
-    if (
-      !changed ||
-      (isPortableTokenEvidence(darkEvidence) && hasRequiredRenderedOwnerEvidence(sourcePath, darkEvidence))
-    ) {
+    const grounded =
+      isPortableTokenEvidence(darkEvidence, sourcePath) && hasRequiredRenderedOwnerEvidence(sourcePath, darkEvidence)
+    if (!changed || grounded) {
       aligned[0] = values[0]
-      retainedEvidence[sourcePath] = cloneEvidence(darkEvidence)
+      if (grounded) retainedEvidence[sourcePath] = cloneEvidence(darkEvidence)
       if (changed && baseEntries[0]) overrides[baseEntries[0].id] = values[0]
     } else {
       appendBaseCatalogCandidate(
@@ -417,9 +727,14 @@ function alignDarkArrayGroup(
     values.forEach((value, darkIndex) => {
       const baseIndex = availableBaseIndexes.get(value)?.shift()
       if (baseIndex === undefined) return
-      retainedEvidence[`${group}.${baseIndex}`] = cloneEvidence(
-        evidenceOrUnknown(tokens, `${group}.${darkIndex}`, value),
-      )
+      const sourcePath = `${group}.${darkIndex}`
+      const darkEvidence = evidenceOrUnknown(tokens, sourcePath, value)
+      if (
+        isPortableTokenEvidence(darkEvidence, sourcePath) &&
+        hasRequiredRenderedOwnerEvidence(sourcePath, darkEvidence)
+      ) {
+        retainedEvidence[`${group}.${baseIndex}`] = cloneEvidence(darkEvidence)
+      }
       mappedDarkIndexes.add(darkIndex)
     })
   }
@@ -456,11 +771,15 @@ export function restrictDesignTokensToBaseCatalog(
       if (baseTokens.colors[role] !== undefined) {
         const darkEvidence = evidenceOrUnknown(tokens, sourcePath, value)
         const changed = baseTokens.colors[role] !== value
-        if (
-          !changed ||
-          (isPortableTokenEvidence(darkEvidence) && hasRequiredRenderedOwnerEvidence(sourcePath, darkEvidence))
-        ) {
-          retainedEvidence[sourcePath] = cloneEvidence(darkEvidence)
+        const grounded =
+          isPortableTokenEvidence(darkEvidence, sourcePath) &&
+          hasRequiredRenderedOwnerEvidence(sourcePath, darkEvidence)
+        if (changed && /^palette-\d+$/.test(role)) {
+          appendBaseCatalogCandidate(candidates, 'colors', value, sourcePath, darkEvidence, role, 'not-in-base-catalog')
+          return false
+        }
+        if (!changed || grounded) {
+          if (grounded) retainedEvidence[sourcePath] = cloneEvidence(darkEvidence)
           if (changed) overrides[`color.${role}`] = value
           return true
         }

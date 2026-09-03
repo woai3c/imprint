@@ -188,11 +188,10 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       })
       const inset = /^inset\(([^)]*)\)/.exec(normalized)
       if (inset) {
-        const values = inset[1]
-          .split(/\bround\b/)[0]
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean)
+        // The persisted evidence schema stores only a rectangular clip. Rounded inset corners can hide glyphs
+        // inside that rectangle, so accepting them would overstate the visible painted area.
+        if (/\bround\b/.test(inset[1])) return undefined
+        const values = inset[1].trim().split(/\s+/).filter(Boolean)
         if (values.length === 0 || values.length > 4) return undefined
         const expanded =
           values.length === 1

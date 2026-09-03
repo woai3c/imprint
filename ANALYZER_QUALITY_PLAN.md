@@ -1619,6 +1619,343 @@ the subsequent complete 128-test run both passed. Per the user's explicit checkp
 tree may be committed before the next empty-context review; that review and Phase 8 remain mandatory and any findings
 will be follow-up commits.
 
+### Review gates 46–47 findings and remediation (2026-09-03)
+
+Two fresh empty-context reviews found that persisted dark foreground evidence could still survive with rendered owners
+but no observed surface pair, and that the bundle auditor trusted the self-declared dark override map too much. The
+shared path-specific promotion contract now requires foreground and muted-foreground values to carry rendered owners,
+an observed text/background pair, the pair marker, auditable routes, and the appropriate semantic pair threshold.
+Restoration strips unverifiable rendered provenance before base-catalog alignment.
+
+The auditor now derives the complete override set from differences between the base and dark DTCG catalogs, validates
+every changed token even when the override map, frontmatter, and evidence are jointly deleted, rejects every dark token
+outside the base catalog, and binds dark non-text candidates to the canonical Evidence route set. Neutral mutations
+cover missing declared overrides/evidence, a colluding dark-only token across every implementation format, and a dark
+candidate that names a nonexistent route.
+
+### Review gates 48–49 findings and remediation (2026-09-03)
+
+The next two fresh reviews found deeper variants of the same restored-evidence boundary:
+
+1. A changed dark foreground could be paired to a dark surface that was not part of the effective exported theme,
+   producing a light foreground override while leaving the base light background active. Dark alignment now performs a
+   second catalog pass after checking the effective background/surface/secondary set (including unchanged base
+   fallbacks). An invalid foreground is removed from portable output and retained only as an explicitly rejected
+   candidate. Muted foreground additionally has to remain readable and visibly subordinate to the effective primary
+   foreground.
+2. Pair route arrays and rendered-owner samples could disagree, while self-reported aggregate counts and contrast
+   remained trusted. The shared foreground evidence boundary now verifies unique/subset owner sets, exact bounded
+   samples, route-derived page/owner/body/heading counts, minimum support, normalized shares, page support, outer-token
+   counts, actual computed contrast, and every sampled owner's foreground/background/source values. Typography owners
+   are also checked against their claimed font metric instead of merely existing.
+3. Removing every Evidence page route ID and every token/candidate page reference disabled route binding. Evidence
+   pages now require a non-empty persisted route identity, and positive-support token or candidate evidence fails when
+   the route catalog or page references are absent. Legacy non-hash opaque IDs remain accepted where their identity is
+   explicit; omission is not.
+
+Neutral producer tests cover missing surfaces, unrelated owner IDs, forged aggregate counts, forged contrast, forged
+owner styles, and invalid muted hierarchy. Auditor mutations cover effective-surface mismatch and synchronized route
+omission. The exact tree passes 70 unit files / 753 tests, type checking, the full local `pnpm run ci`, 26/26 Design
+Evidence browser tests in 310.56 seconds, and `git diff --check`. The first full E2E run after the checkpoint passed
+128/128 in 348.54 seconds; because gates 48–49 subsequently changed shared promotion/restoration logic, the complete
+E2E gate must run again after the next empty-context reviewer passes.
+
+### Review gate 50 findings and remediation (2026-09-03)
+
+The next empty-context review found two remaining completeness issues. First, synchronously removing a dark token, its
+evidence, its declared override, and every implementation value left no dark-catalog difference for the auditor to
+inspect. Dark export now emits a complete catalog aligned to the exact base token-reference set, using the base value
+for unchanged or safely rejected dark values. The auditor independently requires both directions of key equality:
+missing base references and dark-only references are hard failures. Overrides remain only the genuinely changed,
+grounded values.
+
+Second, restored typography checked owner existence and style identity but still trusted aggregate owner counts. The
+shared rendered-owner predicate now groups unique owners by route, binds their public page set and optional route refs,
+requires exact counts for unsaturated samples, requires observation and owner counts to agree, and applies the same
+one-page or cross-page foundation threshold used by the standalone auditor. A forged `ownerCount: 999` backed by one
+undeclared owner is demoted to a rejected candidate. Neutral tests cover the synchronized dark-token deletion and the
+forged stored font aggregate. The exact Node 22 tree passes 70 unit files / 755 tests, `pnpm run ci`, type checking, and
+`git diff --check`; a new empty-context review is in progress before the browser gates are repeated.
+
+### Review gate 51 findings and remediation (2026-09-03)
+
+The next empty-context review verified the prior omission, route, pair, and typography fixes, then found three final
+cross-token consistency gaps:
+
+1. A valid changed background could survive after its dark foreground was rejected, leaving inherited foreground and
+   changed background values with no readable observed pair. Changed background/surface/secondary tokens now require a
+   retained, evidence-valid foreground pair on that exact surface. If the pair is missing or invalid, the related
+   surface override is demoted in the same alignment transaction before base values are filled back, so the exported
+   theme cannot contain a half-applied foundation.
+2. Post-alignment palette names could still be rewritten from `palette-N` to `dark-palette-N`, violating complete
+   base/dark key equality for a base-owned residual palette. Base-aligned dark catalogs are no longer namespaced after
+   restriction. A changed mode-local palette index is treated as an unmatched candidate and the base reference/value
+   remains stable; standalone dark snapshots without a base catalog retain the previous defensive namespace.
+3. The auditor checked that dark typography counts were finite but did not require observation and owner counts to
+   agree or semantic agreement to remain in `[0, 1]`. Rendered-text validation now independently enforces outer count
+   equality, and portable/dark evidence rejects out-of-range semantic agreement.
+
+Neutral tests cover atomic background/foreground fallback, stable base palette references with changed dark residuals,
+and synchronized forged dark font-family/font-stack counts and semantic agreement. Focused producer/auditor tests pass
+122/122 with type checking and `git diff --check`; a new empty-context review is required before repeating the full
+controlled gates.
+
+### Review gate 52 findings and remediation (2026-09-03)
+
+The next fresh empty-context review expanded the dark-mode audit from individual override values to the complete
+catalog-to-artifact path and found eight material false-negative classes: out-of-range restored semantic agreement,
+incomplete rendered-text paint validation, missing surface-to-foreground atomicity in the auditor, ignored raw dark
+DTCG keys, orphan or unchecked unchanged dark evidence, incomplete DESIGN.md dark color/detection projection checks,
+unchecked CSS/SCSS/Tailwind activation scopes, and duplicate declarations whose later value changed effective output.
+
+The remediation is organized around three shared invariants rather than eight special cases:
+
+1. Every rendered-text owner now passes a reusable core paint-provenance validator covering visibility, bounded glyph
+   geometry, clip/filter reconstruction, opacity, masks/blending, and paint source before it can promote typography or
+   foreground tokens. Portable evidence also requires semantic agreement and page support to be finite probabilities.
+   Invalid evidence attached to an unchanged restored token is omitted instead of being copied into a complete dark
+   catalog.
+2. The auditor now checks raw base/dark DTCG keys, exact base/dark catalog equality, and every emitted dark evidence
+   record in both directions. Changed foundation surfaces require an independently valid readable text pair on that
+   exact surface, matching the producer's atomic fallback contract.
+3. Every Agent- or implementation-facing dark projection is checked against the independently parsed DTCG catalog.
+   This includes DESIGN.md frontmatter colors, detection method/selector, English or Chinese dark-color tables, exact
+   CSS/Tailwind media or class ownership, SCSS variable/mixin/invocation ownership, and exactly one declaration per
+   expected dark implementation name.
+
+Neutral mutations cover all eight failures, while valid English/Chinese tables, media-query themes, class-toggle
+themes, and paired foundation themes remain accepted. The focused producer, persistence, and bundle-auditor suite
+passes 140/140; the complete unit suite passes 70 files / 764 tests with lint, type checking, and `git diff --check`.
+A new empty-context review must pass this exact tree before browser and live-corpus gates resume.
+
+### Review gate 53 findings and remediation (2026-09-03)
+
+The next empty-context mutation review confirmed the Gate 52 fixes but found five remaining grammar and provenance
+edges. Ancestor clip-path entries lacked relative offsets and could therefore claim full-size visible glyphs; sampled
+foreground owners could contradict pair text-role aggregates; base portable page support was not range checked; DTCG
+token objects could carry the right name/value but the wrong `$type` or extra keys; DESIGN.md prose could contradict
+its structured dark detection method; and CSS-escaped custom-property names could bypass duplicate detection.
+
+The shared paint validator and standalone auditor now conservatively reject foundation promotion when an ancestor
+clip-path cannot be geometrically reconstructed. Foreground pair samples bind each owner's text role to route-level
+main-text/heading owner sets. Base and dark evidence use the same probability/envelope checks. Raw DTCG groups require
+the generator's exact token object shape, value kind, and `$type`. The localized human dark-mode sentence is checked
+against the structured media-query or class-toggle contract. Dark CSS/Tailwind declaration parsing decodes CSS
+identifier escapes before exact-name and duplicate comparison.
+
+Neutral tests cover ancestor-clipped typography and foreground evidence, role-inconsistent pair owners, base support
+ratio forgery, wrong/extended DTCG token objects, English and Chinese detection prose, and escaped duplicate custom
+properties. The focused suite passes 143/143 and the complete unit suite passes 70 files / 767 tests with lint, type
+checking, and `git diff --check`. A fresh Gate 54 review is required on this exact tree.
+
+### Review gate 54 findings and remediation (2026-09-03)
+
+Gate 54 confirmed the preceding evidence bindings but found five remaining alternate-representation bypasses. A
+rounded `inset(... round ...)` clip was reduced to a rectangular clip even though the persisted schema cannot prove
+glyph intersection with the rounded corners. Portable evidence counts accepted positive fractions. Base
+implementation catalogs retained the first declaration instead of rejecting duplicates, while inline SCSS and
+CSS-escaped names could evade some occurrence checks. A contradictory dark-mode sentence could be hidden behind a
+Markdown blockquote prefix. Finally, `JSON.parse` collapsed duplicate raw DTCG member names before the artifact audit
+could compare them.
+
+The producer, restoration path, and independent auditor now reject rounded inset paint provenance until the schema can
+represent its geometry. Required portable counts are positive integers with an internally consistent page envelope;
+optional owner aggregates and source/role counts must also be non-negative integers. Base and dark CSS, Tailwind, and
+SCSS catalogs use decoded occurrence lists and require exactly one declaration for every expected implementation name,
+including inline declarations. DESIGN.md scans every occurrence of the localized dark-mode marker before enforcing its
+single canonical projection. Every JSON artifact is checked for duplicate decoded object keys before native parsing,
+so first-value/last-value ambiguity cannot cross consumer boundaries.
+
+Neutral mutations cover rounded inset text, fractional base and dark counts, direct and escaped base duplicates,
+inline dark SCSS duplicates, blockquoted contradictory detection prose, and duplicate DTCG `$value` keys. The complete
+unit suite passes 70 files / 770 tests; the affected real-browser style/component suites pass 59/59. A fresh Gate 55
+review must pass this exact tree before the remaining browser and live-corpus gates resume.
+
+### Review gate 55 findings and remediation (2026-09-03)
+
+Gate 55 found three remaining cases where internally consistent text could still describe an ineffective or
+under-supported result. A colluding Evidence/DTCG edit could turn a two-route token into a claimed two-of-four
+foundation while preserving ratio arithmetic. Implementation declarations could be moved to a wrong base selector or
+left only inside comments because the audit counted declarations without validating their effective owner. A second
+dark-color table inside a blockquote or nested list was invisible to the raw-line ownership scan.
+
+Portable promotion and dark restoration now defensively reapply the same one-page or multi-page foundation thresholds
+used when evidence is built. Bundle validation additionally bounds eligible routes and captures by the actual Evidence
+page catalog. The stylesheet audit uses a quote-aware lexical pass that removes block and SCSS line comments before
+reading declarations. It requires the exact generated base owners: `:root` for CSS, `@theme` plus the supplemental
+`:root` split for Tailwind, and top-level declarations for SCSS; existing exact value/count checks then operate within
+those owners. Dark CSS and SCSS use the same effective-text parsing. Dark table headings, boundaries, and rows now use
+the shared Markdown-container normalization before global ownership comparison.
+
+Neutral tests cover producer/restoration under-coverage, colluding two-of-four bundle evidence, wrong base owners in
+all three stylesheet formats, comment-only dark declarations in all formats, and English/Chinese dark tables nested in
+Markdown containers. The focused suite passes 170/170 and the complete unit suite passes 70 files / 774 tests; type
+checking, lint, packaging, and `git diff --check` pass. A fresh Gate 56 review is required on this exact tree.
+
+### Review gate 56 findings and remediation (2026-09-03)
+
+Gate 56 found two remaining provenance shortcuts. First, persisted dark evidence could understate the eligible-route
+denominator and attach foreground/background pair evidence to an unrelated token such as spacing. Second, a self
+`clip-path: inset(...)` record proved the visible text dimensions but not that the reported bounds occupied the
+unclipped part of the element.
+
+Portable coverage is now token-path-aware: only foreground and muted-foreground may use paired-surface support, and
+that support still has to pass the complete rendered-owner and route binding checks. Base evidence must name the whole
+canonical base-route denominator. Restored dark evidence is instead bound to the actual dark sampling catalog, which
+currently contains only the canonical entry-route capture; this neither hides a sampled route nor invents dark
+observations for base routes that were never sampled. Malformed persisted pair structures fail closed. The shared
+paint validator and independent auditor also require visible bounds to be contained by every edge of the reconstructed
+self-inset rectangle, in addition to their existing glyph containment and area checks.
+
+Neutral regressions cover unrelated pair injection, understated route catalogs, malformed stored pairs, and correctly
+sized bounds displaced beyond left, right, top, or bottom inset edges. Stale valid bundle fixtures now model their real
+two-route base evidence and one-route dark evidence rather than relying on relaxed validation. The focused suite passes
+171/171, and the complete CI passes 70 files / 775 tests with type checking, lint, Desktop packaging, and
+`git diff --check`. A fresh Gate 57 review must pass this exact tree before browser and live-corpus validation resumes.
+
+### Review gate 57 findings and remediation (2026-09-03)
+
+Gate 57 found one remaining dark provenance ownership error. Both restoration and the independent bundle auditor used
+the first canonical page/map entry as the dark sample. Reordering `DesignEvidence.pages` could therefore accept a
+subpage-bound dark override while rejecting the correctly entry-bound override, even though `DesignEvidence.source`
+identified the entry document explicitly.
+
+Both paths now resolve the entry through the explicit source route identity and select its canonical viewport capture.
+The core retains a narrow single-route fallback only for legacy/minimal evidence where the only canonical route is
+unambiguous; multi-route evidence without a resolvable source fails closed. The standalone auditor requires the source
+identity carried by the complete modern artifact. No new persisted dark-source field was necessary because token owner
+records already carry route and viewport, and the Evidence source supplies the independent entry identity.
+
+Neutral regressions reorder pages as `[subpage, entry]`: entry-bound restored evidence and a valid bundle still pass,
+while synchronized subpage-bound dark evidence is rejected by both ownership paths. Gate 57's separate concern about a
+surface being retained through only a muted foreground did not reproduce; the existing hierarchy validator demotes
+both overrides, so no speculative change was made. The focused suite passes 184/184 and complete CI passes 70 files /
+777 tests with type checking, lint, Desktop packaging, and `git diff --check`. A fresh Gate 58 review must pass this
+exact tree before browser and live-corpus validation resumes.
+
+### Review gate 58 findings and remediation (2026-09-03)
+
+Gate 58 found two false-rejection mismatches in the standalone artifact auditor. The producer intentionally accepts a
+readable foreground/surface pair on two of four canonical routes because paired foreground evidence has a 50% route
+threshold, but the auditor reapplied the generic 75% rendered-token threshold. Separately, the auditor's canonical
+capture map always preferred desktop and counted routes with no eligible capture, while the producer excludes
+`health.evidenceEligible === false` and severe horizontal overflow before falling back to tablet or mobile.
+
+Rendered-text promotion validation is now path-aware: foreground and muted-foreground use the same independently
+implemented pair qualification rules as the producer, while typography and every other rendered token retain the 75%
+generic foundation threshold. The auditor's capture map is now built only from its independently reconstructed
+canonical Evidence page IDs, so route denominators, page URLs, and owner viewports use the same observable eligibility
+contract without calling producer code.
+
+Neutral tests cover a valid primary foreground pair on two of four routes, rejection at one of four routes, and both
+an explicitly ineligible desktop and a severely overflowing desktop whose base and entry-route dark rendered owners
+are truthfully bound to the mobile fallback. The focused suite passes 186/186 and complete CI passes 70 files / 779
+tests with type checking, lint, Desktop packaging, and `git diff --check`. A fresh Gate 59 review must pass this exact
+tree before browser and live-corpus validation resumes.
+
+### Review gate 59 findings and remediation (2026-09-03)
+
+Gate 59 found a real producer/auditor split below the preceding audit fix. The Design Evidence layer and auditor
+excluded severely overflowing desktop captures and selected a healthy responsive fallback, but `buildAnalysisOutput`
+still merged every health-eligible style capture and `buildTokenEvidence` independently preferred desktop. Severe
+overflow is deliberately retained as limitation evidence and can remain health-eligible, so public typography or
+foreground owners could come from a desktop capture that the rest of the evidence contract excluded.
+
+Canonical capture selection is now a shared core primitive. Before any public evidence style merge, color clustering,
+Token construction, evidence generation, or promotion, analysis output joins style captures to their actual captured
+page metadata and selects exactly one capture per route using health eligibility, severe-overflow exclusion, viewport
+priority, viewport width, and a stable key. Raw all-capture styles remain diagnostic only. Design Evidence page
+selection calls the same primitive, while the standalone auditor continues to reconstruct the rule independently.
+
+The new end-to-end `buildAnalysisOutput` regression gives the severely overflowing desktop capture a Georgia typeface
+and the healthy mobile fallback an Inter typeface. In forward and reversed input order, only Inter is exported, every
+rendered owner names the mobile capture, and the independently selected Design Evidence page is mobile. Existing
+bundle regressions cover the same fallback contract in the standalone auditor. The focused suite passes 187/187 and
+complete CI passes 71 files / 780 tests with type checking, lint, Desktop packaging, and `git diff --check`. A fresh
+Gate 60 review must pass this exact tree before browser and live-corpus validation resumes.
+
+### Review gate 60 findings and remediation (2026-09-03)
+
+Gate 60 found that the shared canonical selector still received an ambiguous join. Style captures and captured-page
+metadata were joined by normalized final URL plus viewport. Two independent navigation transactions can redirect to
+the same final URL at the same viewport; the metadata map then retained whichever duplicate appeared last, making
+portable Token values and owners depend on array order. Design Evidence could also retain both transactions under one
+canonical page identity.
+
+Every committed capture transaction now carries an internal `captureKey` from the analyzer stage through both style
+and captured-page inputs. Canonical style selection requires a one-to-one key match and verifies that the matched URL
+and viewport still agree. Duplicate final-route/viewport transactions are resolved deterministically from their exact
+health records: evidence-eligible, non-overflowing captures win, then the stable transaction key breaks equivalent
+ties. Ambiguous legacy inputs without unique transaction keys fail closed instead of using last-write-wins. The same
+deduplicated captured-page set feeds Design Evidence, so public Tokens, rendered owners, and canonical pages cannot
+disagree about which transaction supplied the evidence. `captureKey` remains internal and is not added to the public
+artifact schema.
+
+The regression independently reorders two style arrays and two captured-page arrays for transactions that converge on
+the same final URL/desktop viewport, with one healthy Inter capture and one severely overflowing Georgia capture. All
+four orderings export only Inter, bind owners to the healthy transaction, and retain one non-overflowing canonical
+Evidence page. The focused suite passes 188/188 and type checking plus `git diff --check` pass. Complete CI and a fresh
+Gate 61 empty-context review are required on this exact tree before browser and live-corpus validation resumes.
+
+### Review gate 61 findings and remediation (2026-09-03)
+
+Gate 61 reproduced three remaining ways to lose transaction identity. An unkeyed style could use the legacy
+URL/viewport fallback after page metadata had already been deduplicated, so a losing transaction could inherit the
+winning page. Dark-mode source metadata still contained only URL and viewport, allowing the same error after the base
+catalog had selected the correct transaction. Finally, `CapturedPageEvidence` did not prove that its screenshot and
+DOM snapshot named the same URL and viewport.
+
+The join now evaluates legacy uniqueness against the original, pre-deduplication collections. Keyed and unkeyed inputs
+cannot mix: keyed joins require exactly one matching key on each side, while legacy joins require exactly one raw page
+and one raw style with neither side keyed. Duplicate keys and partially keyed groups fail closed. A shared captured-page
+validator rejects any transaction whose normalized screenshot URL or viewport contradicts its DOM snapshot, both at
+the analysis boundary and inside the independently callable Design Evidence builder.
+
+Dark sampling now receives the same analyzer stage key as its light styles and page snapshot. The winning transaction
+key is retained as a non-enumerable in-memory Evidence-page field, checked before dark Tokens are built, and explicitly
+removed by persistence sanitization. Fresh artifacts with an unbound or mismatched dark source produce no dark export,
+including no rejected-candidate residue in DTCG. `buildAnalysisArtifacts` performs this check against the original
+transaction-bearing Evidence, while every generated artifact and deterministic context consumes the sanitized copy.
+Genuinely legacy records remain compatible only when both source and Evidence lack transaction keys.
+
+Neutral regressions cover independent duplicate ordering, missing keys, a key on only one side, duplicate keys on each
+side, style URL/viewport contradictions, screenshot URL/viewport contradictions through both builders, matching keyed
+dark provenance, losing keyed dark provenance, missing-key dark provenance, and public JSON stripping. The focused
+suite passes 275/275 and complete CI passes 71 files / 790 tests with type checking, lint, Desktop packaging, and
+`git diff --check`. A fresh Gate 62 empty-context review must pass this exact tree before browser and live-corpus
+validation resumes.
+
+### Review gate 62 findings and remediation (2026-09-03)
+
+Gate 62 found one compatibility regression in the new dark transaction check. `buildAnalysisArtifacts` correctly
+passed raw transaction-bearing Evidence, but `resolveCanonicalDarkSource` compared its raw page URL with a sanitized
+source URL. A legitimate query-bearing entry route was therefore rejected even when route ID, capture key, viewport,
+and the complete raw URL all matched.
+
+Dark URL comparison is now symmetric: the Evidence page may match either the complete source document identity or its
+explicitly sanitized public identity. This supports the raw fresh-analyzer path and the sanitized legacy/public path;
+the independently checked opaque route ID, exact capture key for modern records, and viewport still have to agree, so
+the relaxation cannot bind a different transaction. A production-shaped `buildAnalysisArtifacts` regression uses a
+raw query-bearing Evidence page and matching keyed dark source, verifies that the dark export is retained, and checks
+that neither the private query value nor `captureKey` appears in DESIGN.md, DTCG, Evidence/Profile/Component/Visual-QA
+JSON, CSS, Tailwind, or SCSS. The preceding mismatched-key and missing-key negative bundle cases remain in force.
+
+The focused suite passes 276/276 and complete CI passes 71 files / 791 tests with type checking, lint, Desktop
+packaging, and `git diff --check`. A fresh Gate 63 empty-context review must pass this exact tree before browser and
+live-corpus validation resumes.
+
+### Review gate 63 result (2026-09-03)
+
+The final empty-context review passed with no reproducible systemic correctness blocker. Its independent six-case
+transaction matrix covered matching raw-query dark provenance, sanitized unkeyed legacy compatibility, query/route/
+key/viewport mismatches, one-sided keys, duplicate or missing page/style identities, metadata contradictions, and
+order-independent duplicate redirects. It also confirmed that private query values and internal capture keys do not
+enter public artifacts. The reviewer independently reran the 276 focused tests and all 71 files / 791 unit tests.
+
+Per the agreed stopping rule, the code-review loop is complete. Only a later browser or corpus result that materially
+misleads a design Agent reopens it; isolated site-specific or cosmetic imperfections are recorded in
+`ANALYZER_QUALITY_TODO.md` and do not block completion.
+
 ## Phase 8 — Original 20-site live validation
 
 Rerun the exact usable corpus from the original audit:

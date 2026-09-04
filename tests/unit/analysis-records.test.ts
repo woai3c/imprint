@@ -102,6 +102,10 @@ function evidence(): DesignEvidence {
   }
 }
 
+function currentEvidence(): DesignEvidence {
+  return { ...evidence(), semanticOwnerVersion: '1' }
+}
+
 describe('stored analysis restoration', () => {
   beforeEach(() => {
     database.run.mockReset()
@@ -109,7 +113,7 @@ describe('stored analysis restoration', () => {
   })
 
   it('preserves observed breakpoints in regenerated and persisted implementation artifacts', () => {
-    const storedEvidence = readDesignEvidence(JSON.stringify(evidence()))
+    const storedEvidence = readDesignEvidence(JSON.stringify(currentEvidence()))
     if (!storedEvidence) throw new Error('Expected stored evidence')
     const storedTokens = readStoredDesignTokens(JSON.stringify(tokens), storedEvidence)
     if (!storedTokens) throw new Error('Expected stored tokens')
@@ -143,7 +147,7 @@ describe('stored analysis restoration', () => {
         id: 'analysis-stored',
         url: 'https://example.com/',
         tokens_json: JSON.stringify(tokens),
-        design_evidence_json: JSON.stringify(evidence()),
+        design_evidence_json: JSON.stringify(currentEvidence()),
       }),
     ).toMatchObject({
       analysisId: 'analysis-stored',
@@ -194,6 +198,48 @@ describe('stored analysis restoration', () => {
       tailwindTheme: 'legacy-tailwind',
     })
     expect(database.run).not.toHaveBeenCalled()
+  })
+
+  it('rejects a current semantic record whose foundation surface lacks exact owner references', () => {
+    const currentTokens = structuredClone(tokens)
+    currentTokens.colors.background = '#ffffff'
+    currentTokens.evidence!['colors.background'] = {
+      ...currentTokens.evidence!['spacing.0'],
+      value: '#ffffff',
+      roleRenderedPageCount: 1,
+      roleOwnerCount: 1,
+      sources: ['element:page-background'],
+    }
+    const claimedCurrentEvidence = currentEvidence()
+    claimedCurrentEvidence.tokens = currentTokens
+
+    expect(readDesignEvidence(JSON.stringify(claimedCurrentEvidence))).toBeNull()
+  })
+
+  it('accepts a current semantic record with exact foundation owner references', () => {
+    const currentTokens = structuredClone(tokens)
+    currentTokens.colors.background = '#ffffff'
+    currentTokens.evidence!['colors.background'] = {
+      ...currentTokens.evidence!['spacing.0'],
+      value: '#ffffff',
+      roleRenderedPageCount: 1,
+      roleOwnerCount: 1,
+      sources: ['element:page-background'],
+      semanticOwnerRefs: [
+        {
+          page: 'https://example.com/',
+          routeId: 'route-example',
+          viewport: 'desktop',
+          ownerId: 'html',
+          domain: 'foundation',
+          role: 'page-canvas',
+        },
+      ],
+    }
+    const claimedCurrentEvidence = currentEvidence()
+    claimedCurrentEvidence.tokens = currentTokens
+
+    expect(readDesignEvidence(JSON.stringify(claimedCurrentEvidence))).not.toBeNull()
   })
 
   it('retains original artifacts when non-throwing token evidence is incomplete', () => {
@@ -475,7 +521,7 @@ describe('stored analysis restoration', () => {
         },
       },
     }
-    const rawEvidence = evidence()
+    const rawEvidence = currentEvidence()
     rawEvidence.tokens = rejectedTokens
     const storedEvidence = readDesignEvidence(JSON.stringify(rawEvidence))
     if (!storedEvidence) throw new Error('Expected promoted evidence')

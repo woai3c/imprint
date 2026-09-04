@@ -492,6 +492,12 @@ function colorSemanticSupport(
   return countColorSemanticSupport(role, counts)
 }
 
+function semanticSurfaceRoleForToken(role: string): 'page-canvas' | 'content-surface' | undefined {
+  if (role === 'background') return 'page-canvas'
+  if (role === 'surface' || role === 'secondary') return 'content-surface'
+  return undefined
+}
+
 function colorSemanticAgreement(
   role: string,
   counts: ReadonlyMap<string, number>,
@@ -514,6 +520,7 @@ const COMPONENT_SCOPE_SOURCES = new Set([
 
 const FOUNDATION_SCOPE_SOURCES = new Set([
   'element:page-background',
+  'element:content-surface',
   'element:structural-spacing',
   'element:content-spacing',
   'element:structural-radius',
@@ -825,11 +832,18 @@ export function buildTokenEvidence(
     const colorSupportByPage = new Map<string, ColorSemanticSupport>()
     const sourcesByPage = new Map<string, Set<string>>()
     const renderedTextOwnersByPage = new Map<string, NonNullable<TokenEvidence['renderedTextOwners']>>()
+    const semanticOwnerRefsByPage = new Map<string, NonNullable<TokenEvidence['semanticOwnerRefs']>>()
     const representativePriorityByPage = new Map<string, number>()
+    const declarationPages = new Set<string>()
+    const renderedPages = new Set<string>()
+    const declarationSources = new Set<string>()
+    let canonicalCaptureCount = 0
     let captureCount = 0
 
     for (const [captureIndex, capture] of captures.entries()) {
       let captureMatched = false
+      let semanticSurfaceSupport: ColorSemanticSupport | undefined
+      let matchingSemanticOwnerRefs: NonNullable<TokenEvidence['semanticOwnerRefs']> = []
       const matchedSources = new Set<string>()
       const matchedRoleCounts = new Map<string, number>()
       const matchedSourceCounts = new Map<string, number>()
@@ -875,17 +889,100 @@ export function buildTokenEvidence(
           }
         }
       }
+      const page = evidencePageUrl(capture.url)
+      const rawMatchedSources = new Set(matchedSources)
+      const rawMatched = captureMatched
+      const rawDeclarationSources = [...rawMatchedSources].filter(
+        (source) =>
+          source.startsWith('css-variable:') || source === 'usage:declaredColor' || source === 'usage:brandTokenColor',
+      )
+      if (rawDeclarationSources.length > 0) {
+        declarationPages.add(page)
+        const explicitDeclarationSources = rawDeclarationSources.filter((source) => source.startsWith('css-variable:'))
+        const countedDeclarationSources =
+          explicitDeclarationSources.length > 0 ? explicitDeclarationSources : rawDeclarationSources
+        for (const source of countedDeclarationSources) declarationSources.add(source)
+      }
+      if ([...rawMatchedSources].some((source) => isRenderedUsageSource(source) || source.startsWith('computed:'))) {
+        renderedPages.add(page)
+      }
+      if (rawMatched) canonicalCaptureCount += 1
+      const requiredSurfaceRole = entry.group === 'colors' ? semanticSurfaceRoleForToken(entry.role || '') : undefined
+      if (requiredSurfaceRole && capture.styles.semanticSurfaceObservations !== undefined) {
+        const declaredSources = [...matchedSources].filter(
+          (source) =>
+            source.startsWith('css-variable:') ||
+            source === 'usage:declaredColor' ||
+            source === 'usage:brandTokenColor',
+        )
+        const declaredSourceCounts = new Map(
+          [...matchedSourceCounts].filter(([source]) => declaredSources.includes(source)),
+        )
+        const declaredSourceOwners = new Map(
+          [...matchedSourceOwners].filter(([source]) => declaredSources.includes(source)),
+        )
+        const matchingOwners = new Set(
+          capture.styles.semanticSurfaceObservations
+            .filter(
+              (observation) =>
+                observation.rendered &&
+                observation.domain === 'foundation' &&
+                observation.role === requiredSurfaceRole &&
+                normalizeColorValue(observation.value) === normalizeColorValue(entry.value),
+            )
+            .map((observation) => observation.ownerId),
+        )
+        matchingSemanticOwnerRefs = capture.styles.semanticSurfaceObservations
+          .filter(
+            (observation) =>
+              observation.rendered &&
+              observation.domain === 'foundation' &&
+              observation.role === requiredSurfaceRole &&
+              normalizeColorValue(observation.value) === normalizeColorValue(entry.value),
+          )
+          .map((observation) => ({
+            page,
+            routeId: opaqueRouteIdentity(page),
+            viewport: capture.viewport,
+            ownerId: observation.ownerId,
+            domain: observation.domain,
+            role: observation.role,
+          }))
+          .sort((first, second) => first.ownerId.localeCompare(second.ownerId))
+        captureMatched = matchingOwners.size > 0
+        matchedSources.clear()
+        matchedRoleCounts.clear()
+        matchedRoleOwners.clear()
+        matchedSourceCounts.clear()
+        matchedSourceOwners.clear()
+        declaredSources.forEach((source) => matchedSources.add(source))
+        declaredSourceCounts.forEach((count, source) => matchedSourceCounts.set(source, count))
+        declaredSourceOwners.forEach((owners, source) => matchedSourceOwners.set(source, owners))
+        if (captureMatched) {
+          const semanticSource =
+            requiredSurfaceRole === 'page-canvas' ? 'element:page-background' : 'element:content-surface'
+          matchedSources.add('usage:bgColor')
+          matchedSources.add(`semantic:${requiredSurfaceRole}`)
+          matchedSources.add(semanticSource)
+          matchedRoleCounts.set('bgColor', matchingOwners.size)
+          matchedRoleOwners.set('bgColor', matchingOwners)
+          matchedSourceCounts.set(semanticSource, matchingOwners.size)
+          matchedSourceOwners.set(semanticSource, matchingOwners)
+          semanticSurfaceSupport = { support: matchingOwners.size, competition: 0 }
+          renderedPages.add(page)
+          if (!rawMatched) canonicalCaptureCount += 1
+        }
+      }
       if (!captureMatched) continue
       for (const [category, owners] of matchedRoleOwners) {
         matchedRoleCounts.set(category, owners.size)
       }
       for (const [source, owners] of matchedSourceOwners) matchedSourceCounts.set(source, owners.size)
-      const page = evidencePageUrl(capture.url)
       // Support belongs to the proposed token role, not every other semantic use of the same literal value.
       const captureOwnerCount = observationOwnerCountForEntry(entry, matchedRoleOwners, matchedRoleCounts)
       const captureColorSupport =
         entry.group === 'colors'
-          ? colorSemanticSupport(entry.role || '', matchedRoleCounts, matchedRoleOwners)
+          ? semanticSurfaceSupport || colorSemanticSupport(entry.role || '', matchedRoleCounts, matchedRoleOwners)
           : undefined
       const priority = viewportEvidencePriority(capture.viewport) * 1_000_000 - captureIndex
       const existingPriority = representativePriorityByPage.get(page)
@@ -903,6 +1000,8 @@ export function buildTokenEvidence(
         )
         ownerCountsByPage.set(page, captureOwnerCount)
         if (captureColorSupport) colorSupportByPage.set(page, captureColorSupport)
+        if (matchingSemanticOwnerRefs.length > 0) semanticOwnerRefsByPage.set(page, matchingSemanticOwnerRefs)
+        else semanticOwnerRefsByPage.delete(page)
         sourcesByPage.set(page, matchedSources)
         if (needsRenderedTextOwnerEvidence(entry)) {
           const matchedOwnerIds = new Set([...matchedRoleOwners.values()].flatMap((owners) => [...owners]))
@@ -946,8 +1045,15 @@ export function buildTokenEvidence(
       }),
       { support: 0, competition: 0 },
     )
+    const roleRenderedPageCount =
+      entry.group === 'colors'
+        ? [...colorSupportByPage.values()].filter((support) => support.support > 0).length
+        : ownerCountsByPage.size
     const sources = new Set([...sourcesByPage.values()].flatMap((values) => [...values]))
     const renderedTextOwners = [...renderedTextOwnersByPage.entries()]
+      .sort(([first], [second]) => first.localeCompare(second))
+      .flatMap(([, owners]) => owners)
+    const semanticOwnerRefs = [...semanticOwnerRefsByPage.entries()]
       .sort(([first], [second]) => first.localeCompare(second))
       .flatMap(([, owners]) => owners)
     const supportedPairPages = pairedSurface
@@ -997,6 +1103,12 @@ export function buildTokenEvidence(
       reuseScope: semantics.reuseScope,
       observationCount: Number(evidenceOwnerCount.toFixed(3)),
       ownerCount: Number(evidenceOwnerCount.toFixed(3)),
+      declarationPageCount: declarationPages.size,
+      renderedPageCount: renderedPages.size,
+      roleRenderedPageCount,
+      roleOwnerCount: Number((entry.group === 'colors' ? colorSupport.support : evidenceOwnerCount).toFixed(3)),
+      canonicalCaptureCount,
+      declarationSourceCount: declarationSources.size,
       ...(entry.group !== 'colors'
         ? {
             foundationOwnerCount: [...foundationOwnerCountsByPage.values()].reduce((sum, amount) => sum + amount, 0),
@@ -1011,6 +1123,7 @@ export function buildTokenEvidence(
       pageSupportRatio: Number(semantics.pageSupportRatio.toFixed(3)),
       pages: [...evidencePages].sort(),
       ...(renderedTextOwners.length > 0 ? { renderedTextOwners } : {}),
+      ...(semanticOwnerRefs.length > 0 ? { semanticOwnerRefs } : {}),
       sources: [...sources].sort(),
       ...(sourceCounts.size > 0
         ? {

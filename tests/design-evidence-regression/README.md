@@ -1,6 +1,6 @@
 # Design Evidence browser regression
 
-This suite runs Imprint against 15 annotated pages, six controlled comparison pages, and the reusable manual comparison
+This suite runs Imprint against 20 annotated pages, six controlled comparison pages, and the reusable manual comparison
 site in a real installed Chrome or Edge browser. It verifies observable analyzer behavior; it does not calculate a
 quality score, compare products, call an AI provider, or write a ranking report.
 
@@ -13,6 +13,10 @@ pnpm test:design-evidence
 Each `fixtures/<name>.html` page is paired with `fixtures/<name>.annotations.json`. The annotations describe concrete
 expected behavior such as section roles, component types and element kinds, safe interaction observations, responsive
 changes, media kinds, structural treatments, semantic color handling, and stable evidence identifiers.
+
+Five neutral semantic fixtures independently annotate viewport canvas/content/code ownership, search-landmark context,
+and false-versus-real relative section reordering. Their oracle reads only the annotations and public artifacts; it does
+not call the production semantic classifier.
 
 The regression runner analyzes desktop and mobile viewports, checks the annotated behavior, and repeats extraction. The
 repeat capture must keep section IDs stable, satisfy the current reference-comparability gate, and produce no supported

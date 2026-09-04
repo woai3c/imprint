@@ -33,6 +33,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       valueSourceCounts: {},
       valueSourceOwnerIds: {},
       colorRoleObservations: [],
+      semanticSurfaceObservations: [],
+      semanticSurfaceLimitations: [],
       textColorPairObservations: [],
       renderedTextStyleObservations: [],
     }
@@ -543,6 +545,81 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       }
       return parts.length > 0 ? `body > ${parts.join(' > ')}` : element.tagName.toLowerCase()
     }
+    const captureId = `${location.href}|${window.innerWidth}x${window.innerHeight}`
+    const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
+    const visibleAreaRatio = (element: Element): number => {
+      const rect = element.getBoundingClientRect()
+      const width = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0))
+      const height = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
+      return (width * height) / viewportArea
+    }
+    const directlyPaintedBackground = (element: Element): string | null =>
+      normalizeObservedColor(computedFor(element).backgroundColor)
+    const hasBackgroundPaint = (element: Element): boolean => {
+      const computed = computedFor(element)
+      return Boolean(directlyPaintedBackground(element)) || computed.backgroundImage.trim().toLowerCase() !== 'none'
+    }
+    const pureDirectlyPaintedBackground = (element: Element): string | null => {
+      const computed = computedFor(element)
+      if (
+        computed.backgroundImage.trim().toLowerCase() !== 'none' ||
+        computed.mixBlendMode.trim().toLowerCase() !== 'normal' ||
+        computed.filter.trim().toLowerCase() !== 'none'
+      ) {
+        return null
+      }
+      return directlyPaintedBackground(element)
+    }
+    const bodyCanvasPainted = hasBackgroundPaint(document.body)
+    const htmlCanvasPainted = hasBackgroundPaint(document.documentElement)
+    const documentHeight = Math.max(
+      window.innerHeight,
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight,
+    )
+    const bodyTextLength = Math.max(1, (document.body.textContent || '').trim().length)
+    const rootCanvas = [...document.body.children]
+      .filter((element) => visibleAreaRatio(element) >= 0.85)
+      .filter(hasBackgroundPaint)
+      .filter(
+        (element) =>
+          !element.matches(
+            'pre, code, kbd, samp, math, figure, picture, video, canvas, svg, form, search, dialog, [role="code"], [role="img"], [role="search"], [role="dialog"], [role="status"], [role="alert"]',
+          ) && !element.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'),
+      )
+      .filter(
+        (element) =>
+          element.scrollHeight >= documentHeight * 0.8 &&
+          (element.textContent || '').trim().length >= bodyTextLength * 0.6,
+      )
+      .map((element) => ({ element, area: visibleAreaRatio(element) }))
+      .sort((first, second) => second.area - first.area)[0]
+    // Choose the uppermost semantic root that covers the rendered document. A body or application root can visibly
+    // cover an independently colored HTML canvas, so DOM paint order matters more than declaration order here.
+    // Complex paint is observed elsewhere but deliberately cannot become a fabricated pure-color foundation token.
+    const pageCanvasPaintOwner: Element | null =
+      rootCanvas?.element ||
+      (bodyCanvasPainted ? document.body : null) ||
+      (htmlCanvasPainted ? document.documentElement : null)
+    const pageCanvasValue = pageCanvasPaintOwner ? pureDirectlyPaintedBackground(pageCanvasPaintOwner) : null
+    const pageCanvasOwner = pageCanvasValue ? pageCanvasPaintOwner : null
+    if (pageCanvasPaintOwner && !pageCanvasValue) {
+      styles.semanticSurfaceLimitations?.push('complex-page-canvas-paint')
+    }
+    if (pageCanvasOwner && pageCanvasValue) {
+      styles.semanticSurfaceObservations?.push({
+        captureId,
+        ownerId: pageCanvasOwner === document.documentElement ? 'html' : locatorFor(pageCanvasOwner),
+        value: pageCanvasValue,
+        domain: 'foundation',
+        role: 'page-canvas',
+        rendered: true,
+        declared: false,
+        elementKind: pageCanvasOwner.tagName.toLowerCase(),
+        areaRatio: 1,
+        viewportCoverage: 1,
+      })
+    }
     const statusCandidateKind = (element: Element): 'native' | null => {
       const role = element.getAttribute('role') || ''
       const ariaLive = element.getAttribute('aria-live')
@@ -826,6 +903,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         glyphRectCount > 0 &&
         visibleGlyphRects.length > 0 &&
         glyphPaint &&
+        !paintVisibility.clipPathChain.some((clipPath) => clipPath.owner === 'ancestor') &&
         paintVisibility.nonRectangularClipPathCount === 0 &&
         Number.parseFloat(computed.fontSize || '0') >= 8 &&
         (!Number.isFinite(textIndent) || Math.abs(textIndent) <= Math.max(128, rect.width * 2))
@@ -914,10 +992,77 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
 
         const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0))
         const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0))
-        const viewportArea = Math.max(1, window.innerWidth * window.innerHeight)
         const visibleAreaShare = (visibleWidth * visibleHeight) / viewportArea
         const effectiveBackground = visibleAreaShare > 0 ? effectiveBackgroundFor(el) : null
         if (effectiveBackground) countUsage('bgArea', effectiveBackground, visibleAreaShare)
+
+        const explicitRole = el.getAttribute('role')?.trim().toLowerCase() || undefined
+        const searchAncestor = el.closest('search, [role="search"]')
+        const formRole = searchAncestor ? 'search' : el.closest('form') ? 'form' : undefined
+        const codeWrapper =
+          !structuralRoot && Boolean(el.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'))
+        const codeOwner = specializedContent || codeWrapper
+        const mediaOwner = Boolean(el.closest('figure, picture, video, canvas, svg, [role="img"]'))
+        const controlOwner = Boolean(
+          el.closest(
+            'a, button, input, select, textarea, form, search, [role="button"], [role="link"], [role="textbox"], [role="searchbox"], [role="combobox"], [role="dialog"], [role="search"]',
+          ),
+        )
+        const statusOwner = Boolean(el.closest('[role="status"], [role="alert"], [aria-live]:not([aria-live="off"])'))
+        const chromeOwner = Boolean(
+          el.closest('header, footer, nav, [role="banner"], [role="navigation"], [role="contentinfo"]'),
+        )
+        let paintedAncestor = el.parentElement
+        let ancestorBackground: string | null = null
+        while (paintedAncestor && !ancestorBackground) {
+          ancestorBackground = directlyPaintedBackground(paintedAncestor)
+          paintedAncestor = paintedAncestor.parentElement
+        }
+        const paintsDistinctSurface = !ancestorBackground || ancestorBackground !== bgColor
+        const repeatedContentOwner = (() => {
+          const parent = el.parentElement
+          if (!parent || el.children.length === 0 || (el.textContent || '').trim().length < 12) return false
+          return (
+            [...parent.children].filter((sibling) => {
+              if (sibling.tagName !== el.tagName) return false
+              return directlyPaintedBackground(sibling) === bgColor
+            }).length >= 2
+          )
+        })()
+        const foundationContentOwner = structuralRoot || repeatedContentOwner
+        const semanticSurface =
+          el === pageCanvasOwner
+            ? null
+            : codeOwner
+              ? { domain: 'specialized-content' as const, role: 'code-surface' as const }
+              : mediaOwner
+                ? { domain: 'specialized-content' as const, role: 'media-surface' as const }
+                : statusOwner
+                  ? { domain: 'component' as const, role: 'status-surface' as const }
+                  : controlOwner
+                    ? { domain: 'component' as const, role: 'control-surface' as const }
+                    : chromeOwner
+                      ? { domain: 'component' as const, role: 'chrome-surface' as const }
+                      : foundationContentOwner && paintsDistinctSurface
+                        ? { domain: 'foundation' as const, role: 'content-surface' as const }
+                        : { domain: 'local' as const, role: 'unknown' as const }
+        const semanticPaintValue = pureDirectlyPaintedBackground(el)
+        if (semanticSurface && semanticPaintValue && visibleAreaShare > 0) {
+          styles.semanticSurfaceObservations?.push({
+            captureId,
+            ownerId: currentOwner,
+            value: semanticPaintValue,
+            ...semanticSurface,
+            rendered: true,
+            declared: false,
+            elementKind: el.tagName.toLowerCase(),
+            ...(explicitRole ? { landmarkRole: explicitRole } : {}),
+            ...(formRole ? { formRole } : {}),
+            areaRatio: visibleAreaShare,
+            viewportCoverage: Math.min(1, visibleAreaShare),
+          })
+          addValueSource('bgColor', bgColor, `semantic:${semanticSurface.role}`)
+        }
       }
 
       if (roleCandidate) {
@@ -1245,7 +1390,6 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         ]),
     )
 
-    const captureId = `${location.href}|${window.innerWidth}x${window.innerHeight}`
     styles.textColorPairObservations = [...textColorPairFrequency.values()]
       .sort((first, second) => second.ownerIds.size - first.ownerIds.size)
       .slice(0, 80)

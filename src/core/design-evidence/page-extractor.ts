@@ -1,6 +1,11 @@
 import type { Page } from 'playwright-core'
 
-import type { ComponentStatusBoundary } from '../analyzer/component-detect.js'
+import type {
+  ComponentSemanticIdentity,
+  ComponentStatusBoundary,
+  ComponentUsageContext,
+  ComponentVisualTreatment,
+} from '../analyzer/component-detect.js'
 import { resetPageScroll } from '../analyzer/page-preparer.js'
 import { ROLE_CANDIDATE_RULES } from '../analyzer/role-candidates.js'
 import type {
@@ -31,6 +36,11 @@ export interface PageComponentSnapshot {
   type: string
   elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
+  semanticIdentity?: ComponentSemanticIdentity
+  visualTreatment?: ComponentVisualTreatment
+  usageContext?: ComponentUsageContext
+  visualOwnerKey?: string
+  semanticSourceKey?: string
   /** The rendered owner used for foreground and typography instead of assuming the semantic wrapper owns text. */
   textStyleOwner?: 'root' | 'descendant'
   textStyleSource?: ComponentTextStyleSource
@@ -1117,6 +1127,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (
         !glyphPaint ||
         !visibility ||
+        visibility.clipPathChain.some((clipPath) => clipPath.owner === 'ancestor') ||
         nativeTextSource !== Boolean(nativeTextOrigin) ||
         (nativeTextSource
           ? Number.isFinite(textIndent) && Math.abs(textIndent) > 1
@@ -1377,8 +1388,54 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (nativeStatus) return 'native'
       return null
     }
-    const isStyledActionAnchor = (element: Element): boolean => {
-      if (element.tagName !== 'A' || !element.hasAttribute('href')) return false
+    const isCompoundInteractiveSurface = (element: Element): boolean => {
+      const computed = computedFor(element)
+      const rect = element.getBoundingClientRect()
+      const structuredDescendants = [
+        ...element.querySelectorAll(
+          'article, section, header, footer, h1, h2, h3, h4, h5, h6, p, blockquote, ul, ol, dl, table, figure',
+        ),
+      ]
+      const structuredContent = structuredDescendants.some(isVisible)
+      const visibleTextBlocks = structuredDescendants.filter(
+        (candidate) => isVisible(candidate) && directlyOwnsRenderedText(candidate),
+      ).length
+      const visibleMedia = [...element.querySelectorAll('img, picture, video, canvas')].some(isVisible)
+      const mediaWithText = visibleMedia && Boolean((element.textContent || '').replace(/\s+/g, ' ').trim())
+      const textOwner = renderedTextOwner('button', element)
+      const fontSize = Number.parseFloat(textOwner?.computed.fontSize || computed.fontSize || '0')
+      const parsedLineHeight = Number.parseFloat(textOwner?.computed.lineHeight || computed.lineHeight || '')
+      const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : fontSize * 1.2
+      const verticalPadding =
+        Number.parseFloat(computed.paddingTop || '0') + Number.parseFloat(computed.paddingBottom || '0')
+      const verticalBorder =
+        Number.parseFloat(computed.borderTopWidth || '0') + Number.parseFloat(computed.borderBottomWidth || '0')
+      const unlabelledOversizedBoundary =
+        !textOwner && fontSize > 0 && rect.height > fontSize * 4.5 && rect.width > fontSize * 4.5
+      const descendantTextHeight = textOwner && textOwner.element !== element ? textOwner.source.heightPx : undefined
+      const unexplainedSpaceAroundDescendantLabel =
+        descendantTextHeight !== undefined &&
+        descendantTextHeight > 0 &&
+        lineHeight > 0 &&
+        rect.height >
+          verticalPadding + verticalBorder + descendantTextHeight + Math.max(lineHeight * 0.75, fontSize * 1.25) + 2
+      const exceedsLabelEnvelope =
+        Boolean(textOwner) &&
+        fontSize > 0 &&
+        lineHeight > 0 &&
+        rect.height > verticalPadding + verticalBorder + lineHeight * 2.5 + 2 &&
+        rect.height > fontSize * 4.5
+      return (
+        structuredContent ||
+        visibleTextBlocks >= 2 ||
+        mediaWithText ||
+        unlabelledOversizedBoundary ||
+        unexplainedSpaceAroundDescendantLabel ||
+        exceedsLabelEnvelope
+      )
+    }
+    const styledActionAnchorType = (element: Element): 'button' | 'card' | null => {
+      if (element.tagName !== 'A' || !element.hasAttribute('href')) return null
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
       const paintedFill = Boolean(normalizedPaintColor(computed.backgroundColor))
@@ -1393,14 +1450,17 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         rect.height >= 28 &&
         (Number.parseFloat(computed.paddingLeft) + Number.parseFloat(computed.paddingRight) >= 16 ||
           Number.parseFloat(computed.paddingTop) + Number.parseFloat(computed.paddingBottom) >= 12)
-      return paintedFill || paintedBorder || controlGeometry
+      if (!paintedFill && !paintedBorder && !controlGeometry) return null
+      return isCompoundInteractiveSurface(element) ? 'card' : 'button'
     }
 
     const componentCandidates: Array<{
       element: Element
+      semanticSource?: Element
       type: string
       role?: string
       elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
+      compoundInteractive?: boolean
       confidence: number
       statusBoundary?: ComponentStatusBoundary
     }> = []
@@ -1431,7 +1491,11 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const type = (element.getAttribute('type') || 'text').toLowerCase()
       if (type === 'search') return 'searchbox'
       if (type === 'number') return 'spinbutton'
-      if (['text', 'email', 'tel', 'url'].includes(type)) return 'textbox'
+      if (['text', 'email', 'tel', 'url'].includes(type)) {
+        // Search semantics can be owned by the enclosing landmark even when the native input remains type=text.
+        if (element.closest('search, [role="search"]')) return 'searchbox'
+        return 'textbox'
+      }
       return type
     }
     const statusCandidateKinds = new Map<Element, 'native'>()
@@ -1579,6 +1643,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           : null
       const form = formControl?.form || null
       const submitCapable = Boolean(form && ['submit', 'image'].includes(formControl?.type.toLowerCase() || ''))
+      const compoundInteractive = isCompoundInteractiveSurface(element)
       componentCandidates.push({
         element,
         type: 'button',
@@ -1589,23 +1654,26 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
             : element.getAttribute('role') === 'button' && tagName !== 'button'
               ? 'role-button'
               : 'button',
+        compoundInteractive,
         confidence: 0.98,
       })
     }
     for (const element of document.querySelectorAll('a[href]')) {
+      const componentType = styledActionAnchorType(element)
       if (
         !isVisible(element) ||
         statusCandidateSet.has(element) ||
-        !isStyledActionAnchor(element) ||
+        !componentType ||
         componentCandidates.some((candidate) => candidate.element === element)
       ) {
         continue
       }
       componentCandidates.push({
         element,
-        type: 'button',
-        role: 'action',
+        type: componentType,
+        ...(componentType === 'button' ? { role: 'action' } : {}),
         elementKind: 'anchor',
+        compoundInteractive: componentType === 'card',
         confidence: 0.9,
       })
     }
@@ -1618,6 +1686,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       if (componentCandidates.some((candidate) => candidate.element === element && candidate.type === 'input')) continue
       componentCandidates.push({
         element,
+        semanticSource: source,
         type: 'input',
         role: inputSemanticRole(source),
         elementKind: 'input',
@@ -1723,6 +1792,73 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         const section = sectionFor(candidate.element)
         if (!section) return []
         const componentStyle = stylesForComponent(candidate.type, candidate.element)
+        const semanticSource = candidate.semanticSource || candidate.element
+        const semanticIdentity: ComponentSemanticIdentity =
+          candidate.elementKind === 'anchor'
+            ? 'link'
+            : candidate.type === 'input'
+              ? candidate.role === 'searchbox' || candidate.role === 'search'
+                ? 'search'
+                : 'input'
+              : candidate.type === 'button'
+                ? 'button'
+                : candidate.type === 'modal'
+                  ? 'dialog'
+                  : candidate.type === 'card'
+                    ? 'card'
+                    : candidate.type === 'status'
+                      ? 'status'
+                      : candidate.type === 'navigation'
+                        ? 'navigation'
+                        : candidate.type === 'table'
+                          ? 'table'
+                          : candidate.type === 'list'
+                            ? 'list'
+                            : 'unknown'
+        const usageContext: ComponentUsageContext = semanticSource.closest('search, [role="search"]')
+          ? 'search'
+          : semanticSource.closest('nav, [role="navigation"]')
+            ? 'navigation'
+            : semanticSource.closest('form')
+              ? 'form'
+              : semanticSource.closest('article')
+                ? 'article'
+                : semanticSource.closest('dialog, [role="dialog"], [role="alertdialog"]')
+                  ? 'dialog'
+                  : 'general'
+        const ownerComputed = computedFor(candidate.element)
+        const ownerRect = candidate.element.getBoundingClientRect()
+        const paintedFill = Boolean(normalizedPaintColor(ownerComputed.backgroundColor))
+        const paintedBorder = [
+          [ownerComputed.borderTopWidth, ownerComputed.borderTopStyle],
+          [ownerComputed.borderRightWidth, ownerComputed.borderRightStyle],
+          [ownerComputed.borderBottomWidth, ownerComputed.borderBottomStyle],
+          [ownerComputed.borderLeftWidth, ownerComputed.borderLeftStyle],
+        ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+        const iconLike =
+          candidate.type === 'button' &&
+          !(semanticSource.textContent || '').trim() &&
+          ownerRect.width > 0 &&
+          Math.abs(ownerRect.width - ownerRect.height) <= 4
+        const visualTreatment: ComponentVisualTreatment = candidate.compoundInteractive
+          ? 'structural'
+          : iconLike
+            ? 'icon-like'
+            : candidate.type === 'button' && candidate.elementKind === 'anchor'
+              ? 'button-like'
+              : candidate.type === 'button'
+                ? paintedFill
+                  ? 'filled'
+                  : paintedBorder
+                    ? 'outlined'
+                    : 'flat'
+                : candidate.type === 'input'
+                  ? paintedBorder
+                    ? 'outlined'
+                    : paintedFill
+                      ? 'filled'
+                      : 'flat'
+                  : 'structural'
         return [
           {
             key: `${candidate.type}:${locatorFor(candidate.element)}`,
@@ -1730,6 +1866,11 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
             type: candidate.type,
             elementKind: candidate.elementKind,
             role: candidate.role,
+            semanticIdentity,
+            visualTreatment,
+            usageContext,
+            visualOwnerKey: locatorFor(candidate.element),
+            semanticSourceKey: locatorFor(semanticSource),
             textStyleOwner: componentStyle.textStyleOwner,
             textStyleSource: componentStyle.textStyleSource,
             statusBoundary: candidate.statusBoundary,

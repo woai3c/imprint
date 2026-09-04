@@ -16,6 +16,9 @@ export interface ComponentSpec {
   component: string
   variant?: string
   role?: string
+  semanticIdentity?: string
+  visualTreatment?: string
+  usageContext?: string
   sourceInstances: number
   pageCount: number
   identityConfidence: number
@@ -43,6 +46,9 @@ export function buildComponentSpecs(evidence: DesignEvidence): ComponentSpec[] {
         component: pattern.type,
         variant,
         ...(role ? { role } : {}),
+        ...(pattern.semanticIdentities?.length === 1 ? { semanticIdentity: pattern.semanticIdentities[0] } : {}),
+        ...(pattern.visualTreatments?.length === 1 ? { visualTreatment: pattern.visualTreatments[0] } : {}),
+        ...(pattern.usageContexts?.length === 1 ? { usageContext: pattern.usageContexts[0] } : {}),
         sourceInstances: reuse.styleObservationCount,
         pageCount: reuse.pageCount,
         identityConfidence: pattern.confidence,

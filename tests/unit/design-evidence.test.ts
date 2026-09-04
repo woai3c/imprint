@@ -469,7 +469,7 @@ describe('Design Evidence', () => {
       evidence,
     )
 
-    expect(document).toContain('**Component variants:** action button ×1')
+    expect(document).not.toContain('**Component variants:**')
     expect(document).not.toContain('**Component variants:** primary button')
     expect(document).toContain('- button: 1 observed patterns, 1 canonical instances, 0 reusable exact-style patterns')
     expect(document).toContain('primaryAction:')
@@ -585,9 +585,9 @@ describe('Design Evidence', () => {
     expect(summary).not.toContain('1px solid #e5e7eb')
     expect(summary).not.toContain('unknown after')
     expect(summary).not.toContain('rect.width')
-    expect(document).toContain('content: "·"')
+    expect(document).not.toContain('content: "·"')
     expect(document).not.toContain('width: 366px')
-    expect(document).toContain('border: 1px solid rgba(247, 122, 49, 0.3)')
+    expect(document).not.toContain('border: 1px solid rgba(247, 122, 49, 0.3)')
     expect(document).not.toContain('width: 134.75px')
     expect(document).not.toContain('matrix(0.5, 0, 0, 0.5, 0, 0)')
     expect(document).not.toContain('borderRight: 1px solid rgba(247, 122, 49, 0.3)')
@@ -758,7 +758,7 @@ describe('Design Evidence', () => {
       border: '1px solid rgb(37, 99, 235)',
       borderRadius: '6px',
     }
-    evidence.components.push({
+    const largeButton = {
       ...structuredClone(desktopButton),
       id: 'component-primary-large',
       rect: { ...desktopButton.rect, height: 0.04 },
@@ -767,7 +767,18 @@ describe('Design Evidence', () => {
         border: 'none',
         borderRadius: '6px',
       },
-    })
+    }
+    evidence.components.push(
+      {
+        ...structuredClone(desktopButton),
+        id: 'component-primary-small-copy',
+      },
+      largeButton,
+      {
+        ...structuredClone(largeButton),
+        id: 'component-primary-large-copy',
+      },
+    )
     evidence.components.push(
       {
         ...structuredClone(desktopButton),
@@ -786,11 +797,11 @@ describe('Design Evidence', () => {
     const document = generateDesignDoc(tokens, undefined, undefined, undefined, undefined, [], 'zh-CN', evidence)
     const summary = document.slice(document.indexOf('### 重建摘要'), document.indexOf('## Colors'))
 
-    expect(summary).toContain('操作按钮（小尺寸） ×1')
-    expect(summary).toContain('操作按钮（大尺寸） ×1')
+    expect(summary).toContain('操作按钮（小尺寸） ×2')
+    expect(summary).toContain('操作按钮（大尺寸） ×2')
     expect(summary).not.toContain('操作按钮（小尺寸、圆角、描边）')
-    expect(summary).toContain('正向变化值 ×1')
-    expect(summary).toContain('状态提示（警告） ×1')
+    expect(summary).not.toContain('正向变化值 ×1')
+    expect(summary).not.toContain('状态提示（警告） ×1')
     expect(summary).not.toContain('button-primary-')
   })
 
@@ -1898,7 +1909,7 @@ describe('Design Evidence', () => {
     expect(evidence.limitations).toContain('responsive-section-identity-mismatch')
   })
 
-  it('pairs reordered sections by semantic identity instead of capture-local nth-of-type paths', () => {
+  it('does not report a reorder when an inserted section only shifts absolute sequence indexes', () => {
     const desktop = createSnapshot('desktop', 1440)
     const mobile = createSnapshot('mobile', 375)
     const desktopHero = desktop.sections.find((section) => section.role === 'hero')!
@@ -1955,7 +1966,48 @@ describe('Design Evidence', () => {
     expect(observation).toBeDefined()
     expect(observation.evidenceRefs).toContain(mobileHeroEvidence.id)
     expect(observation.evidenceRefs).not.toContain(insertedMobileSection.id)
-    expect(observation.changes.sequenceIndex).toEqual({ from: 1, to: 2 })
+    expect(observation.changes.sequenceIndex).toBeUndefined()
+  })
+
+  it('reports a reorder when uniquely matched sibling sections exchange relative order', () => {
+    const desktop = createSnapshot('desktop', 1440)
+    const mobile = createSnapshot('mobile', 375)
+    const desktopNavigation = desktop.sections.find((section) => section.role === 'navigation')!
+    const desktopHero = desktop.sections.find((section) => section.role === 'hero')!
+    const mobileNavigation = mobile.sections.find((section) => section.role === 'navigation')!
+    const mobileHero = mobile.sections.find((section) => section.role === 'hero')!
+    mobileNavigation.order = 1
+    mobileNavigation.rect.y = desktopHero.rect.y
+    mobileNavigation.styles = { ...desktopNavigation.styles }
+    mobileHero.order = 0
+    mobileHero.rect = { ...desktopHero.rect, y: desktopNavigation.rect.y }
+    mobileHero.styles = { ...desktopHero.styles }
+
+    const evidence = buildDesignEvidence({
+      analysisId: 'analysis-true-responsive-reorder',
+      requestedUrl: desktop.url,
+      finalUrl: desktop.url,
+      accessMode: 'anonymous',
+      expectedPageCount: 1,
+      expectedViewports: ['desktop', 'mobile'],
+      tokens,
+      featureTags: ['responsive'],
+      interactionStyles: { hover: [], focus: [], active: [] },
+      breakpoints: [],
+      motion: [],
+      captures: [
+        { screenshot: { url: desktop.url, path: 'desktop.png', viewport: 'desktop' }, snapshot: desktop },
+        { screenshot: { url: mobile.url, path: 'mobile.png', viewport: 'mobile' }, snapshot: mobile },
+      ],
+    })
+    const desktopPage = evidence.pages.find((page) => page.viewport === 'desktop')!
+    const participatingRoles = evidence.responsiveObservations
+      .filter((observation) => observation.changedProperties.includes('sequenceIndex'))
+      .map((observation) => evidence.sections.find((section) => section.id === observation.sectionId))
+      .filter((section) => section?.pageId === desktopPage.id)
+      .map((section) => section?.role)
+
+    expect(new Set(participatingRoles)).toEqual(new Set(['navigation', 'hero']))
   })
 
   it('labels breakpoint discovery as partial when stylesheet rules were unreadable', () => {

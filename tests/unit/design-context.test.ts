@@ -516,6 +516,42 @@ describe('deterministic design context', () => {
     expect(textRecipes).not.toEqual(expect.arrayContaining([expect.objectContaining({ variant: 'text' })]))
   })
 
+  it('retains browser-clamped radii only as raw evidence, not reusable implementation guidance', () => {
+    const evidence = createEvidence()
+    const component = {
+      ...structuredClone(evidence.components[0]),
+      type: 'card' as const,
+      styles: { backgroundColor: '#2563eb', borderRadius: '3.35544e+07px', padding: '8px' },
+      tokenRefs: ['color.primary', 'radius.1', 'spacing.1'],
+    }
+    evidence.components = [
+      { ...structuredClone(component), id: 'component-clamped-radius-first' },
+      { ...structuredClone(component), id: 'component-clamped-radius-second' },
+    ]
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const recipe = profile.transferGrammar!.componentRecipes.find((candidate) => candidate.priority === 'P1')!
+    const spec = buildComponentSpecs(evidence)[0]
+    const designDoc = generateDesignDoc(
+      tokens,
+      evidence.source.requestedUrl,
+      [],
+      undefined,
+      [],
+      [],
+      'en',
+      evidence,
+      profile,
+    )
+
+    expect(recipe.variant).not.toContain('33554400')
+    expect(recipe.observedStyles).not.toHaveProperty('borderRadius')
+    expect(recipe.observed.tokenRefs).not.toContain('radius.1')
+    expect(spec.styles).not.toHaveProperty('borderRadius')
+    expect(designDoc).not.toContain('3.35544e+07px')
+    expect(evidence.components[0].styles.borderRadius).toBe('3.35544e+07px')
+  })
+
   it('requires every P1 recipe to satisfy the shared reuse gate and exact-style support', () => {
     const evidence = createEvidence()
     const repeated = structuredClone(evidence.components[0])

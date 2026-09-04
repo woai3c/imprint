@@ -1,5 +1,6 @@
 import { clusterColors, normalizeColorValue } from '../analyzer/color-cluster.js'
 import { reselectPortableFoundationColors } from '../analyzer/color-role-promotion.js'
+import { selectFoundationSurfaceColors } from '../analyzer/semantic-owner.js'
 import { buildDesignTokens, colorContrast } from '../analyzer/token-builder.js'
 import { buildTokenEvidence } from '../analyzer/token-evidence.js'
 import {
@@ -415,7 +416,6 @@ export function buildDarkModeExportData(
   if (designEvidence && !boundSource) return undefined
 
   const clusteredColors = clusterColors(darkMode.darkStyles.colors, darkMode.darkStyles.usageCount)
-  const darkTokens = buildDesignTokens(darkMode.darkStyles, clusteredColors, darkMode.darkStyles)
   const captures = [
     {
       url: source?.url || 'imprint://dark-mode/',
@@ -423,6 +423,12 @@ export function buildDarkModeExportData(
       styles: darkMode.darkStyles,
     },
   ]
+  const darkTokens = buildDesignTokens(
+    darkMode.darkStyles,
+    clusteredColors,
+    darkMode.darkStyles,
+    selectFoundationSurfaceColors(captures),
+  )
   darkTokens.evidence = buildTokenEvidence(darkTokens, captures)
   reselectPortableFoundationColors(darkTokens, captures)
   if (designEvidence && !boundSource) invalidateUnboundEvidence(darkTokens)

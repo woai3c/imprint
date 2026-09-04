@@ -371,7 +371,14 @@ export function hasRequiredRenderedOwnerEvidence(path: string, evidence: TokenEv
 }
 
 const TOKEN_CONFIDENCE_VALUES = new Set(['high', 'medium', 'low'])
-const TOKEN_REUSE_SCOPE_VALUES = new Set(['foundation', 'component', 'local', 'declared-only', 'unknown'])
+const TOKEN_REUSE_SCOPE_VALUES = new Set([
+  'foundation',
+  'component',
+  'specialized-content',
+  'local',
+  'declared-only',
+  'unknown',
+])
 const TOKEN_EVIDENCE_REASON_VALUES = new Set([
   'cross-page',
   'declared-token',
@@ -624,7 +631,7 @@ export function hasCompleteTokenPromotionEvidence(tokens: DesignToken): boolean 
 function rejectionReason(evidence: TokenEvidence): TokenValueCandidate['rejectionReason'] {
   if (semanticConfidence(evidence) === 'low') return 'low-semantic-confidence'
   if (evidence.reuseScope === 'component') return 'component-scope'
-  if (evidence.reuseScope === 'local') return 'local-scope'
+  if (['specialized-content', 'local'].includes(evidence.reuseScope || '')) return 'local-scope'
   if (evidence.reuseScope === 'declared-only') return 'declared-only'
   return 'unknown-scope'
 }

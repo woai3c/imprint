@@ -8,6 +8,7 @@ import { findHeadlessBrowser } from '../../dist/core/analyzer/browser-finder.js'
 import { clusterColors, normalizeColorValue } from '../../dist/core/analyzer/color-cluster.js'
 import { inspectPageHealth } from '../../dist/core/analyzer/page-health.js'
 import { freezePageAnimations, preparePageForExtraction } from '../../dist/core/analyzer/page-preparer.js'
+import { selectFoundationSurfaceColors } from '../../dist/core/analyzer/semantic-owner.js'
 import { detectTechStack, extractInteractionStyles, extractStyles } from '../../dist/core/analyzer/style-extractor.js'
 
 let browser
@@ -25,6 +26,40 @@ before(async () => {
 
 after(async () => {
   await browser?.close()
+})
+
+test('reports a non-HTML document without a body as empty instead of crashing health inspection', async () => {
+  const nonHtmlPage = await browser.newPage({ viewport: { width: 1000, height: 700 } })
+  await nonHtmlPage.goto('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"/>')
+
+  const health = await inspectPageHealth(nonHtmlPage, { expectedUrl: nonHtmlPage.url() })
+
+  assert.equal(health.status, 'unusable')
+  assert.ok(health.issues.some((issue) => issue.code === 'main-content-empty'))
+  await nonHtmlPage.close()
+})
+
+test('keeps page chrome surfaces out of the generic foundation surface role', async () => {
+  await page.setContent(`<!doctype html>
+    <style>
+      html, body { margin:0; min-height:100%; background:rgb(243, 244, 246); }
+      header, footer { box-sizing:border-box; height:240px; padding:24px; color:white; background:rgb(0, 0, 0); }
+      main { padding:24px; }
+      article { box-sizing:border-box; min-height:80px; margin:12px 0; padding:16px; background:rgb(255, 255, 255); }
+    </style>
+    <header><nav>Global navigation</nav></header>
+    <main><article>First content surface</article><article>Second content surface</article></main>
+    <footer>Global footer</footer>`)
+
+  const styles = await extractStyles(page)
+  const chrome = styles.semanticSurfaceObservations.filter((observation) => observation.role === 'chrome-surface')
+
+  assert.equal(chrome.length, 2)
+  assert.ok(chrome.every((observation) => observation.domain === 'component'))
+  assert.deepEqual(selectFoundationSurfaceColors([{ url: 'https://example.test/', viewport: 'desktop', styles }]), {
+    background: '#f3f4f6',
+    surface: '#ffffff',
+  })
 })
 
 test('prepares dynamic pages and extracts modern tokens plus computed interaction states', async () => {

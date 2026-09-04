@@ -65,6 +65,8 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     valueSourceCounts: {},
     valueSourceOwnerIds: {},
     colorRoleObservations: [],
+    semanticSurfaceObservations: [],
+    semanticSurfaceLimitations: [],
     textColorPairObservations: [],
     renderedTextStyleObservations: [],
   }
@@ -74,6 +76,7 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       merged[field].push(...(styles[field] || []))
     }
     Object.assign(merged.cssVariables, styles.cssVariables)
+    merged.semanticSurfaceLimitations!.push(...(styles.semanticSurfaceLimitations || []))
     for (const [key, count] of Object.entries(styles.usageCount)) {
       merged.usageCount[key] = (merged.usageCount[key] || 0) + count
     }
@@ -112,6 +115,12 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
       merged.valueSourceOwnerIds![key] = mergedSourceOwners
     }
     merged.colorRoleObservations!.push(...(styles.colorRoleObservations || []))
+    merged.semanticSurfaceObservations!.push(
+      ...(styles.semanticSurfaceObservations || []).map((observation) => ({
+        ...observation,
+        ownerId: `${captureIndex}:${observation.ownerId}`,
+      })),
+    )
     merged.textColorPairObservations!.push(...(styles.textColorPairObservations || []))
     merged.renderedTextStyleObservations!.push(
       ...(styles.renderedTextStyleObservations || []).map((observation) => ({
@@ -121,6 +130,8 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     )
   }
 
+  merged.semanticSurfaceLimitations = [...new Set(merged.semanticSurfaceLimitations)]
+
   for (const field of DEDUPED_ARRAY_FIELDS) {
     merged[field] = [...new Set(merged[field])]
   }
@@ -128,6 +139,14 @@ export function mergeStyles(stylesList: ExtractedStyles[]): ExtractedStyles {
     ...new Map(
       (merged.colorRoleObservations || []).map((observation) => [
         `${observation.captureId}|${observation.elementRef}|${observation.role}`,
+        observation,
+      ]),
+    ).values(),
+  ]
+  merged.semanticSurfaceObservations = [
+    ...new Map(
+      (merged.semanticSurfaceObservations || []).map((observation) => [
+        `${observation.captureId}|${observation.ownerId}|${observation.value}|${observation.role}`,
         observation,
       ]),
     ).values(),

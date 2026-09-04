@@ -9,8 +9,9 @@ import { fileURLToPath } from 'node:url'
 import { normalizeColorValue } from '../../src/core/analyzer/color-cluster.js'
 import { analyze, findBrowser } from '../../src/core/analyzer/index.js'
 import { compareReferenceCaptures } from '../../src/core/analyzer/reference-compare.js'
-import { generateDesignDoc } from '../../src/core/export/index.js'
+import { buildComponentSpecs, generateDesignDoc } from '../../src/core/export/index.js'
 import type { FixtureAnnotation } from './annotation-types.js'
+import { evaluateSemanticGroundTruth } from './semantic-ground-truth.js'
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
@@ -131,7 +132,7 @@ describe('Design Evidence browser regression corpus', () => {
   )
 
   it.skipIf(!browserAvailable)('serves every fixture and annotation pair', () => {
-    expect(annotations).toHaveLength(15)
+    expect(annotations).toHaveLength(20)
     for (const annotation of annotations) {
       expect(fs.existsSync(path.join(fixturesDir, `${annotation.fixture}.html`))).toBe(true)
     }
@@ -145,6 +146,19 @@ describe('Design Evidence browser regression corpus', () => {
         const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-design-evidence-regression-'))
         const result = await analyzeFixture(annotation.fixture, dataDir)
         const evidence = result.designEvidence
+
+        expect(evidence.semanticOwnerVersion).toBe('1')
+        for (const [tokenRole, ownerRole] of [
+          ['background', 'page-canvas'],
+          ['surface', 'content-surface'],
+          ['secondary', 'content-surface'],
+        ] as const) {
+          if (!result.tokens.colors[tokenRole]) continue
+          expect(
+            result.tokens.evidence?.[`colors.${tokenRole}`]?.semanticOwnerRefs,
+            `${tokenRole} must retain exact ${ownerRole} owners`,
+          ).toEqual(expect.arrayContaining([expect.objectContaining({ domain: 'foundation', role: ownerRole })]))
+        }
 
         const actualRoles = new Set(evidence.sections.map((section) => section.role))
         for (const role of annotation.expectedSectionRoles) {
@@ -258,6 +272,28 @@ describe('Design Evidence browser regression corpus', () => {
             ],
           ).toMatchObject(expected)
         }
+        const sectionRoleById = new Map(evidence.sections.map((section) => [section.id, section.role]))
+        const componentSpecs = buildComponentSpecs(evidence)
+        const componentPatternName = (component: (typeof componentSpecs)[number]) =>
+          `${component.component}-${component.variant || 'default'}`
+        const semanticIssues = evaluateSemanticGroundTruth(annotation, {
+          colors: result.tokens.colors,
+          componentRoles: evidence.components.flatMap((component) => component.role || []),
+          componentSemantics: evidence.components.map((component) => ({
+            elementKind: component.elementKind,
+            semanticIdentity: component.semanticIdentity,
+            visualTreatment: component.visualTreatment,
+          })),
+          componentPatternNames: componentSpecs.map(componentPatternName),
+          componentPatternStyles: Object.fromEntries(
+            componentSpecs.map((component) => [componentPatternName(component), component.styles]),
+          ),
+          responsiveChanges: evidence.responsiveObservations.map((observation) => ({
+            role: sectionRoleById.get(observation.sectionId) || 'unknown',
+            properties: observation.changedProperties,
+          })),
+        })
+        expect(semanticIssues, semanticIssues.join('\n')).toEqual([])
         if (annotation.forbiddenGenericAccents) {
           const genericAccents = [result.tokens.colors.primary, result.tokens.colors.accent]
             .flatMap((value) => (value ? [normalizeColorValue(value)] : []))

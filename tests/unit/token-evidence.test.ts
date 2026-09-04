@@ -515,6 +515,61 @@ describe('token evidence', () => {
     expect(evidence.reasons).not.toContain('interactive-use')
   })
 
+  test('reports declaration, rendered, semantic-role, owner, and canonical-capture counts separately', () => {
+    const backgroundTokens: DesignToken = {
+      ...structuredClone(tokens),
+      colors: { background: '#f3f6fb' },
+      typography: {
+        fontFamilies: [],
+        fontStacks: [],
+        fontSizes: [],
+        fontWeights: [],
+        lineHeights: [],
+        letterSpacings: [],
+      },
+      spacing: [],
+    }
+    const capture = (ownerId: string, semanticRole: 'page-canvas' | 'code-surface', viewport = 'desktop') =>
+      createExtractedStyles({
+        usageCount: {
+          'bgColor:rgb(243, 246, 251)': 1,
+          'declaredColor:rgb(243, 246, 251)': 1,
+        },
+        usageOwnerIds: { 'bgColor:rgb(243, 246, 251)': [ownerId] },
+        valueSources: {
+          'bgColor:rgb(243, 246, 251)': ['computed:background'],
+          'declaredColor:rgb(243, 246, 251)': ['css-variable:--page-color'],
+        },
+        semanticSurfaceObservations: [
+          {
+            captureId: `capture|${viewport}`,
+            ownerId,
+            value: 'rgb(243, 246, 251)',
+            domain: semanticRole === 'page-canvas' ? 'foundation' : 'specialized-content',
+            role: semanticRole,
+            rendered: true,
+            declared: false,
+            elementKind: semanticRole === 'page-canvas' ? 'body' : 'pre',
+          },
+        ],
+      })
+
+    const evidence = buildTokenEvidence(backgroundTokens, [
+      { url: 'https://example.com/', viewport: 'desktop', styles: capture('body', 'page-canvas') },
+      { url: 'https://example.com/', viewport: 'mobile', styles: capture('body', 'page-canvas', 'mobile') },
+      { url: 'https://example.com/docs', viewport: 'desktop', styles: capture('pre', 'code-surface') },
+    ])['colors.background']
+
+    expect(evidence).toMatchObject({
+      declarationPageCount: 2,
+      renderedPageCount: 2,
+      roleRenderedPageCount: 1,
+      roleOwnerCount: 1,
+      canonicalCaptureCount: 3,
+      declarationSourceCount: 1,
+    })
+  })
+
   test('does not count the same singleton again when another viewport observes the same URL', () => {
     const singletonTokens: DesignToken = {
       ...structuredClone(tokens),

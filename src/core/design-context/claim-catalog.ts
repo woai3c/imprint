@@ -1126,6 +1126,9 @@ function buildResponsiveAndScopeClaims(
     .slice(0, 10)) {
     const representative = group[0]
     const { role, changedProperties, changeType } = representative
+    const displayedProperties = changedProperties.map((property) =>
+      property === 'sequenceIndex' ? t('responsive.properties.sequenceIndex') : property,
+    )
     const evidenceIds = stableList(
       group.flatMap(({ observation }) => [observation.id, ...observation.evidenceRefs]),
       40,
@@ -1138,7 +1141,8 @@ function buildResponsiveAndScopeClaims(
         scope: 'page' as const,
         evidenceIds: [observation.id],
         property,
-        value: [String(value.from ?? ''), String(value.to ?? '')],
+        value:
+          property === 'sequenceIndex' ? 'relative-order-changed' : [String(value.from ?? ''), String(value.to ?? '')],
       })),
     )
     if (changeType === 'reflow') {
@@ -1165,7 +1169,7 @@ function buildResponsiveAndScopeClaims(
         from: representative.observation.fromViewport,
         to: representative.observation.toViewport,
         change: changeType,
-        properties: changedProperties.join(', '),
+        properties: displayedProperties.join(', '),
       }),
       implementation: t('responsiveImplementation'),
       confidence: 'medium',

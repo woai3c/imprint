@@ -9,6 +9,7 @@ import {
 } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
 import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
+import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import type { ComponentEvidence, DesignEvidence } from '../design-evidence/types.js'
 import { canonicalCatalogPageIds } from './claim-catalog.js'
 
@@ -70,6 +71,11 @@ export function canonicalComponentCandidates(
       ),
       role: component.role,
       elementKind: component.elementKind,
+      semanticIdentity: component.semanticIdentity,
+      visualTreatment: component.visualTreatment,
+      usageContext: component.usageContext,
+      visualOwnerKey: component.visualOwnerKey,
+      semanticSourceKey: component.semanticSourceKey,
       textStyleOwner: component.textStyleOwner,
       statusBoundary: component.statusBoundary,
       pageId: component.pageId,
@@ -166,7 +172,7 @@ export function canonicalComponentSharedTokenRefs(components: readonly Component
       dimensions.add('color')
     }
     if (['padding', 'gap', 'height', 'minHeight'].some((property) => styles[property])) dimensions.add('spacing')
-    if (styles.borderRadius) dimensions.add('radius')
+    if (styles.borderRadius && !isContextDependentRadius(styles.borderRadius)) dimensions.add('radius')
     if (styles.boxShadow) dimensions.add('shadow')
     if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some((property) => styles[property])) {
       dimensions.add('typography')
@@ -207,6 +213,7 @@ function meaningfulStyleValue(property: string, value: string): boolean {
   if (!normalized || ['none', 'normal', 'auto', 'initial', 'inherit', 'unset'].includes(normalized)) return false
   if (property === 'border') return hasVisibleBorder(value)
   if (property === 'boxShadow') return hasVisibleShadow(value)
+  if (property === 'borderRadius' && isContextDependentRadius(value)) return false
   if (['padding', 'gap', 'height', 'minHeight', 'borderRadius'].includes(property)) {
     const dimensions = normalized.match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em|%)?/g)
     return dimensions ? dimensions.some((dimension) => Math.abs(Number.parseFloat(dimension)) > 0.001) : true
@@ -221,6 +228,14 @@ export function isActionableComponentPattern(
   sharedTokenRefs: readonly string[],
 ): boolean {
   if (!CATALOG_COMPONENT_TYPES.has(pattern.type) || !isReusableComponentPattern(pattern)) return false
+  if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
+  if (pattern.visualTreatments?.includes('button-like')) {
+    const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
+      (property) => meaningfulStyleValue(property, pattern.styles[property] || ''),
+    )
+    if (!hasObservedLabelTypography) return false
+  }
+  if ((pattern.semanticIdentities?.length || 0) > 1 || (pattern.usageContexts?.length || 0) > 1) return false
   if (pattern.type === 'status') {
     const representativeCount = pattern.styleObservationCount || 0
     const requiredBoundarySupport = Math.max(2, Math.ceil(representativeCount * 0.8))
@@ -282,14 +297,15 @@ export function selectBalancedComponentDetails<T extends ComponentDetailCandidat
 }
 
 /**
- * The complete implementation-oriented style snapshot shared by every component artifact.
- * Component extraction already bounds this record. Keeping every non-empty field here guarantees that a property
- * used by exact style identity cannot split variants and then disappear from their exported recipes.
+ * The portable implementation-oriented style snapshot shared by every component artifact.
+ * Raw evidence retains layout-dependent values, while recipes omit radii that the browser clamps against geometry.
  */
 export function canonicalComponentRecipeStyles(styles: Readonly<Record<string, string>>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(styles)
-      .filter(([, value]) => value.trim() !== '')
+      .filter(
+        ([property, value]) => value.trim() !== '' && !(property === 'borderRadius' && isContextDependentRadius(value)),
+      )
       .sort(([first], [second]) => first.localeCompare(second)),
   )
 }

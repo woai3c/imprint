@@ -200,7 +200,8 @@
       "instanceSupport_other": "{{count}} 个观察实例",
       "examples": "示例：{{examples}}",
       "propertySeparator": "、",
-      "valueSeparator": "；"
+      "valueSeparator": "；",
+      "relativeOrderChanged": "已匹配的同级区块之间相对顺序发生变化"
     },
     "limitations": {
       "selectedPagesIncomplete": "部分自动选定页面未能完成捕获；本文结论仅覆盖已完成页面。",
@@ -775,6 +776,7 @@
         "position": "定位",
         "height": "高度",
         "order": "顺序",
+        "relativeOrderChanged": "相对顺序发生变化",
         "ariaExpanded": "展开状态",
         "ariaSelected": "选中状态",
         "controlledVisibility": "受控内容可见性",
@@ -909,7 +911,7 @@
         "letterSpacing": "\n**字间距：** {{values}}"
       },
       "layout": {
-        "spacingHeading": "### 可复用间距候选\n",
+        "spacingHeading": "### 可复用间距刻度\n",
         "spacingLevel": "- 级别 {{level}}: `{{value}}`{{countSuffix}}",
         "ownerCountSuffix": "（{{count}} 个独立元素）",
         "noSpacing": "- 未观察到可靠的间距刻度。",
@@ -1153,6 +1155,7 @@
         "borderLeft": "左边框",
         "boxShadow": "阴影",
         "order": "顺序",
+        "sequenceIndex": "相对顺序",
         "display": "显示方式",
         "gridTemplateColumns": "网格列",
         "childGridTemplateColumns": "子网格列",

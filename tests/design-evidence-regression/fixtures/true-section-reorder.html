@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>True section reorder</title>
+    <style>
+      body {
+        margin: 0;
+        color: #1f2937;
+        background: #eef2f7;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      .shell {
+        display: flex;
+        flex-direction: column;
+      }
+      nav,
+      main {
+        padding: 32px;
+      }
+      nav {
+        order: 1;
+        background: #dbeafe;
+      }
+      main {
+        order: 2;
+        min-height: 340px;
+        background: #fff;
+      }
+      @media (max-width: 640px) {
+        nav {
+          order: 2;
+        }
+        main {
+          order: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <nav aria-label="Primary"><a href="#content">Primary navigation</a></nav>
+      <main id="content">
+        <h1>Workspace</h1>
+        <p>The main region moves ahead of navigation on mobile.</p>
+      </main>
+    </div>
+  </body>
+</html>

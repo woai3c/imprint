@@ -321,6 +321,20 @@ describe('persisted record adapters', () => {
             'bgColor:rgb(0, 0, 0)': ['element:page-background'],
             'textColor:rgb(255, 255, 255)': ['rendered:text'],
           },
+          semanticSurfaceObservations: [
+            {
+              captureId: 'dark-home|desktop',
+              ownerId: 'page-root',
+              value: 'rgb(0, 0, 0)',
+              domain: 'foundation',
+              role: 'page-canvas',
+              rendered: true,
+              declared: false,
+              elementKind: 'body',
+              areaRatio: 1,
+              viewportCoverage: 1,
+            },
+          ],
           textColorPairObservations: [
             {
               captureId: 'dark-home|desktop',

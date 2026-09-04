@@ -172,6 +172,14 @@ function tokenEvidenceWithRouteRefs(
           })),
         }
       : {}),
+    ...(evidence.semanticOwnerRefs
+      ? {
+          semanticOwnerRefs: evidence.semanticOwnerRefs.map((owner) => ({
+            ...owner,
+            routeId: routeRefForPage(owner.page, routeIdsByIdentity),
+          })),
+        }
+      : {}),
     ...(evidence.pairedSurface
       ? {
           pairedSurface: {
@@ -298,9 +306,10 @@ function tokenRefsForStyles(styles: Record<string, string>, tokenIndex: Map<stri
 function changedSectionValues(
   from: PageSectionSnapshot,
   to: PageSectionSnapshot,
+  relativeOrderChanged = false,
 ): Record<string, { from?: string | number; to?: string | number }> {
   const changes: Record<string, { from?: string | number; to?: string | number }> = {}
-  if (from.order !== to.order) changes.sequenceIndex = { from: from.order, to: to.order }
+  if (relativeOrderChanged) changes.sequenceIndex = { from: from.order, to: to.order }
   if (from.layoutMode !== to.layoutMode) changes.layoutMode = { from: from.layoutMode, to: to.layoutMode }
   for (const key of new Set([...Object.keys(from.styles), ...Object.keys(to.styles)])) {
     const fromValue = from.styles[key]
@@ -393,6 +402,42 @@ function buildResponsiveObservations(
       }
       const fromByIdentity = sectionsByIdentity(fromCapture.snapshot.sections)
       const toByIdentity = sectionsByIdentity(toCapture.snapshot.sections)
+      const comparableSections = [...fromByIdentity.entries()].flatMap(([identity, fromMatches]) => {
+        const toMatches = toByIdentity.get(identity) || []
+        const from = fromMatches[0]
+        const to = toMatches[0]
+        return fromMatches.length === 1 && toMatches.length === 1 && from?.role === to?.role
+          ? [{ identity, from, to }]
+          : []
+      })
+      const fromIdentityByKey = new Map(comparableSections.map(({ identity, from }) => [from.key, identity] as const))
+      const toIdentityByKey = new Map(comparableSections.map(({ identity, to }) => [to.key, identity] as const))
+      const comparableIdentitySet = new Set(comparableSections.map(({ identity }) => identity))
+      const siblingGroup = ({ from, to }: (typeof comparableSections)[number]): string | undefined => {
+        if (!from.parentKey && !to.parentKey) return 'root'
+        if (!from.parentKey || !to.parentKey) return undefined
+        const fromParent = fromIdentityByKey.get(from.parentKey)
+        const toParent = toIdentityByKey.get(to.parentKey)
+        return fromParent && fromParent === toParent && comparableIdentitySet.has(fromParent)
+          ? `parent:${fromParent}`
+          : undefined
+      }
+      const relativelyReordered = new Set<string>()
+      for (let firstIndex = 0; firstIndex < comparableSections.length; firstIndex += 1) {
+        for (let secondIndex = firstIndex + 1; secondIndex < comparableSections.length; secondIndex += 1) {
+          const first = comparableSections[firstIndex]
+          const second = comparableSections[secondIndex]
+          const firstGroup = siblingGroup(first)
+          const secondGroup = siblingGroup(second)
+          if (!firstGroup || firstGroup !== secondGroup) continue
+          const fromOrder = Math.sign(first.from.order - second.from.order)
+          const toOrder = Math.sign(first.to.order - second.to.order)
+          if (fromOrder !== 0 && toOrder !== 0 && fromOrder !== toOrder) {
+            relativelyReordered.add(first.identity)
+            relativelyReordered.add(second.identity)
+          }
+        }
+      }
       const fromCaptureKey = `${pageIdentityUrl(fromCapture.snapshot.url)}|${fromCapture.snapshot.viewport}`
       const toCaptureKey = `${pageIdentityUrl(toCapture.snapshot.url)}|${toCapture.snapshot.viewport}`
       for (const identityKey of new Set([...fromByIdentity.keys(), ...toByIdentity.keys()])) {
@@ -425,7 +470,7 @@ function buildResponsiveObservations(
           continue
         }
 
-        const changes = changedSectionValues(from, to)
+        const changes = changedSectionValues(from, to, relativelyReordered.has(identityKey))
         if (fromCapture.snapshot.horizontalOverflow || toCapture.snapshot.horizontalOverflow) {
           for (const property of Object.keys(changes)) {
             if (property.startsWith('rect.')) delete changes[property]
@@ -752,6 +797,11 @@ export function buildDesignEvidence(input: BuildDesignEvidenceInput): DesignEvid
         type: component.type,
         elementKind: component.elementKind,
         role: component.role,
+        semanticIdentity: component.semanticIdentity,
+        visualTreatment: component.visualTreatment,
+        usageContext: component.usageContext,
+        visualOwnerKey: component.visualOwnerKey,
+        semanticSourceKey: component.semanticSourceKey,
         textStyleOwner: component.textStyleOwner,
         textStyleSource: component.textStyleSource,
         statusBoundary: component.statusBoundary,

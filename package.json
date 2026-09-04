@@ -47,6 +47,8 @@
     "release:collect": "node scripts/collect-release-artifacts.mjs",
     "prepare": "husky",
     "test:design-evidence": "vitest run -c vitest.design-evidence.config.ts",
+    "pretest:live-corpus": "pnpm build:cli",
+    "test:live-corpus": "node scripts/live-corpus.mjs",
     "audit:design-doc": "node scripts/audit-design-doc.mjs"
   },
   "bin": {

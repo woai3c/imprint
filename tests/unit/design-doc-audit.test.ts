@@ -599,6 +599,29 @@ function addUnpairedMutedForegroundArtifacts(
   )
 }
 
+function addPairedMutedForegroundArtifacts(
+  artifacts: Record<string, string>,
+  evidence: ReturnType<typeof bundleEvidence>,
+  rawDtcg: unknown,
+  value: string,
+  contrastRatio: number,
+) {
+  addUnpairedMutedForegroundArtifacts(artifacts, evidence, rawDtcg, value)
+  const tokenEvidence = evidence.tokens.evidence as Record<string, Record<string, unknown>>
+  const foregroundEvidence = tokenEvidence['colors.foreground']
+  const pairedSurface = foregroundEvidence.pairedSurface as Record<string, unknown>
+  tokenEvidence['colors.muted-foreground'] = {
+    ...foregroundEvidence,
+    value,
+    renderedTextOwners: (foregroundEvidence.renderedTextOwners as Array<Record<string, unknown>>).map((owner) => ({
+      ...owner,
+      styles: { ...(owner.styles as Record<string, unknown>), color: value },
+      source: { ...(owner.source as Record<string, unknown>), foreground: value },
+    })),
+    pairedSurface: { ...pairedSurface, contrastRatio },
+  }
+}
+
 function addResponsiveTypographyAndStructureEvidence(
   artifacts: Record<string, string>,
   evidence: ReturnType<typeof bundleEvidence>,
@@ -2189,6 +2212,48 @@ x-imprint:
     })
   })
 
+  it('requires exact semantic owners when a bundle claims the current owner model', async () => {
+    const currentBundle = await writeBundle((_artifacts, evidence) => {
+      ;(evidence as typeof evidence & { semanticOwnerVersion: '1' }).semanticOwnerVersion = '1'
+      const backgroundEvidence = evidence.tokens.evidence['colors.background'] as Record<string, unknown>
+      backgroundEvidence.semanticOwnerRefs = [
+        {
+          page: 'https://example.com/',
+          routeId: HOME_ROUTE_ID,
+          viewport: 'desktop',
+          ownerId: 'body',
+          domain: 'foundation',
+          role: 'page-canvas',
+        },
+      ]
+      for (const component of evidence.components) {
+        Object.assign(component, {
+          elementKind: 'button',
+          semanticIdentity: 'button',
+          visualTreatment: 'filled',
+          usageContext: 'general',
+          visualOwnerKey: component.id,
+          semanticSourceKey: component.id,
+        })
+      }
+      const componentSpecs = JSON.parse(_artifacts['component-specs.json'])
+      Object.assign(componentSpecs.components[0], {
+        semanticIdentity: 'button',
+        visualTreatment: 'filled',
+        usageContext: 'general',
+      })
+      _artifacts['component-specs.json'] = JSON.stringify(componentSpecs)
+    })
+    expect((await auditArtifactBundle(currentBundle)).hardFailures).toEqual([])
+
+    const missingOwners = await writeBundle((_artifacts, evidence) => {
+      ;(evidence as typeof evidence & { semanticOwnerVersion: '1' }).semanticOwnerVersion = '1'
+    })
+    expect((await auditArtifactBundle(missingOwners)).hardFailures).toContain(
+      'semantic-surface-owner-envelope-invalid:background',
+    )
+  })
+
   it('rejects equal-literal component color references from an incompatible semantic channel', async () => {
     const evidenceMismatch = await writeBundle((_artifacts, evidence) => {
       const component = evidence.components[0]
@@ -2454,6 +2519,51 @@ x-imprint:
     })
 
     expect((await auditArtifactBundle(directory)).hardFailures).toContain('foundation-muted-foreground-missing-pair')
+  })
+
+  it('independently rejects a chromatic heading accent in the portable muted role', async () => {
+    const directory = await writeBundle((artifacts, evidence, dtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, dtcg, '#111827', {
+        background: '#ffffff',
+        pageCount: 2,
+        eligiblePageCount: 2,
+        pageSupportRatio: 1,
+        normalizedShare: 0.7,
+        contrastRatio: 17.74,
+        textRoles: ['body', 'heading'],
+      })
+      addPairedMutedForegroundArtifacts(artifacts, evidence, dtcg, '#c70000', 6.13)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'foundation-muted-foreground-pair-invalid-hierarchy',
+    )
+  })
+
+  it('rejects a repeated page chrome color labeled as a foundation background candidate', async () => {
+    const directory = await writeBundle((_artifacts, evidence, rawDtcg) => {
+      const candidate = {
+        id: 'candidate.colors.chrome-background',
+        group: 'colors',
+        role: 'background',
+        value: '#111111',
+        provenance: 'observed-color',
+        rejectionReason: 'unassigned-role',
+        evidence: {
+          ...portableEvidence,
+          value: '#111111',
+          sources: ['computed:background', 'semantic:chrome-surface'],
+          sourceCounts: { 'computed:background': 4, 'semantic:chrome-surface': 4 },
+        },
+      }
+      evidence.tokens.candidates.values.push(candidate as never)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      dtcg.$extensions['com.imprint.candidates'] = evidence.tokens.candidates
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain(
+      'foundation-background-candidate-missing-foundation-owner:evidence.tokens.candidates.values.0',
+    )
   })
 
   it('rejects forged pair metadata and a stronger rejected foreground candidate', async () => {
@@ -4003,6 +4113,39 @@ components:
     const result = await auditArtifactBundle(directory)
 
     expect(result.hardFailures).toContain('component-evidence-sample-page-coverage-mismatch:button\u0000primary')
+  })
+
+  it('rejects structural controls from the reusable component specification', async () => {
+    const directory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].visualTreatment = 'structural'
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('structural-control-component-spec:0')
+  })
+
+  it('rejects a button-like component specification without observed label typography', async () => {
+    const directory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].visualTreatment = 'button-like'
+      for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing']) {
+        delete specs.components[0].styles[property]
+      }
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('unlabelled-button-like-component-spec:0')
+  })
+
+  it('rejects a context-dependent browser-clamped radius from component specifications', async () => {
+    const directory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].styles.borderRadius = ['3.35544e+07px']
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('context-dependent-radius-component-spec:0')
   })
 
   it('enforces the exact route-balanced component-only sample above the 24-instance limit', async () => {
@@ -5968,6 +6111,64 @@ _2 representative-style match(es) across 2 page(s) · identity 0.90 · reuse 0.8
     expect(result.hardFailures).not.toContain(
       'candidate-leaked-to-implementation:candidate.spacing.breakpoint-collision',
     )
+  })
+
+  it('allows a local single-family stack to share a CSS literal with a portable font family', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      const family = '"Charlie Display"'
+      evidence.tokens.typography.fontFamilies.push(family)
+      const owner = {
+        page: 'https://example.com/',
+        routeId: HOME_ROUTE_ID,
+        viewport: 'desktop',
+        ownerId: 'charlie-display',
+        textRole: 'heading',
+        styles: {
+          color: '#111111',
+          backgroundColor: '#ffffff',
+          fontFamily: family,
+          fontSize: '32px',
+          fontWeight: '700',
+          lineHeight: '36px',
+          letterSpacing: 'normal',
+        },
+        source: directTextSource(),
+      }
+      evidence.tokens.evidence['typography.fontFamilies.0'] = portableRenderedTextEvidence(family, [
+        { ...owner, ownerId: 'charlie-display-home' },
+        { ...owner, ownerId: 'charlie-display-about' },
+      ]) as never
+      const candidate = {
+        ...localRenderedTypographyCandidate(),
+        id: 'candidate.typography.fontStacks.charlie-display',
+        group: 'typography.fontStacks',
+        value: family,
+      }
+      candidate.evidence.value = family
+      candidate.evidence.renderedTextOwners[0].styles.fontFamily = family
+      evidence.tokens.candidates.values.push(candidate as never)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      ;(dtcg.typography.fontFamilies.$value as string[]).push(family)
+      artifacts['DESIGN.md'] = updateFrontMatter(artifacts['DESIGN.md'], (frontMatter) => {
+        frontMatter.typography = { 'font-family-family-1': { fontFamily: family } }
+        const extension = (frontMatter['x-imprint'] as Array<Record<string, unknown>>)[0]
+        extension.candidateSummary = {
+          scope: 'preview',
+          previewLimitPerKind: 5,
+          fullEvidenceArtifact: 'tokens-json',
+          tokenValues: { total: 1, included: 1, omitted: 0 },
+        }
+        extension.candidates = { tokenValues: [{ value: family, pageCount: 1 }] }
+      }).replace(
+        '**Font families:** No portable font family was established; consult local typography Evidence before choosing a typeface.',
+        `**Font families:** ${family}`,
+      )
+      artifacts['variables.css'] = artifacts['variables.css'].replace(' }', ` --font-family-1: ${family}; }`)
+      artifacts['theme.css'] = artifacts['theme.css'].replace(' }', ` --font-family-1: ${family}; }`)
+      artifacts['variables.scss'] += `\n$font-family-1: ${family};`
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
   })
 
   it.each([

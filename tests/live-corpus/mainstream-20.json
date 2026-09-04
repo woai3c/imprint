@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1",
+  "id": "mainstream-20",
+  "request": {
+    "maxPages": 8,
+    "viewports": ["desktop"],
+    "viewportStrategy": "adaptive",
+    "pageDiscovery": "auto",
+    "depth": "standard"
+  },
+  "sites": [
+    { "id": "airbnb", "url": "https://www.airbnb.com/", "batch": 1, "expectation": "observe" },
+    { "id": "apple", "url": "https://www.apple.com/", "batch": 1, "expectation": "observe" },
+    { "id": "atlassian", "url": "https://www.atlassian.com/", "batch": 1, "expectation": "observe" },
+    { "id": "bbc", "url": "https://www.bbc.com/", "batch": 1, "expectation": "observe" },
+    { "id": "cloudflare", "url": "https://www.cloudflare.com/", "batch": 1, "expectation": "observe" },
+    { "id": "dev", "url": "https://dev.to/", "batch": 1, "expectation": "observe" },
+    { "id": "dropbox", "url": "https://www.dropbox.com/", "batch": 1, "expectation": "observe" },
+    { "id": "github", "url": "https://github.com/", "batch": 1, "expectation": "observe" },
+    { "id": "gitlab", "url": "https://about.gitlab.com/", "batch": 1, "expectation": "observe" },
+    {
+      "id": "guardian",
+      "url": "https://www.theguardian.com/international",
+      "batch": 1,
+      "expectation": "observe"
+    },
+    { "id": "linear", "url": "https://linear.app/", "batch": 2, "expectation": "observe" },
+    { "id": "microsoft", "url": "https://www.microsoft.com/", "batch": 2, "expectation": "observe" },
+    { "id": "nasa", "url": "https://www.nasa.gov/", "batch": 2, "expectation": "observe" },
+    { "id": "nextjs", "url": "https://nextjs.org/", "batch": 2, "expectation": "observe" },
+    { "id": "npr", "url": "https://www.npr.org/", "batch": 2, "expectation": "observe" },
+    { "id": "react", "url": "https://react.dev/", "batch": 2, "expectation": "observe" },
+    { "id": "shopify", "url": "https://www.shopify.com/", "batch": 2, "expectation": "observe" },
+    { "id": "slack", "url": "https://slack.com/", "batch": 2, "expectation": "observe" },
+    { "id": "stripe", "url": "https://stripe.com/", "batch": 2, "expectation": "observe" },
+    { "id": "w3c", "url": "https://www.w3.org/", "batch": 2, "expectation": "observe" }
+  ]
+}

@@ -13,15 +13,7 @@ import { isPortableTokenEvidence } from './token-promotion.js'
 import type { ColorTokenCandidate, DesignToken, TokenEvidence } from './types.js'
 import { pageIdentityUrl } from './url-identity.js'
 
-const RESELECTABLE_FOUNDATION_ROLES = [
-  'background',
-  'surface',
-  'secondary',
-  'foreground',
-  'muted-foreground',
-  'border',
-  'border-subtle',
-] as const
+const RESELECTABLE_FOUNDATION_ROLES = ['foreground', 'muted-foreground', 'border', 'border-subtle'] as const
 
 const RENDERED_COLOR_CATEGORIES = new Set([
   'textColor',
@@ -258,16 +250,10 @@ export function reselectPortableFoundationColors(tokens: DesignToken, captures: 
       .filter((item) => isFoundationColorRoleEligible(role, item.candidate.value, item.evidence, tokens))
       .filter(
         (item) =>
-          role === 'background' ||
-          !item.evidence.sources.includes('element:page-background') ||
-          item.candidate.value === normalizedCurrent,
+          !item.evidence.sources.includes('element:page-background') || item.candidate.value === normalizedCurrent,
       )
       .sort(
         (first, second) =>
-          (role === 'background'
-            ? Number(second.evidence.sources.includes('element:page-background')) -
-              Number(first.evidence.sources.includes('element:page-background'))
-            : 0) ||
           (second.evidence.semanticAgreement || 0) - (first.evidence.semanticAgreement || 0) ||
           (second.evidence.pageSupportRatio || 0) - (first.evidence.pageSupportRatio || 0) ||
           second.evidence.pageCount - first.evidence.pageCount ||

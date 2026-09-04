@@ -165,6 +165,8 @@ function visiblePseudoStyles(
     borderGroups.set(value, sides)
   }
   for (const [value, sides] of borderGroups) {
+    const width = value.match(/^\s*(\d+(?:\.\d+)?)px\b/i)
+    if (!width || Number.parseFloat(width[1]) < 2) continue
     result.push([sides.length === 4 ? 'border' : `border-${sides.join('/')}`, value])
     hasMaterial = true
   }
@@ -495,6 +497,7 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
     for (const pseudo of evidence.pseudoElements || []) {
       if (!canonicalPages.has(pseudo.pageId)) continue
       const section = evidence.sections.find((candidate) => candidate.id === pseudo.sectionId)
+      if (!section || section.role === 'unknown') continue
       const styles = visiblePseudoStyles(pseudo.kind, pseudo.styles)
       if (styles.length === 0) continue
       const key = `${section?.role || 'content'}|${pseudo.kind}|${JSON.stringify(styles)}`
@@ -656,7 +659,11 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       )
       const values = group.changes
         .slice(0, 12)
-        .map(([property, value]) => `${term(property)}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`)
+        .map(([property, value]) =>
+          property === 'sequenceIndex'
+            ? responsiveT('relativeOrderChanged')
+            : `${term(property)}: ${value.from ?? 'absent'} → ${value.to ?? 'absent'}`,
+        )
         .join(responsiveT('valueSeparator'))
       if (values) lines.push(`  - ${values}`)
     }
@@ -728,6 +735,10 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
   'extraction-stage-degraded': {
     en: 'At least one extraction stage degraded; inspect the application log for the exact stage and reason',
     zh: '至少一个提取阶段发生降级；请在应用日志中查看具体阶段和原因',
+  },
+  'complex-page-canvas-paint': {
+    en: 'The page canvas uses a gradient, image, blend, or filter that cannot be represented faithfully as a solid foundation color; no solid canvas token was inferred',
+    zh: '页面画布使用渐变、图片、混合或滤镜，无法如实表示为纯色基础色；因此未推断纯色画布令牌',
   },
 }
 

@@ -99,6 +99,14 @@ export function sanitizeDesignTokensForPersistence(tokens: DesignToken): DesignT
             })),
           }
         : {}),
+      ...(evidence.semanticOwnerRefs
+        ? {
+            semanticOwnerRefs: evidence.semanticOwnerRefs.map((owner) => ({
+              ...owner,
+              page: sanitizeUrlForPersistence(owner.page),
+            })),
+          }
+        : {}),
       ...(evidence.pairedSurface
         ? {
             pairedSurface: {

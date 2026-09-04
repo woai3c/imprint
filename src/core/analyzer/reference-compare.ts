@@ -1173,6 +1173,7 @@ function responsiveObservationValue(
   const properties = useful.map(([property]) => property)
   const value = `${displayedResponsiveChangeType(observation.changeType, properties)} · ${useful
     .map(([property, values]) => {
+      if (property === 'sequenceIndex') return 'relativeOrder: changed'
       const display = (candidate: string | number | undefined): string | number => {
         if (property === 'gridTemplateColumns' || property === 'childGridTemplateColumns') {
           return topLevelGridColumnCount(candidate) ?? candidate ?? '—'

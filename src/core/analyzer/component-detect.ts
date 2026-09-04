@@ -5,6 +5,13 @@ import { normalizeColorValue } from './color-cluster.js'
 
 export type ComponentType = 'button' | 'card' | 'navigation' | 'input' | 'table' | 'modal' | 'list' | 'tab' | 'status'
 
+export type ComponentSemanticIdentity =
+  'button' | 'link' | 'input' | 'search' | 'navigation' | 'table' | 'dialog' | 'list' | 'card' | 'status' | 'unknown'
+
+export type ComponentVisualTreatment = 'filled' | 'outlined' | 'flat' | 'icon-like' | 'button-like' | 'structural'
+
+export type ComponentUsageContext = 'search' | 'navigation' | 'form' | 'article' | 'dialog' | 'general'
+
 export interface ComponentStatusBoundary {
   strongVisualBoundary: boolean
   paintedFill: boolean
@@ -49,6 +56,9 @@ export interface ComponentPattern {
   /** Normalized complete observed style identity for canonical pattern grouping. */
   styleSignature?: string
   elementKinds?: string[]
+  semanticIdentities?: ComponentSemanticIdentity[]
+  visualTreatments?: ComponentVisualTreatment[]
+  usageContexts?: ComponentUsageContext[]
   semanticRole?: string
   sampleSize?: { width: number; height: number }
   /** Representative instances that independently satisfy the bounded status-feedback contract. */
@@ -66,6 +76,11 @@ export interface ComponentVariantContext {
   heightPx?: number
   elementKind?: string
   pageId?: string
+  semanticIdentity?: ComponentSemanticIdentity
+  visualTreatment?: ComponentVisualTreatment
+  usageContext?: ComponentUsageContext
+  visualOwnerKey?: string
+  semanticSourceKey?: string
   /** Whether the component boundary owns a visibly painted text label. */
   hasVisibleText?: boolean
 }
@@ -673,7 +688,7 @@ const COMPONENT_VARIANT_ORDER: ReadonlyArray<ComponentVariant | undefined> = [
 function semanticComponentSubtype(candidate: ComponentVariantCandidate): string | undefined {
   const role = candidate.role?.trim().toLowerCase()
   if (candidate.type === 'input') {
-    if (role === 'searchbox' || role === 'search') return 'search'
+    if (candidate.semanticIdentity === 'search' || role === 'searchbox' || role === 'search') return 'search'
     if (role === 'combobox' || role === 'listbox') return 'combobox'
     if (role === 'spinbutton') return 'number'
     if (role === 'textbox' || !role) return 'text'
@@ -708,6 +723,9 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       semanticSubtype?: string
       cardStyle?: string
       buttonStyle?: string
+      semanticIdentity?: ComponentSemanticIdentity
+      visualTreatment?: ComponentVisualTreatment
+      usageContext?: ComponentUsageContext
       styleSignature: string
       candidates: ComponentVariantCandidate[]
     }
@@ -753,7 +771,7 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
         ? classifyButtonStyleFamily(candidate)
         : undefined
     const completeStyleSignature = styleSignature(candidate.styles)
-    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}|${semanticSubtype || ''}|${cardStyle || ''}|${buttonStyle || ''}|${completeStyleSignature}`
+    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}|${semanticSubtype || ''}|${cardStyle || ''}|${buttonStyle || ''}|${candidate.semanticIdentity || ''}|${candidate.visualTreatment || ''}|${candidate.usageContext || ''}|${completeStyleSignature}`
     const group = groups.get(key) || {
       type: candidate.type,
       variant,
@@ -762,6 +780,9 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
       semanticSubtype,
       cardStyle,
       buttonStyle,
+      semanticIdentity: candidate.semanticIdentity,
+      visualTreatment: candidate.visualTreatment,
+      usageContext: candidate.usageContext,
       styleSignature: completeStyleSignature,
       candidates: [],
     }
@@ -823,6 +844,9 @@ export function summarizeComponentVariants(candidates: ComponentVariantCandidate
               }
             : {}),
           elementKinds: [...new Set(group.candidates.flatMap((candidate) => candidate.elementKind || []))].sort(),
+          ...(group.semanticIdentity ? { semanticIdentities: [group.semanticIdentity] } : {}),
+          ...(group.visualTreatment ? { visualTreatments: [group.visualTreatment] } : {}),
+          ...(group.usageContext ? { usageContexts: [group.usageContext] } : {}),
         },
       ]
     })
@@ -1525,14 +1549,54 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
     const isTransparent = (color: string): boolean =>
       color === 'transparent' || color === 'rgba(0, 0, 0, 0)' || color.endsWith(', 0)')
 
-    collect(
-      'button',
-      'button, input[type="button" i], input[type="submit" i], input[type="image" i], input[type="reset" i]',
-      0.98,
-      ['native-element'],
-    )
-    collect('button', '[role="button"]', 0.9, ['aria-role'])
-    collect('button', 'a[href]', 0.78, ['native-link', 'visual-control-boundary'], (element) => {
+    const isCompoundInteractiveSurface = (element: Element): boolean => {
+      const computed = computedStyleFor(element)
+      const rect = element.getBoundingClientRect()
+      const structuredDescendants = [
+        ...element.querySelectorAll(
+          'article, section, header, footer, h1, h2, h3, h4, h5, h6, p, blockquote, ul, ol, dl, table, figure',
+        ),
+      ]
+      const structuredContent = structuredDescendants.some(isVisible)
+      const visibleTextBlocks = structuredDescendants.filter(
+        (candidate) => isVisible(candidate) && directlyOwnsRenderedText(candidate),
+      ).length
+      const visibleMedia = [...element.querySelectorAll('img, picture, video, canvas')].some(isVisible)
+      const mediaWithText = visibleMedia && Boolean((element.textContent || '').replace(/\s+/g, ' ').trim())
+      const textOwner = renderedTextOwner('button', element)
+      const fontSize = Number.parseFloat(textOwner?.computed.fontSize || computed.fontSize || '0')
+      const parsedLineHeight = Number.parseFloat(textOwner?.computed.lineHeight || computed.lineHeight || '')
+      const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : fontSize * 1.2
+      const verticalPadding =
+        Number.parseFloat(computed.paddingTop || '0') + Number.parseFloat(computed.paddingBottom || '0')
+      const verticalBorder =
+        Number.parseFloat(computed.borderTopWidth || '0') + Number.parseFloat(computed.borderBottomWidth || '0')
+      const unlabelledOversizedBoundary =
+        !textOwner && fontSize > 0 && rect.height > fontSize * 4.5 && rect.width > fontSize * 4.5
+      const descendantTextHeight =
+        textOwner && textOwner.element !== element ? textOwner.element.getBoundingClientRect().height : undefined
+      const unexplainedSpaceAroundDescendantLabel =
+        descendantTextHeight !== undefined &&
+        descendantTextHeight > 0 &&
+        lineHeight > 0 &&
+        rect.height >
+          verticalPadding + verticalBorder + descendantTextHeight + Math.max(lineHeight * 0.75, fontSize * 1.25) + 2
+      const exceedsLabelEnvelope =
+        Boolean(textOwner) &&
+        fontSize > 0 &&
+        lineHeight > 0 &&
+        rect.height > verticalPadding + verticalBorder + lineHeight * 2.5 + 2 &&
+        rect.height > fontSize * 4.5
+      return (
+        structuredContent ||
+        visibleTextBlocks >= 2 ||
+        mediaWithText ||
+        unlabelledOversizedBoundary ||
+        unexplainedSpaceAroundDescendantLabel ||
+        exceedsLabelEnvelope
+      )
+    }
+    const isStyledActionAnchor = (element: Element): boolean => {
       const computed = computedStyleFor(element)
       const rect = element.getBoundingClientRect()
       const paintedBackground = !isTransparent(computed.backgroundColor)
@@ -1541,7 +1605,30 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const horizontalPadding =
         Number.parseFloat(computed.paddingLeft || '0') + Number.parseFloat(computed.paddingRight || '0')
       return rect.width >= 44 && rect.height >= 28 && (paintedBackground || paintedBorder || horizontalPadding >= 16)
-    })
+    }
+
+    collect(
+      'button',
+      'button, input[type="button" i], input[type="submit" i], input[type="image" i], input[type="reset" i]',
+      0.98,
+      ['native-element'],
+      (element) => !isCompoundInteractiveSurface(element),
+    )
+    collect('button', '[role="button"]', 0.9, ['aria-role'], (element) => !isCompoundInteractiveSurface(element))
+    collect(
+      'card',
+      'a[href]',
+      0.82,
+      ['native-link', 'compound-interactive-boundary'],
+      (element) => isStyledActionAnchor(element) && isCompoundInteractiveSurface(element),
+    )
+    collect(
+      'button',
+      'a[href]',
+      0.78,
+      ['native-link', 'visual-control-boundary'],
+      (element) => isStyledActionAnchor(element) && !isCompoundInteractiveSurface(element),
+    )
 
     collect('navigation', 'nav', 0.98, ['native-element'])
     collect('navigation', '[role="navigation"]', 0.9, ['aria-role'])

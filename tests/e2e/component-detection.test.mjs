@@ -105,6 +105,81 @@ test('detects visible semantic components and a visually bounded card', async ()
   await page.close()
 })
 
+test('separates compact controls from compound interactive content boundaries', async () => {
+  const page = await browser.newPage({ viewport: { width: 1000, height: 800 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      main { display:grid; gap:16px; padding:32px; }
+      .compact-action { display:inline-flex; width:max-content; min-height:40px; padding:8px 16px; border:1px solid #2255cc; border-radius:6px; color:#173ea8; }
+      .icon-action { display:flex; width:40px; height:40px; padding:8px; border-radius:6px; background:#2255cc; }
+      .story-card { display:block; height:220px; padding:24px; border:1px solid #ccd5e0; border-radius:12px; color:#172033; }
+      .story-card h2 { font-size:24px; line-height:30px; }
+      .story-card p { font-size:16px; line-height:24px; }
+      .logo-tile { display:flex; width:260px; height:140px; padding:0 52px; background:#f4f7fb; }
+      .related-link { display:flex; width:320px; height:112px; padding:24px 20px; border:2px solid transparent; border-radius:8px; color:#172033; }
+      .related-link span { display:block; height:30px; font-size:13px; line-height:30px; }
+      .compound-button { display:block; height:240px; padding:24px; border:1px solid #ccd5e0; background:#f4f7fb; color:#172033; text-align:left; }
+      .compound-button h3 { font-size:22px; line-height:28px; }
+      .compound-button p { font-size:16px; line-height:24px; }
+    </style>
+    <main>
+      <a class="compact-action" href="#start-one">Start one</a>
+      <a class="compact-action" href="#start-two">Start two</a>
+      <a class="icon-action" href="#settings" aria-label="Settings"><svg width="24" height="24" aria-hidden="true"></svg></a>
+      <a class="story-card" href="#story-one"><article><h2>Story one</h2><p>Supporting narrative copy.</p></article></a>
+      <a class="story-card" href="#story-two"><article><h2>Story two</h2><p>Supporting narrative copy.</p></article></a>
+      <a class="logo-tile" href="#logo-one" aria-label="Logo one"><svg width="48" height="48" aria-hidden="true"></svg></a>
+      <a class="logo-tile" href="#logo-two" aria-label="Logo two"><svg width="48" height="48" aria-hidden="true"></svg></a>
+      <a class="related-link" href="#related-one"><span>Related one</span></a>
+      <a class="related-link" href="#related-two"><span>Related two</span></a>
+      <button class="compound-button"><h3>Panel one</h3><p>Compound interactive content.</p></button>
+      <button class="compound-button"><h3>Panel two</h3><p>Compound interactive content.</p></button>
+    </main>`)
+
+  const snapshot = await extractPageEvidence(page, 'desktop')
+  const compactLinks = snapshot.components.filter(
+    (component) => component.type === 'button' && component.elementKind === 'anchor',
+  )
+  const linkedCards = snapshot.components.filter(
+    (component) => component.type === 'card' && component.elementKind === 'anchor',
+  )
+  const compoundButtons = snapshot.components.filter(
+    (component) => component.type === 'button' && component.elementKind === 'button',
+  )
+
+  assert.equal(compactLinks.length, 3)
+  assert.ok(compactLinks.every((component) => component.semanticIdentity === 'link'))
+  assert.equal(compactLinks.filter((component) => component.visualTreatment === 'button-like').length, 2)
+  assert.equal(compactLinks.filter((component) => component.visualTreatment === 'icon-like').length, 1)
+  assert.equal(linkedCards.length, 6)
+  assert.ok(linkedCards.every((component) => component.semanticIdentity === 'link'))
+  assert.ok(linkedCards.every((component) => component.visualTreatment === 'structural'))
+  assert.ok(linkedCards.every((component) => component.styles.height === undefined))
+  assert.equal(compoundButtons.length, 2)
+  assert.ok(compoundButtons.every((component) => component.semanticIdentity === 'button'))
+  assert.ok(compoundButtons.every((component) => component.visualTreatment === 'structural'))
+
+  const patterns = summarizeComponentVariants(
+    snapshot.components.map((component) => ({
+      ...component,
+      evidence: [component.key],
+      pageId: 'compound-controls-page',
+      widthPx: component.rect.width * snapshot.contentWidth,
+      heightPx: component.rect.height * snapshot.height,
+    })),
+  )
+  const structuralButtons = patterns.filter(
+    (pattern) => pattern.type === 'button' && pattern.visualTreatments?.includes('structural'),
+  )
+  assert.ok(structuralButtons.length >= 1)
+  assert.ok(structuralButtons.every((pattern) => !isActionableComponentPattern(pattern, [])))
+
+  const legacyPatterns = await detectComponents(page)
+  assert.equal(legacyPatterns.find((pattern) => pattern.type === 'button')?.count, 3)
+  assert.ok((legacyPatterns.find((pattern) => pattern.type === 'card')?.count || 0) >= 6)
+  await page.close()
+})
+
 test('keeps exact component font metrics, heights, and unequal borders out of the same reusable style', async () => {
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
   await page.setContent(`<!doctype html>
@@ -525,6 +600,40 @@ test('does not attribute component typography to label clips without reconstruct
   await page.close()
 })
 
+test('does not persist component or layout typography beneath an ancestor clip path', async () => {
+  const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
+  await page.setContent(`<!doctype html>
+    <style>
+      .clip-owner { clip-path:inset(0 0 -12px); }
+      button { width:160px; height:44px; background:rgb(225, 235, 245); border:1px solid rgb(90, 110, 130); }
+      span { font:700 18px/24px Georgia, serif; color:rgb(34, 34, 34); }
+    </style>
+    <main><div class="clip-owner"><button><span>Clipped label</span></button></div></main>`)
+
+  const snapshot = await extractPageEvidence(page, 'desktop')
+  const button = snapshot.components.find((component) => component.type === 'button')
+  assert.ok(button)
+  assert.equal(button.textStyleOwner, undefined)
+  assert.equal(button.textStyleSource, undefined)
+  assert.equal(button.styles.fontFamily, undefined)
+  assert.equal(button.styles.color, undefined)
+  assert.ok(
+    snapshot.layoutNodes
+      .filter((node) => node.role === 'action')
+      .every((node) => node.textStyleSource === undefined && node.observedTypography === undefined),
+  )
+
+  const styles = await extractStyles(page)
+  assert.equal(
+    styles.renderedTextStyleObservations.some((observation) =>
+      observation.source.clipPathChain.some((clipPath) => clipPath.owner === 'ancestor'),
+    ),
+    false,
+  )
+
+  await page.close()
+})
+
 test('requires actual glyph rectangles to intersect the surviving ancestor clip', async () => {
   const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })
   await page.setContent(`<!doctype html>
@@ -703,6 +812,28 @@ test('blocks a disclosure click that attempts to replace the main document', asy
   await page.setContent(`<!doctype html>
     <main>
       <button aria-expanded="false" aria-controls="panel" onclick="location.href='/navigated'">Details</button>
+      <section id="panel" hidden>Panel</section>
+    </main>`)
+  const evidence = await extractPageEvidence(page, 'desktop')
+  const originalUrl = page.url()
+
+  const observations = await observeSafeInteractions(page, evidence, 1, 3_000)
+
+  assert.deepEqual(observations, [])
+  assert.equal(page.url(), originalUrl)
+  await page.close()
+})
+
+test('recovers when a delayed disclosure navigation destroys the motion-probe document', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })
+  await page.setContent(`<!doctype html>
+    <main>
+      <button aria-expanded="false" aria-controls="panel" onclick="
+        this.setAttribute('aria-expanded', 'true');
+        document.getElementById('panel').hidden = false;
+        setTimeout(() => location.href = '/delayed-interaction-navigation', 130);
+      ">Details</button>
       <section id="panel" hidden>Panel</section>
     </main>`)
   const evidence = await extractPageEvidence(page, 'desktop')

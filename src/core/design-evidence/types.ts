@@ -1,4 +1,9 @@
-import type { ComponentStatusBoundary } from '../analyzer/component-detect.js'
+import type {
+  ComponentSemanticIdentity,
+  ComponentStatusBoundary,
+  ComponentUsageContext,
+  ComponentVisualTreatment,
+} from '../analyzer/component-detect.js'
 import type { PageHealthReport } from '../analyzer/page-health.js'
 import type { MotionToken, ResponsiveBreakpoint } from '../analyzer/responsive-motion.js'
 import type { DesignToken, InteractionStyles, RenderedTextPaintEvidence } from '../analyzer/types.js'
@@ -125,6 +130,11 @@ export interface ComponentEvidence {
   type: string
   elementKind?: 'button' | 'anchor' | 'input' | 'role-button' | 'status'
   role?: string
+  semanticIdentity?: ComponentSemanticIdentity
+  visualTreatment?: ComponentVisualTreatment
+  usageContext?: ComponentUsageContext
+  visualOwnerKey?: string
+  semanticSourceKey?: string
   /** Where the rendered foreground and typography in `styles` were measured. */
   textStyleOwner?: 'root' | 'descendant'
   /** Observable facts proving that the typography source was visibly painted at capture time. */
@@ -317,6 +327,8 @@ export interface EvidenceCoverage {
 
 export interface DesignEvidence {
   schemaVersion: '1'
+  /** Version of the owner-first semantic evidence envelope used to build portable tokens and component contracts. */
+  semanticOwnerVersion?: '1'
   analysisId: string
   source: {
     /** Opaque identity of the entry document, retained when public URL sanitization removes query text. */

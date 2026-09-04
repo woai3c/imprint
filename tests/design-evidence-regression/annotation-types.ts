@@ -46,4 +46,24 @@ export interface FixtureAnnotation {
   expectedDesignDocStrings?: string[]
   expectedReconstructionSummaryStrings?: string[]
   forbiddenReconstructionSummaryStrings?: string[]
+  semanticGroundTruth?: {
+    foundationColors?: {
+      background?: string
+      surface?: string
+      /** `null` means the role must be omitted. */
+      secondary?: string | null
+    }
+    forbiddenFoundationColors?: string[]
+    expectedComponentRoles?: string[]
+    expectedComponentSemantics?: Array<{
+      elementKind: string
+      semanticIdentity: string
+      visualTreatment: string
+    }>
+    expectedComponentPatternNames?: string[]
+    expectedComponentStyles?: Array<{ pattern: string; property: string; value: string }>
+    forbiddenComponentStyles?: Array<{ pattern: string; property: string; value: string }>
+    expectedRelativeReorderRoles?: string[]
+    forbidRelativeReorder?: boolean
+  }
 }

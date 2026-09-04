@@ -166,7 +166,11 @@ export function generateReconstructionBrief(
       .slice(0, 12)
       .map(
         (observation) =>
-          `- ${observation.fromViewport} → ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties.join(', ')})`,
+          `- ${observation.fromViewport} → ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties
+            .map((property) =>
+              property === 'sequenceIndex' ? (zh ? '相对顺序发生变化' : 'relative order changed') : property,
+            )
+            .join(', ')})`,
       ),
     '',
     zh ? '## 限制' : '## Limitations',

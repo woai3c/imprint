@@ -201,6 +201,7 @@ function isDesignEvidence(value: unknown): value is DesignEvidence {
   if (
     !isRecord(value) ||
     value.schemaVersion !== '1' ||
+    (value.semanticOwnerVersion !== undefined && value.semanticOwnerVersion !== '1') ||
     typeof value.analysisId !== 'string' ||
     !isRecord(value.source) ||
     typeof value.source.requestedUrl !== 'string' ||
@@ -237,6 +238,47 @@ function isDesignEvidence(value: unknown): value is DesignEvidence {
   return true
 }
 
+const FOUNDATION_SURFACE_ROLES = {
+  background: 'page-canvas',
+  surface: 'content-surface',
+  secondary: 'content-surface',
+} as const
+
+function hasCurrentSemanticOwnerEnvelope(evidence: DesignEvidence): boolean {
+  for (const [tokenRole, ownerRole] of Object.entries(FOUNDATION_SURFACE_ROLES)) {
+    const value = evidence.tokens.colors[tokenRole as keyof typeof FOUNDATION_SURFACE_ROLES]
+    if (!value) continue
+    const tokenEvidence = evidence.tokens.evidence?.[`colors.${tokenRole}`]
+    if (
+      !tokenEvidence ||
+      !tokenEvidence.roleRenderedPageCount ||
+      !tokenEvidence.roleOwnerCount ||
+      !tokenEvidence.semanticOwnerRefs?.length ||
+      tokenEvidence.semanticOwnerRefs.some(
+        (owner) =>
+          owner.domain !== 'foundation' ||
+          owner.role !== ownerRole ||
+          !owner.page ||
+          !owner.routeId ||
+          !owner.viewport ||
+          !owner.ownerId,
+      )
+    ) {
+      return false
+    }
+  }
+  return evidence.components.every(
+    (component) =>
+      typeof component.semanticIdentity === 'string' &&
+      typeof component.visualTreatment === 'string' &&
+      typeof component.usageContext === 'string' &&
+      typeof component.visualOwnerKey === 'string' &&
+      component.visualOwnerKey.length > 0 &&
+      typeof component.semanticSourceKey === 'string' &&
+      component.semanticSourceKey.length > 0,
+  )
+}
+
 export function readDesignEvidence(serialized: unknown): DesignEvidence | null {
   if (typeof serialized !== 'string') return null
   try {
@@ -246,6 +288,10 @@ export function readDesignEvidence(serialized: unknown): DesignEvidence | null {
       if (!page.health) continue
       page.health.evidenceEligible = isPageHealthEvidenceEligible(page.health)
     }
+    // Historical records remain readable, but their artifacts must not be silently reinterpreted by newer promotion
+    // rules. Only the current, independently auditable owner envelope is eligible for atomic regeneration.
+    if (parsed.semanticOwnerVersion === undefined) return parsed
+    if (!hasCurrentSemanticOwnerEnvelope(parsed)) return null
     const previousTokens = parsed.tokens
     const revalidation = revalidateDesignTokenCatalog(previousTokens)
     projectDesignEvidenceTokenReferences(parsed, previousTokens, revalidation.tokens)

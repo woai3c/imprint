@@ -408,7 +408,11 @@ function useWhen(component: string, variant: string, pattern: ComponentVariantPa
     )
       ? 'primary-action'
       : 'action'
-  if (component === 'input') return variant.startsWith('search') ? 'search' : 'text-entry'
+  if (component === 'input') {
+    return pattern.semanticIdentities?.includes('search') || pattern.usageContexts?.includes('search')
+      ? 'search'
+      : 'text-entry'
+  }
   if (component === 'card') return 'content-group'
   if (component === 'navigation') return 'navigation'
   if (component === 'tab') return 'tab-navigation'

@@ -25,6 +25,7 @@ function reasonFrom(error: unknown): string {
 export async function resetPageScroll(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const root = document.documentElement
+    if (!root) return
     const previousBehavior = root.style.getPropertyValue('scroll-behavior')
     const previousPriority = root.style.getPropertyPriority('scroll-behavior')
     root.style.setProperty('scroll-behavior', 'auto', 'important')

@@ -151,6 +151,15 @@ function auditColorContrast(first, second) {
   return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
 }
 
+function auditFoundationMutedTone(foreground, candidate) {
+  const foregroundColor = parsedAuditColor(foreground)
+  const candidateColor = parsedAuditColor(candidate)
+  if (!foregroundColor || !candidateColor) return false
+  const foregroundChroma = Math.max(...foregroundColor.channels) - Math.min(...foregroundColor.channels)
+  const candidateChroma = Math.max(...candidateColor.channels) - Math.min(...candidateColor.channels)
+  return candidateChroma <= Math.max(48, foregroundChroma + 24)
+}
+
 function auditForegroundPairOrder(first, second) {
   const firstMainRoleBreadth = Number(first.textRoles.includes('body')) + Number(first.textRoles.includes('heading'))
   const secondMainRoleBreadth = Number(second.textRoles.includes('body')) + Number(second.textRoles.includes('heading'))
@@ -604,7 +613,8 @@ function validateFoundationForeground(tokens, hardFailures) {
   const selectedMutedQualifies =
     auditFoundationForegroundPair(selectedMutedPair) &&
     selectedMutedPair.contrastRatio <= selectedPair.contrastRatio - 0.5 &&
-    selectedMutedPair.contrastRatio >= 4.5
+    selectedMutedPair.contrastRatio >= 4.5 &&
+    auditFoundationMutedTone(foreground, mutedForeground)
   if (!selectedMutedQualifies) hardFailures.push('foundation-muted-foreground-pair-invalid-hierarchy')
 
   const occupiedMutedValues = new Set(
@@ -649,7 +659,8 @@ function validateFoundationForeground(tokens, hardFailures) {
     const candidateQualifies =
       auditFoundationForegroundPair(candidatePair) &&
       candidatePair.contrastRatio <= selectedPair.contrastRatio - 0.5 &&
-      candidatePair.contrastRatio >= 4.5
+      candidatePair.contrastRatio >= 4.5 &&
+      auditFoundationMutedTone(foreground, candidate.value)
     if (!candidateQualifies) continue
     const rank = auditMutedForegroundPairOrder(candidatePair, selectedMutedPair)
     if (rank < 0 || (rank === 0 && String(candidate.value).localeCompare(String(mutedForeground)) < 0)) {
@@ -1614,6 +1625,16 @@ function tokenRefMatchesCandidateGroup(ref, group) {
     'typography.letterSpacings': ['typography.letter-spacing.'],
   }
   return (prefixes[group] || []).some((prefix) => String(ref).startsWith(prefix))
+}
+
+function tokenRefSharesImplementationNamespace(ref, group) {
+  if (group === 'typography.fontFamilies' || group === 'typography.fontStacks') {
+    return (
+      tokenRefMatchesCandidateGroup(ref, 'typography.fontFamilies') ||
+      tokenRefMatchesCandidateGroup(ref, 'typography.fontStacks')
+    )
+  }
+  return tokenRefMatchesCandidateGroup(ref, group)
 }
 
 function implementationNameMatchesCandidateGroup(name, group) {
@@ -2696,7 +2717,11 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute,
     if (!['low', 'medium', 'high'].includes(evidence.semanticConfidence)) {
       failures.push(`missing-candidate-semantic-confidence:${pathLabel}`)
     }
-    if (!['foundation', 'component', 'local', 'declared-only', 'unknown'].includes(evidence.reuseScope)) {
+    if (
+      !['foundation', 'component', 'specialized-content', 'local', 'declared-only', 'unknown'].includes(
+        evidence.reuseScope,
+      )
+    ) {
       failures.push(`missing-candidate-reuse-scope:${pathLabel}`)
     }
     if (typeof candidate.value === 'string' && evidence.value !== candidate.value) {
@@ -2720,6 +2745,24 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute,
     }
     failures.push(...pageRefFailures(evidence, `${pathLabel}.pageRefs`, routeIds, canonicalCaptureByRoute))
     const candidateSources = Array.isArray(evidence.sources) ? evidence.sources : []
+    const candidateSourceCounts = isObject(evidence.sourceCounts) ? evidence.sourceCounts : {}
+    const backgroundSemanticSourceCount = candidateSources
+      .filter((source) => String(source).startsWith('semantic:'))
+      .reduce((sum, source) => sum + Number(candidateSourceCounts[source] || 0), 0)
+    const foundationBackgroundSourceCount = ['semantic:page-canvas', 'semantic:content-surface'].reduce(
+      (sum, source) => sum + Number(candidateSourceCounts[source] || 0),
+      0,
+    )
+    if (
+      candidate.group === 'colors' &&
+      candidate.role === 'background' &&
+      evidence.reuseScope === 'foundation' &&
+      (foundationBackgroundSourceCount <= 0 ||
+        backgroundSemanticSourceCount <= 0 ||
+        foundationBackgroundSourceCount / backgroundSemanticSourceCount < 0.6)
+    ) {
+      failures.push(`foundation-background-candidate-missing-foundation-owner:${pathLabel}`)
+    }
     const claimsRenderedText = candidateSources.includes('rendered:text')
     const claimsPairedSurface = candidateSources.includes('observed:text-background-pair')
     const renderedProvenanceFailures = []
@@ -3301,7 +3344,10 @@ function validateDesignDocOwnerCounts(source, tokens, hardFailures) {
     {
       group: 'spacing',
       values: tokens?.spacing,
-      lines: markdownSubsectionLines(source, new Set(['Reusable Spacing Candidates', '可复用间距候选'])),
+      lines: markdownSubsectionLines(
+        source,
+        new Set(['Reusable Spacing Scale', 'Reusable Spacing Candidates', '可复用间距刻度', '可复用间距候选']),
+      ),
       linePattern: (index) => new RegExp(`^(?:- Level ${index + 1}:|- 级别 ${index + 1}:)`),
     },
     {
@@ -4070,7 +4116,11 @@ function auditExpectedRecipeUseWhen(pattern) {
     const primaryCount = pattern.components.filter((component) => component?.role === 'primary-action').length
     return primaryCount / Math.max(pattern.components.length, 1) >= 0.8 ? 'primary-action' : 'action'
   }
-  if (pattern?.type === 'input') return variant.startsWith('search') ? 'search' : 'text-entry'
+  if (pattern?.type === 'input') {
+    return pattern.semanticIdentities?.includes('search') || pattern.usageContexts?.includes('search')
+      ? 'search'
+      : 'text-entry'
+  }
   if (pattern?.type === 'card') return 'content-group'
   if (pattern?.type === 'navigation') return 'navigation'
   if (pattern?.type === 'tab') return 'tab-navigation'
@@ -4390,8 +4440,7 @@ function expectedRecipeBlock(pattern, evidence, language) {
     .filter((ref) => tokenCatalog(evidence?.tokens).has(ref))
     .map((ref) => `\`${auditPublicRecipeTokenRef(ref, evidence)}\``)
     .join(locale?.listSeparator || ', ')
-  const observedStyles = Object.entries(pattern.styles || {})
-    .filter(([, value]) => String(value).trim() !== '')
+  const observedStyles = Object.entries(auditPortableComponentStyles(pattern.styles))
     .sort(([first], [second]) => first.localeCompare(second))
     .map(
       ([property, value]) =>
@@ -4633,10 +4682,8 @@ function normalizedRecipeStyles(styles) {
 }
 
 function normalizedEvidenceComponentStyles(styles) {
-  if (!isObject(styles)) return {}
   return Object.fromEntries(
-    Object.entries(styles)
-      .filter(([, value]) => String(value).trim() !== '')
+    Object.entries(auditPortableComponentStyles(styles))
       .map(([property, value]) => [property, [normalizedComparableComponentStyle(property, value)]])
       .sort(([first], [second]) => first.localeCompare(second)),
   )
@@ -4830,7 +4877,20 @@ function auditHasCrispShadow(value) {
 }
 
 function auditContextDependentRadius(value) {
-  return Boolean(value && /[a-z][\w-]*\s*\(/i.test(value))
+  if (!value) return false
+  if (/[a-z][\w-]*\s*\(/i.test(value)) return true
+  return [...String(value).matchAll(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?(?:px|rem|em)\b/gi)].some(
+    ([dimension]) => Math.abs(Number.parseFloat(dimension)) >= 1_000_000,
+  )
+}
+
+function auditPortableComponentStyles(styles) {
+  return Object.fromEntries(
+    Object.entries(isObject(styles) ? styles : {}).filter(
+      ([property, value]) =>
+        String(value).trim() !== '' && !(property === 'borderRadius' && auditContextDependentRadius(value)),
+    ),
+  )
 }
 
 function auditPillRadius(styles, context = {}) {
@@ -4962,7 +5022,7 @@ function auditPromotedVariant(variant, candidates) {
 function auditSemanticComponentSubtype(candidate) {
   const role = candidate.role?.trim().toLowerCase()
   if (candidate.type === 'input') {
-    if (role === 'searchbox' || role === 'search') return 'search'
+    if (candidate.semanticIdentity === 'search' || role === 'searchbox' || role === 'search') return 'search'
     if (role === 'combobox' || role === 'listbox') return 'combobox'
     if (role === 'spinbutton') return 'number'
     if (role === 'textbox' || !role) return 'text'
@@ -5532,6 +5592,7 @@ function auditMeaningfulComponentStyleValue(property, value) {
   if (!normalized || ['none', 'normal', 'auto', 'initial', 'inherit', 'unset'].includes(normalized)) return false
   if (property === 'border') return auditVisibleBorder(value)
   if (property === 'boxShadow') return auditVisibleShadowLayers(value).length > 0
+  if (property === 'borderRadius' && auditContextDependentRadius(value)) return false
   if (['padding', 'gap', 'height', 'minHeight', 'borderRadius'].includes(property)) {
     const dimensions = normalized.match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:px|rem|em|%)?/g)
     return dimensions ? dimensions.some((dimension) => Math.abs(Number.parseFloat(dimension)) > 0.001) : true
@@ -5542,6 +5603,13 @@ function auditMeaningfulComponentStyleValue(property, value) {
 
 function auditActionableComponentPattern(pattern, sharedTokenRefs) {
   if (!AUDIT_COMPONENT_TYPES.has(pattern.type) || !auditReusableComponentPattern(pattern)) return false
+  if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
+  if (pattern.visualTreatments?.includes('button-like')) {
+    const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
+      (property) => auditMeaningfulComponentStyleValue(property, pattern.styles?.[property]),
+    )
+    if (!hasObservedLabelTypography) return false
+  }
   if (pattern.type === 'status') {
     const components = Array.isArray(pattern.components) ? pattern.components : []
     const support = components.filter((component) =>
@@ -5584,7 +5652,7 @@ function auditSharedComponentTokenRefs(components) {
       dimensions.add('color')
     }
     if (['padding', 'gap', 'height', 'minHeight'].some((property) => styles[property])) dimensions.add('spacing')
-    if (styles.borderRadius) dimensions.add('radius')
+    if (styles.borderRadius && !auditContextDependentRadius(styles.borderRadius)) dimensions.add('radius')
     if (styles.boxShadow) dimensions.add('shadow')
     if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some((property) => styles[property])) {
       dimensions.add('typography')
@@ -5703,7 +5771,7 @@ function buildAuditCanonicalComponentPatterns(evidence) {
         ? auditButtonStyleFamily(candidate)
         : undefined
     const styleSignature = auditComponentStyleSignature(candidate.styles)
-    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}|${semanticSubtype || ''}|${cardStyle || ''}|${buttonStyle || ''}|${styleSignature}`
+    const key = `${candidate.type}|${variant || ''}|${size || ''}|${semanticRole || ''}|${semanticSubtype || ''}|${cardStyle || ''}|${buttonStyle || ''}|${candidate.semanticIdentity || ''}|${candidate.visualTreatment || ''}|${candidate.usageContext || ''}|${styleSignature}`
     const group = groups.get(key) || {
       type: candidate.type,
       variant,
@@ -5712,6 +5780,9 @@ function buildAuditCanonicalComponentPatterns(evidence) {
       semanticSubtype,
       cardStyle,
       buttonStyle,
+      semanticIdentity: candidate.semanticIdentity,
+      visualTreatment: candidate.visualTreatment,
+      usageContext: candidate.usageContext,
       styleSignature,
       candidates: [],
     }
@@ -5753,6 +5824,9 @@ function buildAuditCanonicalComponentPatterns(evidence) {
       identityConfidence: confidence,
       ...reuse,
       sharedTokenRefs,
+      ...(group.semanticIdentity ? { semanticIdentities: [group.semanticIdentity] } : {}),
+      ...(group.visualTreatment ? { visualTreatments: [group.visualTreatment] } : {}),
+      ...(group.usageContext ? { usageContexts: [group.usageContext] } : {}),
     }
   })
   const patternsByName = new Map()
@@ -6135,7 +6209,7 @@ function expectedDesignMdComponents(specs, colors, typography, rounded) {
           auditColorTokenRoleCompatible('color', `color.${name}`),
         ) || normalizedText
     }
-    const radius = singleDesignMdDimension(style.borderRadius)
+    const radius = auditContextDependentRadius(style.borderRadius) ? null : singleDesignMdDimension(style.borderRadius)
     if (radius && Math.abs(Number.parseFloat(radius)) > 0.001) {
       properties.rounded = referenceFor('rounded', radiusEntries, radius) || radius
     }
@@ -6462,9 +6536,9 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
         hardFailures.push(`profile-component-use-when-mismatch:${key}:${String(recipe?.useWhen)}:${expectedUseWhen}`)
       }
       const exactStyles = Object.fromEntries(
-        Object.entries(pattern.styles || {})
-          .filter(([, value]) => String(value).trim() !== '')
-          .sort(([first], [second]) => first.localeCompare(second)),
+        Object.entries(auditPortableComponentStyles(pattern.styles)).sort(([first], [second]) =>
+          first.localeCompare(second),
+        ),
       )
       if (stableJson(recipe?.observedStyles || {}) !== stableJson(exactStyles)) {
         hardFailures.push(`profile-component-exact-styles-mismatch:${key}`)
@@ -6537,6 +6611,14 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
     const expectedRole = auditConsensusComponentRole(pattern.components)
     if (spec?.role !== expectedRole) {
       hardFailures.push(`component-spec-catalog-role-mismatch:${key}`)
+    }
+    for (const [field, values] of [
+      ['semanticIdentity', pattern.semanticIdentities],
+      ['visualTreatment', pattern.visualTreatments],
+      ['usageContext', pattern.usageContexts],
+    ]) {
+      const expected = Array.isArray(values) && values.length === 1 ? values[0] : undefined
+      if (spec?.[field] !== expected) hardFailures.push(`component-spec-catalog-${field}-mismatch:${key}`)
     }
     for (const [field, expected] of Object.entries({
       sourceInstances: pattern.sourceInstances,
@@ -6729,6 +6811,51 @@ export async function auditArtifactBundle(directory) {
   const visualQa = parseJsonArtifact(sources['visual-qa.json'], 'visual-qa.json', hardFailures)
   const parsedFrontMatter = sources['DESIGN.md'] ? frontMatter(sources['DESIGN.md']) : { value: null }
   const extension = extensionFor(parsedFrontMatter.value)
+
+  if (evidence?.semanticOwnerVersion !== undefined) {
+    if (evidence.semanticOwnerVersion !== '1') {
+      hardFailures.push('unsupported-semantic-owner-version')
+    } else {
+      const surfaceRoles = {
+        background: 'page-canvas',
+        surface: 'content-surface',
+        secondary: 'content-surface',
+      }
+      for (const [tokenRole, ownerRole] of Object.entries(surfaceRoles)) {
+        if (!evidence.tokens?.colors?.[tokenRole]) continue
+        const tokenEvidence = evidence.tokens?.evidence?.[`colors.${tokenRole}`]
+        const owners = tokenEvidence?.semanticOwnerRefs
+        if (
+          !Array.isArray(owners) ||
+          owners.length === 0 ||
+          owners.some(
+            (owner) =>
+              owner?.domain !== 'foundation' ||
+              owner?.role !== ownerRole ||
+              typeof owner?.page !== 'string' ||
+              typeof owner?.routeId !== 'string' ||
+              typeof owner?.viewport !== 'string' ||
+              typeof owner?.ownerId !== 'string',
+          )
+        ) {
+          hardFailures.push(`semantic-surface-owner-envelope-invalid:${tokenRole}`)
+        }
+      }
+      for (const component of Array.isArray(evidence.components) ? evidence.components : []) {
+        if (
+          typeof component?.semanticIdentity !== 'string' ||
+          typeof component?.visualTreatment !== 'string' ||
+          typeof component?.usageContext !== 'string' ||
+          typeof component?.visualOwnerKey !== 'string' ||
+          !component.visualOwnerKey ||
+          typeof component?.semanticSourceKey !== 'string' ||
+          !component.semanticSourceKey
+        ) {
+          hardFailures.push(`semantic-component-owner-envelope-invalid:${component?.id || 'unknown'}`)
+        }
+      }
+    }
+  }
 
   const tokens = evidence?.tokens
   const catalog = tokenCatalog(tokens)
@@ -7075,6 +7202,20 @@ export async function auditArtifactBundle(directory) {
     if (finite(component?.reuseConfidence) && component.reuseConfidence < COMPONENT_REUSE_THRESHOLD) {
       hardFailures.push(`low-reuse-component-spec:${index}`)
     }
+    if (['button', 'tab'].includes(component?.component) && component?.visualTreatment === 'structural') {
+      hardFailures.push(`structural-control-component-spec:${index}`)
+    }
+    if (
+      component?.visualTreatment === 'button-like' &&
+      !['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
+        (property) => Array.isArray(component?.styles?.[property]) && component.styles[property].length > 0,
+      )
+    ) {
+      hardFailures.push(`unlabelled-button-like-component-spec:${index}`)
+    }
+    if (sortedStrings(component?.styles?.borderRadius).some((radius) => auditContextDependentRadius(radius))) {
+      hardFailures.push(`context-dependent-radius-component-spec:${index}`)
+    }
   }
   validateTokenReferences(componentSpecs, catalog, 'component-specs', hardFailures)
   validateEvidenceReferences(componentSpecs, evidenceIds, 'component-specs', hardFailures)
@@ -7142,13 +7283,17 @@ export async function auditArtifactBundle(directory) {
       ([ref, portableValue]) =>
         tokenRefMatchesCandidateGroup(ref, group) && normalizedCssValue(portableValue) === value,
     )
+    const portableInImplementationNamespace = portableEntries.some(
+      ([ref, portableValue]) =>
+        tokenRefSharesImplementationNamespace(ref, group) && normalizedCssValue(portableValue) === value,
+    )
     const implementedInSameGroup = implementationEntries.some(
       ([name, implementationValue]) =>
         implementationNameMatchesCandidateGroup(name, group) && implementationValue === value,
     )
     if (value && group !== 'colors' && portableInSameGroup) {
       hardFailures.push(`candidate-conflicts-portable-token:${candidate.id || candidate.group || value}`)
-    } else if (value && !portableInSameGroup && implementedInSameGroup) {
+    } else if (value && !portableInImplementationNamespace && implementedInSameGroup) {
       hardFailures.push(`candidate-leaked-to-implementation:${candidate.id || candidate.group || value}`)
     }
   }

@@ -1,0 +1,14 @@
+{
+  "fixture": "relative-section-order",
+  "description": "A leading section disappears on mobile while the remaining matched siblings retain relative order.",
+  "expectedSectionRoles": ["content", "footer"],
+  "minSections": 2,
+  "expectedComponentTypes": [],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": [],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": { "forbidRelativeReorder": true }
+}

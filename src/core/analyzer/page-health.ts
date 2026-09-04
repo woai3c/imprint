@@ -121,7 +121,24 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
   const responseStatus = options.responseStatus
   const obstructionFacts = await page.evaluate(inspectDocumentObstructionsInBrowser, { dismiss: false })
   const facts = await page.evaluate(async () => {
-    const root = document.scrollingElement || document.documentElement
+    const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
+    const viewportHeight = Math.max(window.visualViewport?.height || window.innerHeight, 1)
+    const documentElement = document.documentElement
+    const documentBody = document.body
+    if (!documentElement || !documentBody) {
+      return {
+        viewportWidth,
+        viewportHeight,
+        contentWidth: viewportWidth,
+        contentHeight: viewportHeight,
+        mutationCount: 0,
+        mainContentEmpty: true,
+        skeletonRatio: 0,
+        fontsReady: !document.fonts || document.fonts.status === 'loaded',
+        captcha: false,
+      }
+    }
+    const root = document.scrollingElement || documentElement
     let visibleElements = 0
     let skeletonElements = 0
 
@@ -147,7 +164,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     }
 
     let mutationCount = 0
-    const target = document.body || document.documentElement
+    const target = documentBody
     const observer = new MutationObserver((records) => {
       mutationCount += records.length
     })
@@ -155,14 +172,13 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     await new Promise((resolve) => setTimeout(resolve, 300))
     observer.disconnect()
 
-    const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim()
+    const bodyText = (documentBody.innerText || '').replace(/\s+/g, ' ').trim()
     const main = document.querySelector('main, [role="main"]')
     const mainText = (main?.textContent || bodyText).replace(/\s+/g, ' ').trim()
     const meaningfulMedia = document.querySelectorAll('img[src], video, canvas, svg').length
     // There is no reliable web-standard CAPTCHA marker. Vendor/class-name guessing would make restriction handling
     // site-specific, so unknown challenges are reported through their observable overlay/content health effects.
     const captcha = false
-    const viewportWidth = Math.max(window.visualViewport?.width || window.innerWidth, 1)
     let contentWidth = viewportWidth
     const overflowStyleCache = new WeakMap<Element, CSSStyleDeclaration>()
     const overflowStyleFor = (element: Element): CSSStyleDeclaration => {
@@ -172,7 +188,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       overflowStyleCache.set(element, style)
       return style
     }
-    const documentStyle = overflowStyleFor(document.body)
+    const documentStyle = overflowStyleFor(documentBody)
     const horizontalScrollableSide = ['vertical-rl', 'sideways-rl'].includes(documentStyle.writingMode)
       ? 'left'
       : ['vertical-lr', 'sideways-lr'].includes(documentStyle.writingMode)
@@ -182,7 +198,7 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
           : 'right'
     const isInsideHorizontalContainer = (element: Element): boolean => {
       let ancestor = element.parentElement
-      while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      while (ancestor && ancestor !== documentBody && ancestor !== documentElement) {
         const style = overflowStyleFor(ancestor)
         if (
           ['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowX) &&
@@ -195,8 +211,8 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
       return false
     }
     const fixedLayerCache = new WeakMap<Element, boolean>()
-    fixedLayerCache.set(document.documentElement, overflowStyleFor(document.documentElement).position === 'fixed')
-    for (const element of [document.body, ...[...document.body.querySelectorAll('*')].slice(0, 5_000)]) {
+    fixedLayerCache.set(documentElement, overflowStyleFor(documentElement).position === 'fixed')
+    for (const element of [documentBody, ...[...documentBody.querySelectorAll('*')].slice(0, 5_000)]) {
       const rect = element.getBoundingClientRect()
       const style = overflowStyleFor(element)
       const insideFixedLayer =
@@ -230,9 +246,9 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
     }
     return {
       viewportWidth,
-      viewportHeight: Math.max(window.visualViewport?.height || window.innerHeight, 1),
+      viewportHeight,
       contentWidth: Math.ceil(contentWidth),
-      contentHeight: Math.max(root.scrollHeight, document.documentElement.scrollHeight),
+      contentHeight: Math.max(root.scrollHeight, documentElement.scrollHeight),
       mutationCount,
       mainContentEmpty: mainText.length < 30 && bodyText.length < 80 && meaningfulMedia === 0,
       skeletonRatio: skeletonElements / Math.max(visibleElements, 1),

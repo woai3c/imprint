@@ -48,6 +48,7 @@ import {
   topLevelGridColumnCount,
   usefulResponsiveChanges,
 } from '../design-evidence/responsive-reliability.js'
+import { isContextDependentRadius } from '../design-evidence/structural-styles.js'
 import { validateEvidenceTokenReferences } from '../design-evidence/token-reference.js'
 import { colorTokenRefCompatibleWithStyle } from '../design-evidence/token-style-compatibility.js'
 import { formatPageSectionTopology } from '../design-evidence/topology-summary.js'
@@ -510,7 +511,7 @@ function designMdComponentTokens(
         ''
     }
     const borderRadius = component.styles.borderRadius
-    if (borderRadius) {
+    if (borderRadius && !isContextDependentRadius(borderRadius)) {
       const dimension = singleDimensionFromShorthand(borderRadius)
       if (dimension && !isZeroDimension(dimension)) {
         properties.rounded = findTokenReference('rounded', roundedEntries, dimension) || dimension
@@ -1287,6 +1288,7 @@ function localizeReconstructionFact(value: string, language: DocLanguage): strin
     [/\blayoutMode\b/g, coreT(language, 'export.reconstruction.terms.layoutMode')],
     [/\bposition\b/gi, coreT(language, 'export.reconstruction.terms.position')],
     [/\bheight\b/gi, coreT(language, 'export.reconstruction.terms.height')],
+    [/\brelative-order-changed\b/g, coreT(language, 'export.reconstruction.terms.relativeOrderChanged')],
     [/\border\b/gi, coreT(language, 'export.reconstruction.terms.order')],
     [/\bsequenceIndex\b/g, coreT(language, 'export.reconstruction.terms.order')],
     [/\bariaExpanded\b/g, coreT(language, 'export.reconstruction.terms.ariaExpanded')],
@@ -1617,6 +1619,7 @@ function reconstructionResponsiveFacts(evidence: DesignEvidence): Reconstruction
     for (const [property, values] of usefulResponsiveChanges(observation, section?.role)) {
       const gridProperty = property === 'gridTemplateColumns' || property === 'childGridTemplateColumns'
       const headingProperty = property === 'node.heading.fontSize'
+      const relativeOrderProperty = property === 'sequenceIndex'
       const layoutProperty = ['layoutMode', 'position', 'order', 'sequenceIndex'].includes(property)
       const heightProperty = property === 'height' || property.endsWith('.height')
       const usefulHeight = heightProperty
@@ -1628,7 +1631,9 @@ function reconstructionResponsiveFacts(evidence: DesignEvidence): Reconstruction
           : `columns ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
         : headingProperty
           ? `heading font-size ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
-          : `${property}: ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
+          : relativeOrderProperty
+            ? 'relative-order-changed'
+            : `${property}: ${values.from ?? 'absent'} → ${values.to ?? 'absent'}`
       const priority = gridProperty ? 0 : headingProperty ? 1 : layoutProperty || usefulHeight ? 2 : 4
       facts.push({
         fact: `${context}: ${label}`,
@@ -1847,6 +1852,7 @@ export function generateDesignDoc(
     })) ||
     []
   const documentComponents = resolveDesignDocComponents(components, evidenceTokens, designEvidence)
+  const reconstructionComponents = designDocComponentProjection(documentComponents, designProfile).designDocComponents
   const freeformEvidenceComponents = summarizeFreeformEvidenceComponents(designEvidence)
   const sections: Record<DesignMdSectionKey, string[]> = {
     overview: [],
@@ -1888,14 +1894,7 @@ export function generateDesignDoc(
     lines.push(generateTransferOverviewMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence), '')
   }
   if (designEvidence)
-    lines.push(
-      ...reconstructionSummary(
-        designEvidence,
-        evidenceTokens,
-        [...freeformEvidenceComponents, ...documentComponents],
-        language,
-      ),
-    )
+    lines.push(...reconstructionSummary(designEvidence, evidenceTokens, reconstructionComponents, language))
   if (documentUrl) lines.push(docT('extractedFrom', { url: documentUrl }))
 
   if (documentFeatureTags.length > 0) {

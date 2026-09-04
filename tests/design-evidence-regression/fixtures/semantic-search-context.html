@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Semantic search context</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f4f5f7;
+        color: #20242c;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 28px;
+        background: #fff;
+      }
+      main {
+        max-width: 720px;
+        margin: 32px auto;
+        padding: 28px;
+        background: #fff;
+      }
+      input {
+        border: 1px solid #aeb5c0;
+        border-radius: 6px;
+        font: inherit;
+      }
+      [role='search'] input {
+        width: 280px;
+        padding: 9px 44px 9px 12px;
+      }
+      main input {
+        width: 100%;
+        padding: 9px 12px;
+      }
+      label {
+        display: grid;
+        gap: 8px;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 20px;
+      }
+      .action {
+        display: inline-flex;
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 6px;
+        background: #3154c8;
+        color: #fff;
+        font: inherit;
+        text-decoration: none;
+      }
+      @media (max-width: 640px) {
+        header {
+          display: grid;
+          gap: 12px;
+        }
+        [role='search'] input {
+          width: 100%;
+        }
+        main {
+          margin: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Knowledge base</strong>
+      <form role="search"><input type="text" aria-label="Search articles" placeholder="Search articles" /></form>
+      <form role="search"><input type="text" aria-label="Search guides" placeholder="Search guides" /></form>
+    </header>
+    <main>
+      <h1>Profile</h1>
+      <p>
+        Update the public name associated with this workspace. This ordinary account field is intentionally separate
+        from the article search control in the page header.
+      </p>
+      <form>
+        <label>Display name <input type="text" value="Avery" /></label>
+        <label>Team name <input type="text" value="Studio" /></label>
+      </form>
+      <div class="actions">
+        <a class="action" href="#documentation">Read documentation</a>
+        <button class="action" type="button">Save profile</button>
+      </div>
+    </main>
+  </body>
+</html>

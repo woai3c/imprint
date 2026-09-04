@@ -19,8 +19,60 @@ import {
   summarizeComponentCandidates,
   summarizeComponentVariants,
 } from '../../src/core/analyzer/component-detect.js'
+import { isActionableComponentPattern } from '../../src/core/design-context/component-catalog.js'
 
 describe('component candidate summarization', () => {
+  test('keeps reusable structural controls out of actionable component contracts', () => {
+    const [pattern] = summarizeComponentVariants(
+      Array.from({ length: 2 }, (_value, index) => ({
+        type: 'button' as const,
+        confidence: 0.98,
+        evidence: [`compound-button-${index}`],
+        pageId: `page-${index}`,
+        semanticIdentity: 'button' as const,
+        visualTreatment: 'structural' as const,
+        usageContext: 'general' as const,
+        widthPx: 480,
+        heightPx: 240,
+        styles: {
+          backgroundColor: '#ffffff',
+          color: '#172033',
+          border: '1px solid #ccd5e0',
+          padding: '24px',
+          height: '240px',
+        },
+      })),
+    )
+
+    expect(pattern.visualTreatments).toEqual(['structural'])
+    expect(isReusableComponentPattern(pattern)).toBe(true)
+    expect(isActionableComponentPattern(pattern, [])).toBe(false)
+  })
+
+  test('keeps an unlabelled button-like link out of actionable component contracts', () => {
+    const [pattern] = summarizeComponentVariants(
+      Array.from({ length: 2 }, (_value, index) => ({
+        type: 'button' as const,
+        confidence: 0.9,
+        evidence: [`unlabelled-link-${index}`],
+        pageId: 'page-one',
+        semanticIdentity: 'link' as const,
+        visualTreatment: 'button-like' as const,
+        usageContext: 'general' as const,
+        widthPx: 260,
+        heightPx: 140,
+        styles: {
+          backgroundColor: '#ffffff',
+          height: '140px',
+          padding: '0 52px',
+        },
+      })),
+    )
+
+    expect(isReusableComponentPattern(pattern)).toBe(true)
+    expect(isActionableComponentPattern(pattern, [])).toBe(false)
+  })
+
   test('keeps reusable component styles on their rendered owner', () => {
     const styles = {
       backgroundColor: '#ffffff',
@@ -216,6 +268,8 @@ describe('component candidate summarization', () => {
 
     expect(classifyCardStyle({ borderRadius, boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.15)' })).toBe('outlined-rounded')
     expect(isPillRadius({ borderRadius })).toBe(false)
+    expect(classifyCardStyle({ borderRadius: '3.35544e+07px' })).toBe('flat-rounded')
+    expect(isPillRadius({ borderRadius: '33554400px' })).toBe(false)
   })
 
   test('keeps semantic evidence, averages confidence, and uses the common style', () => {

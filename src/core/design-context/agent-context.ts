@@ -100,7 +100,9 @@ export function generateAgentContextBundle(
         .slice(0, 8)
         .map(
           (observation) =>
-            `${observation.fromViewport} to ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties.join(', ')})`,
+            `${observation.fromViewport} to ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties
+              .map((property) => (property === 'sequenceIndex' ? 'relative order changed' : property))
+              .join(', ')})`,
         ),
     ],
     interactionRules:

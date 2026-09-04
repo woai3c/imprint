@@ -79,21 +79,25 @@ async function waitForTargetMotion(
   deadline: number,
 ): Promise<void> {
   const motionDeadline = Math.min(deadline, Date.now() + 600)
-  await settleBeforeDeadline(
-    page.evaluate(async (input) => {
-      const target = document.querySelector(input.locator)
-      if (!(target instanceof HTMLElement)) return
-      const controlledId = target.getAttribute('aria-controls')
-      const controlled = controlledId ? document.getElementById(controlledId) : null
-      const animations = [
-        ...new Set([target, controlled].flatMap((element) => element?.getAnimations({ subtree: true }) || [])),
-      ].filter((animation) => animation.pending || animation.playState === 'running')
-      await Promise.allSettled(animations.map((animation) => animation.finished))
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    }, candidate),
-    motionDeadline,
-    undefined,
-  )
+  try {
+    await settleBeforeDeadline(
+      page.evaluate(async (input) => {
+        const target = document.querySelector(input.locator)
+        if (!(target instanceof HTMLElement)) return
+        const controlledId = target.getAttribute('aria-controls')
+        const controlled = controlledId ? document.getElementById(controlledId) : null
+        const animations = [
+          ...new Set([target, controlled].flatMap((element) => element?.getAnimations({ subtree: true }) || [])),
+        ].filter((animation) => animation.pending || animation.playState === 'running')
+        await Promise.allSettled(animations.map((animation) => animation.finished))
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      }, candidate),
+      motionDeadline,
+      undefined,
+    )
+  } catch {
+    // A delayed navigation can destroy the execution context between a safe click and its motion probe.
+  }
 }
 
 async function clickCandidate(
@@ -220,20 +224,38 @@ async function restoreCandidate(
   before: Record<string, string>,
   deadline: number,
 ): Promise<boolean> {
-  if (Date.now() >= deadline) return false
-  if (candidate.kind === 'tab' && candidate.restoreLocator) {
-    await page
-      .locator(candidate.restoreLocator)
-      .click({ timeout: Math.min(600, Math.max(1, deadline - Date.now())) })
-      .catch(() => {})
-  } else if (candidate.kind === 'dialog') {
-    await settleBeforeDeadline(page.keyboard.press('Escape'), deadline, undefined)
-  } else {
-    await clickCandidate(page, candidate, deadline)
+  try {
+    if (Date.now() >= deadline || page.isClosed()) return false
+    if (candidate.kind === 'tab' && candidate.restoreLocator) {
+      const restored = await page
+        .locator(candidate.restoreLocator)
+        .click({ timeout: Math.min(600, Math.max(1, deadline - Date.now())) })
+        .then(
+          () => true,
+          () => false,
+        )
+      if (!restored) return false
+    } else if (candidate.kind === 'dialog') {
+      await settleBeforeDeadline(page.keyboard.press('Escape'), deadline, undefined)
+    } else if (!(await clickCandidate(page, candidate, deadline))) {
+      return false
+    }
+    await settleBeforeDeadline(page.mouse.move(0, 0), deadline, undefined)
+    await waitForTargetMotion(page, candidate, deadline)
+    return statesMatch(before, await readTargetState(page, candidate, deadline))
+  } catch {
+    return false
   }
-  await settleBeforeDeadline(page.mouse.move(0, 0), deadline, undefined)
-  await waitForTargetMotion(page, candidate, deadline)
-  return statesMatch(before, await readTargetState(page, candidate, deadline))
+}
+
+async function recoverObservedDocument(page: Page, observedUrl: string, deadline: number): Promise<void> {
+  if (page.isClosed() || Date.now() >= deadline) return
+  const recoveryBudget = Math.min(3_000, Math.max(1, deadline - Date.now()))
+  const recover = () =>
+    page.url() === observedUrl
+      ? page.reload({ waitUntil: 'domcontentloaded', timeout: recoveryBudget })
+      : page.goto(observedUrl, { waitUntil: 'domcontentloaded', timeout: recoveryBudget })
+  await settleBeforeDeadline(Promise.resolve().then(recover), deadline, null)
 }
 
 export async function observeSafeInteractions(
@@ -257,7 +279,10 @@ export async function observeSafeInteractions(
     await settleBeforeDeadline(page.mouse.move(0, 0), candidateDeadline, undefined)
     await waitForTargetMotion(page, candidate, candidateDeadline)
     const after = await readTargetState(page, candidate, candidateDeadline)
-    if (!after) continue
+    if (!after || page.url() !== observedUrl) {
+      await recoverObservedDocument(page, observedUrl, deadline)
+      break
+    }
     const changedProperties = diffProperties(before, after)
 
     let observation: InteractionObservationSnapshot | undefined
@@ -296,8 +321,7 @@ export async function observeSafeInteractions(
       await readPageGeometry(page, Math.min(deadline, Date.now() + 250)),
     )
     if (!targetRestored || !geometryRestored) {
-      const reloadBudget = Math.min(3_000, Math.max(1, deadline - Date.now()))
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: reloadBudget }).catch(() => {})
+      await recoverObservedDocument(page, observedUrl, deadline)
       break
     }
     if (observation) observations.push(observation)

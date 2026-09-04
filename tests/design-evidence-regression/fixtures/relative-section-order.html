@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stable relative section order</title>
+    <style>
+      body {
+        margin: 0;
+        color: #1f2937;
+        background: #f8fafc;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      header,
+      main,
+      footer,
+      aside {
+        padding: 28px;
+      }
+      header {
+        background: #dbeafe;
+      }
+      main {
+        min-height: 320px;
+        background: #fff;
+      }
+      aside {
+        background: #fef3c7;
+      }
+      footer {
+        background: #e5e7eb;
+      }
+      @media (max-width: 640px) {
+        header {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header><h1>Desktop announcement</h1></header>
+    <main>
+      <h2>Stable content</h2>
+      <p>The content remains before the footer in every viewport.</p>
+    </main>
+    <footer>Stable footer</footer>
+  </body>
+</html>

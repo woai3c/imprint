@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  isContextDependentRadius,
   parseSectionGradient,
   safeSectionObservedStyles,
   scalarRadiusFromCorners,
@@ -33,6 +34,14 @@ describe('structural styles', () => {
         borderBottomLeftRadius: contextual,
       }),
     ).toBeUndefined()
+  })
+
+  test('treats browser-clamped extreme radii as context-dependent without rejecting ordinary pill radii', () => {
+    expect(isContextDependentRadius('3.35544e+07px')).toBe(true)
+    expect(isContextDependentRadius('33554400px')).toBe(true)
+    expect(isContextDependentRadius('9999px')).toBe(false)
+    expect(isContextDependentRadius('24px')).toBe(false)
+    expect(scalarRadiusFromCorners(['33554400px', '33554400px', '33554400px', '33554400px'])).toBeNull()
   })
 
   test('keeps uniform length radii in the scalar scale instead of duplicating them as structure', () => {

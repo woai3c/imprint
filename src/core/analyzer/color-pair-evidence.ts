@@ -175,6 +175,22 @@ export function isPrimaryForegroundPair(evidence: PairedSurfaceEvidence | undefi
   return mainTextPageCount >= 2 && mainTextPageCount / evidence.eligiblePageCount >= 0.5
 }
 
+function colorChannelChroma(value: string): number | null {
+  const normalized = normalizeColorValue(value)
+  const match = normalized?.match(/^#([\da-f]{6})$/i)
+  if (!match) return null
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(match[1].slice(offset, offset + 2), 16))
+  return Math.max(...channels) - Math.min(...channels)
+}
+
+/** Foundation muted copy may be tinted, but a strongly chromatic heading or link remains an accent, not muted text. */
+function isFoundationMutedTone(foreground: string, candidate: string): boolean {
+  const foregroundChroma = colorChannelChroma(foreground)
+  const candidateChroma = colorChannelChroma(candidate)
+  if (foregroundChroma === null || candidateChroma === null) return false
+  return candidateChroma <= Math.max(48, foregroundChroma + 24)
+}
+
 /** A muted text token must remain readable while being visibly less emphatic than the paired foundation foreground. */
 export function isMutedForegroundPair(
   background: string | undefined,
@@ -189,7 +205,8 @@ export function isMutedForegroundPair(
     foregroundContrast !== null &&
     candidateContrast !== null &&
     candidateContrast >= 4.5 &&
-    candidateContrast <= foregroundContrast - 0.5,
+    candidateContrast <= foregroundContrast - 0.5 &&
+    isFoundationMutedTone(foreground, candidate),
   )
 }
 

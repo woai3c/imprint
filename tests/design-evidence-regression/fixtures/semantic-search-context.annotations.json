@@ -1,0 +1,29 @@
+{
+  "fixture": "semantic-search-context",
+  "description": "A text input in a search landmark and a normal form text input with distinct recipes.",
+  "expectedSectionRoles": ["header", "hero"],
+  "minSections": 2,
+  "expectedComponentTypes": ["input", "button"],
+  "expectedComponentRoles": ["searchbox", "textbox"],
+  "expectedElementKinds": ["input", "anchor", "button"],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": ["reflow", "mixed"],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": {
+    "foundationColors": { "background": "#f4f5f7", "surface": "#ffffff", "secondary": null },
+    "expectedComponentRoles": ["searchbox", "textbox"],
+    "expectedComponentSemantics": [
+      { "elementKind": "anchor", "semanticIdentity": "link", "visualTreatment": "button-like" },
+      { "elementKind": "button", "semanticIdentity": "button", "visualTreatment": "filled" }
+    ],
+    "expectedComponentPatternNames": ["input-search", "input-text"],
+    "expectedComponentStyles": [
+      { "pattern": "input-search", "property": "padding", "value": "9px 44px 9px 12px" },
+      { "pattern": "input-text", "property": "padding", "value": "9px 12px 9px 12px" }
+    ],
+    "forbiddenComponentStyles": [{ "pattern": "input-text", "property": "padding", "value": "9px 44px 9px 12px" }]
+  }
+}

@@ -3,10 +3,12 @@ import { describe, expect, test } from 'vitest'
 import {
   colorCandidateObservationCount,
   enrichColorCandidateEvidence,
+  stabilizePortableTokens,
 } from '../../src/core/analyzer/analysis-output.js'
 import { clusterColors } from '../../src/core/analyzer/color-cluster.js'
 import { buildForegroundPairEvidence } from '../../src/core/analyzer/color-pair-evidence.js'
 import { reselectPortableFoundationColors } from '../../src/core/analyzer/color-role-promotion.js'
+import { selectFoundationSurfaceColors } from '../../src/core/analyzer/semantic-owner.js'
 import { mergeStylesWithNormalizedUsage } from '../../src/core/analyzer/style-merge.js'
 import { buildDesignTokens } from '../../src/core/analyzer/token-builder.js'
 import { buildTokenEvidence } from '../../src/core/analyzer/token-evidence.js'
@@ -269,11 +271,11 @@ describe('design token builder', () => {
 
     expect(result.typography.fontSizes).toEqual([
       '0.75rem',
-      '0.813rem',
+      '0.8125rem',
       '0.875rem',
-      '0.938rem',
+      '0.9375rem',
       '1rem',
-      '1.063rem',
+      '1.0625rem',
       '1.125rem',
     ])
     expect(result.typography.lineHeights).toEqual([])
@@ -536,15 +538,20 @@ describe('design token builder', () => {
 
   test('does not promote a distant brand block to the neutral surface role', () => {
     const styles = createExtractedStyles()
-    const tokens = buildDesignTokens(styles, {
-      palette: [
-        { hex: '#ffffff', count: 10 },
-        { hex: '#ffff00', count: 2 },
-      ],
-      backgrounds: ['#ffffff', '#ffff00'],
-      texts: ['#000000'],
-      accents: ['#ffff00'],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [
+          { hex: '#ffffff', count: 10 },
+          { hex: '#ffff00', count: 2 },
+        ],
+        backgrounds: ['#ffffff', '#ffff00'],
+        texts: ['#000000'],
+        accents: ['#ffff00'],
+      },
+      styles,
+      { background: '#ffffff' },
+    )
 
     expect(tokens.colors.background).toBe('#ffffff')
     expect(tokens.colors.surface).toBeUndefined()
@@ -553,24 +560,27 @@ describe('design token builder', () => {
     expect(tokens.colors['editorial-accent']).toBe('#ffff00')
   })
 
-  test('uses a related observed surface as the semantic secondary instead of a second action hue', () => {
+  test('does not manufacture a secondary surface from an action hue or duplicate an existing surface', () => {
+    const styles = createExtractedStyles({
+      usageCount: {
+        'primaryActionBackgroundColor:rgb(0, 87, 217)': 2,
+        'actionBackgroundColor:rgb(124, 58, 237)': 2,
+      },
+    })
     const tokens = buildDesignTokens(
-      createExtractedStyles({
-        usageCount: {
-          'primaryActionBackgroundColor:rgb(0, 87, 217)': 2,
-          'actionBackgroundColor:rgb(124, 58, 237)': 2,
-        },
-      }),
+      styles,
       {
         palette: [],
         backgrounds: ['#ffffff', '#f5f5f5'],
         texts: ['#111827'],
         accents: ['#0057d9', '#7c3aed'],
       },
+      styles,
+      { background: '#ffffff', surface: '#f5f5f5' },
     )
 
     expect(tokens.colors.surface).toBe('#f5f5f5')
-    expect(tokens.colors.secondary).toBe('#f5f5f5')
+    expect(tokens.colors.secondary).toBeUndefined()
     expect(tokens.colors.primary).toBe('#0057d9')
     expect(tokens.colors.accent).toBe('#7c3aed')
   })
@@ -764,12 +774,18 @@ describe('design token builder', () => {
   })
 
   test('keeps inverted action text out of the muted foreground role', () => {
-    const tokens = buildDesignTokens(createExtractedStyles(), {
-      palette: [],
-      backgrounds: ['#ffffff'],
-      texts: ['#000000', '#ffffff', '#57606a'],
-      accents: ['#0969da'],
-    })
+    const styles = createExtractedStyles()
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#ffffff'],
+        texts: ['#000000', '#ffffff', '#57606a'],
+        accents: ['#0969da'],
+      },
+      styles,
+      { background: '#ffffff' },
+    )
 
     expect(tokens.colors.foreground).toBe('#000000')
     expect(tokens.colors['muted-foreground']).toBe('#57606a')
@@ -818,12 +834,17 @@ describe('design token builder', () => {
         },
       ],
     })
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#f3f6fb', '#ffffff', '#e8eef8'],
-      texts: ['#172033', '#5b6578', '#2457d6'],
-      accents: ['#2457d6'],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#f3f6fb', '#ffffff', '#e8eef8'],
+        texts: ['#172033', '#5b6578', '#2457d6'],
+        accents: ['#2457d6'],
+      },
+      styles,
+      { background: '#f3f6fb', surface: '#ffffff', secondary: '#e8eef8' },
+    )
 
     expect(tokens.colors.foreground).toBe('#172033')
     expect(tokens.colors['muted-foreground']).toBe('#5b6578')
@@ -871,12 +892,17 @@ describe('design token builder', () => {
       ],
     })
 
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#ffffff'],
-      texts: ['#ffffff', '#111827'],
-      accents: [],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#ffffff'],
+        texts: ['#ffffff', '#111827'],
+        accents: [],
+      },
+      styles,
+      { background: '#ffffff' },
+    )
 
     expect(tokens.colors.background).toBe('#ffffff')
     expect(tokens.colors.foreground).toBe('#111827')
@@ -1330,6 +1356,102 @@ describe('design token builder', () => {
     })
   })
 
+  test('does not promote a repeated chromatic heading accent as the muted foreground', () => {
+    const captures = Array.from({ length: 3 }, (_value, index) => {
+      const url = `https://example.com/section-${index + 1}`
+      const primary = 'rgb(18, 18, 18)'
+      const headingAccent = 'rgb(199, 0, 0)'
+      const mutedCopy = 'rgb(89, 99, 110)'
+      const bodyOwners = Array.from({ length: 12 }, (_item, owner) => `body-${owner}`)
+      const titleOwners = Array.from({ length: 2 }, (_item, owner) => `title-${owner}`)
+      const primaryOwners = [...bodyOwners, ...titleOwners]
+      const accentOwners = Array.from({ length: 5 }, (_item, owner) => `kicker-${owner}`)
+      const mutedOwners = Array.from({ length: 2 }, (_item, owner) => `metadata-${owner}`)
+      return {
+        url,
+        viewport: 'desktop',
+        styles: createExtractedStyles({
+          usageCount: {
+            [`textColor:${primary}`]: primaryOwners.length,
+            [`textColor:${headingAccent}`]: accentOwners.length,
+            [`textColor:${mutedCopy}`]: mutedOwners.length,
+          },
+          usageOwnerIds: {
+            [`textColor:${primary}`]: primaryOwners,
+            [`textColor:${headingAccent}`]: accentOwners,
+            [`textColor:${mutedCopy}`]: mutedOwners,
+          },
+          valueSources: {
+            [`textColor:${primary}`]: ['computed:text'],
+            [`textColor:${headingAccent}`]: ['computed:text'],
+            [`textColor:${mutedCopy}`]: ['computed:text'],
+          },
+          textColorPairObservations: [
+            {
+              captureId: `${url}|desktop`,
+              background: 'rgb(255, 255, 255)',
+              foreground: primary,
+              textRole: 'body',
+              count: bodyOwners.length,
+              ownerIds: bodyOwners,
+            },
+            {
+              captureId: `${url}|desktop`,
+              background: 'rgb(255, 255, 255)',
+              foreground: primary,
+              textRole: 'heading',
+              count: titleOwners.length,
+              ownerIds: titleOwners,
+            },
+            {
+              captureId: `${url}|desktop`,
+              background: 'rgb(255, 255, 255)',
+              foreground: headingAccent,
+              textRole: 'heading',
+              count: accentOwners.length,
+              ownerIds: accentOwners,
+            },
+            {
+              captureId: `${url}|desktop`,
+              background: 'rgb(255, 255, 255)',
+              foreground: mutedCopy,
+              textRole: 'label',
+              count: mutedOwners.length,
+              ownerIds: mutedOwners,
+            },
+          ],
+          renderedTextStyleObservations: [
+            ...renderedTextOwners(primary, 'rgb(255, 255, 255)', bodyOwners, 'body'),
+            ...renderedTextOwners(primary, 'rgb(255, 255, 255)', titleOwners, 'heading'),
+            ...renderedTextOwners(headingAccent, 'rgb(255, 255, 255)', accentOwners, 'heading'),
+            ...renderedTextOwners(mutedCopy, 'rgb(255, 255, 255)', mutedOwners, 'label'),
+          ],
+        }),
+      }
+    })
+    const tokenProbe = buildDesignTokens(createExtractedStyles(), {
+      palette: [],
+      backgrounds: [],
+      texts: [],
+      accents: [],
+    })
+    tokenProbe.colors = { background: '#ffffff', foreground: '#121212' }
+    tokenProbe.candidates = {
+      colors: [
+        { value: '#c70000', kind: 'observed-unassigned', observationCount: 15, sources: ['computed:text'] },
+        { value: '#59636e', kind: 'observed-unassigned', observationCount: 6, sources: ['computed:text'] },
+      ],
+    }
+    tokenProbe.evidence = buildTokenEvidence(tokenProbe, captures)
+
+    reselectPortableFoundationColors(tokenProbe, captures)
+    promotePortableDesignTokens(tokenProbe)
+
+    expect(tokenProbe.colors.foreground).toBe('#121212')
+    expect(tokenProbe.colors['muted-foreground']).toBe('#59636e')
+    expect(tokenProbe.colors['muted-foreground']).not.toBe('#c70000')
+  })
+
   test('does not let an extra viewport from one URL outvote foreground evidence from another URL', () => {
     const capture = (captureId: string, foreground: string, count: number) =>
       createExtractedStyles({
@@ -1355,7 +1477,7 @@ describe('design token builder', () => {
     }
     const build = (styles: ReturnType<typeof createExtractedStyles>[], urls: string[]) => {
       const merged = mergeStylesWithNormalizedUsage(styles, urls)
-      return { merged, tokens: buildDesignTokens(merged, colors, merged) }
+      return { merged, tokens: buildDesignTokens(merged, colors, merged, { background: '#ffffff' }) }
     }
 
     const base = build(
@@ -1395,12 +1517,17 @@ describe('design token builder', () => {
       ],
     })
 
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#611f69'],
-      texts: ['#000000', '#ffffff'],
-      accents: [],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#611f69'],
+        texts: ['#000000', '#ffffff'],
+        accents: [],
+      },
+      styles,
+      { background: '#611f69' },
+    )
 
     expect(tokens.colors.foreground).toBe('#ffffff')
   })
@@ -1470,12 +1597,17 @@ describe('design token builder', () => {
       ],
     })
 
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#f3f6fb', '#ffffff'],
-      texts: ['#5b6578', '#172033'],
-      accents: [],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#f3f6fb', '#ffffff'],
+        texts: ['#5b6578', '#172033'],
+        accents: [],
+      },
+      styles,
+      { background: '#f3f6fb', surface: '#ffffff' },
+    )
 
     expect(tokens.colors.foreground).toBe('#172033')
     expect(tokens.colors['muted-foreground']).toBe('#5b6578')
@@ -1547,6 +1679,84 @@ describe('design token builder', () => {
     ).toBe(true)
   })
 
+  test('removes a foreground whose observed surface is removed from the portable catalog', () => {
+    const canvas = 'rgb(245, 245, 247)'
+    const localSurface = 'rgb(255, 255, 255)'
+    const foreground = 'rgb(0, 0, 0)'
+    const captures = Array.from({ length: 2 }, (_value, index) => {
+      const url = `https://example.com/page-${index + 1}`
+      const ownerIds = [`copy-${index}-1`, `copy-${index}-2`]
+      return {
+        url,
+        viewport: 'desktop',
+        styles: createExtractedStyles({
+          usageCount: {
+            [`bgColor:${canvas}`]: 1,
+            [`bgColor:${localSurface}`]: 1,
+            [`textColor:${foreground}`]: ownerIds.length,
+          },
+          usageOwnerIds: {
+            [`bgColor:${canvas}`]: [`body-${index}`],
+            [`bgColor:${localSurface}`]: [`panel-${index}`],
+            [`textColor:${foreground}`]: ownerIds,
+          },
+          valueSources: {
+            [`bgColor:${canvas}`]: ['element:page-background'],
+            [`bgColor:${localSurface}`]: ['computed:background'],
+            [`textColor:${foreground}`]: ['rendered:text'],
+          },
+          semanticSurfaceObservations: [
+            {
+              captureId: `${url}|desktop`,
+              ownerId: `body-${index}`,
+              value: canvas,
+              domain: 'foundation',
+              role: 'page-canvas',
+              rendered: true,
+              declared: false,
+              elementKind: 'body',
+            },
+            {
+              captureId: `${url}|desktop`,
+              ownerId: `panel-${index}`,
+              value: localSurface,
+              domain: 'local',
+              role: 'local-surface',
+              rendered: true,
+              declared: false,
+              elementKind: 'section',
+            },
+          ],
+          textColorPairObservations: [
+            {
+              captureId: `${url}|desktop`,
+              background: localSurface,
+              foreground,
+              textRole: 'body',
+              count: ownerIds.length,
+              ownerIds,
+            },
+          ],
+          renderedTextStyleObservations: renderedTextOwners(foreground, localSurface, ownerIds, 'body'),
+        }),
+      }
+    })
+    const tokenProbe = buildDesignTokens(createExtractedStyles(), {
+      palette: [],
+      backgrounds: [],
+      texts: [],
+      accents: [],
+    })
+    tokenProbe.colors = { background: '#f5f5f7', surface: '#ffffff', foreground: '#000000' }
+    tokenProbe.evidence = buildTokenEvidence(tokenProbe, captures)
+
+    expect(tokenProbe.evidence['colors.foreground'].pairedSurface?.background).toBe('#ffffff')
+    stabilizePortableTokens(tokenProbe, captures)
+
+    expect(tokenProbe.colors).toEqual({ background: '#f5f5f7' })
+    expect(tokenProbe.evidence['colors.foreground']).toBeUndefined()
+  })
+
   test('keeps area-supported card and secondary surfaces in evidence order', () => {
     const styles = createExtractedStyles({
       colors: ['rgb(243, 246, 251)', 'rgb(255, 255, 255)', 'rgb(232, 238, 248)', 'rgb(23, 32, 51)'],
@@ -1568,7 +1778,11 @@ describe('design token builder', () => {
     })
 
     const clustered = clusterColors(styles.colors, styles.usageCount)
-    const tokens = buildDesignTokens(styles, clustered, styles)
+    const tokens = buildDesignTokens(styles, clustered, styles, {
+      background: '#f3f6fb',
+      surface: '#ffffff',
+      secondary: '#e8eef8',
+    })
 
     expect(clustered.backgrounds.slice(0, 3)).toEqual(['#f3f6fb', '#ffffff', '#e8eef8'])
     expect(tokens.colors).toMatchObject({
@@ -1579,7 +1793,7 @@ describe('design token builder', () => {
     })
   })
 
-  test('re-evaluates exact foundation candidates when an initial surface proposal lacks support', () => {
+  test('selects an exact reusable surface from semantic owners before building tokens', () => {
     const weakSurface = 'rgb(232, 238, 248)'
     const supportedSurface = 'rgb(255, 255, 255)'
     const pageBackground = 'rgb(243, 246, 251)'
@@ -1611,30 +1825,55 @@ describe('design token builder', () => {
         [`bgColor:${weakSurface}`]: ['computed:background'],
         [`bgColor:${supportedSurface}`]: ['computed:background'],
       },
-    })
-    const candidateTokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#f3f6fb', '#e8eef8'],
-      texts: [],
-      accents: [],
-    })
-    delete candidateTokens.colors.secondary
-    candidateTokens.candidates = {
-      colors: [
+      semanticSurfaceObservations: [
         {
-          value: '#ffffff',
-          kind: 'observed-unassigned',
-          observationCount: 2,
-          sources: ['computed:background'],
+          captureId: 'home|desktop',
+          ownerId: 'body',
+          value: pageBackground,
+          domain: 'foundation',
+          role: 'page-canvas',
+          rendered: true,
+          declared: false,
+          elementKind: 'body',
         },
+        {
+          captureId: 'home|desktop',
+          ownerId: 'aside',
+          value: weakSurface,
+          domain: 'foundation',
+          role: 'content-surface',
+          rendered: true,
+          declared: false,
+          elementKind: 'aside',
+        },
+        ...['article-1', 'article-2'].map((ownerId) => ({
+          captureId: 'home|desktop',
+          ownerId,
+          value: supportedSurface,
+          domain: 'foundation' as const,
+          role: 'content-surface' as const,
+          rendered: true,
+          declared: false,
+          elementKind: 'article',
+        })),
       ],
-    }
+    })
     const captures = [{ url: 'https://example.com/', viewport: 'desktop', styles }]
+    const selection = selectFoundationSurfaceColors(captures)
+    const candidateTokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#f3f6fb', '#e8eef8'],
+        texts: [],
+        accents: [],
+      },
+      styles,
+      selection,
+    )
     candidateTokens.evidence = buildTokenEvidence(candidateTokens, captures)
 
-    expect(candidateTokens.evidence['colors.surface'].reuseScope).toBe('local')
-    reselectPortableFoundationColors(candidateTokens, captures)
-
+    expect(selection).toEqual({ background: '#f3f6fb', surface: '#ffffff' })
     expect(candidateTokens.colors.surface).toBe('#ffffff')
     expect(candidateTokens.evidence['colors.surface']).toMatchObject({
       reuseScope: 'foundation',
@@ -1943,12 +2182,17 @@ describe('design token builder', () => {
         'primaryActionBackgroundColor:rgb(23, 114, 246)': 2,
       },
     })
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#f4f6f9', '#ffffff'],
-      texts: ['#191b1f'],
-      accents: ['#1772f6'],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#f4f6f9', '#ffffff'],
+        texts: ['#191b1f'],
+        accents: ['#1772f6'],
+      },
+      styles,
+      { background: '#f4f6f9', surface: '#ffffff' },
+    )
 
     expect(tokens.colors.surface).toBe('#ffffff')
     expect(tokens.colors.primary).toBe('#1772f6')
@@ -2129,6 +2373,69 @@ describe('design token builder', () => {
           }),
         }),
       ]),
+    )
+  })
+
+  test('derives background candidate reuse scope from semantic owners rather than route frequency', () => {
+    const value = '#111111'
+    const candidateTokens = () => {
+      const tokens = buildDesignTokens(createExtractedStyles(), {
+        palette: [],
+        backgrounds: [],
+        texts: [],
+        accents: [],
+      })
+      tokens.candidates = {
+        colors: [{ value, kind: 'observed-unassigned', observationCount: 2, sources: [] }],
+      }
+      return tokens
+    }
+    const capture = (url: string, semanticSource: 'semantic:chrome-surface' | 'semantic:content-surface') => {
+      const ownerId = `body > ${semanticSource === 'semantic:chrome-surface' ? 'header' : 'article'}`
+      return {
+        url,
+        viewport: 'desktop',
+        styles: createExtractedStyles({
+          usageCount: { [`bgColor:${value}`]: 1 },
+          usageOwnerCounts: { [`bgColor:${value}`]: 1 },
+          usageOwnerIds: { [`bgColor:${value}`]: [ownerId] },
+          valueSources: { [`bgColor:${value}`]: ['computed:background', semanticSource] },
+          valueSourceCounts: {
+            [`bgColor:${value}`]: { 'computed:background': 1, [semanticSource]: 1 },
+          },
+          valueSourceOwnerIds: {
+            [`bgColor:${value}`]: {
+              'computed:background': [ownerId],
+              [semanticSource]: [ownerId],
+            },
+          },
+        }),
+      }
+    }
+    const urls = ['https://example.com/', 'https://example.com/about']
+
+    const chromeTokens = candidateTokens()
+    enrichColorCandidateEvidence(
+      chromeTokens,
+      urls.map((url) => capture(url, 'semantic:chrome-surface')),
+    )
+    expect(chromeTokens.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        role: 'background',
+        evidence: expect.objectContaining({ reuseScope: 'component' }),
+      }),
+    )
+
+    const contentTokens = candidateTokens()
+    enrichColorCandidateEvidence(
+      contentTokens,
+      urls.map((url) => capture(url, 'semantic:content-surface')),
+    )
+    expect(contentTokens.candidates?.values).toContainEqual(
+      expect.objectContaining({
+        role: 'background',
+        evidence: expect.objectContaining({ reuseScope: 'foundation' }),
+      }),
     )
   })
 
@@ -2437,7 +2744,7 @@ describe('design token builder', () => {
     expect(buildDesignTokens(styles, clustered, styles).colors.danger).toBeUndefined()
   })
 
-  test('separates default and subtle borders while keeping a secondary surface distinct from white cards', () => {
+  test('separates default and subtle borders without duplicating the canvas as a secondary surface', () => {
     const styles = createExtractedStyles({
       usageCount: {
         'structuralBorderColor:rgb(248, 248, 250)': 40,
@@ -2445,15 +2752,20 @@ describe('design token builder', () => {
         'structuralBorderColor:rgb(217, 83, 80)': 32,
       },
     })
-    const tokens = buildDesignTokens(styles, {
-      palette: [],
-      backgrounds: ['#f4f6f9', '#ffffff'],
-      texts: ['#191b1f'],
-      accents: ['#1772f6'],
-    })
+    const tokens = buildDesignTokens(
+      styles,
+      {
+        palette: [],
+        backgrounds: ['#f4f6f9', '#ffffff'],
+        texts: ['#191b1f'],
+        accents: ['#1772f6'],
+      },
+      styles,
+      { background: '#f4f6f9', surface: '#ffffff' },
+    )
 
     expect(tokens.colors.surface).toBe('#ffffff')
-    expect(tokens.colors.secondary).toBe('#f4f6f9')
+    expect(tokens.colors.secondary).toBeUndefined()
     expect(tokens.colors.border).toBe('rgb(235, 236, 237)')
     expect(tokens.colors['border-subtle']).toBe('rgb(248, 248, 250)')
   })
@@ -2606,7 +2918,7 @@ describe('design token builder', () => {
     )
   })
 
-  test('restores an exact repeated card surface when background clustering omits the close value', () => {
+  test('selects an exact repeated card surface before token building when clustering omits the close value', () => {
     const canvas = 'rgb(248, 250, 252)'
     const card = 'rgb(255, 255, 255)'
     const styles = createExtractedStyles({
@@ -2626,20 +2938,38 @@ describe('design token builder', () => {
         [`bgColor:${canvas}`]: ['element:page-background'],
         [`bgColor:${card}`]: ['computed:background'],
       },
+      semanticSurfaceObservations: [
+        {
+          captureId: 'home|desktop',
+          ownerId: 'body',
+          value: canvas,
+          domain: 'foundation',
+          role: 'page-canvas',
+          rendered: true,
+          declared: false,
+          elementKind: 'body',
+        },
+        ...['card-1', 'card-2'].map((ownerId) => ({
+          captureId: 'home|desktop',
+          ownerId,
+          value: card,
+          domain: 'foundation' as const,
+          role: 'content-surface' as const,
+          rendered: true,
+          declared: false,
+          elementKind: 'article',
+        })),
+      ],
     })
     const clustered = clusterColors(styles.colors, styles.usageCount)
-    const tokens = buildDesignTokens(styles, clustered, styles)
     const captures = [{ url: 'https://example.com/', viewport: 'desktop', styles }]
+    const tokens = buildDesignTokens(styles, clustered, styles, selectFoundationSurfaceColors(captures))
 
     expect(clustered.backgrounds).toEqual(['#f8fafc'])
     expect(tokens.colors).toMatchObject({ background: '#f8fafc' })
-    expect(tokens.colors.surface).toBeUndefined()
-    expect(tokens.candidates?.colors).toContainEqual(
-      expect.objectContaining({ value: '#ffffff', kind: 'observed-unassigned' }),
-    )
+    expect(tokens.colors.surface).toBe('#ffffff')
 
     tokens.evidence = buildTokenEvidence(tokens, captures)
-    reselectPortableFoundationColors(tokens, captures)
     promotePortableDesignTokens(tokens)
 
     expect(tokens.colors.surface).toBe('#ffffff')

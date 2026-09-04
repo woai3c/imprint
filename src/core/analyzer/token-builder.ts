@@ -1,6 +1,7 @@
 import { type ClusteredColors, normalizeColorValue } from './color-cluster.js'
 import { hasVisibleShadow } from './component-detect.js'
 import { normalizeCssFontFamilyList, normalizeCssFontFamilyName, primaryCssFontFamily } from './font-family.js'
+import type { FoundationSurfaceSelection } from './semantic-owner.js'
 import type { ColorRoleObservation, ColorTokenCandidate, DesignToken, ExtractedStyles } from './types.js'
 import { frequencyForCategory, sortByFrequency } from './usage-stats.js'
 import { normalizeComputedLength, normalizeLengthUsageKey } from './value-normalization.js'
@@ -430,16 +431,6 @@ function observedForegroundsReadableOnFoundationSurfaces(
     .map((candidate) => candidate.foreground)
 }
 
-function secondarySurface(background: string, surface: string, foreground: string | undefined): string {
-  const backgroundLuminance = colorLuminance(background)
-  const surfaceLuminance = colorLuminance(surface)
-  const foregroundLuminance = colorLuminance(foreground)
-  if (backgroundLuminance === null || surfaceLuminance === null || foregroundLuminance === null) return surface
-  return Math.abs(backgroundLuminance - foregroundLuminance) < Math.abs(surfaceLuminance - foregroundLuminance)
-    ? background
-    : surface
-}
-
 function colorValueFromUsageKey(key: string): string {
   return key.slice(key.indexOf(':') + 1)
 }
@@ -638,6 +629,7 @@ export function buildDesignTokens(
   styles: ExtractedStyles,
   clusteredColors: ClusteredColors,
   roleStyles: Pick<ExtractedStyles, 'usageCount' | 'colorRoleObservations' | 'textColorPairObservations'> = styles,
+  foundationColors: FoundationSurfaceSelection = {},
 ): DesignToken {
   // Candidate discovery is intentionally complete and exact. Clustering below selects semantic role proposals, but it
   // must never erase a rendered value before the evidence and promotion stages have evaluated it.
@@ -653,19 +645,9 @@ export function buildDesignTokens(
     })
   }
 
-  // Build color map
-  const colors: Record<string, string> = {}
-
-  // Assign backgrounds
-  if (clusteredColors.backgrounds.length > 0) {
-    colors['background'] = clusteredColors.backgrounds[0]
-    if (
-      clusteredColors.backgrounds.length > 1 &&
-      colorsAreRelated(clusteredColors.backgrounds[0], clusteredColors.backgrounds[1])
-    ) {
-      colors['surface'] = clusteredColors.backgrounds[1]
-    }
-  }
+  // Foundation surfaces are assigned before token construction from rendered semantic owners. Color frequency and
+  // clustering remain candidate-discovery signals only; they must never decide canvas or surface roles.
+  const colors: Record<string, string> = { ...foundationColors }
 
   // Assign text colors
   if (clusteredColors.texts.length > 0) {
@@ -689,18 +671,6 @@ export function buildDesignTokens(
       .find((candidate) => isMutedTextCandidate(colors['background'], colors['foreground'], candidate))
     if (mutedForeground) colors['muted-foreground'] = mutedForeground
   }
-  if (colors['background'] && colors['surface']) {
-    const secondaryCandidate = clusteredColors.backgrounds
-      .slice(2)
-      .find(
-        (candidate) =>
-          colorsAreRelated(colors['background'], candidate) &&
-          normalizeColorValue(candidate) !== normalizeColorValue(colors['surface']),
-      )
-    colors['secondary'] =
-      secondaryCandidate || secondarySurface(colors['background'], colors['surface'], colors['foreground'])
-  }
-
   // A primary action is optional. Generic palette, decorative, border, and text-only
   // accents must not be promoted to an action role merely because they are chromatic.
   if (clusteredColors.accents.length > 0) {
@@ -907,7 +877,9 @@ export function buildDesignTokens(
 function pxToRem(value: string): string {
   const px = parseFloat(value)
   if (isNaN(px)) return value
-  return `${(px / 16).toFixed(3).replace(/\.?0+$/, '')}rem`
+  // Computed pixel values commonly land on exact integer or half-pixel boundaries. Preserve that value when
+  // converting to rem: rounding 13px to 0.813rem would silently turn the observation into 13.008px.
+  return `${(px / 16).toFixed(6).replace(/\.?0+$/, '')}rem`
 }
 
 function uniqueFilter() {

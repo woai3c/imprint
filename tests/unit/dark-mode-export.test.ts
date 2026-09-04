@@ -14,6 +14,30 @@ import {
 } from '../../src/core/export/index.js'
 import { createExtractedStyles } from './analyzer-fixtures.js'
 
+function createDarkExtractedStyles(
+  overrides: Parameters<typeof createExtractedStyles>[0],
+): ReturnType<typeof createExtractedStyles> {
+  const styles = createExtractedStyles(overrides)
+  const background = styles.backgroundColors[0]
+  if (background && styles.semanticSurfaceObservations === undefined) {
+    styles.semanticSurfaceObservations = [
+      {
+        captureId: 'dark|desktop',
+        ownerId: 'page-root',
+        value: background,
+        domain: 'foundation',
+        role: 'page-canvas',
+        rendered: true,
+        declared: false,
+        elementKind: 'body',
+        areaRatio: 1,
+        viewportCoverage: 1,
+      },
+    ]
+  }
+  return styles
+}
+
 const baseTokens: DesignToken = {
   colors: { background: '#ffffff', foreground: '#111827', primary: '#1772f6' },
   typography: {
@@ -84,7 +108,7 @@ function builtPairedDarkTokens(sourceUrl: string, ownerIds: string[]): DesignTok
       hasDarkMode: true,
       method: 'media-query',
       source: { url: sourceUrl, viewport: 'desktop' },
-      darkStyles: createExtractedStyles({
+      darkStyles: createDarkExtractedStyles({
         colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
         backgroundColors: ['rgb(22, 23, 29)'],
         textColors: ['rgb(245, 245, 245)'],
@@ -125,7 +149,7 @@ describe('dark mode export data', () => {
       method: 'media-query',
       selector: undefined,
       source: { url: 'https://example.com/', viewport: 'desktop' },
-      darkStyles: createExtractedStyles({
+      darkStyles: createDarkExtractedStyles({
         colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)', 'rgb(179, 154, 255)'],
         backgroundColors: ['rgb(22, 23, 29)'],
         textColors: ['rgb(245, 245, 245)'],
@@ -199,7 +223,7 @@ describe('dark mode export data', () => {
         hasDarkMode: true,
         method: 'media-query',
         source: { captureKey: 'entry-desktop', url: sourceUrl, viewport: 'desktop' },
-        darkStyles: createExtractedStyles({
+        darkStyles: createDarkExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
           textColors: ['rgb(245, 245, 245)'],
@@ -257,7 +281,7 @@ describe('dark mode export data', () => {
     const darkMode = buildDarkModeExportData({
       hasDarkMode: true,
       method: 'media-query',
-      darkStyles: createExtractedStyles({
+      darkStyles: createDarkExtractedStyles({
         colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
         backgroundColors: ['rgb(22, 23, 29)'],
         textColors: ['rgb(245, 245, 245)'],
@@ -304,7 +328,7 @@ describe('dark mode export data', () => {
       {
         hasDarkMode: true,
         method: 'media-query',
-        darkStyles: createExtractedStyles({
+        darkStyles: createDarkExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
           textColors: ['rgb(245, 245, 245)'],
@@ -341,7 +365,7 @@ describe('dark mode export data', () => {
       {
         hasDarkMode: true,
         method: 'media-query',
-        darkStyles: createExtractedStyles({
+        darkStyles: createDarkExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
           textColors: ['rgb(245, 245, 245)'],
@@ -374,7 +398,7 @@ describe('dark mode export data', () => {
       {
         hasDarkMode: true,
         method: 'media-query',
-        darkStyles: createExtractedStyles({
+        darkStyles: createDarkExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
           textColors: ['rgb(245, 245, 245)'],
@@ -410,7 +434,7 @@ describe('dark mode export data', () => {
       {
         hasDarkMode: true,
         method: 'media-query',
-        darkStyles: createExtractedStyles({
+        darkStyles: createDarkExtractedStyles({
           colors: ['rgb(22, 23, 29)', 'rgb(245, 245, 245)'],
           backgroundColors: ['rgb(22, 23, 29)'],
           textColors: ['rgb(245, 245, 245)'],

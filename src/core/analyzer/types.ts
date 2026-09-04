@@ -149,6 +149,10 @@ export interface ExtractedStyles {
   /** Stable page-local owners for each exact value/source pair. Older stored analyses may omit this field. */
   valueSourceOwnerIds?: Record<string, Record<string, string[]>>
   colorRoleObservations?: ColorRoleObservation[]
+  /** Rendered background owners classified before token aggregation. */
+  semanticSurfaceObservations?: SemanticSurfaceObservation[]
+  /** Surface classifications that deliberately failed closed because the paint could not be represented faithfully. */
+  semanticSurfaceLimitations?: string[]
   textColorPairObservations?: TextColorPairObservation[]
   /** Bounded provenance for text owners that contribute rendered typography or foreground usage. */
   renderedTextStyleObservations?: RenderedTextStyleObservation[]
@@ -257,6 +261,39 @@ export interface TextColorPairObservation {
   ownerIds?: string[]
 }
 
+export type SemanticOwnerDomain = 'foundation' | 'component' | 'specialized-content' | 'local' | 'unknown'
+
+export type SemanticSurfaceRole =
+  | 'page-canvas'
+  | 'content-surface'
+  | 'code-surface'
+  | 'media-surface'
+  | 'control-surface'
+  | 'status-surface'
+  | 'chrome-surface'
+  | 'unknown'
+
+/**
+ * A rendered surface value bound to the DOM owner that paints it.
+ *
+ * Frequency is deliberately absent from the semantic assignment: downstream aggregation may rank observations only
+ * after their domain and role have been established from standards-backed DOM and ARIA context.
+ */
+export interface SemanticSurfaceObservation {
+  captureId: string
+  ownerId: string
+  value: string
+  domain: SemanticOwnerDomain
+  role: SemanticSurfaceRole
+  rendered: boolean
+  declared: boolean
+  elementKind: string
+  landmarkRole?: string
+  formRole?: string
+  areaRatio?: number
+  viewportCoverage?: number
+}
+
 export interface ColorRoleObservation {
   captureId: string
   /** Normalized URL identity used during token selection. Raw extractor observations omit it. */
@@ -307,7 +344,7 @@ export interface AnalysisTiming {
 }
 
 export type TokenConfidence = 'high' | 'medium' | 'low'
-export type TokenReuseScope = 'foundation' | 'component' | 'local' | 'declared-only' | 'unknown'
+export type TokenReuseScope = 'foundation' | 'component' | 'specialized-content' | 'local' | 'declared-only' | 'unknown'
 
 export interface PairedSurfaceRouteEvidence {
   page: string
@@ -357,6 +394,18 @@ export interface TokenEvidence {
   reuseScope?: TokenReuseScope
   /** Distinct rendered owners after category aliases and repeated viewports are collapsed. */
   ownerCount?: number
+  /** Routes where a matching CSS declaration was observed, independent of rendered use. */
+  declarationPageCount?: number
+  /** Routes where the exact value was rendered in any role. */
+  renderedPageCount?: number
+  /** Routes where the exact value was rendered in the assigned semantic role. */
+  roleRenderedPageCount?: number
+  /** Independent owners that rendered the exact value in the assigned semantic role. */
+  roleOwnerCount?: number
+  /** Health-checked canonical captures in which the exact value was declared or rendered. */
+  canonicalCaptureCount?: number
+  /** Distinct matching declaration origins, such as CSS custom properties. */
+  declarationSourceCount?: number
   /** Independent owners carrying foundation-compatible provenance across canonical routes. */
   foundationOwnerCount?: number
   /** Smallest foundation-owner count on any canonical route where the value was observed. */
@@ -371,6 +420,15 @@ export interface TokenEvidence {
   pages: string[]
   /** Auditable rendered owners supporting text-derived portable typography or foreground claims. */
   renderedTextOwners?: Array<RenderedTextStyleObservation & { page: string; routeId: string; viewport: string }>
+  /** Exact rendered owners supporting a portable foundation surface role. */
+  semanticOwnerRefs?: Array<{
+    page: string
+    routeId: string
+    viewport: string
+    ownerId: string
+    domain: SemanticOwnerDomain
+    role: SemanticSurfaceRole
+  }>
   /** Stable opaque Evidence route IDs corresponding to pages after public URL redaction. */
   pageRefs?: string[]
   sources: string[]

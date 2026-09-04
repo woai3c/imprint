@@ -23,20 +23,27 @@ function diffProperties(before: Record<string, string>, after: Record<string, st
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => before[key] !== after[key])
 }
 
-async function settleBeforeDeadline<T>(operation: Promise<T>, deadline: number, fallback: T): Promise<T> {
+async function settleBeforeDeadline<T>(operation: () => Promise<T>, deadline: number, fallback: T): Promise<T> {
   const remaining = deadline - Date.now()
   if (remaining <= 0) return fallback
-  return new Promise<T>((resolve) => {
-    let settled = false
-    const finish = (value: T) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(value)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const guardedOperation = (async () => {
+    try {
+      return await operation()
+    } catch {
+      return fallback
     }
-    const timer = setTimeout(() => finish(fallback), remaining)
-    void operation.then(finish, () => finish(fallback))
-  })
+  })()
+  try {
+    return await Promise.race([
+      guardedOperation,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), remaining)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function readTargetState(
@@ -45,29 +52,30 @@ async function readTargetState(
   deadline = Number.POSITIVE_INFINITY,
 ): Promise<Record<string, string> | null> {
   return settleBeforeDeadline(
-    page.evaluate((input) => {
-      const target = document.querySelector(input.locator)
-      if (!(target instanceof HTMLElement)) return null
-      const controlledId = target.getAttribute('aria-controls')
-      const controlled = controlledId ? document.getElementById(controlledId) : null
-      const targetStyle = getComputedStyle(target)
-      const controlledStyle = controlled ? getComputedStyle(controlled) : null
-      return {
-        ariaExpanded: target.getAttribute('aria-expanded') || '',
-        ariaSelected: target.getAttribute('aria-selected') || '',
-        ariaPressed: target.getAttribute('aria-pressed') || '',
-        color: targetStyle.color,
-        backgroundColor: targetStyle.backgroundColor,
-        borderColor: targetStyle.borderTopColor,
-        opacity: targetStyle.opacity,
-        transform: targetStyle.transform,
-        controlledHidden: controlled?.hasAttribute('hidden') ? 'true' : 'false',
-        controlledAriaHidden: controlled?.getAttribute('aria-hidden') || '',
-        controlledDisplay: controlledStyle?.display || '',
-        controlledVisibility: controlledStyle?.visibility || '',
-        controlledOpacity: controlledStyle?.opacity || '',
-      }
-    }, candidate),
+    () =>
+      page.evaluate((input) => {
+        const target = document.querySelector(input.locator)
+        if (!(target instanceof HTMLElement)) return null
+        const controlledId = target.getAttribute('aria-controls')
+        const controlled = controlledId ? document.getElementById(controlledId) : null
+        const targetStyle = getComputedStyle(target)
+        const controlledStyle = controlled ? getComputedStyle(controlled) : null
+        return {
+          ariaExpanded: target.getAttribute('aria-expanded') || '',
+          ariaSelected: target.getAttribute('aria-selected') || '',
+          ariaPressed: target.getAttribute('aria-pressed') || '',
+          color: targetStyle.color,
+          backgroundColor: targetStyle.backgroundColor,
+          borderColor: targetStyle.borderTopColor,
+          opacity: targetStyle.opacity,
+          transform: targetStyle.transform,
+          controlledHidden: controlled?.hasAttribute('hidden') ? 'true' : 'false',
+          controlledAriaHidden: controlled?.getAttribute('aria-hidden') || '',
+          controlledDisplay: controlledStyle?.display || '',
+          controlledVisibility: controlledStyle?.visibility || '',
+          controlledOpacity: controlledStyle?.opacity || '',
+        }
+      }, candidate),
     deadline,
     null,
   )
@@ -81,17 +89,18 @@ async function waitForTargetMotion(
   const motionDeadline = Math.min(deadline, Date.now() + 600)
   try {
     await settleBeforeDeadline(
-      page.evaluate(async (input) => {
-        const target = document.querySelector(input.locator)
-        if (!(target instanceof HTMLElement)) return
-        const controlledId = target.getAttribute('aria-controls')
-        const controlled = controlledId ? document.getElementById(controlledId) : null
-        const animations = [
-          ...new Set([target, controlled].flatMap((element) => element?.getAnimations({ subtree: true }) || [])),
-        ].filter((animation) => animation.pending || animation.playState === 'running')
-        await Promise.allSettled(animations.map((animation) => animation.finished))
-        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-      }, candidate),
+      () =>
+        page.evaluate(async (input) => {
+          const target = document.querySelector(input.locator)
+          if (!(target instanceof HTMLElement)) return
+          const controlledId = target.getAttribute('aria-controls')
+          const controlled = controlledId ? document.getElementById(controlledId) : null
+          const animations = [
+            ...new Set([target, controlled].flatMap((element) => element?.getAnimations({ subtree: true }) || [])),
+          ].filter((animation) => animation.pending || animation.playState === 'running')
+          await Promise.allSettled(animations.map((animation) => animation.finished))
+          await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        }, candidate),
       motionDeadline,
       undefined,
     )
@@ -107,7 +116,7 @@ async function clickCandidate(
 ): Promise<boolean> {
   const originalUrl = page.url()
   const locator = page.locator(candidate.locator)
-  if ((await settleBeforeDeadline(locator.count(), deadline, 0)) !== 1) return false
+  if ((await settleBeforeDeadline(() => locator.count(), deadline, 0)) !== 1) return false
   let unsafeSideEffect = false
   let mainFrameNavigated = false
   const handleRequest = (request: { method(): string }) => {
@@ -150,7 +159,7 @@ async function clickCandidate(
 
   try {
     routeRegistered = await settleBeforeDeadline(
-      page.route('**/*', blockWriteRequest).then(() => true),
+      () => page.route('**/*', blockWriteRequest).then(() => true),
       deadline,
       false,
     )
@@ -168,7 +177,7 @@ async function clickCandidate(
     page.off('dialog', handleDialog)
     page.off('framenavigated', handleFrameNavigation)
     if (routeRegistered) {
-      await settleBeforeDeadline(page.unroute('**/*', blockWriteRequest), deadline, undefined)
+      await settleBeforeDeadline(() => page.unroute('**/*', blockWriteRequest), deadline, undefined)
     }
   }
 
@@ -195,11 +204,12 @@ async function readPageGeometry(
   deadline: number,
 ): Promise<{ width: number; height: number; url: string } | null> {
   return settleBeforeDeadline(
-    page.evaluate(() => ({
-      width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0, innerWidth),
-      height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0, innerHeight),
-      url: location.href,
-    })),
+    () =>
+      page.evaluate(() => ({
+        width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0, innerWidth),
+        height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0, innerHeight),
+        url: location.href,
+      })),
     deadline,
     null,
   )
@@ -236,11 +246,11 @@ async function restoreCandidate(
         )
       if (!restored) return false
     } else if (candidate.kind === 'dialog') {
-      await settleBeforeDeadline(page.keyboard.press('Escape'), deadline, undefined)
+      await settleBeforeDeadline(() => page.keyboard.press('Escape'), deadline, undefined)
     } else if (!(await clickCandidate(page, candidate, deadline))) {
       return false
     }
-    await settleBeforeDeadline(page.mouse.move(0, 0), deadline, undefined)
+    await settleBeforeDeadline(() => page.mouse.move(0, 0), deadline, undefined)
     await waitForTargetMotion(page, candidate, deadline)
     return statesMatch(before, await readTargetState(page, candidate, deadline))
   } catch {
@@ -255,7 +265,7 @@ async function recoverObservedDocument(page: Page, observedUrl: string, deadline
     page.url() === observedUrl
       ? page.reload({ waitUntil: 'domcontentloaded', timeout: recoveryBudget })
       : page.goto(observedUrl, { waitUntil: 'domcontentloaded', timeout: recoveryBudget })
-  await settleBeforeDeadline(Promise.resolve().then(recover), deadline, null)
+  await settleBeforeDeadline(recover, deadline, null)
 }
 
 export async function observeSafeInteractions(
@@ -273,10 +283,11 @@ export async function observeSafeInteractions(
     if (deadline - Date.now() < 1_500) break
     const candidateDeadline = Math.min(deadline, Date.now() + 1_800)
     const before = await readTargetState(page, candidate, candidateDeadline)
-    const pageGeometryBefore = await readPageGeometry(page, candidateDeadline)
     if (!before) continue
+    const pageGeometryBefore = await readPageGeometry(page, candidateDeadline)
+    if (!pageGeometryBefore) continue
     if (!(await clickCandidate(page, candidate, candidateDeadline))) continue
-    await settleBeforeDeadline(page.mouse.move(0, 0), candidateDeadline, undefined)
+    await settleBeforeDeadline(() => page.mouse.move(0, 0), candidateDeadline, undefined)
     await waitForTargetMotion(page, candidate, candidateDeadline)
     const after = await readTargetState(page, candidate, candidateDeadline)
     if (!after || page.url() !== observedUrl) {
@@ -288,16 +299,17 @@ export async function observeSafeInteractions(
     let observation: InteractionObservationSnapshot | undefined
     if (changedProperties.length > 0) {
       const transition = await settleBeforeDeadline(
-        page.evaluate((input) => {
-          const target = document.querySelector(input.locator)
-          if (!(target instanceof HTMLElement)) return undefined
-          const style = getComputedStyle(target)
-          return {
-            duration: style.transitionDuration,
-            easing: style.transitionTimingFunction,
-            properties: style.transitionProperty.split(',').map((value) => value.trim()),
-          }
-        }, candidate),
+        () =>
+          page.evaluate((input) => {
+            const target = document.querySelector(input.locator)
+            if (!(target instanceof HTMLElement)) return undefined
+            const style = getComputedStyle(target)
+            return {
+              duration: style.transitionDuration,
+              easing: style.transitionTimingFunction,
+              properties: style.transitionProperty.split(',').map((value) => value.trim()),
+            }
+          }, candidate),
         candidateDeadline,
         undefined,
       )

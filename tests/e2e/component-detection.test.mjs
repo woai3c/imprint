@@ -846,6 +846,25 @@ test('recovers when a delayed disclosure navigation destroys the motion-probe do
   await page.close()
 })
 
+test('returns no interaction evidence when the page closes during a motion probe', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  await page.setContent(`<!doctype html>
+    <main>
+      <button aria-expanded="false" aria-controls="panel" onclick="
+        this.setAttribute('aria-expanded', 'true');
+        document.getElementById('panel').hidden = false;
+      ">Details</button>
+      <section id="panel" hidden>Panel</section>
+    </main>`)
+  const evidence = await extractPageEvidence(page, 'desktop')
+  setTimeout(() => void page.close().catch(() => {}), 130)
+
+  const observations = await observeSafeInteractions(page, evidence, 1, 3_000)
+
+  assert.deepEqual(observations, [])
+  assert.equal(page.isClosed(), true)
+})
+
 test('restores the exact observed document when a disclosure replaces the current history entry', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   await page.goto(fixtureUrl, { waitUntil: 'domcontentloaded' })

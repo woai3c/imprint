@@ -44,4 +44,17 @@ describe('safe interaction observation', () => {
 
     await expect(observeSafeInteractions(page, interactionSnapshot(), 1, 2_000)).resolves.toEqual([])
   })
+
+  it('treats a page closure between state and geometry inspection as unavailable evidence', async () => {
+    const page = {
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce({ ariaExpanded: 'false' })
+        .mockRejectedValueOnce(new Error('Target page, context or browser has been closed')),
+      isClosed: () => false,
+      url: () => 'https://example.com/',
+    } as unknown as Page
+
+    await expect(observeSafeInteractions(page, interactionSnapshot(), 1, 2_000)).resolves.toEqual([])
+  })
 })

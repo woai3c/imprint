@@ -1351,6 +1351,17 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       }
     }
 
+    const hasPaintedBorder = (computed: CSSStyleDeclaration): boolean =>
+      [
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+      ].some(
+        ([width, style, color]) =>
+          Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) && Boolean(normalizedPaintColor(color)),
+      )
+
     const visualInputRoot = (source: Element): Element => {
       const sourceRect = source.getBoundingClientRect()
       const sourceStyle = computedFor(source)
@@ -1366,8 +1377,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
           rect.height >= sourceRect.height &&
           rect.width <= Math.max(sourceRect.width * 1.8, sourceRect.width + 160) &&
           rect.height <= Math.max(sourceRect.height * 3, 72)
-        const paintedBorder =
-          Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+        const paintedBorder = hasPaintedBorder(computed)
         const rounded = Number.parseFloat(computed.borderTopLeftRadius || '0') > 0
         const shadowed = computed.boxShadow !== 'none'
         const distinctBackground =
@@ -1439,12 +1449,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
       const computed = computedFor(element)
       const rect = element.getBoundingClientRect()
       const paintedFill = Boolean(normalizedPaintColor(computed.backgroundColor))
-      const paintedBorder = [
-        [computed.borderTopWidth, computed.borderTopStyle],
-        [computed.borderRightWidth, computed.borderRightStyle],
-        [computed.borderBottomWidth, computed.borderBottomStyle],
-        [computed.borderLeftWidth, computed.borderLeftStyle],
-      ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+      const paintedBorder = hasPaintedBorder(computed)
       const controlGeometry =
         rect.width >= 44 &&
         rect.height >= 28 &&
@@ -1512,15 +1517,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         return { paintedFill: false, paintedBorder: false, paintedShadow: false }
       }
       const paintedFill = Boolean(normalizedPaintColor(computed.backgroundColor))
-      const paintedBorder = [
-        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
-        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
-        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
-        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
-      ].some(
-        ([width, style, color]) =>
-          Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style) && Boolean(normalizedPaintColor(color)),
-      )
+      const paintedBorder = hasPaintedBorder(computed)
       const paintedShadow = hasVisibleBoxShadow(computed.boxShadow)
       return { paintedFill, paintedBorder, paintedShadow }
     }
@@ -1829,12 +1826,7 @@ export async function extractPageEvidence(page: Page, viewport: string): Promise
         const ownerComputed = computedFor(candidate.element)
         const ownerRect = candidate.element.getBoundingClientRect()
         const paintedFill = Boolean(normalizedPaintColor(ownerComputed.backgroundColor))
-        const paintedBorder = [
-          [ownerComputed.borderTopWidth, ownerComputed.borderTopStyle],
-          [ownerComputed.borderRightWidth, ownerComputed.borderRightStyle],
-          [ownerComputed.borderBottomWidth, ownerComputed.borderBottomStyle],
-          [ownerComputed.borderLeftWidth, ownerComputed.borderLeftStyle],
-        ].some(([width, style]) => Number.parseFloat(width) > 0 && !['none', 'hidden'].includes(style))
+        const paintedBorder = hasPaintedBorder(ownerComputed)
         const iconLike =
           candidate.type === 'button' &&
           !(semanticSource.textContent || '').trim() &&

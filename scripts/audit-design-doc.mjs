@@ -5601,10 +5601,36 @@ function auditMeaningfulComponentStyleValue(property, value) {
   return true
 }
 
+function auditComponentPaddingSides(value) {
+  const dimensions = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .map((dimension) => Number.parseFloat(dimension))
+  if (dimensions.length < 1 || dimensions.length > 4 || dimensions.some((dimension) => !Number.isFinite(dimension))) {
+    return null
+  }
+  const [top, right = top, bottom = top, left = right] = dimensions
+  return [top, right, bottom, left]
+}
+
+function auditButtonLikeBoundary(styles) {
+  if (auditVisibleColor(styles?.backgroundColor)) return true
+  if (auditVisibleComponentBorders(styles).length > 0) return true
+  const padding = auditComponentPaddingSides(styles?.padding)
+  const height = Number.parseFloat(styles?.height || '')
+  return Boolean(
+    padding &&
+    Number.isFinite(height) &&
+    height >= 28 &&
+    (padding[1] + padding[3] >= 16 || padding[0] + padding[2] >= 12),
+  )
+}
+
 function auditActionableComponentPattern(pattern, sharedTokenRefs) {
   if (!AUDIT_COMPONENT_TYPES.has(pattern.type) || !auditReusableComponentPattern(pattern)) return false
   if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
   if (pattern.visualTreatments?.includes('button-like')) {
+    if (!auditButtonLikeBoundary(pattern.styles)) return false
     const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
       (property) => auditMeaningfulComponentStyleValue(property, pattern.styles?.[property]),
     )
@@ -7212,6 +7238,14 @@ export async function auditArtifactBundle(directory) {
       )
     ) {
       hardFailures.push(`unlabelled-button-like-component-spec:${index}`)
+    }
+    if (component?.visualTreatment === 'button-like') {
+      const styles = Object.fromEntries(
+        Object.entries(component?.styles || {}).flatMap(([property, values]) =>
+          Array.isArray(values) && values.length > 0 ? [[property, String(values[0])]] : [],
+        ),
+      )
+      if (!auditButtonLikeBoundary(styles)) hardFailures.push(`unbounded-button-like-component-spec:${index}`)
     }
     if (sortedStrings(component?.styles?.borderRadius).some((radius) => auditContextDependentRadius(radius))) {
       hardFailures.push(`context-dependent-radius-component-spec:${index}`)

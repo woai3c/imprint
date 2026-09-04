@@ -118,6 +118,7 @@ test('separates compact controls from compound interactive content boundaries', 
       .logo-tile { display:flex; width:260px; height:140px; padding:0 52px; background:#f4f7fb; }
       .related-link { display:flex; width:320px; height:112px; padding:24px 20px; border:2px solid transparent; border-radius:8px; color:#172033; }
       .related-link span { display:block; height:30px; font-size:13px; line-height:30px; }
+      .ordinary-link { display:inline; border-bottom:1px solid transparent; font-size:16px; line-height:30px; color:#173ea8; }
       .compound-button { display:block; height:240px; padding:24px; border:1px solid #ccd5e0; background:#f4f7fb; color:#172033; text-align:left; }
       .compound-button h3 { font-size:22px; line-height:28px; }
       .compound-button p { font-size:16px; line-height:24px; }
@@ -132,6 +133,7 @@ test('separates compact controls from compound interactive content boundaries', 
       <a class="logo-tile" href="#logo-two" aria-label="Logo two"><svg width="48" height="48" aria-hidden="true"></svg></a>
       <a class="related-link" href="#related-one"><span>Related one</span></a>
       <a class="related-link" href="#related-two"><span>Related two</span></a>
+      <p><a class="ordinary-link" href="#ordinary">Ordinary inline documentation link</a></p>
       <button class="compound-button"><h3>Panel one</h3><p>Compound interactive content.</p></button>
       <button class="compound-button"><h3>Panel two</h3><p>Compound interactive content.</p></button>
     </main>`)
@@ -148,6 +150,10 @@ test('separates compact controls from compound interactive content boundaries', 
   )
 
   assert.equal(compactLinks.length, 3)
+  assert.equal(
+    snapshot.components.some((component) => component.key.includes('ordinary-link')),
+    false,
+  )
   assert.ok(compactLinks.every((component) => component.semanticIdentity === 'link'))
   assert.equal(compactLinks.filter((component) => component.visualTreatment === 'button-like').length, 2)
   assert.equal(compactLinks.filter((component) => component.visualTreatment === 'icon-like').length, 1)

@@ -552,6 +552,40 @@ describe('deterministic design context', () => {
     expect(evidence.components[0].styles.borderRadius).toBe('3.35544e+07px')
   })
 
+  it('keeps ordinary links with transparent borders out of reusable button contracts', () => {
+    const evidence = createEvidence()
+    const link = {
+      ...structuredClone(evidence.components[0]),
+      elementKind: 'anchor' as const,
+      semanticIdentity: 'link' as const,
+      visualTreatment: 'button-like' as const,
+      usageContext: 'article' as const,
+      textStyleOwner: 'root' as const,
+      styles: {
+        backgroundColor: 'rgba(0, 0, 0, 0)',
+        border: '1px solid rgba(0, 0, 0, 0)',
+        borderRadius: '4px',
+        color: '#2563eb',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '16px',
+        fontWeight: '400',
+        height: '31px',
+        lineHeight: '24px',
+        padding: '0px 0px 0px 0px',
+      },
+      tokenRefs: ['color.primary', 'radius.1', 'typography.font-size.1'],
+    }
+    evidence.components = [
+      { ...structuredClone(link), id: 'ordinary-link-first' },
+      { ...structuredClone(link), id: 'ordinary-link-second' },
+    ]
+
+    const recipes = createDeterministicDesignContext(evidence, 'en').profile.transferGrammar!.componentRecipes
+
+    expect(recipes.find((recipe) => recipe.component === 'button')?.priority).toBe('P2')
+    expect(buildComponentSpecs(evidence)).toEqual([])
+  })
+
   it('requires every P1 recipe to satisfy the shared reuse gate and exact-style support', () => {
     const evidence = createEvidence()
     const repeated = structuredClone(evidence.components[0])

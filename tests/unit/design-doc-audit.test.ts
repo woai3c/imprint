@@ -4138,6 +4138,21 @@ components:
     expect((await auditArtifactBundle(directory)).hardFailures).toContain('unlabelled-button-like-component-spec:0')
   })
 
+  it('rejects a button-like component specification without a painted or control-sized boundary', async () => {
+    const directory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].visualTreatment = 'button-like'
+      specs.components[0].semanticIdentity = 'link'
+      specs.components[0].styles.backgroundColor = ['rgba(0, 0, 0, 0)']
+      specs.components[0].styles.border = ['1px solid rgba(0, 0, 0, 0)']
+      specs.components[0].styles.padding = ['0px 0px 0px 0px']
+      specs.components[0].styles.height = ['31px']
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toContain('unbounded-button-like-component-spec:0')
+  })
+
   it('rejects a context-dependent browser-clamped radius from component specifications', async () => {
     const directory = await writeBundle((artifacts) => {
       const specs = JSON.parse(artifacts['component-specs.json'])

@@ -1520,7 +1520,9 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
           rect.width <= Math.max(sourceRect.width * 1.8, sourceRect.width + 160) &&
           rect.height <= Math.max(sourceRect.height * 3, 72)
         const paintedBorder =
-          Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+          Number.parseFloat(computed.borderTopWidth || '0') > 0 &&
+          !['none', 'hidden'].includes(computed.borderTopStyle) &&
+          Boolean(normalizedPaintColor(computed.borderTopColor))
         const rounded = Number.parseFloat(computed.borderTopLeftRadius || '0') > 0
         const shadowed = computed.boxShadow !== 'none'
         const distinctBackground =
@@ -1600,8 +1602,17 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       const computed = computedStyleFor(element)
       const rect = element.getBoundingClientRect()
       const paintedBackground = !isTransparent(computed.backgroundColor)
-      const paintedBorder =
-        Number.parseFloat(computed.borderTopWidth || '0') > 0 && !['none', 'hidden'].includes(computed.borderTopStyle)
+      const paintedBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+      ].some(
+        ([width, style, color]) =>
+          Number.parseFloat(width || '0') > 0 &&
+          !['none', 'hidden'].includes(style) &&
+          Boolean(normalizedPaintColor(color)),
+      )
       const horizontalPadding =
         Number.parseFloat(computed.paddingLeft || '0') + Number.parseFloat(computed.paddingRight || '0')
       return rect.width >= 44 && rect.height >= 28 && (paintedBackground || paintedBorder || horizontalPadding >= 16)
@@ -1733,10 +1744,17 @@ export async function detectComponents(page: Page): Promise<ComponentPattern[]> 
       ].map((value) => parseFloat(value) || 0)
       const hasRadius = Math.max(...radii) > 4
       const hasShadow = computed.boxShadow !== 'none'
-      const hasBorder =
-        [computed.borderTopWidth, computed.borderRightWidth, computed.borderBottomWidth, computed.borderLeftWidth]
-          .map((value) => parseFloat(value) || 0)
-          .some((width) => width > 0) && computed.borderStyle !== 'none'
+      const hasBorder = [
+        [computed.borderTopWidth, computed.borderTopStyle, computed.borderTopColor],
+        [computed.borderRightWidth, computed.borderRightStyle, computed.borderRightColor],
+        [computed.borderBottomWidth, computed.borderBottomStyle, computed.borderBottomColor],
+        [computed.borderLeftWidth, computed.borderLeftStyle, computed.borderLeftColor],
+      ].some(
+        ([width, style, color]) =>
+          Number.parseFloat(width || '0') > 0 &&
+          !['none', 'hidden'].includes(style) &&
+          Boolean(normalizedPaintColor(color)),
+      )
       const paddings = [computed.paddingTop, computed.paddingRight, computed.paddingBottom, computed.paddingLeft].map(
         (value) => parseFloat(value) || 0,
       )

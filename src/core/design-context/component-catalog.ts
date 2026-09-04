@@ -222,6 +222,39 @@ function meaningfulStyleValue(property: string, value: string): boolean {
   return true
 }
 
+function componentPaddingSides(value: string | undefined): readonly [number, number, number, number] | null {
+  if (!value) return null
+  const dimensions = value
+    .trim()
+    .split(/\s+/)
+    .map((dimension) => Number.parseFloat(dimension))
+  if (dimensions.length < 1 || dimensions.length > 4 || dimensions.some((dimension) => !Number.isFinite(dimension))) {
+    return null
+  }
+  const [top, right = top, bottom = top, left = right] = dimensions
+  return [top, right, bottom, left]
+}
+
+function hasButtonLikeBoundary(styles: Readonly<Record<string, string>>): boolean {
+  if (hasVisibleColor(styles.backgroundColor)) return true
+  if (
+    Object.entries(styles).some(
+      ([property, value]) =>
+        (property === 'border' || /^border(?:Top|Right|Bottom|Left)$/.test(property)) && hasVisibleBorder(value),
+    )
+  ) {
+    return true
+  }
+  const padding = componentPaddingSides(styles.padding)
+  const height = Number.parseFloat(styles.height || '')
+  return Boolean(
+    padding &&
+    Number.isFinite(height) &&
+    height >= 28 &&
+    (padding[1] + padding[3] >= 16 || padding[0] + padding[2] >= 12),
+  )
+}
+
 /** Shared P1 contract used by profile recipes and Component Specs. */
 export function isActionableComponentPattern(
   pattern: ComponentVariantPattern,
@@ -230,6 +263,7 @@ export function isActionableComponentPattern(
   if (!CATALOG_COMPONENT_TYPES.has(pattern.type) || !isReusableComponentPattern(pattern)) return false
   if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
   if (pattern.visualTreatments?.includes('button-like')) {
+    if (!hasButtonLikeBoundary(pattern.styles)) return false
     const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
       (property) => meaningfulStyleValue(property, pattern.styles[property] || ''),
     )

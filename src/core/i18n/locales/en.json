@@ -368,7 +368,7 @@
         "general": "general"
       },
       "semanticGuidanceValues": {
-        "link": "Preserve link/anchor semantics and URL behavior; a button-like appearance does not turn navigation into a button action."
+        "link": "Preserve link/anchor semantics and URL behavior; the observed visual treatment does not turn navigation into a button action."
       },
       "restrictionValues": {
         "keep-variant-scope": "Keep the observed treatment scoped to this component and variant.",

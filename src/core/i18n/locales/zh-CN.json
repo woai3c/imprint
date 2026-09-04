@@ -368,7 +368,7 @@
         "general": "通用"
       },
       "semanticGuidanceValues": {
-        "link": "保留链接/锚点语义和 URL 行为；按钮式外观不会把导航变成按钮操作。"
+        "link": "保留链接/锚点语义和 URL 行为；已观察到的视觉处理不会把导航变成按钮操作。"
       },
       "restrictionValues": {
         "keep-variant-scope": "仅在该组件和变体范围内使用观察到的处理。",

@@ -1884,6 +1884,144 @@ describe('design token builder', () => {
     )
   })
 
+  test('retains one substantial semantic content surface on a single analyzed route', () => {
+    const canvas = 'rgb(243, 244, 246)'
+    const surface = 'rgb(255, 255, 255)'
+    const styles = createExtractedStyles({
+      colors: [canvas, surface],
+      usageCount: { [`bgColor:${canvas}`]: 1, [`bgColor:${surface}`]: 1 },
+      usageOwnerIds: { [`bgColor:${canvas}`]: ['body'], [`bgColor:${surface}`]: ['main'] },
+      valueSources: {
+        [`bgColor:${canvas}`]: ['element:page-background'],
+        [`bgColor:${surface}`]: ['computed:background'],
+      },
+      semanticSurfaceObservations: [
+        {
+          captureId: 'home|desktop',
+          ownerId: 'body',
+          value: canvas,
+          domain: 'foundation',
+          role: 'page-canvas',
+          rendered: true,
+          declared: false,
+          elementKind: 'body',
+          areaRatio: 1,
+          viewportCoverage: 1,
+        },
+        {
+          captureId: 'home|desktop',
+          ownerId: 'main',
+          value: surface,
+          domain: 'foundation',
+          role: 'content-surface',
+          rendered: true,
+          declared: false,
+          elementKind: 'main',
+          areaRatio: 0.4,
+          viewportCoverage: 0.4,
+        },
+      ],
+    })
+    const captures = [{ url: 'https://example.com/', viewport: 'desktop', styles }]
+    const selected = selectFoundationSurfaceColors(captures)
+    const portable = buildDesignTokens(styles, clusterColors(styles.colors, styles.usageCount), styles, selected)
+    portable.evidence = buildTokenEvidence(portable, captures)
+    promotePortableDesignTokens(portable)
+
+    expect(selected).toEqual({ background: '#f3f4f6', surface: '#ffffff' })
+    expect(portable.colors.surface).toBe('#ffffff')
+    expect(portable.evidence?.['colors.surface']).toMatchObject({
+      ownerCount: 1,
+      reuseScope: 'foundation',
+      sources: expect.arrayContaining(['semantic:content-surface', 'element:content-surface']),
+    })
+  })
+
+  test('retains a semantic content surface observed on multiple routes without requiring global route coverage', () => {
+    const canvas = 'rgb(243, 244, 246)'
+    const surface = 'rgb(255, 255, 255)'
+    const urls = [
+      'https://example.com/',
+      'https://example.com/article',
+      'https://example.com/plain',
+      'https://example.com/empty',
+    ]
+    const captures = urls.map((url, index) => {
+      const hasContentSurface = index < 2
+      const canvasOwnerId = `body-${index}`
+      const surfaceOwnerId = `main-${index}`
+      return {
+        url,
+        viewport: 'desktop',
+        styles: createExtractedStyles({
+          colors: hasContentSurface ? [canvas, surface] : [canvas],
+          usageCount: {
+            [`bgColor:${canvas}`]: 1,
+            ...(hasContentSurface ? { [`bgColor:${surface}`]: 1 } : {}),
+          },
+          usageOwnerIds: {
+            [`bgColor:${canvas}`]: [canvasOwnerId],
+            ...(hasContentSurface ? { [`bgColor:${surface}`]: [surfaceOwnerId] } : {}),
+          },
+          valueSources: {
+            [`bgColor:${canvas}`]: ['element:page-background'],
+            ...(hasContentSurface ? { [`bgColor:${surface}`]: ['computed:background'] } : {}),
+          },
+          semanticSurfaceObservations: [
+            {
+              captureId: `route-${index}|desktop`,
+              ownerId: canvasOwnerId,
+              value: canvas,
+              domain: 'foundation',
+              role: 'page-canvas',
+              rendered: true,
+              declared: false,
+              elementKind: 'body',
+              areaRatio: 1,
+              viewportCoverage: 1,
+            },
+            ...(hasContentSurface
+              ? [
+                  {
+                    captureId: `route-${index}|desktop`,
+                    ownerId: surfaceOwnerId,
+                    value: surface,
+                    domain: 'foundation' as const,
+                    role: 'content-surface' as const,
+                    rendered: true,
+                    declared: false,
+                    elementKind: 'main',
+                    areaRatio: 0.4,
+                    viewportCoverage: 0.4,
+                  },
+                ]
+              : []),
+          ],
+        }),
+      }
+    })
+    const merged = mergeStylesWithNormalizedUsage(
+      captures.map((capture) => capture.styles),
+      captures.map((capture) => capture.url),
+      captures.map((capture) => capture.viewport),
+    )
+    const selected = selectFoundationSurfaceColors(captures)
+    const portable = buildDesignTokens(merged, clusterColors(merged.colors, merged.usageCount), merged, selected)
+    portable.evidence = buildTokenEvidence(portable, captures)
+    promotePortableDesignTokens(portable)
+
+    expect(selected).toEqual({ background: '#f3f4f6', surface: '#ffffff' })
+    expect(portable.colors.surface).toBe('#ffffff')
+    expect(portable.evidence?.['colors.surface']).toMatchObject({
+      eligiblePageCount: 4,
+      pageCount: 2,
+      pageSupportRatio: 0.5,
+      ownerCount: 2,
+      reuseScope: 'foundation',
+      sources: expect.arrayContaining(['semantic:content-surface', 'element:content-surface']),
+    })
+  })
+
   test('retains a portable semantic border instead of resolving an evidence tie lexically', () => {
     const semanticBorder = '#d8d2c6'
     const textColoredBorder = '#23201b'

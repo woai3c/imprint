@@ -4163,6 +4163,31 @@ components:
     expect((await auditArtifactBundle(directory)).hardFailures).toContain('context-dependent-radius-component-spec:0')
   })
 
+  it('rejects content-sized and compound-control geometry from component specifications', async () => {
+    const navigationDirectory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].component = 'navigation'
+      specs.components[0].semanticIdentity = 'navigation'
+      specs.components[0].styles.height = ['339px']
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+    expect((await auditArtifactBundle(navigationDirectory)).hardFailures).toContain(
+      'context-dependent-component-geometry:0',
+    )
+
+    const compoundInputDirectory = await writeBundle((artifacts) => {
+      const specs = JSON.parse(artifacts['component-specs.json'])
+      specs.components[0].component = 'input'
+      specs.components[0].semanticIdentity = 'input'
+      specs.components[0].styles.height = ['32px']
+      specs.components[0].styles.padding = ['0px 85px 0px 12px']
+      artifacts['component-specs.json'] = JSON.stringify(specs)
+    })
+    expect((await auditArtifactBundle(compoundInputDirectory)).hardFailures).toContain(
+      'context-dependent-component-geometry:0',
+    )
+  })
+
   it('enforces the exact route-balanced component-only sample above the 24-instance limit', async () => {
     const validDirectory = await writeBundle((artifacts, evidence) => {
       configureLargeComponentSample(artifacts, evidence)

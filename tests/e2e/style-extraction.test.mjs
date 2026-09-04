@@ -39,6 +39,78 @@ test('reports a non-HTML document without a body as empty instead of crashing he
   await nonHtmlPage.close()
 })
 
+test('assigns the final rendered page canvas without inventing a color for complex paint', async () => {
+  const cases = [
+    {
+      name: 'transparent browser canvas',
+      style: 'html, body { margin: 0; min-height: 100%; color: rgb(31, 41, 55); }',
+      expectedOwner: 'browser-canvas',
+      expectedColor: 'system',
+    },
+    {
+      name: 'html canvas',
+      style: 'html { background: rgb(241, 245, 249); } body { margin: 0; color: rgb(31, 41, 55); }',
+      expectedOwner: 'html',
+      expectedColor: 'rgb(241, 245, 249)',
+    },
+    {
+      name: 'body canvas',
+      style:
+        'html { background: transparent; } body { margin: 0; background: rgb(243, 244, 246); color: rgb(31, 41, 55); }',
+      expectedOwner: 'body',
+      expectedColor: 'rgb(243, 244, 246)',
+    },
+    {
+      name: 'covering application root',
+      style:
+        'html, body { margin: 0; min-height: 100%; } main { min-height: 100vh; background: rgb(254, 252, 232); color: rgb(31, 41, 55); }',
+      expectedOwner: 'body > main:nth-of-type(1)',
+      expectedColor: 'rgb(254, 252, 232)',
+    },
+  ]
+
+  for (const fixture of cases) {
+    await page.setContent(
+      `<!doctype html><style>${fixture.style}</style><main><h1>${fixture.name}</h1><p>${'Visible foundation text. '.repeat(
+        20,
+      )}</p></main>`,
+    )
+    const systemCanvas = await page.evaluate(() => {
+      const probe = document.createElement('div')
+      probe.style.setProperty('background-color', 'Canvas', 'important')
+      document.documentElement.append(probe)
+      const value = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return value
+    })
+    const expectedColor = fixture.expectedColor === 'system' ? systemCanvas : fixture.expectedColor
+    const styles = await extractStyles(page)
+    const canvas = styles.semanticSurfaceObservations.find((observation) => observation.role === 'page-canvas')
+
+    assert.equal(canvas?.ownerId, fixture.expectedOwner)
+    assert.equal(canvas?.value, expectedColor)
+    assert.equal(
+      selectFoundationSurfaceColors([{ url: page.url(), viewport: 'desktop', styles }]).background,
+      normalizeColorValue(expectedColor),
+    )
+    assert.ok(
+      styles.textColorPairObservations.some((observation) => observation.background === expectedColor),
+      `${fixture.name} must pair visible text with the final canvas`,
+    )
+  }
+
+  await page.setContent(`<!doctype html><style>
+    html, body { margin:0; min-height:100%; color:rgb(255, 255, 255); }
+    body { background-image:linear-gradient(rgb(15, 23, 42), rgb(30, 41, 59)); }
+  </style><main><h1>Complex canvas</h1><p>${'Visible gradient content. '.repeat(20)}</p></main>`)
+  const complex = await extractStyles(page)
+  assert.equal(
+    complex.semanticSurfaceObservations.some((observation) => observation.role === 'page-canvas'),
+    false,
+  )
+  assert.ok(complex.semanticSurfaceLimitations.includes('complex-page-canvas-paint'))
+})
+
 test('keeps page chrome surfaces out of the generic foundation surface role', async () => {
   await page.setContent(`<!doctype html>
     <style>

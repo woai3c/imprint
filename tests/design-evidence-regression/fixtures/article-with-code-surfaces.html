@@ -35,12 +35,19 @@
         margin-top: 0;
         font-size: 32px;
       }
-      pre {
+      .code-surface {
         overflow: auto;
         padding: 14px;
         background: #10151f;
         color: #f1f5f9;
         border-radius: 6px;
+      }
+      .code-surface pre,
+      pre.inline-code {
+        margin: 0;
+        padding: 0;
+        color: inherit;
+        background: transparent;
       }
       @media (max-width: 640px) {
         body {
@@ -61,16 +68,38 @@
       <article>
         <h1>Integration guide</h1>
         <p>The article uses one reusable reading surface and many specialized code surfaces.</p>
-        <pre><code>const step01 = 'install'</code></pre>
-        <pre><code>const step02 = 'configure'</code></pre>
-        <pre><code>const step03 = 'connect'</code></pre>
-        <pre><code>const step04 = 'validate'</code></pre>
-        <pre><code>const step05 = 'build'</code></pre>
-        <pre><code>const step06 = 'preview'</code></pre>
-        <pre><code>const step07 = 'test'</code></pre>
-        <pre><code>const step08 = 'review'</code></pre>
-        <pre><code>const step09 = 'publish'</code></pre>
-        <pre><code>const step10 = 'monitor'</code></pre>
+        <section class="code-surface">
+          <pre><code>const step01 = 'install'</code></pre>
+        </section>
+        <div class="code-surface">
+          <pre><code>const step02 = 'configure'</code></pre>
+        </div>
+        <section class="code-surface">
+          <pre><code>const step03 = 'connect'</code></pre>
+        </section>
+        <div class="code-surface">
+          <pre><code>const step04 = 'validate'</code></pre>
+        </div>
+        <section class="code-surface">
+          <pre><code>const step05 = 'build'</code></pre>
+        </section>
+        <div class="code-surface">
+          <pre><code>const step06 = 'preview'</code></pre>
+        </div>
+        <section class="code-surface">
+          <pre><code>const step07 = 'test'</code></pre>
+        </section>
+        <div class="code-surface">
+          <pre><code>const step08 = 'review'</code></pre>
+        </div>
+        <section class="code-surface">
+          <pre><code>const step09 = 'publish'</code></pre>
+        </section>
+        <div class="code-surface">
+          <pre><code>const step10 = 'monitor'</code></pre>
+        </div>
+        <p>A small inline code example remains ordinary article content:</p>
+        <pre class="inline-code"><code>const inline = true</code></pre>
       </article>
     </main>
   </body>

@@ -2824,18 +2824,31 @@ function meetsPortableFoundationCoverage(evidencePath, item) {
       (String(source).startsWith('usage:') && !['usage:declaredColor', 'usage:brandTokenColor'].includes(source)),
   )
   if (item.eligiblePageCount === 1) {
+    const substantialSingleContentSurface =
+      evidencePath === 'colors.surface' &&
+      sources.includes('semantic:content-surface') &&
+      sources.includes('element:content-surface') &&
+      item.ownerCount >= 1
     return (
       item.pageCount === 1 &&
       ((rendered && item.ownerCount >= 2) ||
         (declared && rendered && item.ownerCount >= 1) ||
-        (sources.includes('element:page-background') && item.ownerCount >= 1))
+        (sources.includes('element:page-background') && item.ownerCount >= 1) ||
+        substantialSingleContentSurface)
     )
   }
-  return (
-    item.eligiblePageCount >= 2 &&
+  const crossPageContentSurface =
+    evidencePath === 'colors.surface' &&
     item.pageCount >= 2 &&
-    item.pageSupportRatio >= 0.75 &&
+    sources.includes('semantic:content-surface') &&
+    sources.includes('element:content-surface') &&
     item.ownerCount >= item.pageCount
+  return (
+    crossPageContentSurface ||
+    (item.eligiblePageCount >= 2 &&
+      item.pageCount >= 2 &&
+      item.pageSupportRatio >= 0.75 &&
+      item.ownerCount >= item.pageCount)
   )
 }
 
@@ -4440,7 +4453,7 @@ function expectedRecipeBlock(pattern, evidence, language) {
     .filter((ref) => tokenCatalog(evidence?.tokens).has(ref))
     .map((ref) => `\`${auditPublicRecipeTokenRef(ref, evidence)}\``)
     .join(locale?.listSeparator || ', ')
-  const observedStyles = Object.entries(auditPortableComponentStyles(pattern.styles))
+  const observedStyles = Object.entries(auditPortableComponentStyles(pattern.styles, pattern))
     .sort(([first], [second]) => first.localeCompare(second))
     .map(
       ([property, value]) =>
@@ -4681,9 +4694,9 @@ function normalizedRecipeStyles(styles) {
   )
 }
 
-function normalizedEvidenceComponentStyles(styles) {
+function normalizedEvidenceComponentStyles(styles, context) {
   return Object.fromEntries(
-    Object.entries(auditPortableComponentStyles(styles))
+    Object.entries(auditPortableComponentStyles(styles, context))
       .map(([property, value]) => [property, [normalizedComparableComponentStyle(property, value)]])
       .sort(([first], [second]) => first.localeCompare(second)),
   )
@@ -4884,11 +4897,41 @@ function auditContextDependentRadius(value) {
   )
 }
 
-function auditPortableComponentStyles(styles) {
+function auditContextDependentComponentGeometry(context, property, value, styles) {
+  const dimensions = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .map((dimension) => Number.parseFloat(dimension))
+    .filter(Number.isFinite)
+  if (property === 'height' || property === 'minHeight') {
+    if (['card', 'navigation', 'list', 'table', 'modal', 'status'].includes(context?.type)) return true
+    return dimensions.some((dimension) => Math.abs(dimension) > 96)
+  }
+  if (property !== 'padding') return false
+  const padding = auditComponentPaddingSides(value)
+  if (!padding) return false
+  if (
+    ['card', 'navigation', 'list', 'table', 'modal', 'status'].includes(context?.type) &&
+    padding.some((dimension) => Math.abs(dimension) > 96)
+  ) {
+    return true
+  }
+  if (context?.type !== 'input' || context?.semanticIdentities?.includes('search')) return false
+  const height = Math.abs(Number.parseFloat(styles?.height || ''))
+  const horizontalMaximum = Math.max(Math.abs(padding[1]), Math.abs(padding[3]))
+  const horizontalMinimum = Math.min(Math.abs(padding[1]), Math.abs(padding[3]))
+  const reserveThreshold = Math.max(48, Number.isFinite(height) ? height * 1.5 : 48)
+  const asymmetryThreshold = Math.max(24, Number.isFinite(height) ? height * 0.75 : 24)
+  return horizontalMaximum > reserveThreshold && horizontalMaximum - horizontalMinimum > asymmetryThreshold
+}
+
+function auditPortableComponentStyles(styles, context) {
   return Object.fromEntries(
     Object.entries(isObject(styles) ? styles : {}).filter(
       ([property, value]) =>
-        String(value).trim() !== '' && !(property === 'borderRadius' && auditContextDependentRadius(value)),
+        String(value).trim() !== '' &&
+        !(property === 'borderRadius' && auditContextDependentRadius(value)) &&
+        !(context && auditContextDependentComponentGeometry(context, property, value, styles)),
     ),
   )
 }
@@ -5049,7 +5092,8 @@ const AUDIT_COMPONENT_TEXT_STYLE_PROPERTIES = new Set([
   'letterSpacing',
 ])
 const AUDIT_TEXT_STYLE_COMPONENT_TYPES = new Set(['button', 'input', 'tab', 'status'])
-const AUDIT_CONTENT_SIZED_COMPONENT_TYPES = new Set(['card', 'list', 'table', 'modal', 'status'])
+const AUDIT_CONTENT_SIZED_COMPONENT_TYPES = new Set(['card', 'navigation', 'list', 'table', 'modal', 'status'])
+const AUDIT_RAW_CONTENT_SIZED_COMPONENT_TYPES = new Set(['card', 'list', 'table', 'modal', 'status'])
 
 function auditNormalizeComponentStyleRecord(component) {
   const type = String(component?.type || '')
@@ -5527,7 +5571,7 @@ function validateComponentStyleOwnership(evidence, hardFailures) {
     if (type === 'status' && !isObject(component?.statusBoundary)) {
       hardFailures.push(`missing-status-boundary-evidence:${String(component?.id || 'unknown')}`)
     }
-    if (AUDIT_CONTENT_SIZED_COMPONENT_TYPES.has(type) && ('height' in styles || 'minHeight' in styles)) {
+    if (AUDIT_RAW_CONTENT_SIZED_COMPONENT_TYPES.has(type) && ('height' in styles || 'minHeight' in styles)) {
       hardFailures.push(`content-sized-component-height:${String(component?.id || 'unknown')}`)
     }
   }
@@ -5626,13 +5670,48 @@ function auditButtonLikeBoundary(styles) {
   )
 }
 
+function auditComponentRecipeTokenRefs(tokenRefs, styles) {
+  const dimensions = new Set()
+  for (const [property, value] of Object.entries(styles || {})) {
+    if (!auditMeaningfulComponentStyleValue(property, value)) continue
+    if (['backgroundColor', 'color'].includes(property)) dimensions.add('color')
+    if (property === 'border' || /^border(?:Top|Right|Bottom|Left)$/.test(property)) {
+      dimensions.add('border')
+      dimensions.add('color')
+    }
+    if (['padding', 'gap', 'height', 'minHeight'].includes(property)) dimensions.add('spacing')
+    if (property === 'borderRadius') dimensions.add('radius')
+    if (property === 'boxShadow') dimensions.add('shadow')
+    if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property)) {
+      dimensions.add('typography')
+    }
+  }
+  return tokenRefs.filter((ref) => {
+    const dimension = ref.startsWith('typography.')
+      ? 'typography'
+      : ref.startsWith('spacing.')
+        ? 'spacing'
+        : ref.startsWith('color.')
+          ? 'color'
+          : ref.startsWith('border.')
+            ? 'border'
+            : ref.startsWith('radius.') || ref.startsWith('rounded.')
+              ? 'radius'
+              : ref.startsWith('shadow.')
+                ? 'shadow'
+                : undefined
+    return !dimension || dimensions.has(dimension)
+  })
+}
+
 function auditActionableComponentPattern(pattern, sharedTokenRefs) {
   if (!AUDIT_COMPONENT_TYPES.has(pattern.type) || !auditReusableComponentPattern(pattern)) return false
   if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
+  const styles = auditPortableComponentStyles(pattern.styles, pattern)
   if (pattern.visualTreatments?.includes('button-like')) {
-    if (!auditButtonLikeBoundary(pattern.styles)) return false
+    if (!auditButtonLikeBoundary(styles)) return false
     const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
-      (property) => auditMeaningfulComponentStyleValue(property, pattern.styles?.[property]),
+      (property) => auditMeaningfulComponentStyleValue(property, styles?.[property]),
     )
     if (!hasObservedLabelTypography) return false
   }
@@ -5646,7 +5725,7 @@ function auditActionableComponentPattern(pattern, sharedTokenRefs) {
   const dimensions = new Set(
     sharedTokenRefs.map((ref) => (ref.startsWith('typography.') ? 'typography' : ref.split('.')[0])),
   )
-  for (const [property, value] of Object.entries(pattern.styles || {})) {
+  for (const [property, value] of Object.entries(styles || {})) {
     if (!auditMeaningfulComponentStyleValue(property, value)) continue
     if (['backgroundColor', 'color'].includes(property)) dimensions.add('color')
     if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property)) {
@@ -5823,7 +5902,14 @@ function buildAuditCanonicalComponentPatterns(evidence) {
     const variant = auditPromotedVariant(group.variant, group.candidates)
     const pageCount = new Set(group.candidates.map((candidate) => candidate.pageId)).size
     const reuse = auditComponentReuse(confidence, group.candidates.length, group.candidates.length, pageCount)
-    const sharedTokenRefs = auditSharedComponentTokenRefs(group.candidates)
+    const styles = group.candidates[0].styles
+    const sharedTokenRefs = auditComponentRecipeTokenRefs(
+      auditSharedComponentTokenRefs(group.candidates),
+      auditPortableComponentStyles(styles, {
+        type: group.type,
+        ...(group.semanticIdentity ? { semanticIdentities: [group.semanticIdentity] } : {}),
+      }),
+    )
     const name =
       group.semanticRole ||
       (group.semanticSubtype
@@ -5842,7 +5928,7 @@ function buildAuditCanonicalComponentPatterns(evidence) {
       name,
       variant,
       styleSignature: group.styleSignature,
-      styles: group.candidates[0].styles,
+      styles,
       components: [...group.candidates].sort((first, second) => first.id.localeCompare(second.id)),
       sourceInstances: group.candidates.length,
       matchingStyleInstances: group.candidates.length,
@@ -6482,7 +6568,7 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
         hardFailures.push(`profile-component-catalog-metric-mismatch:${key}:${field}`)
       }
     }
-    const expectedStyles = normalizedEvidenceComponentStyles(pattern.styles)
+    const expectedStyles = normalizedEvidenceComponentStyles(pattern.styles, pattern)
     if (stableJson(normalizedRecipeStyles(recipe?.observedStyles)) !== stableJson(expectedStyles)) {
       hardFailures.push(`profile-component-catalog-styles-mismatch:${key}`)
     }
@@ -6562,7 +6648,7 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
         hardFailures.push(`profile-component-use-when-mismatch:${key}:${String(recipe?.useWhen)}:${expectedUseWhen}`)
       }
       const exactStyles = Object.fromEntries(
-        Object.entries(auditPortableComponentStyles(pattern.styles)).sort(([first], [second]) =>
+        Object.entries(auditPortableComponentStyles(pattern.styles, pattern)).sort(([first], [second]) =>
           first.localeCompare(second),
         ),
       )
@@ -7249,6 +7335,28 @@ export async function auditArtifactBundle(directory) {
     }
     if (sortedStrings(component?.styles?.borderRadius).some((radius) => auditContextDependentRadius(radius))) {
       hardFailures.push(`context-dependent-radius-component-spec:${index}`)
+    }
+    const geometryContext = {
+      type: component?.component,
+      ...(component?.semanticIdentity ? { semanticIdentities: [component.semanticIdentity] } : {}),
+    }
+    if (
+      Object.entries(isObject(component?.styles) ? component.styles : {}).some(([property, values]) =>
+        (Array.isArray(values) ? values : []).some((value) =>
+          auditContextDependentComponentGeometry(
+            geometryContext,
+            property,
+            String(value),
+            Object.fromEntries(
+              Object.entries(component.styles).flatMap(([styleProperty, styleValues]) =>
+                Array.isArray(styleValues) && styleValues.length > 0 ? [[styleProperty, String(styleValues[0])]] : [],
+              ),
+            ),
+          ),
+        ),
+      )
+    ) {
+      hardFailures.push(`context-dependent-component-geometry:${index}`)
     }
   }
   validateTokenReferences(componentSpecs, catalog, 'component-specs', hardFailures)

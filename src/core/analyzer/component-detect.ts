@@ -140,7 +140,7 @@ const COMPONENT_SELECTORS: Record<ComponentType, string[]> = {
 
 const TEXT_STYLE_PROPERTIES = new Set(['color', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'])
 const TEXT_STYLE_COMPONENT_TYPES = new Set<ComponentType>(['button', 'input', 'tab', 'status'])
-const CONTENT_SIZED_COMPONENT_TYPES = new Set<ComponentType>(['card', 'list', 'table', 'modal', 'status'])
+const CONTENT_SIZED_COMPONENT_TYPES = new Set<ComponentType>(['card', 'navigation', 'list', 'table', 'modal', 'status'])
 
 /**
  * Keeps reusable component identity scoped to the DOM owner that actually paints each property.

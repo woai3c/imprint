@@ -112,6 +112,17 @@ function hasPortableEvidenceCoverage(evidence: TokenEvidence, sourcePath: string
   )
   const pageSupportRatio = evidence.pageCount / (evidence.eligiblePageCount || 1)
   const permitsPairedCoverage = ['colors.foreground', 'colors.muted-foreground'].includes(sourcePath || '')
+  const permitsSubstantialSingleContentSurface =
+    sourcePath === 'colors.surface' &&
+    evidence.sources.includes('semantic:content-surface') &&
+    evidence.sources.includes('element:content-surface') &&
+    (evidence.ownerCount || 0) >= 1
+  const permitsCrossPageContentSurface =
+    sourcePath === 'colors.surface' &&
+    evidence.pageCount >= 2 &&
+    evidence.sources.includes('semantic:content-surface') &&
+    evidence.sources.includes('element:content-surface') &&
+    (evidence.ownerCount || 0) >= evidence.pageCount
   const meetsFoundationCoverage =
     evidence.pairedSurface && permitsPairedCoverage
       ? hasConsistentRenderedPairOwners(evidence)
@@ -119,11 +130,13 @@ function hasPortableEvidenceCoverage(evidence: TokenEvidence, sourcePath: string
         ? evidence.pageCount === 1 &&
           ((rendered && (evidence.ownerCount || 0) >= 2) ||
             (declared && rendered && (evidence.ownerCount || 0) >= 1) ||
-            (evidence.sources.includes('element:page-background') && (evidence.ownerCount || 0) >= 1))
-        : (evidence.eligiblePageCount || 0) >= 2 &&
-          evidence.pageCount >= 2 &&
-          pageSupportRatio >= 0.75 &&
-          (evidence.ownerCount || 0) >= evidence.pageCount
+            (evidence.sources.includes('element:page-background') && (evidence.ownerCount || 0) >= 1) ||
+            permitsSubstantialSingleContentSurface)
+        : ((evidence.eligiblePageCount || 0) >= 2 &&
+            evidence.pageCount >= 2 &&
+            pageSupportRatio >= 0.75 &&
+            (evidence.ownerCount || 0) >= evidence.pageCount) ||
+          permitsCrossPageContentSurface
   return (
     requiredCounts.every((value) => Number.isInteger(value)) &&
     optionalCounts.every((value) => Number.isInteger(value) && (value as number) >= 0) &&

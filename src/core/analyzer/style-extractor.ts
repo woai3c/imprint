@@ -136,6 +136,16 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         alpha: match[4] === undefined ? 1 : Number.parseFloat(match[4]),
       }
     }
+    const browserCanvasProbe = document.createElement('div')
+    browserCanvasProbe.style.setProperty('position', 'fixed', 'important')
+    browserCanvasProbe.style.setProperty('inset', '0', 'important')
+    browserCanvasProbe.style.setProperty('pointer-events', 'none', 'important')
+    browserCanvasProbe.style.setProperty('visibility', 'hidden', 'important')
+    browserCanvasProbe.style.setProperty('background-color', 'Canvas', 'important')
+    document.documentElement.append(browserCanvasProbe)
+    const browserCanvasColor =
+      normalizeObservedColor(getComputedStyle(browserCanvasProbe).backgroundColor) || 'rgb(255, 255, 255)'
+    browserCanvasProbe.remove()
     const compositeColor = (foreground: BrowserColor, background: BrowserColor): BrowserColor => {
       const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha)
       if (alpha <= 0) return { red: 255, green: 255, blue: 255, alpha: 1 }
@@ -164,7 +174,12 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         }
         current = current.parentElement
       }
-      let composite: BrowserColor = { red: 255, green: 255, blue: 255, alpha: 1 }
+      let composite: BrowserColor = parseNormalizedColor(browserCanvasColor) || {
+        red: 255,
+        green: 255,
+        blue: 255,
+        alpha: 1,
+      }
       for (const layer of layers.reverse()) composite = compositeColor(layer, composite)
       return `rgb(${Math.round(composite.red)}, ${Math.round(composite.green)}, ${Math.round(composite.blue)})`
     }
@@ -601,21 +616,27 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       rootCanvas?.element ||
       (bodyCanvasPainted ? document.body : null) ||
       (htmlCanvasPainted ? document.documentElement : null)
-    const pageCanvasValue = pageCanvasPaintOwner ? pureDirectlyPaintedBackground(pageCanvasPaintOwner) : null
-    const pageCanvasOwner = pageCanvasValue ? pageCanvasPaintOwner : null
-    if (pageCanvasPaintOwner && !pageCanvasValue) {
+    const authorCanvasValue = pageCanvasPaintOwner ? pureDirectlyPaintedBackground(pageCanvasPaintOwner) : null
+    const pageCanvasValue = pageCanvasPaintOwner ? authorCanvasValue : browserCanvasColor
+    const pageCanvasOwner = authorCanvasValue ? pageCanvasPaintOwner : null
+    if (pageCanvasPaintOwner && !authorCanvasValue) {
       styles.semanticSurfaceLimitations?.push('complex-page-canvas-paint')
     }
-    if (pageCanvasOwner && pageCanvasValue) {
+    if (pageCanvasValue) {
       styles.semanticSurfaceObservations?.push({
         captureId,
-        ownerId: pageCanvasOwner === document.documentElement ? 'html' : locatorFor(pageCanvasOwner),
+        ownerId:
+          pageCanvasOwner === document.documentElement
+            ? 'html'
+            : pageCanvasOwner
+              ? locatorFor(pageCanvasOwner)
+              : 'browser-canvas',
         value: pageCanvasValue,
         domain: 'foundation',
         role: 'page-canvas',
         rendered: true,
         declared: false,
-        elementKind: pageCanvasOwner.tagName.toLowerCase(),
+        elementKind: pageCanvasOwner?.tagName.toLowerCase() || 'browser-canvas',
         areaRatio: 1,
         viewportCoverage: 1,
       })
@@ -999,8 +1020,34 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         const explicitRole = el.getAttribute('role')?.trim().toLowerCase() || undefined
         const searchAncestor = el.closest('search, [role="search"]')
         const formRole = searchAncestor ? 'search' : el.closest('form') ? 'form' : undefined
+        const codeSelector = 'pre, code, kbd, samp, math, [role="code"]'
+        const ownedCodeRoots = [...el.querySelectorAll(codeSelector)]
+          .filter((candidate) => !candidate.parentElement?.closest(codeSelector))
+          .filter((candidate) => {
+            let owner: Element | null = candidate
+            while (owner && owner !== el) {
+              if (hasBackgroundPaint(owner)) return false
+              owner = owner.parentElement
+            }
+            return owner === el
+          })
+        const ownedCodeTextLength = ownedCodeRoots.reduce(
+          (length, candidate) => length + (candidate.textContent || '').trim().length,
+          0,
+        )
+        const ownerTextLength = (el.textContent || '').trim().length
+        const ownedCodeAreaRatio = Math.min(
+          1,
+          ownedCodeRoots.reduce((area, candidate) => {
+            const codeRect = candidate.getBoundingClientRect()
+            const width = Math.max(0, Math.min(rect.right, codeRect.right) - Math.max(rect.left, codeRect.left))
+            const height = Math.max(0, Math.min(rect.bottom, codeRect.bottom) - Math.max(rect.top, codeRect.top))
+            return area + (width * height) / Math.max(1, rect.width * rect.height)
+          }, 0),
+        )
         const codeWrapper =
-          !structuralRoot && Boolean(el.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'))
+          ownedCodeRoots.length > 0 &&
+          (ownedCodeTextLength / Math.max(1, ownerTextLength) >= 0.65 || ownedCodeAreaRatio >= 0.5)
         const codeOwner = specializedContent || codeWrapper
         const mediaOwner = Boolean(el.closest('figure, picture, video, canvas, svg, [role="img"]'))
         const controlOwner = Boolean(

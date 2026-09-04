@@ -15,6 +15,7 @@ import {
   buildCanonicalComponentCatalog,
   canonicalComponentEvidenceSample,
   canonicalComponentRecipeStyles,
+  canonicalComponentRecipeTokenRefs,
   canonicalComponentSharedTokenRefs,
   canonicalComponentVariant,
   canonicalRepresentativeComponents,
@@ -553,7 +554,11 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
       const confidence = recipeConfidence(pattern)
       const reuse = resolveComponentReuseEvidence(pattern)
       const sourceIds = evidenceSample.map((item) => item.id)
-      const allSharedTokenRefs = canonicalComponentSharedTokenRefs(items)
+      const observedStyles = canonicalComponentRecipeStyles(pattern.styles, pattern)
+      const allSharedTokenRefs = canonicalComponentRecipeTokenRefs(
+        canonicalComponentSharedTokenRefs(items),
+        observedStyles,
+      )
       const sharedTokenRefs = allSharedTokenRefs.slice(0, 10)
       const priority: ComponentRecipe['priority'] =
         isReusableComponentPattern(pattern) && isActionableComponentPattern(pattern, allSharedTokenRefs) ? 'P1' : 'P2'
@@ -601,7 +606,7 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         priority,
         useWhen: useWhen(component, variant, pattern),
         observed,
-        observedStyles: canonicalComponentRecipeStyles(pattern.styles),
+        observedStyles,
         states: interactionClaims(items, evidence, language),
         // Responsive evidence currently identifies sections across viewports, not component instances. Keep those
         // facts in the responsive section instead of presenting enclosing-section changes as component behavior.

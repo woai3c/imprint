@@ -4,6 +4,7 @@ import {
   buildCanonicalComponentCatalog,
   canonicalComponentEvidenceSample,
   canonicalComponentRecipeStyles,
+  canonicalComponentRecipeTokenRefs,
   canonicalComponentSharedTokenRefs,
   canonicalComponentVariant,
   canonicalRepresentativeComponents,
@@ -34,11 +35,15 @@ export function buildComponentSpecs(evidence: DesignEvidence): ComponentSpec[] {
   return buildCanonicalComponentCatalog(evidence)
     .map((pattern) => {
       const representativeComponents = canonicalRepresentativeComponents(pattern, evidence)
-      const sharedTokenRefs = canonicalComponentSharedTokenRefs(representativeComponents)
-      return { pattern, representativeComponents, sharedTokenRefs }
+      const recipeStyles = canonicalComponentRecipeStyles(pattern.styles, pattern)
+      const sharedTokenRefs = canonicalComponentRecipeTokenRefs(
+        canonicalComponentSharedTokenRefs(representativeComponents),
+        recipeStyles,
+      )
+      return { pattern, representativeComponents, recipeStyles, sharedTokenRefs }
     })
     .filter(({ pattern, sharedTokenRefs }) => isActionableComponentPattern(pattern, sharedTokenRefs))
-    .map(({ pattern, representativeComponents, sharedTokenRefs }) => {
+    .map(({ pattern, representativeComponents, recipeStyles, sharedTokenRefs }) => {
       const reuse = resolveComponentReuseEvidence(pattern)
       const role = consensusComponentRole(pattern)
       const variant = canonicalComponentVariant(pattern)
@@ -54,12 +59,7 @@ export function buildComponentSpecs(evidence: DesignEvidence): ComponentSpec[] {
         identityConfidence: pattern.confidence,
         reuseConfidence: reuse.reuseConfidence,
         reuseScope: reuse.reuseScope,
-        styles: Object.fromEntries(
-          Object.entries(canonicalComponentRecipeStyles(pattern.styles)).map(([property, value]) => [
-            property,
-            [value],
-          ]),
-        ),
+        styles: Object.fromEntries(Object.entries(recipeStyles).map(([property, value]) => [property, [value]])),
         tokenRefs: sharedTokenRefs.slice(0, 10),
         stateRefs: [...new Set(representativeComponents.flatMap((component) => component.stateRefs))].sort(),
         evidenceRefs: canonicalComponentEvidenceSample(pattern, evidence).map((component) => component.id),

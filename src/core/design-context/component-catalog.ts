@@ -235,6 +235,39 @@ function componentPaddingSides(value: string | undefined): readonly [number, num
   return [top, right, bottom, left]
 }
 
+function isContextDependentComponentGeometry(
+  context: Pick<ComponentVariantPattern, 'type' | 'semanticIdentities'>,
+  property: string,
+  value: string,
+  styles: Readonly<Record<string, string>>,
+): boolean {
+  const dimensions = value
+    .trim()
+    .split(/\s+/)
+    .map((dimension) => Number.parseFloat(dimension))
+    .filter(Number.isFinite)
+  if (property === 'height' || property === 'minHeight') {
+    if (['card', 'navigation', 'list', 'table', 'modal', 'status'].includes(context.type)) return true
+    return dimensions.some((dimension) => Math.abs(dimension) > 96)
+  }
+  if (property !== 'padding') return false
+  const padding = componentPaddingSides(value)
+  if (!padding) return false
+  if (
+    ['card', 'navigation', 'list', 'table', 'modal', 'status'].includes(context.type) &&
+    padding.some((dimension) => Math.abs(dimension) > 96)
+  ) {
+    return true
+  }
+  if (context.type !== 'input' || context.semanticIdentities?.includes('search')) return false
+  const height = Math.abs(Number.parseFloat(styles.height || ''))
+  const horizontalMaximum = Math.max(Math.abs(padding[1]), Math.abs(padding[3]))
+  const horizontalMinimum = Math.min(Math.abs(padding[1]), Math.abs(padding[3]))
+  const reserveThreshold = Math.max(48, Number.isFinite(height) ? height * 1.5 : 48)
+  const asymmetryThreshold = Math.max(24, Number.isFinite(height) ? height * 0.75 : 24)
+  return horizontalMaximum > reserveThreshold && horizontalMaximum - horizontalMinimum > asymmetryThreshold
+}
+
 function hasButtonLikeBoundary(styles: Readonly<Record<string, string>>): boolean {
   if (hasVisibleColor(styles.backgroundColor)) return true
   if (
@@ -262,10 +295,11 @@ export function isActionableComponentPattern(
 ): boolean {
   if (!CATALOG_COMPONENT_TYPES.has(pattern.type) || !isReusableComponentPattern(pattern)) return false
   if (['button', 'tab'].includes(pattern.type) && pattern.visualTreatments?.includes('structural')) return false
+  const styles = canonicalComponentRecipeStyles(pattern.styles, pattern)
   if (pattern.visualTreatments?.includes('button-like')) {
-    if (!hasButtonLikeBoundary(pattern.styles)) return false
+    if (!hasButtonLikeBoundary(styles)) return false
     const hasObservedLabelTypography = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].some(
-      (property) => meaningfulStyleValue(property, pattern.styles[property] || ''),
+      (property) => meaningfulStyleValue(property, styles[property] || ''),
     )
     if (!hasObservedLabelTypography) return false
   }
@@ -278,7 +312,7 @@ export function isActionableComponentPattern(
   const dimensions = new Set(
     sharedTokenRefs.map((ref) => (ref.startsWith('typography.') ? 'typography' : ref.split('.')[0])),
   )
-  for (const [property, value] of Object.entries(pattern.styles)) {
+  for (const [property, value] of Object.entries(styles)) {
     if (!meaningfulStyleValue(property, value)) continue
     if (['backgroundColor', 'color'].includes(property)) dimensions.add('color')
     if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property)) {
@@ -332,14 +366,58 @@ export function selectBalancedComponentDetails<T extends ComponentDetailCandidat
 
 /**
  * The portable implementation-oriented style snapshot shared by every component artifact.
- * Raw evidence retains layout-dependent values, while recipes omit radii that the browser clamps against geometry.
+ * Raw evidence retains layout-dependent values, while recipes omit geometry that cannot be transferred safely.
  */
-export function canonicalComponentRecipeStyles(styles: Readonly<Record<string, string>>): Record<string, string> {
+export function canonicalComponentRecipeStyles(
+  styles: Readonly<Record<string, string>>,
+  context?: Pick<ComponentVariantPattern, 'type' | 'semanticIdentities'>,
+): Record<string, string> {
   return Object.fromEntries(
     Object.entries(styles)
       .filter(
-        ([property, value]) => value.trim() !== '' && !(property === 'borderRadius' && isContextDependentRadius(value)),
+        ([property, value]) =>
+          value.trim() !== '' &&
+          !(property === 'borderRadius' && isContextDependentRadius(value)) &&
+          !(context && isContextDependentComponentGeometry(context, property, value, styles)),
       )
       .sort(([first], [second]) => first.localeCompare(second)),
   )
+}
+
+/** Keeps recipe token references aligned with the implementation dimensions that survived portability filtering. */
+export function canonicalComponentRecipeTokenRefs(
+  tokenRefs: readonly string[],
+  styles: Readonly<Record<string, string>>,
+): string[] {
+  const dimensions = new Set<string>()
+  for (const [property, value] of Object.entries(styles)) {
+    if (!meaningfulStyleValue(property, value)) continue
+    if (['backgroundColor', 'color'].includes(property)) dimensions.add('color')
+    if (property === 'border' || /^border(?:Top|Right|Bottom|Left)$/.test(property)) {
+      dimensions.add('border')
+      dimensions.add('color')
+    }
+    if (['padding', 'gap', 'height', 'minHeight'].includes(property)) dimensions.add('spacing')
+    if (property === 'borderRadius') dimensions.add('radius')
+    if (property === 'boxShadow') dimensions.add('shadow')
+    if (['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property)) {
+      dimensions.add('typography')
+    }
+  }
+  return tokenRefs.filter((ref) => {
+    const dimension = ref.startsWith('typography.')
+      ? 'typography'
+      : ref.startsWith('spacing.')
+        ? 'spacing'
+        : ref.startsWith('color.')
+          ? 'color'
+          : ref.startsWith('border.')
+            ? 'border'
+            : ref.startsWith('radius.') || ref.startsWith('rounded.')
+              ? 'radius'
+              : ref.startsWith('shadow.')
+                ? 'shadow'
+                : undefined
+    return !dimension || dimensions.has(dimension)
+  })
 }

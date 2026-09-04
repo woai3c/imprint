@@ -1,0 +1,16 @@
+{
+  "fixture": "transparent-browser-canvas",
+  "description": "A document whose authored roots are transparent and therefore render on the browser system canvas.",
+  "expectedSectionRoles": ["hero"],
+  "minSections": 1,
+  "expectedComponentTypes": [],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": [],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": {
+    "foundationColors": { "background": "#ffffff", "secondary": null }
+  }
+}

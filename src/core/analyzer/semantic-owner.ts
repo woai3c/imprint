@@ -59,7 +59,14 @@ function ownerCount(candidate: SurfaceCandidate): number {
 }
 
 function supportedReusableSurface(candidate: SurfaceCandidate): boolean {
-  return candidate.routes.size >= 2 || [...candidate.ownersByRoute.values()].some((owners) => owners.size >= 2)
+  const ownerTotal = ownerCount(candidate)
+  const substantialSingleOwner =
+    candidate.routes.size === 1 && ownerTotal === 1 && candidate.area >= 0.2 && candidate.viewportCoverage >= 0.2
+  return (
+    candidate.routes.size >= 2 ||
+    [...candidate.ownersByRoute.values()].some((owners) => owners.size >= 2) ||
+    substantialSingleOwner
+  )
 }
 
 function candidateOrder(first: SurfaceCandidate, second: SurfaceCandidate): number {

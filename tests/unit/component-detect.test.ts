@@ -93,8 +93,6 @@ describe('component candidate summarization', () => {
     })
     expect(normalizeComponentStyleRecord('navigation', styles, 'root')).toEqual({
       backgroundColor: '#ffffff',
-      height: '160px',
-      minHeight: '40px',
       padding: '12px 16px',
     })
     expect(normalizeComponentStyleRecord('list', styles, 'root')).toEqual({

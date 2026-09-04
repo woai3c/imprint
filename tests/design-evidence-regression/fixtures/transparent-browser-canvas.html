@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transparent browser canvas</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        min-height: 100%;
+      }
+      body {
+        margin: 0;
+        color: #1f2937;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+        padding: 48px 32px;
+      }
+      h1 {
+        margin: 0 0 20px;
+        font-size: 36px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser canvas reference</h1>
+      <p>
+        This document intentionally leaves html, body, and its content root transparent. The browser canvas is the final
+        rendered foundation behind this readable text.
+      </p>
+      <p>
+        The analyzer should preserve that observed system canvas instead of omitting the foundation background or
+        selecting a repeated descendant color.
+      </p>
+    </main>
+  </body>
+</html>

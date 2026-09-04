@@ -687,6 +687,15 @@ function evidenceSemantics(
     semantic.confidence !== 'low' &&
     semantic.reusableSource &&
     ownerCount >= pageCount
+  const crossPageContentFoundation =
+    entry.group === 'colors' &&
+    entry.role === 'surface' &&
+    pageCount >= 2 &&
+    sources.has('semantic:content-surface') &&
+    sources.has('element:content-surface') &&
+    semantic.confidence !== 'low' &&
+    semantic.reusableSource &&
+    ownerCount >= pageCount
   const pairedForegroundFoundation =
     entry.group === 'colors' &&
     ['foreground', 'muted-foreground'].includes(entry.role || '') &&
@@ -720,13 +729,25 @@ function evidenceSemantics(
     sources.has('element:page-background') &&
     semantic.confidence !== 'low' &&
     ownerCount >= 1
+  const substantialSingleContentFoundation =
+    entry.group === 'colors' &&
+    entry.role === 'surface' &&
+    eligiblePageCount === 1 &&
+    pageCount === 1 &&
+    sources.has('semantic:content-surface') &&
+    sources.has('element:content-surface') &&
+    semantic.confidence !== 'low' &&
+    semantic.reusableSource &&
+    ownerCount >= 1
   if (
     requiresPairedForeground
       ? pairedForegroundFoundation
       : crossPageFoundation ||
+        crossPageContentFoundation ||
         repeatedOnePageFoundation ||
         declaredAndRenderedOnePageFoundation ||
-        standardsBackedPageFoundation
+        standardsBackedPageFoundation ||
+        substantialSingleContentFoundation
   ) {
     return {
       confidence: semantic.confidence,

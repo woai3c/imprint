@@ -499,7 +499,14 @@ describe('deterministic design context', () => {
         ...structuredClone(base),
         id,
         role: 'action',
-        styles: { backgroundColor: 'transparent', borderRadius, padding: '8px' },
+        textStyleOwner: 'root' as const,
+        styles: {
+          backgroundColor: 'transparent',
+          borderRadius,
+          padding: '8px',
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '16px',
+        },
         tokenRefs: ['color.foreground', 'spacing.1', 'typography.font-weight.1'],
       })),
     ]
@@ -584,6 +591,73 @@ describe('deterministic design context', () => {
 
     expect(recipes.find((recipe) => recipe.component === 'button')?.priority).toBe('P2')
     expect(buildComponentSpecs(evidence)).toEqual([])
+  })
+
+  it('keeps content-sized and compound-control geometry in raw evidence instead of portable recipes', () => {
+    const evidence = createEvidence()
+    const repeated = (
+      id: string,
+      type: 'navigation' | 'input',
+      styles: Record<string, string>,
+      semanticIdentity: 'navigation' | 'input' | 'search',
+      usageContext: 'navigation' | 'form' | 'search',
+    ) =>
+      Array.from({ length: 2 }, (_value, index) => ({
+        id: `${id}-${index}`,
+        pageId: 'page-desktop',
+        sectionId: 'section-desktop',
+        type,
+        ...(type === 'input' ? { role: semanticIdentity === 'search' ? 'searchbox' : 'textbox' } : {}),
+        elementKind: type === 'input' ? ('input' as const) : ('nav' as const),
+        semanticIdentity,
+        visualTreatment: type === 'input' ? ('filled' as const) : ('structural' as const),
+        usageContext,
+        textStyleOwner: type === 'input' ? ('root' as const) : undefined,
+        rect: { x: 0.1, y: 0.1 + index * 0.1, width: 0.5, height: type === 'input' ? 0.02 : 0.2 },
+        styles,
+        tokenRefs: ['color.background', 'spacing.1', 'radius.1', 'typography.font-size.1'],
+        stateRefs: [],
+        confidence: 0.96,
+        evidenceRefs: ['section-desktop', 'image-desktop'],
+      }))
+    const inputStyles = {
+      backgroundColor: '#ffffff',
+      color: '#111827',
+      borderRadius: '12px',
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '16px',
+      fontWeight: '400',
+      height: '32px',
+    }
+    evidence.components = [
+      ...repeated(
+        'navigation',
+        'navigation',
+        { backgroundColor: '#ffffff', boxShadow: 'rgb(0, 0, 0) 0px 1px 2px', height: '339px' },
+        'navigation',
+        'navigation',
+      ),
+      ...repeated('compound-input', 'input', { ...inputStyles, padding: '0px 85px 0px 12px' }, 'input', 'form'),
+      ...repeated('ordinary-input', 'input', { ...inputStyles, padding: '8px 12px' }, 'input', 'form'),
+      ...repeated('search-input', 'input', { ...inputStyles, padding: '6px 142px 6px 40px' }, 'search', 'search'),
+    ]
+
+    const specs = buildComponentSpecs(evidence)
+    const navigation = specs.find((spec) => spec.component === 'navigation')!
+    const compound = specs.find(
+      (spec) => spec.component === 'input' && spec.semanticIdentity === 'input' && !spec.styles.padding,
+    )!
+    const ordinary = specs.find((spec) => spec.component === 'input' && spec.styles.padding?.includes('8px 12px'))!
+    const search = specs.find((spec) => spec.semanticIdentity === 'search')!
+
+    expect(navigation.styles).not.toHaveProperty('height')
+    expect(compound.styles).not.toHaveProperty('padding')
+    expect(ordinary.styles.padding).toEqual(['8px 12px'])
+    expect(search.styles.padding).toEqual(['6px 142px 6px 40px'])
+    expect(evidence.components.find((component) => component.id === 'navigation-0')?.styles.height).toBe('339px')
+    expect(evidence.components.find((component) => component.id === 'compound-input-0')?.styles.padding).toBe(
+      '0px 85px 0px 12px',
+    )
   })
 
   it('requires every P1 recipe to satisfy the shared reuse gate and exact-style support', () => {

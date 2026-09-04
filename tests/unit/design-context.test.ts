@@ -260,6 +260,70 @@ describe('deterministic design context', () => {
     expect(markdown).not.toContain('#### button · secondary')
   })
 
+  it('keeps link semantics separate from a button-like visual treatment in component recipes', () => {
+    const evidence = createEvidence()
+    const anchor = {
+      ...structuredClone(evidence.components[0]),
+      elementKind: 'anchor' as const,
+      role: 'navigation',
+      semanticIdentity: 'link' as const,
+      visualTreatment: 'button-like' as const,
+      usageContext: 'navigation' as const,
+      textStyleOwner: 'root' as const,
+      styles: {
+        backgroundColor: '#2563eb',
+        color: '#ffffff',
+        borderRadius: '12px',
+        height: '40px',
+        padding: '8px 16px',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: '16px',
+        fontWeight: '700',
+        lineHeight: '24px',
+      },
+      tokenRefs: [
+        'color.primary',
+        'radius.1',
+        'spacing.1',
+        'typography.font-stack.1',
+        'typography.font-size.1',
+        'typography.font-weight.2',
+      ],
+    }
+    evidence.components = [
+      { ...structuredClone(anchor), id: 'component-link-first' },
+      { ...structuredClone(anchor), id: 'component-link-second' },
+    ]
+
+    const profile = createDeterministicDesignContext(evidence, 'en').profile
+    const recipe = profile.transferGrammar!.componentRecipes.find((candidate) => candidate.component === 'button')!
+    const componentSpec = buildComponentSpecs(evidence).find((candidate) => candidate.variant === recipe.variant)
+    const markdown = generateTransferComponentsMarkdown(profile, tokens, new Map(), evidence)
+    const zhProfile = createDeterministicDesignContext(evidence, 'zh-CN').profile
+    const zhMarkdown = generateTransferComponentsMarkdown(zhProfile, tokens, new Map(), evidence)
+
+    expect(recipe).toMatchObject({
+      component: 'button',
+      priority: 'P1',
+      useWhen: 'navigation',
+      semanticIdentity: 'link',
+      visualTreatment: 'button-like',
+      usageContext: 'navigation',
+    })
+    expect(componentSpec).toMatchObject({
+      semanticIdentity: 'link',
+      visualTreatment: 'button-like',
+      usageContext: 'navigation',
+    })
+    expect(markdown).toContain('#### button-like link ·')
+    expect(markdown).toContain('the target needs navigation or scope switching')
+    expect(markdown).toContain('identity: link, visual treatment: button-like, context: navigation')
+    expect(markdown).toContain('Preserve link/anchor semantics and URL behavior')
+    expect(zhMarkdown).toContain('#### 按钮式链接 ·')
+    expect(zhMarkdown).toContain('身份：链接、视觉处理：按钮式、场景：导航')
+    expect(zhMarkdown).toContain('保留链接/锚点语义和 URL 行为')
+  })
+
   it('keeps compound semantic variants intact when visual suffixes are present', () => {
     const translated = new Map([
       ['primary-action-low-emphasis', 'Primary action · low emphasis'],

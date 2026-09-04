@@ -403,6 +403,7 @@ function withFoundationGuidance(
 }
 
 function useWhen(component: string, variant: string, pattern: ComponentVariantPattern): ComponentRecipeUseWhen {
+  if (pattern.semanticIdentities?.length === 1 && pattern.semanticIdentities[0] === 'link') return 'navigation'
   if (component === 'button')
     return Object.entries(pattern.roleCounts || {}).some(
       ([role, count]) => role === 'primary-action' && count / Math.max(pattern.styleObservationCount || 0, 1) >= 0.8,
@@ -605,6 +606,9 @@ function buildRecipes(evidence: DesignEvidence, language: 'en' | 'zh-CN'): Compo
         variant,
         priority,
         useWhen: useWhen(component, variant, pattern),
+        ...(pattern.semanticIdentities?.length === 1 ? { semanticIdentity: pattern.semanticIdentities[0] } : {}),
+        ...(pattern.visualTreatments?.length === 1 ? { visualTreatment: pattern.visualTreatments[0] } : {}),
+        ...(pattern.usageContexts?.length === 1 ? { usageContext: pattern.usageContexts[0] } : {}),
         observed,
         observedStyles,
         states: interactionClaims(items, evidence, language),

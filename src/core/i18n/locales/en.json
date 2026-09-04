@@ -301,6 +301,7 @@
       "componentsHeading": "### Contextual Component Patterns",
       "componentsIntro": "> These patterns are not global defaults. Use one only when the target contains the matching component and variant. Keep each treatment scoped to that component and variant; when no state is listed, do not present an invented state as a source rule.",
       "componentTitle": "{{component}} · {{variant}}",
+      "semanticComponentTitle": "{{visualTreatment}} {{semanticIdentity}} · {{variant}}",
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px radius",
       "sourceInstances": "{{count}} observed instance(s)",
@@ -311,6 +312,10 @@
         "cross-page": "observed across pages"
       },
       "useWhen": "Use when",
+      "semanticContract": "Semantic contract",
+      "semanticIdentity": "identity: {{value}}",
+      "visualTreatment": "visual treatment: {{value}}",
+      "usageContext": "context: {{value}}",
       "observedRecipe": "Observed recipe",
       "observedStyles": "Representative styles",
       "states": "Observed states",
@@ -332,6 +337,38 @@
         "overlay-dialog": "the target needs a temporary dialog above the page",
         "status-feedback": "the target needs inline status or outcome feedback",
         "specialized": "the target contains the same specialized component"
+      },
+      "semanticIdentityValues": {
+        "button": "button",
+        "link": "link",
+        "input": "input",
+        "search": "search",
+        "navigation": "navigation",
+        "table": "table",
+        "dialog": "dialog",
+        "list": "list",
+        "card": "card",
+        "status": "status",
+        "unknown": "unknown"
+      },
+      "visualTreatmentValues": {
+        "filled": "filled",
+        "outlined": "outlined",
+        "flat": "flat",
+        "icon-like": "icon-like",
+        "button-like": "button-like",
+        "structural": "structural"
+      },
+      "usageContextValues": {
+        "search": "search",
+        "navigation": "navigation",
+        "form": "form",
+        "article": "article",
+        "dialog": "dialog",
+        "general": "general"
+      },
+      "semanticGuidanceValues": {
+        "link": "Preserve link/anchor semantics and URL behavior; a button-like appearance does not turn navigation into a button action."
       },
       "restrictionValues": {
         "keep-variant-scope": "Keep the observed treatment scoped to this component and variant.",

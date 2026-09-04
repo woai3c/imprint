@@ -301,6 +301,7 @@
       "componentsHeading": "### 场景化组件模式",
       "componentsIntro": "> 这些模式不是全局默认值；只有目标页面出现对应组件和变体时才使用。每种处理都只限于该组件和变体；没有列出状态时，不要把自行补充的状态写成来源规则。",
       "componentTitle": "{{component}} · {{variant}}",
+      "semanticComponentTitle": "{{visualTreatment}}{{semanticIdentity}} · {{variant}}",
       "variantSeparator": " · ",
       "radiusVariant": "{{value}}px 圆角",
       "sourceInstances": "{{count}} 个观察实例",
@@ -311,6 +312,10 @@
         "cross-page": "跨页观察"
       },
       "useWhen": "适用场景",
+      "semanticContract": "语义契约",
+      "semanticIdentity": "身份：{{value}}",
+      "visualTreatment": "视觉处理：{{value}}",
+      "usageContext": "场景：{{value}}",
       "observedRecipe": "观察配方",
       "observedStyles": "代表性样式",
       "states": "已观察状态",
@@ -332,6 +337,38 @@
         "overlay-dialog": "目标页面需要临时覆盖在页面上方的弹窗时",
         "status-feedback": "目标页面需要行内状态或结果反馈时",
         "specialized": "目标页面存在同类专用组件时"
+      },
+      "semanticIdentityValues": {
+        "button": "按钮",
+        "link": "链接",
+        "input": "输入控件",
+        "search": "搜索",
+        "navigation": "导航",
+        "table": "表格",
+        "dialog": "对话框",
+        "list": "列表",
+        "card": "卡片",
+        "status": "状态",
+        "unknown": "未知"
+      },
+      "visualTreatmentValues": {
+        "filled": "实色填充",
+        "outlined": "描边",
+        "flat": "扁平",
+        "icon-like": "图标式",
+        "button-like": "按钮式",
+        "structural": "结构式"
+      },
+      "usageContextValues": {
+        "search": "搜索",
+        "navigation": "导航",
+        "form": "表单",
+        "article": "文章",
+        "dialog": "对话框",
+        "general": "通用"
+      },
+      "semanticGuidanceValues": {
+        "link": "保留链接/锚点语义和 URL 行为；按钮式外观不会把导航变成按钮操作。"
       },
       "restrictionValues": {
         "keep-variant-scope": "仅在该组件和变体范围内使用观察到的处理。",

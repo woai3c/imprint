@@ -4099,10 +4099,23 @@ function formattedAuditRecipeVariant(recipe, language) {
 
 function expectedRecipeHeading(recipe, language) {
   const locale = profileExportLocale(language)
-  const title = interpolateTemplate(locale?.transfer?.componentTitle || '{{component}} · {{variant}}', {
+  const transfer = locale?.transfer || {}
+  const values = {
     component: translatedProfileTerm(String(recipe?.component || ''), language),
     variant: formattedAuditRecipeVariant(recipe, language),
-  })
+    semanticIdentity:
+      transfer.semanticIdentityValues?.[recipe?.semanticIdentity] || String(recipe?.semanticIdentity || ''),
+    visualTreatment: transfer.visualTreatmentValues?.[recipe?.visualTreatment] || String(recipe?.visualTreatment || ''),
+  }
+  const exposesSemanticIdentity =
+    recipe?.semanticIdentity &&
+    (recipe.semanticIdentity !== recipe?.component || recipe?.visualTreatment === 'button-like')
+  const title = interpolateTemplate(
+    exposesSemanticIdentity
+      ? transfer.semanticComponentTitle || '{{visualTreatment}} {{semanticIdentity}} · {{variant}}'
+      : transfer.componentTitle || '{{component}} · {{variant}}',
+    values,
+  )
   return `#### ${title}`
 }
 
@@ -4124,6 +4137,7 @@ function transferGrammarLocale(language) {
 
 function auditExpectedRecipeUseWhen(pattern) {
   const variant = String(pattern?.canonicalVariant || 'default')
+  if (pattern?.semanticIdentities?.length === 1 && pattern.semanticIdentities[0] === 'link') return 'navigation'
   if (pattern?.type === 'button') {
     const primaryCount = pattern.components.filter((component) => component?.role === 'primary-action').length
     return primaryCount / Math.max(pattern.components.length, 1) >= 0.8 ? 'primary-action' : 'action'
@@ -4431,10 +4445,16 @@ function expectedRecipeBlock(pattern, evidence, language) {
   const locale = profileExportLocale(language)
   const transfer = locale?.transfer || {}
   const useWhen = auditExpectedRecipeUseWhen(pattern)
+  const semanticIdentity = pattern.semanticIdentities?.length === 1 ? pattern.semanticIdentities[0] : undefined
+  const visualTreatment = pattern.visualTreatments?.length === 1 ? pattern.visualTreatments[0] : undefined
+  const usageContext = pattern.usageContexts?.length === 1 ? pattern.usageContexts[0] : undefined
   const recipe = {
     component: pattern.type,
     variant: pattern.canonicalVariant,
     useWhen,
+    semanticIdentity,
+    visualTreatment,
+    usageContext,
     matchingStyleInstances: pattern.matchingStyleInstances,
     sourceInstances: pattern.sourceInstances,
     pageCount: pattern.pageCount,
@@ -4463,12 +4483,38 @@ function expectedRecipeBlock(pattern, evidence, language) {
   const specificRestrictions = auditExpectedRecipeRestrictions(pattern).filter(
     (restriction) => !['keep-variant-scope', 'do-not-invent-unobserved-state'].includes(restriction),
   )
+  const semanticContract = [
+    semanticIdentity
+      ? interpolateTemplate(transfer.semanticIdentity || 'identity: {{value}}', {
+          value: transfer.semanticIdentityValues?.[semanticIdentity] || semanticIdentity,
+        })
+      : '',
+    visualTreatment
+      ? interpolateTemplate(transfer.visualTreatment || 'visual treatment: {{value}}', {
+          value: transfer.visualTreatmentValues?.[visualTreatment] || visualTreatment,
+        })
+      : '',
+    usageContext
+      ? interpolateTemplate(transfer.usageContext || 'context: {{value}}', {
+          value: transfer.usageContextValues?.[usageContext] || usageContext,
+        })
+      : '',
+  ]
+    .filter(Boolean)
+    .join(locale?.listSeparator || ', ')
+  const semanticGuidance = semanticIdentity ? transfer.semanticGuidanceValues?.[semanticIdentity] || '' : ''
   const lines = [
     expectedRecipeHeading(recipe, language),
     '',
     expectedRecipeMetric(recipe, language),
     '',
     `- **${transfer.useWhen}${locale?.labelSeparator || ':'}** ${transfer.useWhenValues?.[useWhen]}`,
+    ...(semanticContract
+      ? [
+          `- **${transfer.semanticContract}${locale?.labelSeparator || ':'}** ${semanticContract}`,
+          ...(semanticGuidance ? [`  - ${semanticGuidance}`] : []),
+        ]
+      : []),
     `- **${transfer.observedRecipe}${locale?.labelSeparator || ':'}** ${observed.statement}`,
     ...(tokenRefs ? [`  - **${locale?.relatedTokens}${locale?.labelSeparator || ':'}** ${tokenRefs}`] : []),
     ...(observedStyles ? [`  - **${transfer.observedStyles}${locale?.labelSeparator || ':'}** ${observedStyles}`] : []),
@@ -6642,6 +6688,14 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
     }
     if (boundedComponentProjection) {
       const language = profile?.language === 'zh-CN' ? 'zh-CN' : 'en'
+      for (const [field, values] of [
+        ['semanticIdentity', pattern.semanticIdentities],
+        ['visualTreatment', pattern.visualTreatments],
+        ['usageContext', pattern.usageContexts],
+      ]) {
+        const expected = Array.isArray(values) && values.length === 1 ? values[0] : undefined
+        if (recipe?.[field] !== expected) hardFailures.push(`profile-component-${field}-mismatch:${key}`)
+      }
       const expectedUseWhen = auditExpectedRecipeUseWhen(pattern)
       if (recipe?.useWhen !== expectedUseWhen) {
         hardFailures.push(`profile-component-use-when-mismatch:${key}:${String(recipe?.useWhen)}:${expectedUseWhen}`)
@@ -6694,6 +6748,11 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
     ]) {
       if (recipe?.[recipeField] !== spec?.[specField]) {
         hardFailures.push(`profile-component-metric-mismatch:${key}:${recipeField}`)
+      }
+    }
+    for (const field of ['semanticIdentity', 'visualTreatment', 'usageContext']) {
+      if (recipe?.[field] !== spec?.[field]) {
+        hardFailures.push(`profile-component-semantic-mismatch:${key}:${field}`)
       }
     }
     const specEvidence = Array.isArray(spec?.evidenceRefs) ? [...spec.evidenceRefs] : []
@@ -6806,6 +6865,9 @@ function validateProfileComponentAgreement(profile, componentSpecs, evidence, de
           component: pattern.type,
           variant: pattern.canonicalVariant,
           useWhen: auditExpectedRecipeUseWhen(pattern),
+          ...(pattern.semanticIdentities?.length === 1 ? { semanticIdentity: pattern.semanticIdentities[0] } : {}),
+          ...(pattern.visualTreatments?.length === 1 ? { visualTreatment: pattern.visualTreatments[0] } : {}),
+          ...(pattern.usageContexts?.length === 1 ? { usageContext: pattern.usageContexts[0] } : {}),
         },
         language,
       ),

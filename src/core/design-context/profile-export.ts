@@ -504,7 +504,7 @@ function coordinateLine(coordinate: StyleCoordinate, context: TransferExportCont
 }
 
 function recipeLabel(recipe: ComponentRecipe, context: TransferExportContext): string {
-  return context.t('transfer.componentTitle', {
+  const values = {
     component: translatedTerm(recipe.component, context.t),
     variant: formatRecipeVariant(recipe, {
       translateKnown: (term) => context.t(`terms.${term}`, { defaultValue: '' }) || null,
@@ -512,7 +512,17 @@ function recipeLabel(recipe: ComponentRecipe, context: TransferExportContext): s
       formatRadius: (value) => context.t('transfer.radiusVariant', { value }),
       separator: context.t('transfer.variantSeparator'),
     }),
-  })
+    semanticIdentity: recipe.semanticIdentity
+      ? context.t(`transfer.semanticIdentityValues.${recipe.semanticIdentity}`)
+      : '',
+    visualTreatment: recipe.visualTreatment
+      ? context.t(`transfer.visualTreatmentValues.${recipe.visualTreatment}`)
+      : '',
+  }
+  return recipe.semanticIdentity &&
+    (recipe.semanticIdentity !== recipe.component || recipe.visualTreatment === 'button-like')
+    ? context.t('transfer.semanticComponentTitle', values)
+    : context.t('transfer.componentTitle', values)
 }
 
 const COMMON_RECIPE_RESTRICTIONS = new Set<ComponentRecipeRestriction>([
@@ -529,6 +539,28 @@ function recipeLines(recipe: ComponentRecipe, context: TransferExportContext): s
     )
     .join(context.t('listSeparator'))
   const specificRestrictions = recipe.restrictions.filter((restriction) => !COMMON_RECIPE_RESTRICTIONS.has(restriction))
+  const semanticContract = [
+    recipe.semanticIdentity
+      ? context.t('transfer.semanticIdentity', {
+          value: context.t(`transfer.semanticIdentityValues.${recipe.semanticIdentity}`),
+        })
+      : '',
+    recipe.visualTreatment
+      ? context.t('transfer.visualTreatment', {
+          value: context.t(`transfer.visualTreatmentValues.${recipe.visualTreatment}`),
+        })
+      : '',
+    recipe.usageContext
+      ? context.t('transfer.usageContext', {
+          value: context.t(`transfer.usageContextValues.${recipe.usageContext}`),
+        })
+      : '',
+  ]
+    .filter(Boolean)
+    .join(context.t('listSeparator'))
+  const semanticGuidance = recipe.semanticIdentity
+    ? context.t(`transfer.semanticGuidanceValues.${recipe.semanticIdentity}`, { defaultValue: '' })
+    : ''
   const result = [
     `#### ${recipeLabel(recipe, context)}`,
     '',
@@ -541,6 +573,12 @@ function recipeLines(recipe: ComponentRecipe, context: TransferExportContext): s
     })}_`,
     '',
     `- **${context.t('transfer.useWhen')}${context.t('labelSeparator')}** ${context.t(`transfer.useWhenValues.${recipe.useWhen}`)}`,
+    ...(semanticContract
+      ? [
+          `- **${context.t('transfer.semanticContract')}${context.t('labelSeparator')}** ${semanticContract}`,
+          ...(semanticGuidance ? [`  - ${semanticGuidance}`] : []),
+        ]
+      : []),
     `- **${context.t('transfer.observedRecipe')}${context.t('labelSeparator')}** ${context.formatText(recipe.observed.statement)}`,
     ...(tokens ? [`  - **${context.t('relatedTokens')}${context.t('labelSeparator')}** ${tokens}`] : []),
     ...(observedStyles

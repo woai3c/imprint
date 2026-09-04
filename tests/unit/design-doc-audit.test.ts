@@ -2236,6 +2236,13 @@ x-imprint:
           semanticSourceKey: component.id,
         })
       }
+      const profile = JSON.parse(_artifacts['design-profile.json'])
+      Object.assign(profile.transferGrammar.componentRecipes[0], {
+        semanticIdentity: 'button',
+        visualTreatment: 'filled',
+        usageContext: 'general',
+      })
+      _artifacts['design-profile.json'] = JSON.stringify(profile)
       const componentSpecs = JSON.parse(_artifacts['component-specs.json'])
       Object.assign(componentSpecs.components[0], {
         semanticIdentity: 'button',
@@ -4148,6 +4155,26 @@ components:
       expect.arrayContaining([
         'candidate-catalog-mismatch:evidence-vs-dtcg',
         'profile-component-metric-mismatch:button\u0000primary:reuseConfidence',
+      ]),
+    )
+  })
+
+  it('rejects semantic identity drift between profile recipes and component specifications', async () => {
+    const directory = await writeBundle((artifacts) => {
+      const profile = JSON.parse(artifacts['design-profile.json'])
+      Object.assign(profile.transferGrammar.componentRecipes[0], {
+        semanticIdentity: 'link',
+        visualTreatment: 'button-like',
+        usageContext: 'navigation',
+      })
+      artifacts['design-profile.json'] = JSON.stringify(profile)
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).toEqual(
+      expect.arrayContaining([
+        'profile-component-semantic-mismatch:button\u0000primary:semanticIdentity',
+        'profile-component-semantic-mismatch:button\u0000primary:visualTreatment',
+        'profile-component-semantic-mismatch:button\u0000primary:usageContext',
       ]),
     )
   })

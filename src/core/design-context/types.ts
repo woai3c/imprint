@@ -1,3 +1,9 @@
+import type {
+  ComponentSemanticIdentity,
+  ComponentUsageContext,
+  ComponentVisualTreatment,
+} from '../analyzer/component-detect.js'
+
 export type Confidence = 'high' | 'medium' | 'low'
 export const DESIGN_PROFILE_SCHEMA_VERSION = '3' as const
 export type DesignProfileSchemaVersion = typeof DESIGN_PROFILE_SCHEMA_VERSION
@@ -98,6 +104,12 @@ export interface ComponentRecipe {
   variant: string
   priority: 'P1' | 'P2'
   useWhen: ComponentRecipeUseWhen
+  /** Native/ARIA meaning; this must not be replaced by the visual component family. */
+  semanticIdentity?: ComponentSemanticIdentity
+  /** Observed appearance, independent from the element's semantic identity. */
+  visualTreatment?: ComponentVisualTreatment
+  /** Observed product context in which the semantic element appears. */
+  usageContext?: ComponentUsageContext
   observed: DesignClaim
   /** Bounded representative styles for component-scoped values that are not global tokens. */
   observedStyles?: Record<string, string>

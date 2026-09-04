@@ -2805,7 +2805,7 @@ function candidateFailures(candidates, label, routeIds, canonicalCaptureByRoute,
   return failures
 }
 
-function meetsPortableFoundationCoverage(evidencePath, item) {
+export function meetsPortableFoundationCoverage(evidencePath, item) {
   const permitsPairedCoverage = ['colors.foreground', 'colors.muted-foreground'].includes(evidencePath)
   if (isObject(item.pairedSurface)) return permitsPairedCoverage
   const sources = Array.isArray(item.sources) ? item.sources : []
@@ -2822,32 +2822,27 @@ function meetsPortableFoundationCoverage(evidencePath, item) {
       String(source).startsWith('element:') ||
       (String(source).startsWith('usage:') && !['usage:declaredColor', 'usage:brandTokenColor'].includes(source)),
   )
+  const isContentSurfaceRole = ['colors.surface', 'colors.secondary'].includes(evidencePath)
+  const hasContentSurfaceEvidence =
+    isContentSurfaceRole && sources.includes('semantic:content-surface') && sources.includes('element:content-surface')
   if (item.eligiblePageCount === 1) {
-    const substantialSingleContentSurface =
-      evidencePath === 'colors.surface' &&
-      sources.includes('semantic:content-surface') &&
-      sources.includes('element:content-surface') &&
-      item.ownerCount >= 1
+    if (isContentSurfaceRole) {
+      return item.pageCount === 1 && hasContentSurfaceEvidence && rendered && item.ownerCount >= 2
+    }
     return (
       item.pageCount === 1 &&
       ((rendered && item.ownerCount >= 2) ||
         (declared && rendered && item.ownerCount >= 1) ||
-        (sources.includes('element:page-background') && item.ownerCount >= 1) ||
-        substantialSingleContentSurface)
+        (sources.includes('element:page-background') && item.ownerCount >= 1))
     )
   }
-  const crossPageContentSurface =
-    evidencePath === 'colors.surface' &&
-    item.pageCount >= 2 &&
-    sources.includes('semantic:content-surface') &&
-    sources.includes('element:content-surface') &&
-    item.ownerCount >= item.pageCount
+  const crossPageContentSurface = hasContentSurfaceEvidence && item.pageCount >= 2 && item.ownerCount >= item.pageCount
+  if (isContentSurfaceRole) return crossPageContentSurface
   return (
-    crossPageContentSurface ||
-    (item.eligiblePageCount >= 2 &&
-      item.pageCount >= 2 &&
-      item.pageSupportRatio >= 0.75 &&
-      item.ownerCount >= item.pageCount)
+    item.eligiblePageCount >= 2 &&
+    item.pageCount >= 2 &&
+    item.pageSupportRatio >= 0.75 &&
+    item.ownerCount >= item.pageCount
   )
 }
 

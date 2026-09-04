@@ -8,7 +8,11 @@ import path from 'node:path'
 
 // The audit entry point is intentionally a standalone Node script used against generated artifacts.
 // @ts-expect-error -- the repository does not emit declarations for scripts/*.mjs
-import { auditArtifactBundle, auditDesignDoc } from '../../scripts/audit-design-doc.mjs'
+import {
+  auditArtifactBundle,
+  auditDesignDoc,
+  meetsPortableFoundationCoverage,
+} from '../../scripts/audit-design-doc.mjs'
 
 interface CandidatePreviewExtension {
   candidates: {
@@ -2108,6 +2112,40 @@ describe('DESIGN.md artifact audit', () => {
     expect(result.hardFailures).toEqual([])
     expect(result.classification).toBe('pass')
     expect(result.metrics).toMatchObject({ p1Recipes: 1, reusableComponentPatterns: 1 })
+  })
+
+  it('independently enforces reusable content-surface owner support for both surface roles', () => {
+    const contentSurfaceEvidence = {
+      eligiblePageCount: 1,
+      pageCount: 1,
+      pageSupportRatio: 1,
+      ownerCount: 1,
+      sources: [
+        'css-variable:--campaign-surface',
+        'computed:background',
+        'semantic:content-surface',
+        'element:content-surface',
+      ],
+    }
+
+    expect(meetsPortableFoundationCoverage('colors.surface', contentSurfaceEvidence)).toBe(false)
+    expect(meetsPortableFoundationCoverage('colors.surface', { ...contentSurfaceEvidence, ownerCount: 2 })).toBe(true)
+    expect(
+      meetsPortableFoundationCoverage('colors.secondary', {
+        ...contentSurfaceEvidence,
+        eligiblePageCount: 8,
+        pageCount: 4,
+        pageSupportRatio: 0.5,
+        ownerCount: 6,
+      }),
+    ).toBe(true)
+    expect(
+      meetsPortableFoundationCoverage('colors.secondary', {
+        ...contentSurfaceEvidence,
+        sources: ['computed:background'],
+        ownerCount: 2,
+      }),
+    ).toBe(false)
   })
 
   it('rejects low-reuse details, duplicate projections, and candidate source arrays', () => {

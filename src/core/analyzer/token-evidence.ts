@@ -680,7 +680,11 @@ function evidenceSemantics(
       semanticAgreement: semantic.agreement,
     }
   }
+  const isContentSurfaceRole = entry.group === 'colors' && ['surface', 'secondary'].includes(entry.role || '')
+  const hasContentSurfaceEvidence =
+    isContentSurfaceRole && sources.has('semantic:content-surface') && sources.has('element:content-surface')
   const crossPageFoundation =
+    !isContentSurfaceRole &&
     eligiblePageCount >= 2 &&
     pageCount >= 2 &&
     pageSupportRatio >= 0.75 &&
@@ -688,11 +692,8 @@ function evidenceSemantics(
     semantic.reusableSource &&
     ownerCount >= pageCount
   const crossPageContentFoundation =
-    entry.group === 'colors' &&
-    entry.role === 'surface' &&
+    hasContentSurfaceEvidence &&
     pageCount >= 2 &&
-    sources.has('semantic:content-surface') &&
-    sources.has('element:content-surface') &&
     semantic.confidence !== 'low' &&
     semantic.reusableSource &&
     ownerCount >= pageCount
@@ -712,8 +713,10 @@ function evidenceSemantics(
     rendered &&
     semantic.confidence !== 'low' &&
     semantic.reusableSource &&
+    (!isContentSurfaceRole || hasContentSurfaceEvidence) &&
     ownerCount >= 2
   const declaredAndRenderedOnePageFoundation =
+    !isContentSurfaceRole &&
     eligiblePageCount === 1 &&
     pageCount === 1 &&
     declared &&
@@ -729,16 +732,6 @@ function evidenceSemantics(
     sources.has('element:page-background') &&
     semantic.confidence !== 'low' &&
     ownerCount >= 1
-  const substantialSingleContentFoundation =
-    entry.group === 'colors' &&
-    entry.role === 'surface' &&
-    eligiblePageCount === 1 &&
-    pageCount === 1 &&
-    sources.has('semantic:content-surface') &&
-    sources.has('element:content-surface') &&
-    semantic.confidence !== 'low' &&
-    semantic.reusableSource &&
-    ownerCount >= 1
   if (
     requiresPairedForeground
       ? pairedForegroundFoundation
@@ -746,8 +739,7 @@ function evidenceSemantics(
         crossPageContentFoundation ||
         repeatedOnePageFoundation ||
         declaredAndRenderedOnePageFoundation ||
-        standardsBackedPageFoundation ||
-        substantialSingleContentFoundation
+        standardsBackedPageFoundation
   ) {
     return {
       confidence: semantic.confidence,

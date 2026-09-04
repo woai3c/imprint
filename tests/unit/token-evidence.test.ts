@@ -515,6 +515,65 @@ describe('token evidence', () => {
     expect(evidence.reasons).not.toContain('interactive-use')
   })
 
+  test.each(['surface', 'secondary'] as const)(
+    'keeps a declared one-owner semantic %s local on a single analyzed route',
+    (role) => {
+      const value = 'rgb(16, 24, 40)'
+      const surfaceTokens: DesignToken = {
+        ...structuredClone(tokens),
+        colors: { [role]: '#101828' },
+        typography: {
+          fontFamilies: [],
+          fontStacks: [],
+          fontSizes: [],
+          fontWeights: [],
+          lineHeights: [],
+          letterSpacings: [],
+        },
+        spacing: [],
+      }
+      const styles = createExtractedStyles({
+        usageCount: {
+          [`bgColor:${value}`]: 1,
+          [`declaredColor:${value}`]: 1,
+        },
+        usageOwnerIds: { [`bgColor:${value}`]: ['main > section'] },
+        valueSources: {
+          [`bgColor:${value}`]: ['computed:background'],
+          [`declaredColor:${value}`]: ['css-variable:--campaign-surface'],
+        },
+        semanticSurfaceObservations: [
+          {
+            captureId: 'campaign|desktop',
+            ownerId: 'main > section',
+            value,
+            domain: 'foundation',
+            role: 'content-surface',
+            rendered: true,
+            declared: true,
+            elementKind: 'section',
+            areaRatio: 0.65,
+            viewportCoverage: 0.65,
+          },
+        ],
+      })
+      surfaceTokens.evidence = buildTokenEvidence(surfaceTokens, [
+        { url: 'https://example.com/campaign', viewport: 'desktop', styles },
+      ])
+
+      expect(surfaceTokens.evidence[`colors.${role}`]).toMatchObject({
+        ownerCount: 1,
+        pageCount: 1,
+        reuseScope: 'local',
+        sources: expect.arrayContaining(['semantic:content-surface', 'element:content-surface']),
+      })
+
+      promotePortableDesignTokens(surfaceTokens)
+
+      expect(surfaceTokens.colors[role]).toBeUndefined()
+    },
+  )
+
   test('reports declaration, rendered, semantic-role, owner, and canonical-capture counts separately', () => {
     const backgroundTokens: DesignToken = {
       ...structuredClone(tokens),

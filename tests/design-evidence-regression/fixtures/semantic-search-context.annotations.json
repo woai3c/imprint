@@ -13,7 +13,7 @@
   "expectedSalienceTraits": ["salience:max-type"],
   "minSectionCoverage": 0,
   "semanticGroundTruth": {
-    "foundationColors": { "background": "#f4f5f7", "surface": "#ffffff", "secondary": null },
+    "foundationColors": { "background": "#f4f5f7", "surface": null, "secondary": null },
     "expectedComponentRoles": ["searchbox", "textbox"],
     "expectedComponentSemantics": [
       { "elementKind": "anchor", "semanticIdentity": "link", "visualTreatment": "button-like" },

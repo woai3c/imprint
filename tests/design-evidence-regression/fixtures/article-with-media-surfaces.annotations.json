@@ -11,7 +11,7 @@
   "expectedSalienceTraits": ["salience:max-type"],
   "minSectionCoverage": 0,
   "semanticGroundTruth": {
-    "foundationColors": { "background": "#e5e7eb", "surface": "#ffffff", "secondary": null },
+    "foundationColors": { "background": "#e5e7eb", "surface": null, "secondary": null },
     "forbiddenFoundationColors": ["#172033"]
   }
 }

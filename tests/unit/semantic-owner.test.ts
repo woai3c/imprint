@@ -93,7 +93,7 @@ describe('semantic foundation surface selection', () => {
     })
   })
 
-  it('keeps one substantial semantic content surface but rejects a small one-off structural patch', () => {
+  it('rejects one-off content surfaces regardless of their visible area', () => {
     const canvas = surface('body', '#f3f4f6', 'page-canvas', 'foundation')
     const substantial = surface('main > article', '#ffffff', 'content-surface', 'foundation')
     const small = {
@@ -104,7 +104,6 @@ describe('semantic foundation surface selection', () => {
 
     expect(selectFoundationSurfaceColors([capture('https://example.test/', [canvas, substantial, small])])).toEqual({
       background: '#f3f4f6',
-      surface: '#ffffff',
     })
   })
 

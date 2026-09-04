@@ -1,0 +1,17 @@
+{
+  "fixture": "single-hero-surface",
+  "description": "A unique large hero surface remains local instead of becoming a reusable foundation surface.",
+  "expectedSectionRoles": ["content"],
+  "minSections": 1,
+  "expectedComponentTypes": [],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": [],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": {
+    "foundationColors": { "background": "#ffffff", "surface": null, "secondary": null },
+    "forbiddenFoundationColors": ["#101828"]
+  }
+}

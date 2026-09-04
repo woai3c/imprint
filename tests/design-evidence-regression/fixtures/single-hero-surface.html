@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Single hero surface</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        background: #fff;
+        color: #172033;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      section {
+        min-height: 65vh;
+        display: grid;
+        place-content: center;
+        padding: 48px;
+        background: #101828;
+        color: #fff;
+        text-align: center;
+      }
+      main {
+        min-height: 35vh;
+        padding: 32px;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 48px;
+      }
+      h2 {
+        margin-bottom: 8px;
+        font-size: 24px;
+      }
+      @media (max-width: 640px) {
+        h1 {
+          font-size: 32px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h1>One-time campaign</h1>
+      <p>This large authored region is unique to this route.</p>
+    </section>
+    <main>
+      <h2>Ordinary content</h2>
+      <p>The page canvas continues behind normal document content.</p>
+    </main>
+  </body>
+</html>

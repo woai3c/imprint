@@ -314,16 +314,16 @@ describe('stored analysis restoration', () => {
     ).toBeNull()
   })
 
-  it('accepts complete evidence shapes produced by generic and mixed-scope observations', () => {
+  it('accepts complete evidence shapes produced by semantic, generic, and mixed-scope observations', () => {
     const compatibleTokens = structuredClone(tokens)
     compatibleTokens.colors.surface = '#d4d4d8'
     compatibleTokens.zIndices = ['10']
     compatibleTokens.evidence!['colors.surface'] = {
       ...compatibleTokens.evidence!['spacing.0'],
       value: '#d4d4d8',
-      sources: ['computed:background', 'rendered:text'],
-      sourceCounts: { 'computed:background': 4, 'rendered:text': 2 },
-      roleCounts: { bgColor: 4, textColor: 2 },
+      sources: ['semantic:content-surface', 'element:content-surface'],
+      sourceCounts: { 'semantic:content-surface': 4, 'element:content-surface': 4 },
+      roleCounts: { bgColor: 4 },
     }
     delete compatibleTokens.evidence!['colors.surface'].foundationOwnerCount
     delete compatibleTokens.evidence!['colors.surface'].minimumPageFoundationOwnerCount

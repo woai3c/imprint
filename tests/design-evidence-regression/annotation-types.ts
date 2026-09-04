@@ -49,7 +49,8 @@ export interface FixtureAnnotation {
   semanticGroundTruth?: {
     foundationColors?: {
       background?: string
-      surface?: string
+      /** `null` means the role must be omitted. */
+      surface?: string | null
       /** `null` means the role must be omitted. */
       secondary?: string | null
     }

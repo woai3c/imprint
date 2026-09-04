@@ -1884,7 +1884,7 @@ describe('design token builder', () => {
     )
   })
 
-  test('retains one substantial semantic content surface on a single analyzed route', () => {
+  test('keeps one substantial semantic content surface local on a single analyzed route', () => {
     const canvas = 'rgb(243, 244, 246)'
     const surface = 'rgb(255, 255, 255)'
     const styles = createExtractedStyles({
@@ -1928,13 +1928,8 @@ describe('design token builder', () => {
     portable.evidence = buildTokenEvidence(portable, captures)
     promotePortableDesignTokens(portable)
 
-    expect(selected).toEqual({ background: '#f3f4f6', surface: '#ffffff' })
-    expect(portable.colors.surface).toBe('#ffffff')
-    expect(portable.evidence?.['colors.surface']).toMatchObject({
-      ownerCount: 1,
-      reuseScope: 'foundation',
-      sources: expect.arrayContaining(['semantic:content-surface', 'element:content-surface']),
-    })
+    expect(selected).toEqual({ background: '#f3f4f6' })
+    expect(portable.colors.surface).toBeUndefined()
   })
 
   test('retains a semantic content surface observed on multiple routes without requiring global route coverage', () => {

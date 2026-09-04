@@ -112,31 +112,29 @@ function hasPortableEvidenceCoverage(evidence: TokenEvidence, sourcePath: string
   )
   const pageSupportRatio = evidence.pageCount / (evidence.eligiblePageCount || 1)
   const permitsPairedCoverage = ['colors.foreground', 'colors.muted-foreground'].includes(sourcePath || '')
-  const permitsSubstantialSingleContentSurface =
-    sourcePath === 'colors.surface' &&
+  const isContentSurfaceRole = ['colors.surface', 'colors.secondary'].includes(sourcePath || '')
+  const hasContentSurfaceEvidence =
+    isContentSurfaceRole &&
     evidence.sources.includes('semantic:content-surface') &&
-    evidence.sources.includes('element:content-surface') &&
-    (evidence.ownerCount || 0) >= 1
+    evidence.sources.includes('element:content-surface')
   const permitsCrossPageContentSurface =
-    sourcePath === 'colors.surface' &&
-    evidence.pageCount >= 2 &&
-    evidence.sources.includes('semantic:content-surface') &&
-    evidence.sources.includes('element:content-surface') &&
-    (evidence.ownerCount || 0) >= evidence.pageCount
+    hasContentSurfaceEvidence && evidence.pageCount >= 2 && (evidence.ownerCount || 0) >= evidence.pageCount
   const meetsFoundationCoverage =
     evidence.pairedSurface && permitsPairedCoverage
       ? hasConsistentRenderedPairOwners(evidence)
       : evidence.eligiblePageCount === 1
         ? evidence.pageCount === 1 &&
-          ((rendered && (evidence.ownerCount || 0) >= 2) ||
-            (declared && rendered && (evidence.ownerCount || 0) >= 1) ||
-            (evidence.sources.includes('element:page-background') && (evidence.ownerCount || 0) >= 1) ||
-            permitsSubstantialSingleContentSurface)
-        : ((evidence.eligiblePageCount || 0) >= 2 &&
+          (isContentSurfaceRole
+            ? hasContentSurfaceEvidence && rendered && (evidence.ownerCount || 0) >= 2
+            : (rendered && (evidence.ownerCount || 0) >= 2) ||
+              (declared && rendered && (evidence.ownerCount || 0) >= 1) ||
+              (evidence.sources.includes('element:page-background') && (evidence.ownerCount || 0) >= 1))
+        : isContentSurfaceRole
+          ? permitsCrossPageContentSurface
+          : (evidence.eligiblePageCount || 0) >= 2 &&
             evidence.pageCount >= 2 &&
             pageSupportRatio >= 0.75 &&
-            (evidence.ownerCount || 0) >= evidence.pageCount) ||
-          permitsCrossPageContentSurface
+            (evidence.ownerCount || 0) >= evidence.pageCount
   return (
     requiredCounts.every((value) => Number.isInteger(value)) &&
     optionalCounts.every((value) => Number.isInteger(value) && (value as number) >= 0) &&

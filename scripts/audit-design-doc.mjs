@@ -544,10 +544,7 @@ function validateFoundationForeground(tokens, hardFailures) {
       continue
     }
     const id = candidate.id || candidate.value || 'unknown'
-    const candidateBackground = pairedFoundationBackground(
-      candidate.evidence.pairedSurface,
-      `candidate-foreground-pair:${id}`,
-    )
+    const candidateBackground = candidate.evidence.pairedSurface.background
     const candidatePair = validatedForegroundPair(
       candidate.value,
       candidateBackground,
@@ -557,6 +554,8 @@ function validateFoundationForeground(tokens, hardFailures) {
       hardFailures,
     )
     if (!candidatePair || (candidate.evidence.semanticConfidence || candidate.evidence.confidence) === 'low') continue
+    const normalizedCandidateBackground = normalizedCandidateColor(candidateBackground)
+    if (!normalizedCandidateBackground || !foundationSurfaces.has(normalizedCandidateBackground)) continue
     if (
       !finite(candidate.evidence.ownerCount) ||
       !finite(candidate.evidence.pageCount) ||

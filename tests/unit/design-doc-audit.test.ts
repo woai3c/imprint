@@ -2657,6 +2657,60 @@ x-imprint:
     )
   })
 
+  it('accepts a rejected low-confidence foreground candidate paired with a truthful local surface', async () => {
+    const directory = await writeBundle((artifacts, evidence, rawDtcg) => {
+      addFoundationForegroundArtifacts(artifacts, evidence, rawDtcg, '#111827', {
+        background: '#ffffff',
+        pageCount: 2,
+        eligiblePageCount: 2,
+        pageSupportRatio: 1,
+        normalizedShare: 0.9,
+        contrastRatio: 17.74,
+        textRoles: ['body', 'heading'],
+      })
+      const localForeground = '#ffffff'
+      const localSurface = '#4a154b'
+      const tokenEvidence = evidence.tokens.evidence as Record<string, Record<string, unknown>>
+      const localEvidence = structuredClone(tokenEvidence['colors.foreground'])
+      localEvidence.value = localForeground
+      localEvidence.confidence = 'low'
+      localEvidence.semanticConfidence = 'low'
+      localEvidence.reuseScope = 'local'
+      localEvidence.renderedTextOwners = (localEvidence.renderedTextOwners as Array<Record<string, unknown>>).map(
+        (owner) => ({
+          ...owner,
+          styles: {
+            ...(owner.styles as Record<string, unknown>),
+            color: localForeground,
+            backgroundColor: localSurface,
+          },
+          source: { ...(owner.source as Record<string, unknown>), foreground: localForeground },
+        }),
+      )
+      localEvidence.pairedSurface = {
+        ...(localEvidence.pairedSurface as Record<string, unknown>),
+        background: localSurface,
+        contrastRatio: 14,
+      }
+      const candidate = {
+        id: 'candidate.colors.local-inverse-foreground',
+        group: 'colors',
+        role: 'foreground',
+        value: localForeground,
+        provenance: 'observed-color',
+        rejectionReason: 'unassigned-role',
+        evidence: localEvidence,
+      }
+      evidence.tokens.candidates.values.push(candidate as never)
+      const dtcg = rawDtcg as ReturnType<typeof bundleDtcg>
+      dtcg.$extensions['com.imprint.candidates'] = evidence.tokens.candidates
+    })
+
+    expect((await auditArtifactBundle(directory)).hardFailures).not.toContain(
+      'candidate-foreground-pair:candidate.colors.local-inverse-foreground-background-mismatch',
+    )
+  })
+
   it.each(['en', 'zh-CN'] as const)(
     'requires an evidence-limited empty font-family projection in %s',
     async (language) => {

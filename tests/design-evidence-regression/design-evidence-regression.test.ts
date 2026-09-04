@@ -132,7 +132,7 @@ describe('Design Evidence browser regression corpus', () => {
   )
 
   it.skipIf(!browserAvailable)('serves every fixture and annotation pair', () => {
-    expect(annotations).toHaveLength(21)
+    expect(annotations).toHaveLength(23)
     for (const annotation of annotations) {
       expect(fs.existsSync(path.join(fixturesDir, `${annotation.fixture}.html`))).toBe(true)
     }

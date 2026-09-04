@@ -1,0 +1,17 @@
+{
+  "fixture": "article-with-media-surfaces",
+  "description": "A light article surface containing repeated dark wrappers dominated by standard media subtrees.",
+  "expectedSectionRoles": ["hero"],
+  "minSections": 1,
+  "expectedComponentTypes": [],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": [],
+  "minMediaLayers": 2,
+  "expectedMediaKinds": ["image"],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": {
+    "foundationColors": { "background": "#e5e7eb", "surface": "#ffffff", "secondary": null },
+    "forbiddenFoundationColors": ["#172033"]
+  }
+}

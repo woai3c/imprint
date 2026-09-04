@@ -1,0 +1,16 @@
+{
+  "fixture": "painted-html-short-body",
+  "description": "An independently painted HTML canvas remains visible below a short, differently painted body.",
+  "expectedSectionRoles": ["hero"],
+  "minSections": 1,
+  "expectedComponentTypes": [],
+  "minSafelyObservedInteractions": 0,
+  "expectedResponsiveChangeTypesAny": [],
+  "minMediaLayers": 0,
+  "expectedMediaKinds": [],
+  "expectedSalienceTraits": ["salience:max-type"],
+  "minSectionCoverage": 0,
+  "semanticGroundTruth": {
+    "foundationColors": { "background": "#112233", "secondary": null }
+  }
+}

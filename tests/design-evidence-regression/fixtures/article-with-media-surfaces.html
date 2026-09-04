@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Article with media surfaces</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 32px;
+        background: #e5e7eb;
+        color: #1f2937;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      article {
+        max-width: 760px;
+        margin: auto;
+        padding: 32px;
+        background: #ffffff;
+      }
+      h1 {
+        margin-top: 0;
+        font-size: 32px;
+      }
+      .media-surface {
+        margin: 20px 0;
+        padding: 12px;
+        background: #172033;
+      }
+      figure,
+      picture,
+      img {
+        display: block;
+        width: 100%;
+        margin: 0;
+        background: #172033;
+      }
+      img {
+        height: 180px;
+      }
+    </style>
+  </head>
+  <body>
+    <article>
+      <h1>Media ownership guide</h1>
+      <p>The article is a reusable reading surface; the repeated dark regions only frame media.</p>
+      <section class="media-surface">
+        <figure>
+          <picture>
+            <img
+              alt="Abstract media placeholder one"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='180'%3E%3Crect width='640' height='180' fill='%23172033'/%3E%3C/svg%3E"
+            />
+          </picture>
+        </figure>
+      </section>
+      <section class="media-surface">
+        <figure>
+          <picture>
+            <img
+              alt="Abstract media placeholder two"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='180'%3E%3Crect width='640' height='180' fill='%23172033'/%3E%3C/svg%3E"
+            />
+          </picture>
+        </figure>
+      </section>
+    </article>
+  </body>
+</html>

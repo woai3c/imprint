@@ -259,13 +259,21 @@ async function restoreCandidate(
 }
 
 async function recoverObservedDocument(page: Page, observedUrl: string, deadline: number): Promise<void> {
-  if (page.isClosed() || Date.now() >= deadline) return
-  const recoveryBudget = Math.min(3_000, Math.max(1, deadline - Date.now()))
-  const recover = () =>
-    page.url() === observedUrl
-      ? page.reload({ waitUntil: 'domcontentloaded', timeout: recoveryBudget })
-      : page.goto(observedUrl, { waitUntil: 'domcontentloaded', timeout: recoveryBudget })
-  await settleBeforeDeadline(recover, deadline, null)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (page.isClosed() || Date.now() >= deadline) return
+    const recoveryBudget = Math.min(3_000, Math.max(1, deadline - Date.now()))
+    // A delayed navigation can commit after reading page.url(), so reload may target the wrong document.
+    // Always name the observed URL and retry once if that recovery is itself interrupted, within the same deadline.
+    const restored = await settleBeforeDeadline(
+      async () => {
+        await page.goto(observedUrl, { waitUntil: 'domcontentloaded', timeout: recoveryBudget })
+        return true
+      },
+      deadline,
+      false,
+    )
+    if (restored && page.url() === observedUrl) return
+  }
 }
 
 export async function observeSafeInteractions(

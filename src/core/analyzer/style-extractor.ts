@@ -587,8 +587,36 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     }
     const codeSelector = 'pre, code, kbd, samp, math, [role="code"]'
     const mediaSelector = 'figure, picture, video, canvas, svg, img, [role="img"]'
-    const renderedTextLength = (element: Element): number =>
-      (element instanceof HTMLElement ? element.innerText : '').trim().length
+    // innerText still contains opacity-zero and fully clipped portal text. Count painted text owners once, then
+    // aggregate upward so canvas coverage and specialized ownership use the same effective visibility as extraction.
+    const renderedTextLengths = new Map<Element, number>()
+    for (let index = elements.length - 1; index >= 0; index--) {
+      const element = elements[index]
+      let length = [...element.children].reduce((sum, child) => sum + (renderedTextLengths.get(child) || 0), 0)
+      const textNodes = [...element.childNodes].filter(
+        (node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
+      )
+      const visibility = textNodes.length > 0 ? effectivePaintVisibility(element) : undefined
+      if (visibility && glyphPaintFor(computedFor(element))) {
+        const rect = element.getBoundingClientRect()
+        const left = rect.left + visibility.visibleBounds.xPx
+        const top = rect.top + visibility.visibleBounds.yPx
+        const right = left + visibility.visibleBounds.widthPx
+        const bottom = top + visibility.visibleBounds.heightPx
+        for (const node of textNodes) {
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          const painted = [...range.getClientRects()].some((glyph) => {
+            const width = Math.min(right, glyph.right) - Math.max(left, glyph.left)
+            const height = Math.min(bottom, glyph.bottom) - Math.max(top, glyph.top)
+            return width > 1 && height > 1 && width * height > 4
+          })
+          if (painted) length += node.textContent?.trim().length || 0
+        }
+      }
+      renderedTextLengths.set(element, length)
+    }
+    const renderedTextLength = (element: Element): number => renderedTextLengths.get(element) || 0
     const specializedSurfaceCache = new Map<Element, { code: boolean; media: boolean }>()
     const ownedSpecializedSurface = (element: Element): { code: boolean; media: boolean } => {
       const cached = specializedSurfaceCache.get(element)

@@ -41,6 +41,11 @@
     </main>
     <nav aria-label="Catalogue"></nav>
     <script>
+      if (new URL(location.href).searchParams.get('canvas') === 'main') {
+        document.documentElement.style.background = 'transparent'
+        document.body.style.background = 'transparent'
+        document.querySelector('main').style.cssText = 'max-width:none;background:#f3f4f6'
+      }
       const navigation = document.querySelector('nav')
       for (let index = 0; index < 24; index++) {
         const chapter = document.createElement('p')
@@ -56,6 +61,12 @@
       if (variant === 'clipped') {
         navigation.style.visibility = 'visible'
         navigation.style.clipPath = 'inset(50%)'
+      }
+      if (variant === 'transparent-text') {
+        navigation.style.visibility = 'visible'
+        navigation.style.background = 'transparent'
+        navigation.style.color = 'transparent'
+        navigation.style.pointerEvents = 'none'
       }
     </script>
   </body>

@@ -194,7 +194,17 @@ describe('Design Evidence browser regression corpus', () => {
     'keeps canvas and foreground unchanged when invisible full-screen roots are added',
     { timeout: 120_000 },
     async () => {
-      for (const variant of ['control', 'hidden', 'opacity', 'clipped']) {
+      for (const variant of [
+        'control',
+        'hidden',
+        'opacity',
+        'clipped',
+        'control&canvas=main',
+        'hidden&canvas=main',
+        'opacity&canvas=main',
+        'clipped&canvas=main',
+        'transparent-text&canvas=main',
+      ]) {
         const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-hidden-canvas-'))
         const result = await analyze(`${baseUrl}/hidden-canvas-root.html?paint=${variant}`, {
           viewports: ['desktop'],

@@ -2,6 +2,7 @@ import type { Page } from 'playwright-core'
 
 import { detectAuthWall } from './auth-wall.js'
 import { inspectDocumentObstructionsInBrowser, preparePageForExtraction, resetPageScroll } from './page-preparer.js'
+import { pageIdentityUrl } from './url-identity.js'
 
 export type PageHealthStatus = 'healthy' | 'degraded' | 'unusable'
 
@@ -42,6 +43,8 @@ export interface PageHealthReport {
 interface PageHealthOptions {
   expectedUrl: string
   responseStatus?: number
+  /** Final capture checks cannot accept same-origin redirects to a different document. */
+  requireSameDocument?: boolean
 }
 
 const HEALTH_RECOVERY_TIMEOUT_MS = 14_000
@@ -293,8 +296,13 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
   if (responseStatus !== undefined && responseStatus >= 400) {
     add({ code: 'error-page', severity: 'error', recoverable: false, detail: responseStatus?.toString() })
   }
-  if (!sameOrigin(options.expectedUrl, currentUrl)) {
-    add({ code: 'unexpected-navigation', severity: 'error', recoverable: false, detail: currentUrl })
+  const unexpectedUrl = options.requireSameDocument
+    ? [currentUrl, page.url()].find((url) => pageIdentityUrl(url) !== pageIdentityUrl(options.expectedUrl))
+    : !sameOrigin(options.expectedUrl, currentUrl)
+      ? currentUrl
+      : undefined
+  if (unexpectedUrl) {
+    add({ code: 'unexpected-navigation', severity: 'error', recoverable: false, detail: unexpectedUrl })
   }
 
   const unusableCodes = new Set([

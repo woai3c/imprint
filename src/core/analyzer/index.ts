@@ -1034,7 +1034,11 @@ export async function analyze(
       }
       const finalHealthInspection = await runFinalHealthInspection('entry', () =>
         measure('healthGateMs', () =>
-          ensurePageHealth(page, { expectedUrl: captureUrl, responseStatus: pageResponseStatus }),
+          ensurePageHealth(page, {
+            expectedUrl: captureUrl,
+            responseStatus: pageResponseStatus,
+            requireSameDocument: true,
+          }),
         ),
       )
       if (!finalHealthInspection.ok) {
@@ -1375,7 +1379,11 @@ export async function analyze(
           }
           const finalHealthInspection = await runFinalHealthInspection('subpage', () =>
             measure('healthGateMs', () =>
-              ensurePageHealth(subPage, { expectedUrl: captureUrl, responseStatus: subPageStatus }),
+              ensurePageHealth(subPage, {
+                expectedUrl: captureUrl,
+                responseStatus: subPageStatus,
+                requireSameDocument: true,
+              }),
             ),
           )
           if (!finalHealthInspection.ok) {
@@ -1627,7 +1635,11 @@ export async function analyze(
                 () =>
                   measure('healthGateMs', () =>
                     runWithinDeadline(adaptiveDeadline, () =>
-                      ensurePageHealth(subPage, { expectedUrl: mobileCaptureUrl, responseStatus: mobilePageStatus }),
+                      ensurePageHealth(subPage, {
+                        expectedUrl: mobileCaptureUrl,
+                        responseStatus: mobilePageStatus,
+                        requireSameDocument: true,
+                      }),
                     ),
                   ),
                 isAdaptiveMobileBudgetError,

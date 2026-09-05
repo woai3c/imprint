@@ -338,7 +338,18 @@ before(async () => {
             node instanceof HTMLStyleElement && node.textContent.includes('animation-duration: 1ms')))
           if (!animationFreezeAdded) return
           observer.disconnect()
-          setTimeout(() => location.href = '/final-health-navigation-destination', 750)
+          // The first post-freeze body observation is the pre-capture health gate; the second is final health.
+          // Trigger a real navigation at that boundary instead of guessing its timing on different browsers.
+          const observe = MutationObserver.prototype.observe
+          let healthObservations = 0
+          MutationObserver.prototype.observe = function(target, options) {
+            const result = observe.call(this, target, options)
+            if (target === document.body && options?.characterData && ++healthObservations === 2) {
+              MutationObserver.prototype.observe = observe
+              location.href = '/final-health-navigation-destination'
+            }
+            return result
+          }
         })
         observer.observe(document.head, { childList:true })
       </script></main>`)

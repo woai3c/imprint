@@ -23,6 +23,45 @@ afterEach(() => {
 })
 
 describe('page health recovery', () => {
+  it.each([
+    { finalUrl: 'https://example.test/other', strict: true, unexpected: true },
+    { finalUrl: 'https://example.test/product?view=other', strict: true, unexpected: true },
+    { finalUrl: 'https://example.test/product#details', strict: true, unexpected: false },
+    { finalUrl: 'https://example.test/other', strict: false, unexpected: false },
+  ])(
+    'checks capture identity after inspection: $finalUrl, strict=$strict',
+    async ({ finalUrl, strict, unexpected }) => {
+      const originalUrl = 'https://example.test/product'
+      let currentUrl = originalUrl
+      const page = {
+        url: () => currentUrl,
+        evaluate: vi.fn().mockImplementation(async () => {
+          currentUrl = finalUrl
+          return {
+            viewportWidth: 1440,
+            viewportHeight: 900,
+            contentWidth: 1440,
+            contentHeight: 900,
+            blockingOverlayAreaRatio: 0,
+            partialOverlayAreaRatio: 0,
+            overlayAreaRatio: 0,
+            mutationCount: 0,
+            mainContentEmpty: false,
+            skeletonRatio: 0,
+            fontsReady: true,
+            captcha: false,
+          }
+        }),
+      } as unknown as Page
+      const result = await ensurePageHealth(page, { expectedUrl: originalUrl, requireSameDocument: strict })
+
+      expect(result.issues.some((issue) => issue.code === 'unexpected-navigation')).toBe(unexpected)
+      expect(result.evidenceEligible).toBe(!unexpected)
+      expect(result.recovered).toBe(false)
+      expect(pagePreparer.preparePageForExtraction).not.toHaveBeenCalled()
+    },
+  )
+
   it.each([401, 403, 429, 502])(
     'does not recover an empty HTTP %s error as a transient application shell',
     async (status) => {

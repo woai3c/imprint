@@ -17,6 +17,11 @@ const requestCounts = new Map()
 before(async () => {
   server = http.createServer((request, response) => {
     requestCounts.set(request.url, (requestCounts.get(request.url) || 0) + 1)
+    if (request.url === '/redirect-empty') {
+      response.writeHead(302, { location: '/empty' })
+      response.end()
+      return
+    }
     if (request.url === '/empty' || request.url === '/plain') {
       const body = request.url === '/empty' ? '' : 'Upstream unavailable'
       response.writeHead(502, { 'content-type': 'text/plain', 'content-length': Buffer.byteLength(body) })
@@ -73,6 +78,47 @@ test('still waits for delayed HTML and preserves HTTP authentication evidence', 
       assert.equal(await page.locator('main h1').textContent(), 'Delayed HTML document')
       assert.equal((await detectAuthWall(page, navigation.status)).detected, status === 401)
     }
+  } finally {
+    await page.close()
+  }
+})
+
+test('preserves a redirected empty HTTP failure without issuing another request', async () => {
+  const page = await browser.newPage()
+  const previousEmptyRequests = requestCounts.get('/empty') || 0
+  try {
+    const url = `${baseUrl}/redirect-empty`
+    const result = await navigateWithRecovery(page, url, { timeoutMs: 2_000 })
+    assert.equal(result.status, 502)
+    assert.equal(result.attempts, 1)
+    const health = await ensurePageHealth(page, { expectedUrl: url, responseStatus: result.status })
+    assert.equal(health.recovered, false)
+    assert.equal(health.evidenceEligible, false)
+    assert.ok(health.issues.some((issue) => issue.code === 'error-page' && issue.detail === '502'))
+    assert.equal(requestCounts.get('/redirect-empty'), 1)
+    assert.equal(requestCounts.get('/empty'), previousEmptyRequests + 1)
+    assert.equal(page.listenerCount('response'), 0)
+    assert.equal(page.listenerCount('framenavigated'), 0)
+  } finally {
+    await page.close()
+  }
+})
+
+test('rejects changed same-origin documents only when checking a completed capture', async () => {
+  const page = await browser.newPage()
+  const expectedUrl = `${baseUrl}/healthy`
+  try {
+    await navigateWithRecovery(page, `${baseUrl}/healthy?document=other`)
+    const finalHealth = await ensurePageHealth(page, { expectedUrl, requireSameDocument: true })
+    assert.equal(finalHealth.evidenceEligible, false)
+    assert.equal(finalHealth.recovered, false)
+    assert.ok(finalHealth.issues.some((issue) => issue.code === 'unexpected-navigation'))
+    const initialHealth = await ensurePageHealth(page, { expectedUrl })
+    assert.equal(initialHealth.evidenceEligible, true)
+
+    await navigateWithRecovery(page, `${expectedUrl}#details`)
+    const fragmentHealth = await ensurePageHealth(page, { expectedUrl, requireSameDocument: true })
+    assert.equal(fragmentHealth.evidenceEligible, true)
   } finally {
     await page.close()
   }

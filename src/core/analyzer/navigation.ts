@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core'
+import type { Frame, Page, Response } from 'playwright-core'
 
 export const NAVIGATION_RECOVERY_GRACE_MS = 2_000
 export const NAVIGATION_RETRY_TIMEOUT_CAP_MS = 20_000
@@ -66,7 +66,58 @@ export async function navigateWithRecovery(
 
   const navigate = async (timeout: number) => {
     const startedAt = Date.now()
-    const response = await page.goto(url, { waitUntil: 'commit' as const, timeout })
+    const requestedUrl = new URL(url)
+    requestedUrl.hash = ''
+    const observed = { response: undefined as Response | undefined, committed: false }
+    let notifyCommit: (() => void) | undefined
+    const onResponse = (response: Response) => {
+      let request = response.request()
+      if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return
+      while (request.redirectedFrom()) request = request.redirectedFrom()!
+      if (request.url() === requestedUrl.href) observed.response = response
+    }
+    const onFrameNavigated = (frame: Frame) => {
+      if (frame !== page.mainFrame() || !observed.response) return
+      observed.committed = true
+      notifyCommit?.()
+    }
+    page.on('response', onResponse)
+    page.on('framenavigated', onFrameNavigated)
+    let response: Response | null
+    try {
+      response = await page.goto(url, { waitUntil: 'commit' as const, timeout })
+    } catch (error) {
+      // Full Chrome may reject an empty HTTP error document after emitting its response, unlike headless shell.
+      // Preserve only an observed failure from this navigation chain; never infer a status from a network error.
+      if (
+        error instanceof Error &&
+        /\bnet::ERR_HTTP_RESPONSE_CODE_FAILURE\b/.test(error.message) &&
+        observed.response &&
+        observed.response.status() >= 400
+      ) {
+        // The rejection can arrive before Chrome replaces the old document with its error page. Do not hand
+        // downstream inspection the previous document or leave an unbounded navigation waiter behind.
+        if (!observed.committed) {
+          const committed = await new Promise<boolean>((resolve) => {
+            const timer = setTimeout(
+              () => resolve(false),
+              Math.min(recoveryGraceMs, Math.max(1, timeout - (Date.now() - startedAt))),
+            )
+            notifyCommit = () => {
+              clearTimeout(timer)
+              resolve(true)
+            }
+          })
+          if (!committed) throw error
+        }
+        await page.waitForLoadState('domcontentloaded', { timeout: recoveryGraceMs }).catch(() => {})
+        return observed.response
+      }
+      throw error
+    } finally {
+      page.off('response', onResponse)
+      page.off('framenavigated', onFrameNavigated)
+    }
     if (response && response.status() >= 400) {
       const headers = response.headers()
       const contentType = headers['content-type']?.split(';')[0].trim().toLowerCase()

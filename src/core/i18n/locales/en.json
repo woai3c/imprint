@@ -204,6 +204,9 @@
       "relativeOrderChanged": "relative order changed between matched sibling sections"
     },
     "limitations": {
+      "complexCanvasScoped": "Complex canvas paint cannot support a solid canvas token in {{count}} captured scope(s): {{scopes}}{{more}}. This limitation is local; solid canvas support from other captures is assessed independently.",
+      "complexCanvasUnknownScope": "Complex canvas paint was reported in one or more captures; this saved evidence does not identify the affected scopes. This is not a claim that all pages lack a solid background token.",
+      "scopeOmitted": "; +{{count}} more scope(s) (see per-page Evidence)",
       "selectedPagesIncomplete": "Some automatically selected pages could not be captured; conclusions cover completed pages only.",
       "plannedCapturesIncomplete": "At least one planned page×viewport capture is missing; cross-viewport coverage is partial.",
       "queryRouteRedacted": "One or more captured documents use query-based routing; public artifact URLs redact query text and use opaque route IDs for distinction.",
@@ -273,11 +276,18 @@
       "instructions": {
         "p0": "Apply core design rules by default within their stated scope.",
         "p1": "Apply a contextual component pattern only when the target contains the matching component and variant.",
-        "p2": "Treat local design observations as references for matching contexts; they must not override core rules or contextual component patterns.",
+        "p2": "Use documented local values only in their matching contexts; they are exceptions to broad defaults, not new site-wide rules.",
         "brand": "Do not copy source branding, logos, copy, or media.",
         "accessibility": "Accessibility, correct product behavior, and explicit user requirements take priority."
       },
       "p0Heading": "#### Core Design Rules",
+      "responsiveFact": "{{scope}} · {{role}} · {{from}} → {{to}}: {{change}} ({{properties}})",
+      "usage": {
+        "defaults": "Apply the core rules above as defaults only for their cited roles and scope; P0 does not mean every observed value belongs to the global scale.",
+        "exceptions": "Keep documented component, state, and text-role values in their matching contexts, including local colors, fonts, weights, sizes, radii, shadows, and spacing; do not promote them to unrelated global defaults.",
+        "unknown": "Missing tokens or unobserved modes and states mean insufficient evidence, not that other values or behaviors are forbidden.",
+        "attribution": "Use token references when they represent the matching role. Documented local values may remain explicit; identify any required adaptation as your implementation choice, not an observed source rule."
+      },
       "p0Empty": "- No foundation met the cross-page, high-confidence requirement. Use exact tokens as observed values, not as global transfer rules.",
       "implementation": "Implementation",
       "coordinateHeading": "#### Design dimension coverage",
@@ -378,7 +388,7 @@
         "do-not-promote-local-layout": "Do not promote this specialized component's local layout to the whole page."
       },
       "p2Heading": "### Local Design Observations",
-      "p2Intro": "> These observations are useful references for matching contexts, but they are not site-wide rules and cannot override core design rules or contextual component patterns.",
+      "p2Intro": "> These observations apply only to matching contexts. Keep their documented exceptions local; they do not redefine unrelated core rules or component patterns.",
       "localFacts": "Observed local facts",
       "localFactsScopeNotice": "Each fact below applies only to its cited capture scope; verify it again before broader reuse.",
       "localRecipes": "Local or specialized component patterns",
@@ -734,8 +744,10 @@
       "pageScope": "This analysis covers the captured page from {{title}}.",
       "recurringFact": "Observed across {{count}} pages: {{fact}}",
       "preserveFact": "Preserve the observed fact: {{fact}}.",
+      "preserveScopedRules": "Use the core rules and matching component contracts above; their cited scope and documented exceptions also apply to this summary.",
+      "avoidScopeExpansion": "Do not treat omitted values as forbidden or promote local observations into site-wide defaults.",
       "avoidActionSubstitution": "Do not substitute decorative, status, or border colors for the observed action role.",
-      "avoidInventedPrimary": "Do not invent a primary action color; none was stably observed.",
+      "avoidInventedPrimary": "No reusable global primary token was established; retain observed action colors only in their documented component or state scope.",
       "avoidGeometryGeneralization": "Do not generalize one-off geometry into the reusable spacing scale.",
       "componentVariant": "{{label}} ({{traits}})",
       "deltaVariant": "{{direction}} delta",
@@ -1001,7 +1013,7 @@
     "statusRecipeSingleStatement": "The representative styles and token references come from this observed instance; one instance does not establish a site-wide default.",
     "recipeImplementation": "Reuse the representative treatment only when the target UI contains this component and variant.",
     "stateStatement": "The observed {{driver}} state changes {{properties}}.",
-    "stateImplementation": "Implement only the listed state change; do not infer unobserved states.",
+    "stateImplementation": "Preserve the listed observed changes in their matching contexts. Additional states required by the target product are implementation choices, not observed source rules.",
     "responsiveStatement": "From {{from}} to {{to}}, the containing section uses {{change}}; the observed changed properties are {{properties}}.",
     "responsiveImplementation": "Apply this responsive behavior only to the matching component context and viewport transition.",
     "foundation": {
@@ -1020,7 +1032,7 @@
       "observedColorRole": "observed color token `{{ref}}`",
       "colorImplementation": "Keep each cited semantic color in its named role; do not replace it with a decorative, status, or low-frequency observed color.",
       "typographyStatement": "Use {{stacks}} as the observed primary stack(s), with the reusable captured sizes {{sizes}} and weights {{weights}}.",
-      "typographyImplementation": "Map large-format text, heading, body, label, and metadata to the matching observed role. Preserve cited role-specific size exceptions exactly, but do not introduce an unrelated type family or an unobserved size.",
+      "typographyImplementation": "Map large-format text, heading, body, label, and metadata to the matching observed role. The cited stack, sizes, and weights are scoped defaults; preserve documented role-specific typography exceptions without promoting them to unrelated roles.",
       "shapeStatement": "Ordinary radius candidates are {{ordinary}}. {{special}}",
       "shapeWithoutSharedRadiusStatement": "No ordinary radius reached reusable cross-page coverage. {{special}}",
       "specialShapeValues": "Component evidence also contains pill or circular treatments with these radius values: {{values}}.",

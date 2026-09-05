@@ -75,9 +75,23 @@ export function displayedResponsiveChangeType(
   original: ResponsiveSectionObservation['changeType'],
   properties: readonly string[],
 ): ResponsiveSectionObservation['changeType'] {
-  return properties.length > 0 && properties.every((property) => ['order', 'sequenceIndex'].includes(property))
-    ? 'reorder'
-    : original
+  if (properties.length === 0) return original
+  const order = properties.some((property) => ['order', 'sequenceIndex'].includes(property))
+  const layout = properties.some(
+    (property) =>
+      ['layoutMode', 'display', 'position', 'gridTemplateColumns', 'childGridTemplateColumns'].includes(property) ||
+      /(?:^|\.)display$/.test(property),
+  )
+  const sizeOnly = properties.every((property) =>
+    /(?:^|\.)(?:height|width|fontSize|lineHeight|maxWidth|gap|paddingTop|paddingRight|paddingBottom|paddingLeft)$/.test(
+      property,
+    ),
+  )
+  if (order) return properties.every((property) => ['order', 'sequenceIndex'].includes(property)) ? 'reorder' : 'mixed'
+  if (layout) return 'reflow'
+  if (sizeOnly) return 'scale'
+  // Removed geometric facts must not continue to support an unqualified layout claim.
+  return original === 'interaction' || original === 'visibility' ? original : 'mixed'
 }
 
 export function hasConsistentResponsiveSectionIdentity(

@@ -14,7 +14,11 @@ import {
   generateTransferComponentsMarkdown,
   generateTransferOverviewMarkdown,
 } from '../../src/core/design-context/profile-export.js'
+import { validateDesignTransferSemantics } from '../../src/core/design-context/profile-integrity.js'
+import { generateReconstructionBrief } from '../../src/core/design-context/reconstruction-brief.js'
+import type { DesignProfile } from '../../src/core/design-context/types.js'
 import { isCurrentDesignProfile } from '../../src/core/design-context/types.js'
+import { displayedResponsiveChangeType } from '../../src/core/design-evidence/responsive-reliability.js'
 import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 import { buildComponentSpecs } from '../../src/core/export/component-specs.js'
 import { generateDesignDoc, validateDesignDocSemantics } from '../../src/core/export/index.js'
@@ -145,6 +149,153 @@ function createEvidence(): DesignEvidence {
     limitations: [],
   }
 }
+
+describe('observed-subset guidance', () => {
+  const eligibleBrief = (profile: DesignProfile, evidence: DesignEvidence): string => {
+    const eligible = structuredClone(profile)
+    // Isolate responsive projection from the independently tested brief eligibility gate.
+    eligible.thesis.confidence = 'high'
+    const directive = { ...eligible.visualLanguage.color, confidence: 'high' as const }
+    eligible.transferRules.preserve = [directive]
+    eligible.transferRules.avoid = [directive]
+    return generateReconstructionBrief(eligible, evidence, evidence.tokens)!
+  }
+
+  it('rejects an observation disguised as a core default and leaves historical semantics unknown', () => {
+    const profile = createDeterministicDesignContext(createEvidence(), 'en').profile
+    expect(validateDesignTransferSemantics(profile).valid).toBe(true)
+    profile.transferGrammar!.localRules[0].intent = 'scoped-default'
+    expect(validateDesignTransferSemantics(profile).errors).toContain('localRules.0:invalid-guidance-intent')
+    delete profile.transferGrammar!.ruleSemantics
+    expect(validateDesignTransferSemantics(profile).valid).toBe(true)
+    expect(profile.transferGrammar!.ruleSemantics).toBeUndefined()
+  })
+
+  it.each([
+    ['reflow', ['sequenceIndex'], 'reorder'],
+    ['reflow', ['gridTemplateColumns'], 'reflow'],
+    ['reflow', ['height'], 'scale'],
+    ['reflow', ['height', 'sequenceIndex'], 'mixed'],
+    ['reflow', ['boxShadow'], 'mixed'],
+  ] as const)('projects %s with %j into %s', (original, properties, expected) => {
+    expect(displayedResponsiveChangeType(original, properties)).toBe(expected)
+  })
+
+  it.each(['en', 'zh-CN'] as const)(
+    'keeps a complex canvas limitation local without denying other canvas tokens (%s)',
+    (language) => {
+      const evidence = createEvidence()
+      evidence.pages[1].url = 'https://example.com/complex'
+      evidence.pages[1].limitations = ['complex-page-canvas-paint']
+      evidence.limitations = ['complex-page-canvas-paint']
+      const document = generateDesignDoc({ tokens, designEvidence: evidence, language })
+      const limitations = document.split(/### (?:Analysis Limitations|分析局限)/)[1]?.split(/^## /m)[0] || ''
+      expect(limitations).toContain('https://example.com/complex')
+      expect(limitations).toContain('mobile')
+      expect(limitations).not.toMatch(/; no solid canvas token was inferred|因此未推断纯色画布令牌/)
+      expect(parse(document.split('---')[1]).colors.background).toBe('#ffffff')
+    },
+  )
+
+  it.each(['en', 'zh-CN'] as const)(
+    'does not turn foundation categories into exhaustive prohibitions (%s)',
+    (language) => {
+      const evidence = structuredClone(createEvidence())
+      evidence.layoutNodes.push({
+        id: 'local-heading',
+        pageId: 'page-desktop',
+        sectionId: 'section-desktop',
+        role: 'heading',
+        rect: { x: 0, y: 0, width: 0.5, height: 0.1 },
+        textRole: 'heading',
+        tokenRefs: [],
+        traits: [],
+        observedTypography: { fontFamily: 'Serif, serif', fontSize: '40px', fontWeight: '800' },
+      })
+      const profile = createDeterministicDesignContext(evidence, language).profile
+      // Exercise the category gate without changing the locally observed values into portable tokens.
+      profile.transferGrammar!.coreRules = [
+        { priority: 'P0', intent: 'scoped-default', category: 'color', claim: profile.visualLanguage.color },
+        { priority: 'P0', intent: 'scoped-default', category: 'typography', claim: profile.visualLanguage.typography },
+      ]
+      const before = JSON.stringify(evidence.tokens)
+      const document = generateDesignDoc({
+        tokens: evidence.tokens,
+        designEvidence: evidence,
+        designProfile: profile,
+        language,
+      })
+      expect(document).not.toMatch(/Don't introduce new colors outside|不要引入色板之外的新颜色/)
+      expect(document).not.toMatch(/Don't use font weights outside|不要使用以下之外的字重/)
+      expect(document).not.toMatch(/Don't mix multiple font families|不要混用多种字体/)
+      expect(document).toContain('800')
+      expect(document).toContain('40px')
+      expect(JSON.stringify(evidence.tokens)).toBe(before)
+      expect(profile.transferGrammar).toMatchObject({ ruleSemantics: 'observed-subset-v1' })
+    },
+  )
+
+  it.each(['en', 'zh-CN'] as const)(
+    'classifies the displayed responsive facts, not removed geometry (%s)',
+    (language) => {
+      const evidence = createEvidence()
+      evidence.sections[0].role = 'navigation'
+      evidence.sections[1].role = 'navigation'
+      evidence.responsiveObservations[0] = {
+        ...evidence.responsiveObservations[0],
+        changeType: 'reflow',
+        changedProperties: ['rect.y', 'height'],
+        changes: { 'rect.y': { from: 0.1, to: 0.2 }, height: { from: '35px', to: '43px' } },
+      }
+      const context = createDeterministicDesignContext(evidence, language)
+      const profile = context.profile
+      const document = generateDesignDoc({ tokens, designEvidence: evidence, designProfile: profile, language })
+      expect(document).not.toMatch(/layout reflow|布局重排/i)
+      expect(document).toContain('35px')
+      expect(document).toContain('43px')
+      for (const guidance of [context.agentContext.responsiveRules.join('\n'), eligibleBrief(profile, evidence)]) {
+        expect(guidance).not.toMatch(/reflow|布局重排|rect\.y/i)
+        expect(guidance).toContain('35px')
+        expect(guidance).toContain('43px')
+        expect(guidance).toContain('https://example.com/')
+      }
+      expect(evidence.responsiveObservations[0].changeType).toBe('reflow')
+    },
+  )
+
+  it.each(['en', 'zh-CN'] as const)('localizes paired heading sizes across agent outputs (%s)', (language) => {
+    const evidence = createEvidence()
+    evidence.responsiveObservations[0].changedProperties = ['node.heading.fontSize']
+    evidence.responsiveObservations[0].changes = { 'node.heading.fontSize': { from: '48px', to: '30px' } }
+    const context = createDeterministicDesignContext(evidence, language)
+    for (const guidance of [
+      context.agentContext.responsiveRules.join('\n'),
+      eligibleBrief(context.profile, evidence),
+    ]) {
+      expect(guidance).toContain('48px')
+      expect(guidance).toContain('30px')
+      expect(guidance).not.toContain('node.heading.fontSize')
+      if (language === 'zh-CN') expect(guidance).toContain('标题字号')
+    }
+  })
+
+  it.each(['en', 'zh-CN'] as const)(
+    'keeps CSS order values distinct from matched sibling reordering (%s)',
+    (language) => {
+      const evidence = createEvidence()
+      evidence.responsiveObservations[0].changedProperties = ['order']
+      evidence.responsiveObservations[0].changes = { order: { from: 0, to: 1 } }
+      const context = createDeterministicDesignContext(evidence, language)
+      for (const guidance of [
+        context.agentContext.responsiveRules.join('\n'),
+        eligibleBrief(context.profile, evidence),
+      ]) {
+        expect(guidance).toContain('0 → 1')
+        expect(guidance).not.toMatch(/matched sibling|已匹配的同级/)
+      }
+    },
+  )
+})
 
 describe('deterministic design context', () => {
   it('returns identical program-owned output for identical evidence', () => {
@@ -1282,7 +1433,7 @@ describe('deterministic design context', () => {
     })
 
     expect(surface?.priority).toBe('P2')
-    expect(document).toContain('depth shadows only on directly observed component variants')
+    expect(document).toContain('shadows, and spacing; do not promote them to unrelated global defaults')
     expect(document).not.toContain('Use elevation (shadows) to create visual hierarchy')
   })
 
@@ -1325,7 +1476,7 @@ describe('deterministic design context', () => {
       expect.objectContaining({ property: 'observed-surface-counts', value: ['owners:2', 'bordered:0', 'shadowed:1'] }),
     )
     expect(integrity.surfaceShadowScope).toBe('component-only')
-    expect(document).toContain('depth shadows only on directly observed component variants')
+    expect(document).toContain('shadows, and spacing; do not promote them to unrelated global defaults')
     expect(document).not.toContain('Use elevation (shadows) to create visual hierarchy')
   })
 

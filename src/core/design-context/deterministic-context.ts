@@ -6,7 +6,7 @@ import {
   materializeDesignProfile,
   validateDesignClaimCatalog,
 } from './claim-catalog.js'
-import { validateDesignProfileTokenReferences } from './profile-integrity.js'
+import { validateDesignProfileTokenReferences, validateDesignTransferSemantics } from './profile-integrity.js'
 import { generateReconstructionBrief } from './reconstruction-brief.js'
 import { buildDesignTransferGrammar } from './transfer-grammar.js'
 import type { AgentContextBundle, DesignProfile, ValidationReport } from './types.js'
@@ -42,6 +42,8 @@ export function createDeterministicDesignContext(
 
   const profile = materializeDesignProfile(catalog)
   profile.transferGrammar = buildDesignTransferGrammar(profile, evidence, tokens)
+  const ruleIntegrity = validateDesignTransferSemantics(profile)
+  if (!ruleIntegrity.valid) throw new Error(`Transfer grammar integrity failed: ${ruleIntegrity.errors.join('; ')}`)
   const profileIntegrity = validateDesignProfileTokenReferences(profile, tokens, evidence)
   if (!profileIntegrity.valid) {
     throw new Error(

@@ -8,6 +8,26 @@ export interface DesignProfileTokenReferenceIntegrity {
   errors: string[]
 }
 
+/** Validate rule strength separately from token existence. Historical profiles do not claim this policy. */
+export function validateDesignTransferSemantics(profile: DesignProfile): DesignProfileTokenReferenceIntegrity {
+  const errors: string[] = []
+  const grammar = profile.transferGrammar
+  if (!grammar?.ruleSemantics) return { valid: true, errors }
+  if (grammar.ruleSemantics !== 'observed-subset-v1') errors.push('unsupported-transfer-rule-semantics')
+  for (const [bucket, intent, priority] of [
+    ['coreRules', 'scoped-default', 'P0'],
+    ['localRules', 'scoped-observation', 'P2'],
+  ] as const) {
+    for (const [index, rule] of grammar[bucket].entries()) {
+      if (rule.intent !== intent || rule.priority !== priority)
+        errors.push(`${bucket}.${index}:invalid-guidance-intent`)
+      if (!rule.claim.evidence.length || !rule.claim.assertions?.length)
+        errors.push(`${bucket}.${index}:unscoped-guidance`)
+    }
+  }
+  return { valid: errors.length === 0, errors }
+}
+
 /** Validates every machine-readable tokenRefs field before a profile is persisted or exported. */
 export function validateDesignProfileTokenReferences(
   profile: DesignProfile,

@@ -204,6 +204,9 @@
       "relativeOrderChanged": "已匹配的同级区块之间相对顺序发生变化"
     },
     "limitations": {
+      "complexCanvasScoped": "以下 {{count}} 个采集范围的复杂画布不能支持纯色画布令牌：{{scopes}}{{more}}。此限制仅适用于这些范围，其他采集的纯色画布支持单独判断。",
+      "complexCanvasUnknownScope": "一个或多个采集报告了复杂画布，但这份保存的证据没有记录具体范围；这不表示所有页面都缺少纯色背景令牌。",
+      "scopeOmitted": "；另 {{count}} 个范围（见逐页 Evidence）",
       "selectedPagesIncomplete": "部分自动选定页面未能完成捕获；本文结论仅覆盖已完成页面。",
       "plannedCapturesIncomplete": "至少缺少一个计划中的页面×视口捕获；跨视口覆盖不完整。",
       "queryRouteRedacted": "一个或多个已捕获文档使用查询参数路由；公开产物会隐藏查询文本，并使用不透明路由标识加以区分。",
@@ -273,11 +276,18 @@
       "instructions": {
         "p0": "在已声明范围内默认应用核心设计规则。",
         "p1": "只有目标页面出现对应组件和变体时，才应用相应的场景化组件模式。",
-        "p2": "局部设计观察只用于相符场景，不能覆盖核心设计规则或场景化组件模式。",
+        "p2": "局部观察值只用于相符场景；它们是宽泛默认规则的局部例外，不是新的全站规则。",
         "brand": "不要复制来源网站的品牌、Logo、文案或媒体内容。",
         "accessibility": "可访问性、正确的产品行为和用户明确要求优先。"
       },
       "p0Heading": "#### 核心设计规则",
+      "responsiveFact": "{{scope}} · {{role}} · {{from}} → {{to}}：{{change}}（{{properties}}）",
+      "usage": {
+        "defaults": "上方核心规则仅作为其引用角色和范围内的默认值；P0 不代表所有观察值都必须属于全局刻度。",
+        "exceptions": "组件、状态和文字角色中已记录的颜色、字体、字重、字号、圆角、阴影和间距，只在相符场景保留，不提升为无关场景的全局默认值。",
+        "unknown": "缺少令牌或未观察到某种模式、状态，只表示证据不足，不表示禁止其他取值或行为。",
+        "attribution": "令牌与当前角色相符时使用令牌引用；已记录的局部值可以保留精确数值。需求所需的调整应标为实现选择，不要冒充来源网站的已观察规则。"
+      },
       "p0Empty": "- 当前没有基础规则同时达到跨页面和高置信度要求。精确令牌仍可作为观察值使用，但不能当作全局迁移规则。",
       "implementation": "实施方式",
       "coordinateHeading": "#### 设计维度覆盖",
@@ -378,7 +388,7 @@
         "do-not-promote-local-layout": "不要把该专用组件的局部布局扩展到整个页面。"
       },
       "p2Heading": "### 局部设计观察",
-      "p2Intro": "> 这些观察只在相同场景中作为参考，不是全站规则，也不能覆盖核心设计规则或场景化组件模式。",
+      "p2Intro": "> 这些观察只适用于相符场景。已记录的例外保持局部使用，不重新定义无关的核心规则或组件模式。",
       "localFacts": "已观察的局部事实",
       "localFactsScopeNotice": "以下每条事实只适用于其引用的采集范围；扩大复用范围前需要重新验证。",
       "localRecipes": "局部或专用组件模式",
@@ -734,8 +744,10 @@
       "pageScope": "本次分析覆盖 {{title}} 的当前捕获页面。",
       "recurringFact": "在 {{count}} 个页面中重复观察到：{{fact}}",
       "preserveFact": "保留已观察事实：{{fact}}。",
+      "preserveScopedRules": "使用上方核心规则及相符的组件契约；其中引用的范围和已记录的例外同样适用于本摘要。",
+      "avoidScopeExpansion": "不要把省略的值理解为禁止使用，也不要把局部观察提升为全站默认规则。",
       "avoidActionSubstitution": "不要用装饰色、状态色或边框色替代已观察到的操作角色。",
-      "avoidInventedPrimary": "不要虚构主操作色；当前没有稳定观察到该角色。",
+      "avoidInventedPrimary": "尚未建立可复用的全局主操作令牌；已观察操作配色仅在其记录的组件或状态范围内保留。",
       "avoidGeometryGeneralization": "不要把一次性几何值泛化进可复用间距刻度。",
       "componentVariant": "{{label}}（{{traits}}）",
       "deltaVariant": "{{direction}}变化值",
@@ -1001,7 +1013,7 @@
     "statusRecipeSingleStatement": "代表性样式和令牌引用来自这个已观察实例；单个实例不能建立全站默认规则。",
     "recipeImplementation": "仅当目标界面包含对应组件和变体时，复用这一代表性处理方式。",
     "stateStatement": "观察到 {{driver}} 状态会改变 {{properties}}。",
-    "stateImplementation": "只实现已列出的状态变化，不推断未观察状态。",
+    "stateImplementation": "在相符场景中保留已列出的观察变化。目标产品另需的状态属于实施选择，不能描述为来源网站的已观察规则。",
     "responsiveStatement": "从 {{from}} 到 {{to}} 时，组件所在区块发生 {{change}}；已观察到变化的属性为 {{properties}}。",
     "responsiveImplementation": "仅在对应组件场景和视口变化中应用该响应式行为。",
     "foundation": {
@@ -1020,7 +1032,7 @@
       "observedColorRole": "已观察颜色令牌 `{{ref}}`",
       "colorImplementation": "每个已引用语义色只承担其命名角色；不要用装饰色、状态色或低频观察色替代。",
       "typographyStatement": "主要使用 {{stacks}} 字体栈；采用已捕获的可复用字号 {{sizes}} 和字重 {{weights}}。",
-      "typographyImplementation": "展示文字、标题、正文、标签和元数据应映射到相符的已观察角色；角色级字号例外按引用证据保持精确，但不要加入无关字体或未观察字号。",
+      "typographyImplementation": "展示文字、标题、正文、标签和元数据应映射到相符的已观察角色。引用的字体栈、字号和字重是范围内的默认值；保留已记录的角色级排版例外，不扩展到无关角色。",
       "shapeStatement": "普通圆角候选为 {{ordinary}}。{{special}}",
       "shapeWithoutSharedRadiusStatement": "没有普通圆角达到可复用的跨页面覆盖。{{special}}",
       "specialShapeValues": "组件证据中还观察到胶囊形或圆形处理，相关半径值为 {{values}}。",

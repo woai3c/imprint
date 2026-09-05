@@ -68,6 +68,8 @@ export type StyleCoordinateDimension = 'color' | 'typography' | 'shape' | 'surfa
 
 export interface PrioritizedDesignRule {
   priority: TransferPriority
+  /** P0 is a default within cited evidence, never an exhaustive set of permitted designs. */
+  intent?: 'scoped-default' | 'scoped-observation'
   category: TransferRuleCategory
   claim: DesignClaim
 }
@@ -135,6 +137,8 @@ export interface ComponentRecipe {
  */
 export interface DesignTransferGrammar {
   schemaVersion: '1'
+  /** Absent on historical profiles; do not fabricate evidence or rewrite saved artifacts to add it. */
+  ruleSemantics?: 'observed-subset-v1'
   coreRules: PrioritizedDesignRule[]
   styleCoordinates: StyleCoordinate[]
   componentRecipes: ComponentRecipe[]

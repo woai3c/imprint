@@ -950,6 +950,24 @@ export function buildAnalysisOutput(
     techStack: input.techStack,
   })
   portableTokens = designEvidence.tokens
+  // Limitations describe retained captures, including supplemental viewports that do not vote on tokens.
+  // Keep the transaction join: deduplicating a code must not erase its page/viewport scope.
+  for (const page of designEvidence.pages) {
+    const matches = input.evidenceEligibleStyleCaptures.filter((capture) => {
+      if (pageIdentityUrl(page.url) !== pageIdentityUrl(capture.url) || page.viewport !== capture.viewport) return false
+      return page.captureKey || capture.captureKey
+        ? Boolean(page.captureKey && page.captureKey === capture.captureKey)
+        : true
+    })
+    if (matches.length === 1) {
+      page.limitations = [...new Set(matches[0].styles.semanticSurfaceLimitations || [])].sort()
+      for (const limitation of page.limitations) {
+        if (!designEvidence.limitations.includes(limitation)) designEvidence.limitations.push(limitation)
+        if (!designEvidence.coverage.limitations.includes(limitation))
+          designEvidence.coverage.limitations.push(limitation)
+      }
+    }
+  }
   const deterministicClaims = buildEvidenceBackedClaims(portableTokens, evidenceMergedStyles, designEvidence)
   featureTags = [...new Set([...deterministicClaims.map((claim) => claim.label), ...featureTags])].slice(0, 6)
   designEvidence = {

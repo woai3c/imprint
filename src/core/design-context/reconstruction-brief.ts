@@ -1,5 +1,6 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { generateScopedResponsiveGuidance } from './profile-export.js'
 import type { DesignClaim, DesignProfile } from './types.js'
 
 export type ReconstructionBriefIneligibilityReason =
@@ -162,16 +163,9 @@ export function generateReconstructionBrief(
     '',
     zh ? '## 响应式要求' : '## Responsive Requirements',
     '',
-    ...evidence.responsiveObservations
+    ...generateScopedResponsiveGuidance(evidence, profile.language)
       .slice(0, 12)
-      .map(
-        (observation) =>
-          `- ${observation.fromViewport} → ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties
-            .map((property) =>
-              property === 'sequenceIndex' ? (zh ? '相对顺序发生变化' : 'relative order changed') : property,
-            )
-            .join(', ')})`,
-      ),
+      .map((fact) => `- ${fact}`),
     '',
     zh ? '## 限制' : '## Limitations',
     '',

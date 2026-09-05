@@ -174,6 +174,38 @@ function outputInput(reverse: boolean): BuildAnalysisOutputInput {
 }
 
 describe('analysis output canonical style evidence', () => {
+  test('retains supplemental mobile limitations when a healthy desktop remains the token representative', () => {
+    const input = outputInput(false)
+    input.captures[0] = capturedPage('desktop', false, 'entry-desktop')
+    const baseline = buildAnalysisOutput(structuredClone(input))
+    input.evidenceEligibleStyleCaptures[1].styles.semanticSurfaceLimitations = ['complex-page-canvas-paint']
+    const output = buildAnalysisOutput(input)
+    expect(output.tokens).toEqual(baseline.tokens)
+    expect(output.designEvidence.pages.find((page) => page.viewport === 'mobile')?.limitations).toEqual([
+      'complex-page-canvas-paint',
+    ])
+    expect(output.designEvidence.limitations).toContain('complex-page-canvas-paint')
+  })
+
+  test('retains limitation scope from the canonical transaction without changing implementation tokens', () => {
+    for (const reverse of [false, true]) {
+      const input = outputInput(reverse)
+      const baseline = buildAnalysisOutput(structuredClone(input))
+      const mobile = input.evidenceEligibleStyleCaptures.find((capture) => capture.viewport === 'mobile')!
+      mobile.styles.semanticSurfaceLimitations = ['complex-page-canvas-paint']
+      const output = buildAnalysisOutput(input)
+      expect(output.tokens).toEqual(baseline.tokens)
+      expect(output.designEvidence.pages.find((page) => page.viewport === 'mobile')?.limitations).toEqual([
+        'complex-page-canvas-paint',
+      ])
+      expect(output.designEvidence.pages.find((page) => page.viewport === 'desktop')?.limitations).not.toContain(
+        'complex-page-canvas-paint',
+      )
+      expect(output.designEvidence.limitations).toContain('complex-page-canvas-paint')
+      expect(JSON.stringify(output.designEvidence)).not.toContain('captureKey')
+    }
+  })
+
   test('uses the healthy mobile fallback instead of a severely overflowing desktop capture', () => {
     for (const reverse of [false, true]) {
       const output = buildAnalysisOutput(outputInput(reverse))

@@ -1,5 +1,6 @@
 import type { DesignToken } from '../analyzer/types.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
+import { generateScopedResponsiveGuidance } from './profile-export.js'
 import type { AgentContextBundle, DesignClaim, DesignProfile } from './types.js'
 
 function isUsableClaim(claim: DesignClaim): boolean {
@@ -96,14 +97,7 @@ export function generateAgentContextBundle(
     responsiveRules: [
       ...(profile?.interactionLanguage.continuityRules.filter(isUsableClaim).map((claim) => claim.implementation) ||
         []),
-      ...evidence.responsiveObservations
-        .slice(0, 8)
-        .map(
-          (observation) =>
-            `${observation.fromViewport} to ${observation.toViewport}: ${observation.changeType} (${observation.changedProperties
-              .map((property) => (property === 'sequenceIndex' ? 'relative order changed' : property))
-              .join(', ')})`,
-        ),
+      ...generateScopedResponsiveGuidance(evidence, profile?.language || 'en').slice(0, 8),
     ],
     interactionRules:
       profile && /button|field|form|menu|tab|dialog|state|action|表单|按钮|字段|菜单|状态|操作/i.test(task)

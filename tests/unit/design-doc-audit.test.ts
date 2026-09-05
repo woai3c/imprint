@@ -13,6 +13,8 @@ import {
   auditDesignDoc,
   meetsPortableFoundationCoverage,
 } from '../../scripts/audit-design-doc.mjs'
+import { generateDesignEvidenceBrief } from '../../src/core/design-evidence/evidence-export.js'
+import type { DesignEvidence } from '../../src/core/design-evidence/types.js'
 
 interface CandidatePreviewExtension {
   candidates: {
@@ -115,6 +117,39 @@ _3 representative-style matches across 2 pages · identity 0.95 · reuse 0.85_
 
 - **Entry-page section hierarchy:** content
 `
+
+describe('observation guidance contradiction gate', () => {
+  it.each(['en', 'zh-CN'])(
+    'rejects changed policy prose even without a known prohibited phrase (%s)',
+    async (language) => {
+      const locale = JSON.parse(await fs.readFile(`src/core/i18n/locales/${language}.json`, 'utf8'))
+      const policy = ['defaults', 'exceptions', 'unknown', 'attribution']
+        .map((key) => `- ${locale.profileExport.transfer.usage[key]}`)
+        .join('\n')
+      const source =
+        updateFrontMatter(validDocument, (front) => {
+          const extension = (front['x-imprint'] as Array<Record<string, unknown>>)[0]
+          extension.language = language
+          extension.analysis = { ruleSemantics: 'observed-subset-v1' }
+        }) + `\n## Do's and Don'ts\n\n${policy}\n`
+      expect(auditDesignDoc(source).hardFailures).toEqual([])
+      const broken = source.replace(policy.split('\n')[0], '- Apply all defaults to every role and component.')
+      expect(auditDesignDoc(broken).hardFailures).toContain('observed-subset:guidance-projection-mismatch')
+    },
+  )
+
+  it.each([
+    "- ❌ Don't introduce new colors outside the defined palette",
+    '- ❌ 不要引入色板之外的新颜色',
+    "- ❌ Don't use font weights outside: 400, 700",
+    '- ❌ 不要使用以下之外的字重：400, 700',
+    "- ❌ Don't mix multiple font families — stick to the single typeface",
+    '- ❌ 不要混用多种字体，保持单一字体族',
+  ])('rejects an exhaustive prohibition in observed output: %s', (directive) => {
+    const result = auditDesignDoc(`${validDocument}\n## Do's and Don'ts\n${directive}\n`)
+    expect(result.hardFailures).toContain('observed-subset:exhaustive-prohibition')
+  })
+})
 
 const HOME_ROUTE_ID = 'route-111111111111'
 const ABOUT_ROUTE_ID = 'route-222222222222'
@@ -2106,6 +2141,43 @@ function configureGroupedResponsiveProjection(
 }
 
 describe('DESIGN.md artifact audit', () => {
+  it.each(['en', 'zh-CN'] as const)(
+    'accepts generated relative-order projections without restoring absolute indices (%s)',
+    async (language) => {
+      for (const withHeight of [false, true]) {
+        const directory = await writeGate21Bundle(language, (artifacts, evidence) => {
+          configureGroupedResponsiveProjection(artifacts, evidence, language)
+          const observation = evidence.responsiveObservations[0]
+          for (const section of evidence.sections) section.role = 'navigation'
+          artifacts['DESIGN.md'] = artifacts['DESIGN.md'].replace(
+            '**Entry-page section hierarchy:** content',
+            '**Entry-page section hierarchy:** navigation',
+          )
+          evidence.responsiveObservations = [
+            {
+              ...observation,
+              changedProperties: withHeight ? ['sequenceIndex', 'height'] : ['sequenceIndex'],
+              changes: {
+                sequenceIndex: { from: 0, to: 1 },
+                ...(withHeight ? { height: { from: '35px', to: '43px' } } : {}),
+              },
+            },
+          ]
+          const heading = language === 'zh-CN' ? '### 响应式结构观察' : '### Responsive Structure Observations'
+          const renderEvidence = structuredClone(evidence) as unknown as DesignEvidence
+          for (const page of renderEvidence.pages) if (page.health) page.health.issues = []
+          renderEvidence.coverage.mediaCoverage = { majorRegions: 0, classifiedRegions: 0, iconRegions: 0 }
+          renderEvidence.coverage.interactionCoverage = { candidates: 0, safelyObserved: 0, skipped: 0 }
+          const brief = generateDesignEvidenceBrief(renderEvidence, language)
+          const responsive = brief.slice(brief.indexOf(heading)).split(/\n### /)[0]
+          artifacts['DESIGN.md'] = artifacts['DESIGN.md'].slice(0, artifacts['DESIGN.md'].indexOf(heading)) + responsive
+          expect(responsive).not.toContain('0 → 1')
+        })
+        expect((await auditArtifactBundle(directory)).hardFailures).toEqual([])
+      }
+    },
+  )
+
   it('passes a structurally valid, evidence-backed document without imposing a total line limit', () => {
     const result = auditDesignDoc(validDocument, 'DESIGN.md')
 

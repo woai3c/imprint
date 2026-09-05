@@ -2,6 +2,7 @@ import { normalizeColorValue } from '../analyzer/color-cluster.js'
 import { hasDepthShadow } from '../analyzer/component-detect.js'
 import type { DesignToken } from '../analyzer/types.js'
 import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
+import { validateDesignTransferSemantics } from '../design-context/profile-integrity.js'
 import type { DesignProfile } from '../design-context/types.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
@@ -221,6 +222,15 @@ export function validateDesignDocSemantics(
   const errors: string[] = []
   const warnings: string[] = []
   const evidenceTokens = evidence?.tokens || tokens
+  if (profile) errors.push(...validateDesignTransferSemantics(profile).errors)
+  if (evidence) {
+    for (const page of evidence.pages) {
+      for (const limitation of page.limitations || []) {
+        if (!evidence.limitations.includes(limitation))
+          errors.push(`page-limitation:${page.id}:missing-summary(${limitation})`)
+      }
+    }
+  }
   if (evidence) validateCoverage(evidence, errors, warnings)
 
   const foundationClaims = [

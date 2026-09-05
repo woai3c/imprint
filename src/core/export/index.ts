@@ -37,6 +37,7 @@ import {
   generateTransferBoundariesMarkdown,
   generateTransferComponentsMarkdown,
   generateTransferOverviewMarkdown,
+  generateTransferUsageMarkdown,
 } from '../design-context/profile-export.js'
 import { validateDesignProfileTokenReferences } from '../design-context/profile-integrity.js'
 import type { DesignProfile } from '../design-context/types.js'
@@ -1012,6 +1013,7 @@ function buildDesignDocFrontMatter(input: DesignDocFrontMatterInput): GoogleDesi
           mode: 'deterministic',
           ...(profile?.claimSource ? { claimSource: profile.claimSource } : {}),
           ...(profile?.catalogVersion ? { catalogVersion: profile.catalogVersion } : {}),
+          ...(profile?.transferGrammar?.ruleSemantics ? { ruleSemantics: profile.transferGrammar.ruleSemantics } : {}),
         },
         ...(Object.keys(nonstandardTokens).length > 0 ? { nonstandardTokens } : {}),
         ...(componentSummary.length > 0
@@ -1689,6 +1691,7 @@ function reconstructionSummary(
   tokens: DesignToken,
   components: ReadonlyArray<{ name: string; count: number; elementKinds?: string[] }>,
   language: DocLanguage,
+  profile?: DesignProfile | null,
 ): string[] {
   const summaryPage = canonicalReconstructionPage(evidence)
   const multiPage = new Set(evidence.pages.map(evidencePageRouteIdentity)).size > 1
@@ -1723,17 +1726,21 @@ function reconstructionSummary(
       ? coreT(language, 'export.reconstruction.recurringFact', { count: fact.pageCount, fact: localized })
       : localized
   }
-  const preserve = [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
-    coreT(language, 'export.reconstruction.preserveFact', {
-      fact: readableFact(fact),
-    }),
-  )
-  const avoid = [
-    tokens.colors.primary
-      ? coreT(language, 'export.reconstruction.avoidActionSubstitution')
-      : coreT(language, 'export.reconstruction.avoidInventedPrimary'),
-    coreT(language, 'export.reconstruction.avoidGeometryGeneralization'),
-  ]
+  const preserve = profile?.transferGrammar
+    ? [coreT(language, 'export.reconstruction.preserveScopedRules')]
+    : [...signatureFacts, ...responsiveFacts].slice(0, 4).map((fact) =>
+        coreT(language, 'export.reconstruction.preserveFact', {
+          fact: readableFact(fact),
+        }),
+      )
+  const avoid = profile?.transferGrammar
+    ? [coreT(language, 'export.reconstruction.avoidScopeExpansion')]
+    : [
+        tokens.colors.primary
+          ? coreT(language, 'export.reconstruction.avoidActionSubstitution')
+          : coreT(language, 'export.reconstruction.avoidInventedPrimary'),
+        coreT(language, 'export.reconstruction.avoidGeometryGeneralization'),
+      ]
   const label = (key: string): string => coreT(language, `export.reconstruction.labels.${key}`)
   return [
     coreT(language, 'export.reconstruction.heading'),
@@ -1894,7 +1901,9 @@ export function generateDesignDoc(
     lines.push(generateTransferOverviewMarkdown(designProfile, evidenceTokens, evidenceColorNames, designEvidence), '')
   }
   if (designEvidence)
-    lines.push(...reconstructionSummary(designEvidence, evidenceTokens, reconstructionComponents, language))
+    lines.push(
+      ...reconstructionSummary(designEvidence, evidenceTokens, reconstructionComponents, language, designProfile),
+    )
   if (documentUrl) lines.push(docT('extractedFrom', { url: documentUrl }))
 
   if (documentFeatureTags.length > 0) {
@@ -2276,14 +2285,13 @@ export function generateDesignDoc(
   lines = sections.dosAndDonts
   lines.push(
     withoutCanonicalHeading(
-      generateDosAndDonts(evidenceTokens, language, documentComponents, {
-        hasDeclaredBreakpoints: (designEvidence?.breakpoints.length || 0) > 0,
-        hasObservedResponsiveBehavior: (designEvidence?.responsiveObservations.length || 0) > 0,
-        surfaceShadowScope: semanticIntegrity.surfaceShadowScope,
-        ...(designProfile?.transferGrammar
-          ? { coreRuleCategories: (designProfile.transferGrammar.coreRules || []).map((rule) => rule.category) }
-          : {}),
-      }),
+      designProfile?.transferGrammar
+        ? generateTransferUsageMarkdown(designProfile)
+        : generateDosAndDonts(evidenceTokens, language, documentComponents, {
+            hasDeclaredBreakpoints: (designEvidence?.breakpoints.length || 0) > 0,
+            hasObservedResponsiveBehavior: (designEvidence?.responsiveObservations.length || 0) > 0,
+            surfaceShadowScope: semanticIntegrity.surfaceShadowScope,
+          }),
     ),
   )
   if (designProfile?.transferGrammar) {

@@ -2941,8 +2941,28 @@ export function auditDesignDoc(source, file = '<memory>') {
     'Check density, major component semantics, and whether any global claim overstates the observed scope.',
   ]
   const sections = markdownSections(source)
+  // An observed sample is not exhaustive, even when a category has a P0 default.
+  const guidance = (sections.get("Do's and Don'ts") || []).join('\n')
+  if (
+    /Don't introduce new colors outside|Don't use font weights outside|Don't mix multiple font families|不要引入色板之外的新颜色|不要使用以下之外的字重|不要混用多种字体/.test(
+      guidance,
+    )
+  ) {
+    hardFailures.push('observed-subset:exhaustive-prohibition')
+  }
   const sectionLines = Object.fromEntries([...sections].map(([name, lines]) => [name, lines.length]))
   const extension = extensionFor(parsed.value)
+  if (extension?.analysis?.ruleSemantics === 'observed-subset-v1') {
+    const locale = PROFILE_EXPORT_LOCALES[extension.language || 'en']
+    const expected = ['defaults', 'exceptions', 'unknown', 'attribution']
+      .map((key) => `- ${locale?.transfer?.usage?.[key]}`)
+      .join('\n')
+    const actual = guidance
+      .split(/^### /m)[0]
+      .replace(/^## Do's and Don'ts\s*\n?/, '')
+      .trim()
+    if (actual !== expected) hardFailures.push('observed-subset:guidance-projection-mismatch')
+  }
 
   try {
     const lintReport = lint(source)
@@ -3276,6 +3296,24 @@ function validateTokenReferences(value, catalog, label, hardFailures) {
 function validateGuidanceScope(source, profile, hardFailures) {
   const grammar = profile?.transferGrammar
   if (!isObject(grammar)) return
+  if (grammar.ruleSemantics) {
+    const extension = extensionFor(frontMatter(source).value)
+    if (
+      grammar.ruleSemantics !== 'observed-subset-v1' ||
+      extension?.analysis?.ruleSemantics !== grammar.ruleSemantics
+    ) {
+      hardFailures.push('observed-subset:rule-semantics-mismatch')
+    }
+    for (const [bucket, priority, intent] of [
+      ['coreRules', 'P0', 'scoped-default'],
+      ['localRules', 'P2', 'scoped-observation'],
+    ]) {
+      for (const rule of grammar[bucket] || []) {
+        if (rule.priority !== priority || rule.intent !== intent)
+          hardFailures.push('observed-subset:invalid-rule-intent')
+      }
+    }
+  }
   if (!Array.isArray(grammar.coreRules)) hardFailures.push('invalid-transfer-core-rules')
   const coreRules = Array.isArray(grammar.coreRules) ? grammar.coreRules : []
   const coreCategories = new Set(coreRules.map((rule) => rule?.category).filter(Boolean))
@@ -3869,9 +3907,36 @@ function buildAuditResponsiveGroups(evidence) {
     if (changes.length === 0) continue
     const role = !section?.role || section.role === 'unknown' ? 'content' : section.role
     const properties = changes.map(([property]) => property)
-    const changeType = properties.every((property) => ['order', 'sequenceIndex'].includes(property))
-      ? 'reorder'
-      : observation.changeType
+    // Independently classify the surviving facts; hidden geometry cannot authorize the displayed label.
+    const orderCount = properties.filter((property) => ['order', 'sequenceIndex'].includes(property)).length
+    const layoutCount = properties.filter(
+      (property) =>
+        ['layoutMode', 'display', 'position', 'gridTemplateColumns', 'childGridTemplateColumns'].includes(property) ||
+        /(?:^|\.)display$/.test(property),
+    ).length
+    const sizes = new Set([
+      'height',
+      'width',
+      'fontSize',
+      'lineHeight',
+      'maxWidth',
+      'gap',
+      'paddingTop',
+      'paddingRight',
+      'paddingBottom',
+      'paddingLeft',
+    ])
+    const changeType = orderCount
+      ? orderCount === properties.length
+        ? 'reorder'
+        : 'mixed'
+      : layoutCount
+        ? 'reflow'
+        : properties.every((property) => sizes.has(property.split('.').at(-1)))
+          ? 'scale'
+          : ['visibility', 'interaction'].includes(observation.changeType)
+            ? observation.changeType
+            : 'mixed'
     const signature = JSON.stringify([observation.fromViewport, observation.toViewport, role, changeType, changes])
     const group = groups.get(signature) || {
       fromViewport: observation.fromViewport,
@@ -3934,6 +3999,7 @@ function expectedResponsiveObservationLines(evidence, language) {
       const values = group.changes
         .slice(0, 12)
         .map(([property, value]) => {
+          if (property === 'sequenceIndex') return auditResponsiveLocaleText(language, 'relativeOrderChanged')
           const label =
             profileLocale?.terms?.[property === 'node.heading.fontSize' ? 'headingFontSize' : property] || property
           return `${label}: ${value?.from ?? 'absent'} → ${value?.to ?? 'absent'}`
@@ -4022,9 +4088,10 @@ function validateGroupedResponsiveObservations(source, evidence, profile, hardFa
       ? /^- .+ → .+ · .+ · .+（.+） · 支持：\d+ 个路由 · \d+ 个观察实例 · 示例：.+$/.test(line)
       : /^- .+ → .+ · .+ · .+ \(.+\) · support: \d+ routes? · \d+ observed instances? · examples: .+$/.test(line)
   const isResponsiveValueLine = (line) =>
-    line.startsWith('- ') &&
-    line.includes(' → ') &&
-    [...responsivePropertyLabels].some((label) => line.startsWith(`- ${label}: `))
+    line === `- ${auditResponsiveLocaleText(language, 'relativeOrderChanged')}` ||
+    (line.startsWith('- ') &&
+      line.includes(' → ') &&
+      [...responsivePropertyLabels].some((label) => line.startsWith(`- ${label}: `)))
   const responsiveHeadingIndex = lines.findIndex((line) => line === `### ${responsiveHeading}`)
   const responsiveSectionEnd =
     responsiveHeadingIndex < 0

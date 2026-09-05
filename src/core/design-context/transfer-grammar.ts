@@ -707,9 +707,13 @@ export function buildDesignTransferGrammar(
 
   return {
     schemaVersion: '1',
-    coreRules: foundationCandidates.filter((item) => item.priority === 'P0').slice(0, 8),
+    ruleSemantics: 'observed-subset-v1',
+    coreRules: foundationCandidates
+      .filter((item) => item.priority === 'P0')
+      .slice(0, 8)
+      .map((item) => ({ ...item, intent: 'scoped-default' })),
     styleCoordinates: coordinates,
     componentRecipes: buildRecipes(evidence, profile.language),
-    localRules: localCandidates.map((item) => ({ ...item, priority: 'P2' })),
+    localRules: localCandidates.map((item) => ({ ...item, priority: 'P2', intent: 'scoped-observation' })),
   }
 }

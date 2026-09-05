@@ -678,7 +678,9 @@ function renderDesignEvidenceBrief(evidence: DesignEvidence, language: DocLangua
       : []),
   ]
   const humanLimitations = [
-    ...new Set([...new Set(limitationKeys)].map((l) => humanizeLimitation(l, zh)).filter(Boolean) as string[]),
+    ...new Set(
+      [...new Set(limitationKeys)].map((l) => humanizeLimitation(l, zh, evidence)).filter(Boolean) as string[],
+    ),
   ]
   if (humanLimitations.length > 0) {
     lines.push('')
@@ -736,14 +738,27 @@ const LIMITATION_LABELS: Record<string, { en: string; zh: string }> = {
     en: 'At least one extraction stage degraded; inspect the application log for the exact stage and reason',
     zh: '至少一个提取阶段发生降级；请在应用日志中查看具体阶段和原因',
   },
-  'complex-page-canvas-paint': {
-    en: 'The page canvas uses a gradient, image, blend, or filter that cannot be represented faithfully as a solid foundation color; no solid canvas token was inferred',
-    zh: '页面画布使用渐变、图片、混合或滤镜，无法如实表示为纯色基础色；因此未推断纯色画布令牌',
-  },
 }
 
-function humanizeLimitation(key: string, zh: boolean): string | null {
+function humanizeLimitation(key: string, zh: boolean, evidence?: DesignEvidence): string | null {
   const t = coreTranslator(zh ? 'zh-CN' : 'en', 'designEvidence.limitations')
+  if (key === 'complex-page-canvas-paint') {
+    const labels = evidence
+      ? [
+          ...new Set(
+            evidence.pages
+              .filter((page) => page.limitations?.includes(key))
+              .map((page) => `${publicPageScopeLabel(evidence, page)} · ${page.viewport}`),
+          ),
+        ].sort()
+      : []
+    if (labels.length === 0) return t('complexCanvasUnknownScope')
+    return t('complexCanvasScoped', {
+      scopes: labels.slice(0, 2).join('; '),
+      count: labels.length,
+      more: labels.length > 2 ? t('scopeOmitted', { count: labels.length - 2 }) : '',
+    })
+  }
   const extractionIssue = /^extraction-issue:([^:]+):(.+)$/.exec(key)
   if (extractionIssue) {
     const safeDecode = (value: string) => {

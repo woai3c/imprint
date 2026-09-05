@@ -1,6 +1,12 @@
 import type { DesignToken } from '../analyzer/types.js'
 import { evidencePageRouteIdentity } from '../analyzer/url-identity.js'
 import { sanitizeUrlForPersistence } from '../analyzer/url-privacy.js'
+import { hasSevereHorizontalOverflow } from '../design-evidence/reliability.js'
+import {
+  displayedResponsiveChangeType,
+  hasConsistentResponsiveSectionIdentity,
+  usefulResponsiveChanges,
+} from '../design-evidence/responsive-reliability.js'
 import { resolveDesignTokenRef } from '../design-evidence/token-reference.js'
 import type { DesignEvidence } from '../design-evidence/types.js'
 import { coreTranslator } from '../i18n/index.js'
@@ -11,6 +17,60 @@ import type { ComponentRecipe, ComponentRecipeRestriction, PrioritizedDesignRule
 
 export function generateDesignProfileJson(profile: DesignProfile): string {
   return JSON.stringify(profile, null, 2)
+}
+
+/** Agent-facing briefs share the same useful, scoped facts as the DESIGN.md evidence projection. */
+export function generateScopedResponsiveGuidance(evidence: DesignEvidence, language: 'en' | 'zh-CN'): string[] {
+  const t = coreTranslator(language, 'profileExport')
+  const sections = new Map(evidence.sections.map((section) => [section.id, section]))
+  const pages = new Map(evidence.pages.map((page) => [page.id, page]))
+  const facts = new Map<string, string>()
+  for (const observation of evidence.responsiveObservations) {
+    if (!hasConsistentResponsiveSectionIdentity(observation, evidence)) continue
+    const section = sections.get(observation.sectionId)
+    const page = section && pages.get(section.pageId)
+    if (
+      !page ||
+      observation.evidenceRefs.some((id) => {
+        const owner = sections.get(id)
+        const capture = owner && pages.get(owner.pageId)
+        return capture && (capture.health?.evidenceEligible === false || hasSevereHorizontalOverflow(capture))
+      })
+    )
+      continue
+    const changes = usefulResponsiveChanges(observation, section?.role).sort(([a], [b]) => a.localeCompare(b))
+    if (!changes.length) continue
+    const change = displayedResponsiveChangeType(
+      observation.changeType,
+      changes.map(([property]) => property),
+    )
+    const key = JSON.stringify([
+      evidencePageRouteIdentity(page),
+      observation.fromViewport,
+      observation.toViewport,
+      section?.role,
+      change,
+      changes,
+    ])
+    facts.set(
+      key,
+      t('transfer.responsiveFact', {
+        scope: `${sanitizeUrlForPersistence(page.url)} · ${page.routeId || page.id}`,
+        role: translatedTerm(section?.role || 'content', t),
+        from: translatedTerm(observation.fromViewport, t),
+        to: translatedTerm(observation.toViewport, t),
+        change: translatedTerm(change, t),
+        properties: changes
+          .map(([property, value]) =>
+            property === 'sequenceIndex'
+              ? coreTranslator(language, 'designEvidence.responsive')('relativeOrderChanged')
+              : `${translatedTerm(property, t)}: ${value.from ?? ''} → ${value.to ?? ''}`,
+          )
+          .join('; '),
+      }),
+    )
+  }
+  return [...facts].sort(([a], [b]) => a.localeCompare(b)).map(([, line]) => line)
 }
 
 function uniqueUncertainties(profile: DesignProfile): DesignProfile['uncertainties'] {
@@ -605,6 +665,18 @@ function recipeLines(recipe: ComponentRecipe, context: TransferExportContext): s
   }
   result.push('')
   return result
+}
+
+/** Interpret the existing grammar; never infer another set of rules from token presence or frequency. */
+export function generateTransferUsageMarkdown(profile: DesignProfile): string {
+  if (!profile.transferGrammar) return ''
+  const t = coreTranslator(profile.language, 'profileExport.transfer')
+  return [
+    "## Do's and Don'ts",
+    '',
+    ...(['defaults', 'exceptions', 'unknown', 'attribution'] as const).map((key) => `- ${t(`usage.${key}`)}`),
+    '',
+  ].join('\n')
 }
 
 export function generateTransferOverviewMarkdown(

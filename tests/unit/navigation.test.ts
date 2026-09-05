@@ -32,6 +32,31 @@ function pageStub(options?: {
 }
 
 describe('navigation recovery', () => {
+  test.each([
+    { status: 502, headers: { 'content-type': 'text/plain', 'content-length': '0' } },
+    { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8' } },
+    { status: 403, headers: { 'content-type': 'text/html', 'content-length': '0' } },
+  ])('preserves committed HTTP $status failures without waiting for an impossible HTML body', async (response) => {
+    const goto = vi.fn().mockResolvedValue({ status: () => response.status, headers: () => response.headers })
+    const { page, waitForFunction } = pageStub({ goto })
+
+    expect(await navigateWithRecovery(page, 'https://example.test/product')).toEqual({
+      status: response.status,
+      attempts: 1,
+      recoveredAfterTimeout: false,
+    })
+    expect(goto).toHaveBeenCalledTimes(1)
+    expect(waitForFunction).not.toHaveBeenCalled()
+  })
+
+  test.each([401, 403])('still waits for an HTML access page returned with HTTP %s', async (status) => {
+    const goto = vi.fn().mockResolvedValue({ status: () => status, headers: () => ({ 'content-type': 'text/html' }) })
+    const { page, waitForFunction } = pageStub({ goto })
+
+    expect((await navigateWithRecovery(page, 'https://example.test/product')).status).toBe(status)
+    expect(waitForFunction).toHaveBeenCalledTimes(1)
+  })
+
   test('returns the first response without retrying', async () => {
     const { page, goto } = pageStub()
 

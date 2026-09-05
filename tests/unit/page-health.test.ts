@@ -23,6 +23,39 @@ afterEach(() => {
 })
 
 describe('page health recovery', () => {
+  it.each([401, 403, 429, 502])(
+    'does not recover an empty HTTP %s error as a transient application shell',
+    async (status) => {
+      const page = {
+        url: () => 'https://example.test/',
+        evaluate: vi.fn().mockResolvedValue({
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          contentWidth: 1440,
+          contentHeight: 900,
+          overlayAreaRatio: 0,
+          blockingOverlayAreaRatio: 0,
+          partialOverlayAreaRatio: 0,
+          mutationCount: 0,
+          mainContentEmpty: true,
+          skeletonRatio: 0,
+          fontsReady: true,
+          captcha: false,
+        }),
+        reload: vi.fn(),
+      } as unknown as Page
+      const result = await ensurePageHealth(page, { expectedUrl: page.url(), responseStatus: status })
+
+      expect(result.status).toBe('unusable')
+      expect(result.recovered).toBe(false)
+      expect(result.issues).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'error-page', detail: String(status) })]),
+      )
+      expect(pagePreparer.preparePageForExtraction).not.toHaveBeenCalled()
+      expect(page.reload).not.toHaveBeenCalled()
+    },
+  )
+
   it('distinguishes browser lifecycle races from unexpected inspection defects', () => {
     expect(
       isPageInspectionRaceError(new Error('Execution context was destroyed, most likely because of a navigation')),

@@ -67,6 +67,13 @@ export async function navigateWithRecovery(
   const navigate = async (timeout: number) => {
     const startedAt = Date.now()
     const response = await page.goto(url, { waitUntil: 'commit' as const, timeout })
+    if (response && response.status() >= 400) {
+      const headers = response.headers()
+      const contentType = headers['content-type']?.split(';')[0].trim().toLowerCase()
+      const nonHtml = contentType && !['text/html', 'application/xhtml+xml'].includes(contentType)
+      // An empty or non-HTML HTTP error cannot grow an HTML body. Preserve its status for auth and health gates.
+      if (headers['content-length'] === '0' || nonHtml) return response
+    }
     const remainingMs = Math.max(1, timeout - (Date.now() - startedAt))
     await page.waitForFunction(
       () => {

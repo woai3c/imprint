@@ -328,8 +328,10 @@ export async function inspectPageHealth(page: Page, options: PageHealthOptions):
 }
 
 export async function ensurePageHealth(page: Page, options: PageHealthOptions): Promise<PageHealthReport> {
+  const hasUnrecoverableError = (report: PageHealthReport): boolean =>
+    report.issues.some((issue) => issue.severity === 'error' && !issue.recoverable)
   const initial = await inspectPageHealth(page, options)
-  if (!initial.issues.some((issue) => issue.recoverable)) return initial
+  if (hasUnrecoverableError(initial) || !initial.issues.some((issue) => issue.recoverable)) return initial
 
   const controller = new AbortController()
   let forcedPageClose: Promise<void> | undefined
@@ -354,7 +356,7 @@ export async function ensurePageHealth(page: Page, options: PageHealthOptions): 
       let attempts = 2
       // A committed document can still be an empty transient shell. One ordinary reload is a bounded, site-agnostic
       // recovery for that state; access walls, HTTP errors, and unexpected navigation are never reloaded here.
-      if (recovered.issues.some((issue) => issue.code === 'main-content-empty')) {
+      if (!hasUnrecoverableError(recovered) && recovered.issues.some((issue) => issue.code === 'main-content-empty')) {
         const response = await page.reload({ waitUntil: 'commit', timeout: EMPTY_CONTENT_RELOAD_TIMEOUT_MS })
         try {
           await page.waitForFunction(

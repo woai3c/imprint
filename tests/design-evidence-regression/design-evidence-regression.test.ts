@@ -112,6 +112,31 @@ async function analyzeKnownChangeFixture(
 
 describe('Design Evidence browser regression corpus', () => {
   it.skipIf(!browserAvailable)(
+    'keeps large code and media wrappers out of canvas through transparent descendants',
+    { timeout: 120_000 },
+    async () => {
+      for (const kind of ['code', 'media']) {
+        for (const depth of [0, 1, 3]) {
+          const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-specialized-canvas-'))
+          const result = await analyze(`${baseUrl}/specialized-canvas-root.html?kind=${kind}&depth=${depth}`, {
+            viewports: ['desktop'],
+            maxPages: 1,
+            useSession: false,
+            dataDir,
+          })
+          const variant = `${kind}:${depth}`
+          expect(result.tokens.colors.background, variant).toBe('#f3f4f6')
+          expect(result.tokens.colors.surface, variant).not.toBe('#10151f')
+          expect(result.tokens.colors.secondary, variant).not.toBe('#10151f')
+          expect(result.tokens.evidence?.['colors.background']?.semanticOwnerRefs, variant).toEqual(
+            expect.arrayContaining([expect.objectContaining({ ownerId: 'body', role: 'page-canvas' })]),
+          )
+        }
+      }
+    },
+  )
+
+  it.skipIf(!browserAvailable)(
     'preserves canvas and foreground through transparent application mounts',
     { timeout: 120_000 },
     async () => {

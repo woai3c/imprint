@@ -585,6 +585,67 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       }
       return directlyPaintedBackground(element)
     }
+    const codeSelector = 'pre, code, kbd, samp, math, [role="code"]'
+    const mediaSelector = 'figure, picture, video, canvas, svg, img, [role="img"]'
+    const specializedSurfaceCache = new Map<Element, { code: boolean; media: boolean }>()
+    const ownedSpecializedSurface = (element: Element): { code: boolean; media: boolean } => {
+      const cached = specializedSurfaceCache.get(element)
+      if (cached) return cached
+      const rect = element.getBoundingClientRect()
+      const directlyOwnedSemanticRoots = (selector: string): Element[] =>
+        [...element.querySelectorAll(selector)]
+          .filter((candidate) => {
+            let ancestor = candidate.parentElement
+            while (ancestor && ancestor !== element) {
+              if (ancestor.matches(selector)) return false
+              ancestor = ancestor.parentElement
+            }
+            return ancestor === element
+          })
+          .filter((candidate) => {
+            const ownerBackground = directlyPaintedBackground(element)
+            const candidateBackground = directlyPaintedBackground(candidate)
+            if (hasBackgroundPaint(candidate) && candidateBackground !== ownerBackground) return false
+            let ancestor = candidate.parentElement
+            while (ancestor && ancestor !== element) {
+              if (hasBackgroundPaint(ancestor) && directlyPaintedBackground(ancestor) !== ownerBackground) {
+                return false
+              }
+              ancestor = ancestor.parentElement
+            }
+            return ancestor === element
+          })
+      const ownedAreaRatio = (candidates: Element[]): number =>
+        Math.min(
+          1,
+          candidates.reduce((area, candidate) => {
+            const candidateRect = candidate.getBoundingClientRect()
+            const width = Math.max(
+              0,
+              Math.min(rect.right, candidateRect.right) - Math.max(rect.left, candidateRect.left),
+            )
+            const height = Math.max(
+              0,
+              Math.min(rect.bottom, candidateRect.bottom) - Math.max(rect.top, candidateRect.top),
+            )
+            return area + (width * height) / Math.max(1, rect.width * rect.height)
+          }, 0),
+        )
+      const ownedCodeRoots = directlyOwnedSemanticRoots(codeSelector)
+      const ownedCodeTextLength = ownedCodeRoots.reduce(
+        (length, candidate) => length + (candidate.textContent || '').trim().length,
+        0,
+      )
+      const ownerTextLength = (element.textContent || '').trim().length
+      const code =
+        ownedCodeRoots.length > 0 &&
+        (ownedCodeTextLength / Math.max(1, ownerTextLength) >= 0.65 || ownedAreaRatio(ownedCodeRoots) >= 0.5)
+      const ownedMediaRoots = directlyOwnedSemanticRoots(mediaSelector)
+      const media = ownedMediaRoots.length > 0 && ownedAreaRatio(ownedMediaRoots) >= 0.5
+      const result = { code, media }
+      specializedSurfaceCache.set(element, result)
+      return result
+    }
     const bodyCanvasPainted = hasBackgroundPaint(document.body)
     const htmlCanvasPainted = hasBackgroundPaint(document.documentElement)
     const documentHeight = Math.max(
@@ -617,7 +678,11 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       // A full-size DOM box is not canvas evidence when its paint is hidden, transparent, or clipped away.
       .filter((element) => Boolean(effectivePaintVisibility(element)))
       .filter(hasBackgroundPaint)
-      .filter((element) => !element.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'))
+      .filter((element) => {
+        // Canvas selection and surface extraction must agree before a painted owner is promoted.
+        const specialized = ownedSpecializedSurface(element)
+        return !specialized.code && !specialized.media
+      })
       .filter(
         (element) =>
           element.scrollHeight >= documentHeight * 0.8 && renderedTextLength(element) >= bodyTextLength * 0.6,
@@ -1035,61 +1100,9 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         const explicitRole = el.getAttribute('role')?.trim().toLowerCase() || undefined
         const searchAncestor = el.closest('search, [role="search"]')
         const formRole = searchAncestor ? 'search' : el.closest('form') ? 'form' : undefined
-        const codeSelector = 'pre, code, kbd, samp, math, [role="code"]'
-        const mediaSelector = 'figure, picture, video, canvas, svg, img, [role="img"]'
-        const directlyOwnedSemanticRoots = (selector: string): Element[] =>
-          [...el.querySelectorAll(selector)]
-            .filter((candidate) => {
-              let ancestor = candidate.parentElement
-              while (ancestor && ancestor !== el) {
-                if (ancestor.matches(selector)) return false
-                ancestor = ancestor.parentElement
-              }
-              return ancestor === el
-            })
-            .filter((candidate) => {
-              const ownerBackground = directlyPaintedBackground(el)
-              const candidateBackground = directlyPaintedBackground(candidate)
-              if (hasBackgroundPaint(candidate) && candidateBackground !== ownerBackground) return false
-              let ancestor = candidate.parentElement
-              while (ancestor && ancestor !== el) {
-                if (hasBackgroundPaint(ancestor) && directlyPaintedBackground(ancestor) !== ownerBackground) {
-                  return false
-                }
-                ancestor = ancestor.parentElement
-              }
-              return ancestor === el
-            })
-        const ownedAreaRatio = (candidates: Element[]): number =>
-          Math.min(
-            1,
-            candidates.reduce((area, candidate) => {
-              const candidateRect = candidate.getBoundingClientRect()
-              const width = Math.max(
-                0,
-                Math.min(rect.right, candidateRect.right) - Math.max(rect.left, candidateRect.left),
-              )
-              const height = Math.max(
-                0,
-                Math.min(rect.bottom, candidateRect.bottom) - Math.max(rect.top, candidateRect.top),
-              )
-              return area + (width * height) / Math.max(1, rect.width * rect.height)
-            }, 0),
-          )
-        const ownedCodeRoots = directlyOwnedSemanticRoots(codeSelector)
-        const ownedCodeTextLength = ownedCodeRoots.reduce(
-          (length, candidate) => length + (candidate.textContent || '').trim().length,
-          0,
-        )
-        const ownerTextLength = (el.textContent || '').trim().length
-        const ownedCodeAreaRatio = ownedAreaRatio(ownedCodeRoots)
-        const codeWrapper =
-          ownedCodeRoots.length > 0 &&
-          (ownedCodeTextLength / Math.max(1, ownerTextLength) >= 0.65 || ownedCodeAreaRatio >= 0.5)
-        const codeOwner = specializedContent || codeWrapper
-        const ownedMediaRoots = directlyOwnedSemanticRoots(mediaSelector)
-        const mediaWrapper = ownedMediaRoots.length > 0 && ownedAreaRatio(ownedMediaRoots) >= 0.5
-        const mediaOwner = Boolean(el.closest(mediaSelector)) || mediaWrapper
+        const specializedSurface = ownedSpecializedSurface(el)
+        const codeOwner = specializedContent || specializedSurface.code
+        const mediaOwner = Boolean(el.closest(mediaSelector)) || specializedSurface.media
         const controlOwner = Boolean(
           el.closest(
             'a, button, input, select, textarea, form, search, [role="button"], [role="link"], [role="textbox"], [role="searchbox"], [role="combobox"], [role="dialog"], [role="search"]',

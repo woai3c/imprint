@@ -25,6 +25,9 @@ Another URL fixture wraps an unchanged painted page root in transparent applicat
 and `display: contents`. The canvas owner and foreground must survive those DOM-only changes; inline script text is
 not visible content coverage.
 
+Large code and media viewers also vary transparent descendant depth. The same semantic ownership classifier must keep
+their specialized painted wrappers out of the canvas role at every depth.
+
 The regression runner analyzes desktop and mobile viewports, checks the annotated behavior, and repeats extraction. The
 repeat capture must keep section IDs stable, satisfy the current reference-comparability gate, and produce no supported
 token drift. This is a controlled-fixture stability gate, not evidence that arbitrary live websites are stable. It

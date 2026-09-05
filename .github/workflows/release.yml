@@ -40,6 +40,9 @@ jobs:
       - name: Run release checks
         run: pnpm release:check
 
+      - name: Run unit tests
+        run: pnpm test
+
       - name: Run E2E with virtual display
         run: xvfb-run --auto-servernum pnpm test:e2e
 

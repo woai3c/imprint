@@ -59,6 +59,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm test
 
   e2e:
     name: Electron E2E

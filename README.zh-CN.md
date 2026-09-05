@@ -206,6 +206,9 @@ MCP 服务器提供确定性的 `imprint_extract` 与 `imprint_compare` 工具�
 
 ## 开发
 
+使用 AI 辅助开发时，从 [AGENTS.md](AGENTS.md) 和[开发流程](docs/development/workflow.md)开始。
+[Harness 能力报告](docs/development/harness-capabilities.md)列出了已验证的作用域和待完成的配置。
+
 ```bash
 # 安装依赖
 pnpm install

@@ -227,6 +227,9 @@ covered by an official `@modelcontextprotocol/sdk` client contract test.
 
 ## Development
 
+For AI-assisted changes, start with [AGENTS.md](AGENTS.md) and the [development workflow](docs/development/workflow.md).
+The [Harness Capability Report](docs/development/harness-capabilities.md) records verified scopes and remaining setup.
+
 ```bash
 # Install dependencies
 pnpm install

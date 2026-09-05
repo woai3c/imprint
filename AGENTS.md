@@ -1,6 +1,14 @@
 # AGENTS.md
 
-This file is loaded into the agent's context at the start of every session. Keep it concise — the agent reads it every turn.
+Read this repository entrypoint before working. Keep it concise. Automatic loading and refresh depend on the Agent host;
+explicitly reread applicable instructions after they change or when resuming work.
+
+## Development workflow
+
+Follow [the development workflow](docs/development/workflow.md) for task-scoped context selection, planning, independent
+review, Human Acceptance, and confirmed knowledge promotion. Use [verification guidance](docs/development/verification.md)
+to choose checks and account for their side effects. Consult the [Harness Capability Report](docs/development/harness-capabilities.md)
+for verified scopes, missing setup, and human fallbacks; a documented capability is not evidence that a task passed.
 
 ## Project
 

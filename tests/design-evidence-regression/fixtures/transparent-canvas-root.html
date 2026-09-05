@@ -32,6 +32,25 @@
       </article>
     </main>
     <script>
+      const parameters = new URL(location.href).searchParams
+      const dormantKind = parameters.get('dormant')
+      if (dormantKind) {
+        const dormant = document.createElement(dormantKind === 'code' ? 'pre' : 'figure')
+        const content = document.createElement(dormantKind === 'code' ? 'code' : 'img')
+        if (dormantKind === 'code') {
+          content.textContent = 'const example = "Unchanged visible document";\n'.repeat(90)
+        } else {
+          content.alt = 'Inactive media placeholder'
+          content.style.cssText = 'width:100%;height:1600px'
+        }
+        dormant.append(content)
+        document.querySelector('article').append(dormant)
+        dormant.style.cssText = 'position:fixed;inset:0;margin:0'
+        const paint = parameters.get('paint')
+        if (paint === 'opacity') dormant.style.opacity = '0'
+        else if (paint === 'clipped') dormant.style.clipPath = 'inset(50%)'
+        else dormant.hidden = true
+      }
       const variant = new URL(location.href).searchParams.get('mount')
       const depth = variant === 'nested' ? 3 : variant === 'control' ? 0 : 1
       let root = document.querySelector('main')

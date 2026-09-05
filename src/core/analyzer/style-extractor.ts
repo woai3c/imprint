@@ -587,6 +587,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
     }
     const codeSelector = 'pre, code, kbd, samp, math, [role="code"]'
     const mediaSelector = 'figure, picture, video, canvas, svg, img, [role="img"]'
+    const renderedTextLength = (element: Element): number =>
+      (element instanceof HTMLElement ? element.innerText : '').trim().length
     const specializedSurfaceCache = new Map<Element, { code: boolean; media: boolean }>()
     const ownedSpecializedSurface = (element: Element): { code: boolean; media: boolean } => {
       const cached = specializedSurfaceCache.get(element)
@@ -594,6 +596,7 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       const rect = element.getBoundingClientRect()
       const directlyOwnedSemanticRoots = (selector: string): Element[] =>
         [...element.querySelectorAll(selector)]
+          .filter((candidate) => Boolean(effectivePaintVisibility(candidate)))
           .filter((candidate) => {
             let ancestor = candidate.parentElement
             while (ancestor && ancestor !== element) {
@@ -633,10 +636,10 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
         )
       const ownedCodeRoots = directlyOwnedSemanticRoots(codeSelector)
       const ownedCodeTextLength = ownedCodeRoots.reduce(
-        (length, candidate) => length + (candidate.textContent || '').trim().length,
+        (length, candidate) => length + renderedTextLength(candidate),
         0,
       )
-      const ownerTextLength = (element.textContent || '').trim().length
+      const ownerTextLength = renderedTextLength(element)
       const code =
         ownedCodeRoots.length > 0 &&
         (ownedCodeTextLength / Math.max(1, ownerTextLength) >= 0.65 || ownedAreaRatio(ownedCodeRoots) >= 0.5)
@@ -653,8 +656,6 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       document.body.scrollHeight,
       document.documentElement.scrollHeight,
     )
-    const renderedTextLength = (element: Element): number =>
-      (element instanceof HTMLElement ? element.innerText : '').trim().length
     const bodyTextLength = Math.max(1, renderedTextLength(document.body))
     const bodyCoversRenderedDocument =
       visibleAreaRatio(document.body) >= 0.85 && document.body.scrollHeight >= documentHeight * 0.8

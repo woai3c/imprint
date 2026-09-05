@@ -112,6 +112,33 @@ async function analyzeKnownChangeFixture(
 
 describe('Design Evidence browser regression corpus', () => {
   it.skipIf(!browserAvailable)(
+    'ignores invisible specialized descendants when classifying a painted page root',
+    { timeout: 120_000 },
+    async () => {
+      for (const kind of ['code', 'media']) {
+        for (const paint of ['hidden', 'opacity', 'clipped']) {
+          const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-dormant-canvas-'))
+          const result = await analyze(
+            `${baseUrl}/transparent-canvas-root.html?mount=wrapped&dormant=${kind}&paint=${paint}`,
+            { viewports: ['desktop'], maxPages: 1, useSession: false, dataDir },
+          )
+          const variant = `${kind}:${paint}`
+          expect(result.tokens.colors.background, variant).toBe('#f3f4f6')
+          expect(result.tokens.colors.foreground, variant).toBe('#1f2937')
+          expect(result.tokens.evidence?.['colors.background']?.semanticOwnerRefs, variant).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                ownerId: expect.stringMatching(/ > main:nth-of-type\(1\)$/),
+                role: 'page-canvas',
+              }),
+            ]),
+          )
+        }
+      }
+    },
+  )
+
+  it.skipIf(!browserAvailable)(
     'keeps large code and media wrappers out of canvas through transparent descendants',
     { timeout: 120_000 },
     async () => {

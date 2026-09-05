@@ -112,6 +112,28 @@ async function analyzeKnownChangeFixture(
 
 describe('Design Evidence browser regression corpus', () => {
   it.skipIf(!browserAvailable)(
+    'keeps canvas and foreground unchanged when invisible full-screen roots are added',
+    { timeout: 120_000 },
+    async () => {
+      for (const variant of ['control', 'hidden', 'opacity', 'clipped']) {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-hidden-canvas-'))
+        const result = await analyze(`${baseUrl}/hidden-canvas-root.html?paint=${variant}`, {
+          viewports: ['desktop'],
+          maxPages: 1,
+          useSession: false,
+          dataDir,
+        })
+
+        expect(result.tokens.colors.background, variant).toBe('#f3f4f6')
+        expect(result.tokens.colors.foreground, variant).toBe('#1f2937')
+        expect(result.tokens.evidence?.['colors.background']?.semanticOwnerRefs, variant).not.toEqual(
+          expect.arrayContaining([expect.objectContaining({ ownerId: 'body > nav:nth-of-type(1)' })]),
+        )
+      }
+    },
+  )
+
+  it.skipIf(!browserAvailable)(
     'recovers one committed empty document before excluding the entry capture',
     { timeout: 60_000 },
     async () => {

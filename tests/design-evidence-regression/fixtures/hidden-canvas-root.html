@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hidden root paint</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #f3f4f6;
+        color: #1f2937;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        min-height: 100vh;
+        max-width: 960px;
+        padding: 48px;
+      }
+      nav {
+        position: fixed;
+        inset: 0;
+        overflow: auto;
+        visibility: hidden;
+        background: #10243d;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Reading room</h1>
+      <p>This visible article provides a calm place to read with a light gray canvas and dark text.</p>
+      <p>The hidden navigation must not alter the extracted palette of this unchanged reading view.</p>
+    </main>
+    <nav aria-label="Catalogue"></nav>
+    <script>
+      const navigation = document.querySelector('nav')
+      for (let index = 0; index < 24; index++) {
+        const chapter = document.createElement('p')
+        chapter.textContent = `Chapter ${index + 1}: Browse the catalogue of articles, guides, tutorials, and reading notes.`
+        navigation.append(chapter)
+      }
+      const variant = new URL(location.href).searchParams.get('paint')
+      if (variant === 'control') navigation.remove()
+      if (variant === 'opacity') {
+        navigation.style.visibility = 'visible'
+        navigation.style.opacity = '0'
+      }
+      if (variant === 'clipped') {
+        navigation.style.visibility = 'visible'
+        navigation.style.clipPath = 'inset(50%)'
+      }
+    </script>
+  </body>
+</html>

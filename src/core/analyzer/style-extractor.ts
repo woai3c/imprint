@@ -597,6 +597,8 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       visibleAreaRatio(document.body) >= 0.85 && document.body.scrollHeight >= documentHeight * 0.8
     const rootCanvas = [...document.body.children]
       .filter((element) => visibleAreaRatio(element) >= 0.85)
+      // A full-size DOM box is not canvas evidence when its paint is hidden, transparent, or clipped away.
+      .filter((element) => Boolean(effectivePaintVisibility(element)))
       .filter(hasBackgroundPaint)
       .filter(
         (element) =>

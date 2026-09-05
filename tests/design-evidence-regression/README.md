@@ -18,6 +18,9 @@ Nine neutral semantic fixtures independently annotate viewport canvas/content/co
 and false-versus-real relative section reordering. Their oracle reads only the annotations and public artifacts; it does
 not call the production semantic classifier.
 
+A separate URL fixture varies a full-screen root between absent, hidden, transparent, and fully clipped states.
+All four captures must preserve the visible canvas and foreground colors.
+
 The regression runner analyzes desktop and mobile viewports, checks the annotated behavior, and repeats extraction. The
 repeat capture must keep section IDs stable, satisfy the current reference-comparability gate, and produce no supported
 token drift. This is a controlled-fixture stability gate, not evidence that arbitrary live websites are stable. It

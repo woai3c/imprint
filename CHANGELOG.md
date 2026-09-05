@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Release notes are generated from Conventional Commits by `pnpm release`.
 
+## [0.1.2] - 2026-09-05
+
+### Fixed
+
+- preserve scoped observations across design guidance (export) (0d035f0)
+- bound recovery of interrupted interactions (analyzer) (4f9de69)
+- count painted text for canvas coverage (analyzer) (5ab3b0e)
+- preserve terminal HTTP response failures (analyzer) (0e8241c)
+- require visible specialized surface evidence (analyzer) (0800922)
+- share canvas and content ownership rules (analyzer) (9e0f3db)
+- follow transparent canvas mounts (analyzer) (5a00193)
+- exclude invisible canvas roots (analyzer) (874b57a)
+- align content surface reuse coverage (audit) (4472a82)
+- require reusable content surface owners (analyzer) (5992603)
+- generalize link semantic guidance (export) (ebe0955)
+- preserve component semantic contracts (export) (94b13b0)
+- preserve canvas and specialized surface owners (analyzer) (245be67)
+- allow truthful local foreground pairs (audit) (19a7a67)
+- harden semantic projection boundaries (analyzer) (efd9ee7)
+- reject unpainted link boundaries (analyzer) (0bc048e)
+- contain interaction lifecycle races (analyzer) (8a6536d)
+- improve design evidence extraction (analyzer) (6ce77da)
+- close corpus quality gaps (analyzer) (8e6a8b3)
+- bind exports to canonical evidence (analyzer) (4b8928b)
+- enforce evidence-backed design exports (analyzer) (49fedab)
+- harden extraction evidence reliability (analyzer) (cc7b93e)
+- bound spacing rhythm supplements (analyzer) (5470953)
+- omit empty guidance sections (export) (abe5cb5)
+- exclude supplemental captures from requested coverage (evidence) (82fdc68)
+- bound design candidate evidence (export) (8b6d479)
+- separate component reuse evidence (analyzer) (ce50ed5)
+- promote reusable token scales (analyzer) (2071aac)
+- preserve observed text surface pairs (analyzer) (fdc4bb2)
+- reject empty analysis results (analyzer) (227e776)
+- degrade screenshot capture failures (analyzer) (05c5cba)
+- contain interaction navigation failures (evidence) (e958919)
+- keep design guidance evidence grounded (export) (661bffb)
+- preserve topology and interaction coverage (evidence) (4594387)
+- improve extracted signal reliability (analyzer) (e750d6b)
+- keep design guidance grounded (export) (9b0f702)
+- filter unreliable design signals (analyzer) (175b5b4)
+- ignore clipped helper overflow (analyzer) (6518c2b)
+
 ## [0.1.1] - 2026-08-28
 
 ### Fixed

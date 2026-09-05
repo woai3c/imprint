@@ -112,6 +112,33 @@ async function analyzeKnownChangeFixture(
 
 describe('Design Evidence browser regression corpus', () => {
   it.skipIf(!browserAvailable)(
+    'preserves canvas and foreground through transparent application mounts',
+    { timeout: 120_000 },
+    async () => {
+      for (const variant of ['control', 'wrapped', 'nested', 'contents']) {
+        const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-transparent-canvas-'))
+        const result = await analyze(`${baseUrl}/transparent-canvas-root.html?mount=${variant}`, {
+          viewports: ['desktop'],
+          maxPages: 1,
+          useSession: false,
+          dataDir,
+        })
+
+        expect(result.tokens.colors.background, variant).toBe('#f3f4f6')
+        expect(result.tokens.colors.foreground, variant).toBe('#1f2937')
+        expect(result.tokens.evidence?.['colors.background']?.semanticOwnerRefs, variant).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              ownerId: expect.stringMatching(/ > main:nth-of-type\(1\)$/),
+              role: 'page-canvas',
+            }),
+          ]),
+        )
+      }
+    },
+  )
+
+  it.skipIf(!browserAvailable)(
     'keeps canvas and foreground unchanged when invisible full-screen roots are added',
     { timeout: 120_000 },
     async () => {

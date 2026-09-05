@@ -592,24 +592,35 @@ export async function extractStyles(page: Page): Promise<ExtractedStyles> {
       document.body.scrollHeight,
       document.documentElement.scrollHeight,
     )
-    const bodyTextLength = Math.max(1, (document.body.textContent || '').trim().length)
+    const renderedTextLength = (element: Element): number =>
+      (element instanceof HTMLElement ? element.innerText : '').trim().length
+    const bodyTextLength = Math.max(1, renderedTextLength(document.body))
     const bodyCoversRenderedDocument =
       visibleAreaRatio(document.body) >= 0.85 && document.body.scrollHeight >= documentHeight * 0.8
-    const rootCanvas = [...document.body.children]
+    const specializedCanvasBoundary =
+      'pre, code, kbd, samp, math, figure, picture, video, canvas, svg, form, search, dialog, [role="code"], [role="img"], [role="search"], [role="dialog"], [role="status"], [role="alert"]'
+    const rootPaintCandidates: Element[] = []
+    const pendingRoots = [...document.body.children]
+    for (let index = 0; index < pendingRoots.length; index++) {
+      const element = pendingRoots[index]
+      if (element.matches(specializedCanvasBoundary)) continue
+      if (hasBackgroundPaint(element)) {
+        rootPaintCandidates.push(element)
+      } else {
+        // Transparent mounts do not define a new painted surface, including display:contents wrappers.
+        // Stop at the first painted owner or specialized boundary instead of promoting arbitrary deep surfaces.
+        pendingRoots.push(...element.children)
+      }
+    }
+    const rootCanvas = rootPaintCandidates
       .filter((element) => visibleAreaRatio(element) >= 0.85)
       // A full-size DOM box is not canvas evidence when its paint is hidden, transparent, or clipped away.
       .filter((element) => Boolean(effectivePaintVisibility(element)))
       .filter(hasBackgroundPaint)
+      .filter((element) => !element.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'))
       .filter(
         (element) =>
-          !element.matches(
-            'pre, code, kbd, samp, math, figure, picture, video, canvas, svg, form, search, dialog, [role="code"], [role="img"], [role="search"], [role="dialog"], [role="status"], [role="alert"]',
-          ) && !element.querySelector(':scope > pre, :scope > code, :scope > [role="code"]'),
-      )
-      .filter(
-        (element) =>
-          element.scrollHeight >= documentHeight * 0.8 &&
-          (element.textContent || '').trim().length >= bodyTextLength * 0.6,
+          element.scrollHeight >= documentHeight * 0.8 && renderedTextLength(element) >= bodyTextLength * 0.6,
       )
       .map((element) => ({ element, area: visibleAreaRatio(element) }))
       .sort((first, second) => second.area - first.area)[0]

@@ -21,6 +21,10 @@ not call the production semantic classifier.
 A separate URL fixture varies a full-screen root between absent, hidden, transparent, and fully clipped states.
 All four captures must preserve the visible canvas and foreground colors.
 
+Another URL fixture wraps an unchanged painted page root in transparent application mounts, including multiple levels
+and `display: contents`. The canvas owner and foreground must survive those DOM-only changes; inline script text is
+not visible content coverage.
+
 The regression runner analyzes desktop and mobile viewports, checks the annotated behavior, and repeats extraction. The
 repeat capture must keep section IDs stable, satisfy the current reference-comparability gate, and produce no supported
 token drift. This is a controlled-fixture stability gate, not evidence that arbitrary live websites are stable. It

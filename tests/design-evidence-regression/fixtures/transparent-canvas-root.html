@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transparent application mount</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: #1f2937;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        min-height: 100vh;
+        padding: 48px;
+        background: #f3f4f6;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>Reading room</h1>
+        <p>This article uses a light gray page canvas and dark text.</p>
+        <p>Transparent application containers do not change the rendered design.</p>
+        <p>Adding a mount boundary must preserve the observed foundation colors.</p>
+      </article>
+    </main>
+    <script>
+      const variant = new URL(location.href).searchParams.get('mount')
+      const depth = variant === 'nested' ? 3 : variant === 'control' ? 0 : 1
+      let root = document.querySelector('main')
+      for (let index = 0; index < depth; index++) {
+        const mount = document.createElement('div')
+        if (variant === 'contents') mount.style.display = 'contents'
+        root.replaceWith(mount)
+        mount.append(root)
+        root = mount
+      }
+    </script>
+  </body>
+</html>

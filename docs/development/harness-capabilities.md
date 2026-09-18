@@ -49,9 +49,9 @@ These statuses do not describe task success. Runtime/tool availability in this s
 
 ## npm distribution and independent release candidate update (2026-09-18)
 
-This update covers the worktree-only candidate based on `12161ed`, on macOS with Node 22.23.2, npm 10.9.8, pnpm 10.7.1
-and a browser accepted by `imprint doctor`. It does not establish npm registry publication, another operating system,
-Desktop packaging or release-workflow execution.
+This update began from `12161ed` on macOS with Node 22.23.2, npm 10.9.8, pnpm 10.7.1 and a browser accepted by
+`imprint doctor`. The distribution implementation was delivered in `77f0b77`; the first release candidate was
+`e060298` / `cli-v0.1.0`. The post-tag cancellation cleanup repair remains a new candidate until committed and rerun.
 
 - `PASSED`: `pnpm typecheck`; 77 Vitest files / 955 unit tests; scoped ESLint with no errors; scoped Prettier; release
   workflow YAML parsing; Node syntax checks for the changed release/package scripts; and `git diff --check`.
@@ -73,9 +73,18 @@ Desktop packaging or release-workflow execution.
 - `PASSED`: fresh-context, read-only review found no remaining P0-P3 issue after repairs. It covered independent
   baselines, npm SRI retry safety, Windows shell argument boundaries, stable tag filtering, GitHub Release state repair,
   historical case wording and the absence of cross-channel publication.
-- `NOT EXECUTED`: full Desktop E2E, Windows installed-package verification, a maintainer-selected MCP host, push, tag,
-  GitHub Actions, GitHub Release or npm publication. The PR/tag workflow remains the full E2E boundary. The registry name
-  `design-imprint` was unclaimed (`E404`) at inspection; that volatile result is not a reservation.
+- `FAILED SAFELY`: GitHub Actions run `35304926045` for `cli-v0.1.0` passed release checks and all 955 unit tests, then
+  failed the cancellation/transport cleanup process case on Ubuntu with 28/29 process tests passing. Packaging and
+  publication jobs did not run, so no tarball artifact, npm version or CLI/MCP GitHub Release was produced.
+- `PASSED`: the repair removes the invocation-owned temporary workspace immediately on cancellation as well as in the
+  existing finalizer. The targeted cancellation/transport test passed four consecutive macOS runs, and the complete
+  29-test CLI/MCP process set passed locally afterward. Remote confirmation belongs to the next immutable CLI tag.
+- `PASSED`: a fresh-context, read-only review of the cancellation repair found no P0-P3 issue. It confirmed the removal
+  target is only the invocation's `mkdtemp` directory, cleanup remains idempotent, successful and ordinary failure paths
+  retain their finalizer, and no caller output or persistent session directory is in scope.
+- `NOT EXECUTED`: full Desktop E2E, Windows installed-package verification, a maintainer-selected MCP host, successful
+  OIDC publication, CLI/MCP GitHub Release or npm publication. The registry name `design-imprint` was unclaimed (`E404`)
+  at inspection; that volatile result is not a reservation.
 - `PASSED`: the maintainer accepted this candidate and authorized committing, pushing and starting the first npm release.
   The resulting commit, tag workflow, registry publication and release entry still require their own execution evidence.
 

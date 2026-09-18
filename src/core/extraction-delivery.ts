@@ -146,6 +146,16 @@ export async function runExtraction(
     )
   }
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'imprint-extract-'))
+  const removeWorkspace = () => fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+  const cleanupAbortedWorkspace = () => {
+    try {
+      // Cancellation has no response acknowledgement, so remove request-owned files as soon as the signal arrives.
+      removeWorkspace()
+    } catch {
+      hooks.onDiagnostic?.(coreT('en', 'extraction.errors.cleanup-failed', { value: workspace }))
+    }
+  }
+  hooks.signal?.addEventListener('abort', cleanupAbortedWorkspace, { once: true })
   let delivery: ExtractionDelivery | undefined
   let failure: unknown
   try {
@@ -199,9 +209,10 @@ export async function runExtraction(
   } catch (error) {
     failure = error
   } finally {
+    hooks.signal?.removeEventListener('abort', cleanupAbortedWorkspace)
     try {
       // This exact mkdtemp result is owned by this invocation, never a caller-provided path.
-      fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+      removeWorkspace()
     } catch (error) {
       const message = coreT('en', 'extraction.errors.cleanup-failed', { value: workspace })
       hooks.onDiagnostic?.(message)

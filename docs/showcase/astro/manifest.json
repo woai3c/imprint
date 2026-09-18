@@ -12,7 +12,7 @@
     "imprintVersion": "0.1.0",
     "imprintCommit": "78c1c0671611435a2e3b706a1065d755db74d3be",
     "analysisId": "455062fb-ed03-4524-9ded-e71933d2fbe5",
-    "entryPoint": "Source-built CLI used to automate this reproducible case; v0.1.0 public distribution remains Desktop.",
+    "entryPoint": "CLI source build from Desktop tag v0.1.0; this case predates the installable design-imprint npm package and is not package evidence.",
     "command": "node dist/cli/index.js extract https://astro.build/ --pages 3 --viewport all --no-session --format all --output tmp/astro-showcase/analysis",
     "durationMs": 36810,
     "environment": {

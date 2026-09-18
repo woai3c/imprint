@@ -26,4 +26,4 @@ if (!changelog.includes(`## [${version}] - `)) {
   process.exit(1)
 }
 
-console.log(`Verified Imprint ${tag}.`)
+console.log(`Verified Imprint Desktop ${tag}.`)

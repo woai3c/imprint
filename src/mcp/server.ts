@@ -10,6 +10,7 @@
  * - imprint_extract: Extract design tokens from a URL
  * - imprint_compare: Compare design systems of two URLs
  */
+import fs from 'node:fs'
 import * as readline from 'node:readline'
 
 import { compareDesigns } from '../core/analyzer/design-compare.js'
@@ -42,9 +43,14 @@ interface JsonRpcResponse {
   error?: { code: number; message: string }
 }
 
+const packageMetadata = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+  version?: unknown
+}
+if (typeof packageMetadata.version !== 'string') throw new Error('package.json does not contain a valid version')
+
 const SERVER_INFO = {
   name: 'imprint',
-  version: '0.0.3',
+  version: packageMetadata.version,
 }
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
@@ -200,6 +206,7 @@ function diagnosticUrlsFromParams(params: Record<string, unknown> | undefined): 
 }
 
 const activeRequests = new Map<string, AbortController>()
+const activeHandlers = new Set<Promise<void>>()
 let initializeResponded = false
 let initialized = false
 
@@ -350,13 +357,23 @@ async function handleLine(line: string): Promise<void> {
 function startStdioServer() {
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
   rl.on('line', (line) => {
-    void handleLine(line)
+    const handler = handleLine(line)
+    activeHandlers.add(handler)
+    void handler.then(
+      () => activeHandlers.delete(handler),
+      () => activeHandlers.delete(handler),
+    )
   })
   rl.on('close', () => {
     for (const controller of activeRequests.values()) {
       controller.abort(new DOMException('MCP transport closed', 'AbortError'))
     }
     activeRequests.clear()
+    const closingHandlers = [...activeHandlers]
+    if (closingHandlers.length > 0) {
+      const cleanupHold = setInterval(() => undefined, 1_000)
+      void Promise.allSettled(closingHandlers).finally(() => clearInterval(cleanupHold))
+    }
   })
 
   process.stderr.write(`${mcpT('started')}\n`)

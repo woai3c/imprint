@@ -228,6 +228,7 @@ async function launchRuntime(
       const browser = await chromium.launch({
         executablePath,
         headless: true,
+        handleSIGINT: false,
         args: ['--disable-blink-features=AutomationControlled'],
         ...proxyConfig,
       })
@@ -243,6 +244,7 @@ async function launchRuntime(
     const context = await chromium.launchPersistentContext(profileDir, {
       executablePath,
       headless,
+      handleSIGINT: false,
       args: ['--disable-blink-features=AutomationControlled', '--no-default-browser-check', '--no-first-run'],
       viewport: VIEWPORTS.desktop,
       ...proxyConfig,
@@ -253,6 +255,7 @@ async function launchRuntime(
   const browser = await chromium.launch({
     executablePath,
     headless,
+    handleSIGINT: false,
     args: ['--disable-blink-features=AutomationControlled'],
     ...proxyConfig,
   })
@@ -523,12 +526,18 @@ export async function analyze(
 
   let runtime: BrowserRuntime | null = null
   let pendingRuntime: BrowserRuntime | null = null
+  let abortClosePromise: Promise<void> | null = null
   let initialPage: Page | null = null
   let authWallDetected = false
   let finalUrl = url
   const closeActiveRuntime = () => {
-    if (runtime) void closeRuntime(runtime)
-    if (pendingRuntime && pendingRuntime !== runtime) void closeRuntime(pendingRuntime)
+    const activeRuntimes = [runtime, pendingRuntime].filter(
+      (activeRuntime, index, runtimes): activeRuntime is BrowserRuntime =>
+        activeRuntime !== null && runtimes.indexOf(activeRuntime) === index,
+    )
+    abortClosePromise = Promise.all(activeRuntimes.map((activeRuntime) => closeRuntime(activeRuntime))).then(
+      () => undefined,
+    )
   }
   analysisSignal.addEventListener('abort', closeActiveRuntime, { once: true })
 
@@ -1928,6 +1937,8 @@ export async function analyze(
     options.signal?.removeEventListener('abort', abortFromExternalSignal)
     options.finishSignal?.removeEventListener('abort', finishForUser)
     analysisSignal.removeEventListener('abort', closeActiveRuntime)
+    if (abortClosePromise) await abortClosePromise
     await closeRuntime(runtime)
+    if (pendingRuntime && pendingRuntime !== runtime) await closeRuntime(pendingRuntime)
   }
 }

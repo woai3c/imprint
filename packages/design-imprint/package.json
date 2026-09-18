@@ -1,0 +1,50 @@
+{
+  "name": "design-imprint",
+  "version": "0.1.0",
+  "description": "Extract a website's observed design language and export reusable design-system artifacts",
+  "type": "module",
+  "license": "MIT",
+  "author": "woai3c",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/woai3c/imprint.git",
+    "directory": "packages/design-imprint"
+  },
+  "homepage": "https://github.com/woai3c/imprint#readme",
+  "bugs": {
+    "url": "https://github.com/woai3c/imprint/issues"
+  },
+  "keywords": [
+    "design-system",
+    "design-tokens",
+    "mcp",
+    "playwright",
+    "tailwindcss"
+  ],
+  "bin": {
+    "design-imprint": "dist/cli/index.js",
+    "imprint": "dist/cli/index.js",
+    "imprint-mcp": "dist/mcp/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/build-npm-package.mjs"
+  },
+  "dependencies": {
+    "i18next": "^26.3.6",
+    "playwright-core": "^1.50.0",
+    "yaml": "^2.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

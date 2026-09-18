@@ -14,6 +14,7 @@ dependencies and runs allowed native build/prepare hooks. Inspect command defini
 | Shared extraction/export or CI test wiring | `pnpm test`                                                                                                                                                                                  | All tests selected by [vitest.config.ts](../../vitest.config.ts); includes cross-module cases but has no separate Integration project |
 | TypeScript, IPC or entrypoint contracts    | `pnpm typecheck` and `pnpm exec eslint src/core/analyzer/token-builder.ts` (substitute affected source files)                                                                                | Type and lint rules; neither exercises Electron or a real browser                                                                     |
 | CLI/MCP build contract                     | `pnpm build:cli`                                                                                                                                                                             | Compiles shared source entrypoints; its prehook deletes/recreates generated `dist/`                                                   |
+| Installable CLI/MCP package                | `pnpm test:npm-package`                                                                                                                                                                      | Builds, allowlist-checks, packs, installs, and exercises the actual tarball against a loopback site; does not publish to npm          |
 
 The implementing Agent owns local results. Focused checks and the unit suite are the edit-loop default; measure elapsed
 time in task evidence instead of promising a machine-independent budget. `pnpm lint` applies fixes and `pnpm format`
@@ -39,8 +40,9 @@ All commands below are available paths, not claims that they ran for the current
   and loopback extraction checks. A cheaper protocol-only check is
   `node --test --test-name-pattern='official MCP client initializes' tests/e2e/mcp-stdio.test.mjs`.
   Inspect stdout/stderr, exit codes, returned schema/tool names, and generated artifact content. Browser-dependent CLI
-  cases may skip when no browser is found; a green process exit then does not establish extraction readiness. These are
-  source-build entrypoints, not evidence of installed `imprint` / `imprint-mcp` bin distribution.
+  cases may skip when no browser is found; a green process exit then does not establish extraction readiness. Run
+  `pnpm test:npm-package` to additionally prove the packed `design-imprint` tarball, installed `design-imprint` / `imprint`
+  aliases, installed `imprint-mcp` server, package allowlist, and a real installed CLI/MCP extraction on the current host.
   CLI/MCP extraction now returns selected content by default and uses a request-owned temporary workspace; completed,
   failed, and gracefully cancelled calls must remove it before successful delivery. Explicit `--output` / `outputDir`
   saves artifacts; explicit session reuse can still read/update [persistent session data](../../src/core/data-dir.ts).
@@ -93,7 +95,8 @@ parses DESIGN.md front matter and runs the existing Markdown linter, parses CSS/
 structure and independently specified fixture properties. This validates the existing exports, not a new formal DTCG
 certification or PDF renderer. The `all` envelope and saved manifests are checked separately from artifact contents.
 
-For human acceptance, build the CLI/MCP entrypoints, then start the existing local fixture in a separate terminal:
+For source-level human acceptance, build the CLI/MCP entrypoints, then start the existing local fixture in a separate
+terminal:
 
 ```sh
 pnpm run test:comparison-site -- --variant reference
@@ -109,7 +112,8 @@ node dist/cli/index.js http://127.0.0.1:4173/ --format all
 node dist/cli/index.js http://127.0.0.1:4173/ --output ./tmp/cli-mcp-acceptance
 ```
 
-Configure a real MCP host using the [README source-build settings](../../README.md#cli-and-mcp). Call `imprint_extract`
+For installed-package acceptance, first run `pnpm test:npm-package`; after registry publication, configure a real MCP host
+using the [README npm settings](../../README.md#cli-and-mcp). Call `imprint_extract`
 with only `{"url":"http://127.0.0.1:4173/"}`, then with `"format":"css"`, and then with a new absolute `outputDir`.
 Verify the first text block, manifest paths, existing-file errors and explicit overwrite. Record host/version, returned
 results and the maintainer's acceptance decision. Terminal display alone does not establish absence of writes; use the
@@ -119,27 +123,62 @@ No local plan document is required to run these checks.
 ## E2E placement and release
 
 Preserve the existing policy: [PR Check](../../.github/workflows/pr-check.yml) runs full `pnpm test:e2e` for PRs targeting
-`main`, including Drafts; [Desktop Release](../../.github/workflows/release.yml) repeats it for the tagged release candidate
-before native builds/publishing. Both use Ubuntu with `xvfb-run --auto-servernum`. The suite packages Desktop, runs packaged
-smoke checks, rebuilds the CLI and Electron SQLite dependency, then runs all Node E2E files serially. On macOS, `predev`,
-`prebuild`, and `premake` can download Playwright's headless shell via [the existing installer](../../scripts/install-headless-browser.mjs).
-Packaging/native preparation writes generated output and costs substantially more than unit tests; elapsed time and
-runner cost vary. Keep full E2E out of each local edit loop, retaining its existing PR and release boundaries.
+`main`, including Drafts. [Desktop Release](../../.github/workflows/release.yml) repeats the full suite under
+`xvfb-run --auto-servernum` for each `vX.Y.Z` candidate before native builds. The suite packages Desktop, runs packaged
+smoke checks, rebuilds the CLI and Electron SQLite dependency, then runs all Node E2E files serially.
+
+[CLI and MCP Release](../../.github/workflows/cli-release.yml) is independent. For each `cli-vX.Y.Z` candidate it runs
+release checks, unit tests, the complete CLI/MCP process suite, and the installed-tarball smoke test before npm publication;
+it does not build or publish Desktop. On macOS, `predev`, `prebuild`, and `premake` can download Playwright's headless shell
+via [the existing installer](../../scripts/install-headless-browser.mjs). Packaging/native preparation writes generated
+output and costs substantially more than unit tests; elapsed time and runner cost vary. Keep full E2E out of each local
+edit loop, retaining its existing PR and channel-specific release boundaries.
 
 The PR author owns per-change failures; the release maintainer owns tag-gate failures. A failure blocks readiness at its
-assigned boundary (and the release workflow blocks downstream publication). Repair through the local verification/review
-loop, then rerun the relevant gate on the actual candidate. Existing branch enforcement and remote activation are
-reported separately in the [Capability Report](harness-capabilities.md). No scheduled E2E or hosted staging environment
-is configured. Any new cadence with material cost or risk needs the maintainer's decision.
+assigned boundary, and each release workflow blocks only its own downstream publication. Repair through the local
+verification/review loop, then rerun the relevant gate on the actual candidate. Existing branch enforcement and remote
+activation are reported separately in the [Capability Report](harness-capabilities.md). No scheduled E2E or hosted staging
+environment is configured. Any new cadence with material cost or risk needs the maintainer's decision.
 
-When E2E is not run locally, report `NOT EXECUTED`, the next PR/tag boundary, and absence of broad runtime evidence. A past
-run only covers its own SHA, OS, browser and fixtures. No controlled suite proves accuracy on arbitrary live websites.
+When E2E is not run locally, report `NOT EXECUTED`, the next PR or applicable channel tag boundary, and absence of broad
+runtime evidence. A past run only covers its own SHA, OS, browser and fixtures. No controlled suite proves accuracy on
+arbitrary live websites.
 Use [comparison policy](../../tests/comparison-benchmark/README.md) only for relevant changes; preserve its frozen
 implementation/corpus rules. [Live-corpus runs](../../tests/live-corpus/README.md) contact changing external sites and write
 captures; they are explicit evaluation work, not a default harness check.
 
 Release follows [README](../../README.md#release) and [the release script](../../scripts/release.mjs), requiring separate
-authority. A release is not verified by a tag alone: inspect quality, native build/smoke, publish outcomes and intended
-assets. If an external operation's result is unknown, inspect its state before retrying. There is no demonstrated database
-downgrade/automatic rollback path; a release or migration recovery decision belongs to the maintainer. Do not point older
-builds at a user's database merely to test recovery.
+authority. Desktop uses `pnpm release:desktop` with `vX.Y.Z`; CLI/MCP uses `pnpm release:cli` with `cli-vX.Y.Z`. Their
+versions, changelogs, workflows and GitHub Release entries are independent. A release is not verified by a tag alone:
+inspect the applicable workflow, publish outcome and intended assets. If an external operation's result is unknown,
+inspect its state before retrying. There is no demonstrated database downgrade/automatic rollback path; a release or
+migration recovery decision belongs to the maintainer. Do not point older builds at a user's database merely to test
+recovery.
+
+### First npm publication only
+
+npm requires a package to exist before its [Trusted Publisher](https://docs.npmjs.com/trusted-publishers/) can be bound.
+The first tag must still pass its normal gates before an authorized npm owner makes the immutable bootstrap publication:
+
+1. From a clean, up-to-date `main`, run the intended `pnpm release:cli` command and authorize its normal atomic commit and
+   `cli-vX.Y.Z` tag push. This changes neither the Desktop version nor its changelog.
+2. Let the CLI/MCP tag workflow complete its `package` job. With no existing package or Trusted Publisher, the final
+   publish job is expected to fail at npm publication before it creates the CLI/MCP GitHub Release. Any earlier failure
+   blocks the bootstrap publication.
+3. Download the `design-imprint-cli-v<version>` artifact from that exact workflow run. Record its SHA-256, install-test it
+   if the environment changed, and publish that workflow-produced `design-imprint-<version>.tgz` through an authenticated
+   npm owner session with `npm publish /absolute/path/to/<tarball> --access public`. The first publication has no GitHub
+   provenance.
+4. In npm package settings, add the GitHub Actions Trusted Publisher for organization/user `woai3c`, repository `imprint`,
+   workflow `cli-release.yml`, with no environment unless the workflow is changed to use one. Under Allowed actions,
+   explicitly enable `npm publish`; new connections otherwise allow `npm stage publish` by default, while this workflow
+   intentionally performs a direct `npm publish`.
+5. Verify `npm view design-imprint@<version> version` and confirm its `dist.integrity` matches that exact workflow
+   tarball, then rerun the failed publish job from the same workflow run. The job independently compares those SHA-512
+   integrity values before it skips the immutable version and creates the separate CLI/MCP GitHub Release without
+   changing GitHub's Desktop-oriented latest release. Later CLI/MCP versions publish through OIDC with provenance.
+
+Do not bootstrap from a local rebuild, a different workflow run, or a candidate whose gates did not pass. npm versions
+are immutable. Record the artifact digest, npm version URL, workflow run and CLI/MCP GitHub Release as separate evidence.
+The first CLI changelog and contributor range use the fixed package-introduction baseline `v0.1.2`; later CLI releases
+use their preceding `cli-vX.Y.Z` tag and never derive this range from a newer Desktop tag.

@@ -97,8 +97,8 @@ The complete dependency-free source is in [`result/`](./result/). The narrow lay
 | Coding agent                    | Codex CLI 0.149.0                                   |
 | Agent result                    | 3 hash routes, generated in one controlled run      |
 
-The automated case used the source-built CLI so the exact invocation and all formats could be recorded. The analyzer
-and exports are shared with Desktop; the public v0.1.0 distribution remains Desktop only. See
+The automated case used the CLI source build from Desktop tag `v0.1.0` so the exact invocation and all formats could be
+recorded. It predates the installable `design-imprint` npm package and is not evidence for that package. See
 [`manifest.json`](./manifest.json) for the command, environment, validation record, and SHA-256 hashes.
 
 ## Verification and boundaries

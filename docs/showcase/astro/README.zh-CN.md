@@ -90,8 +90,9 @@ Imprint 的分析输入只有 `https://astro.build/` 这个 URL。下方截图�
 | Coding Agent           | Codex CLI 0.149.0                                    |
 | Agent 结果             | 一次受控执行生成 3 条 hash 路由                      |
 
-为了记录准确命令与全部导出格式，本案例通过源码构建的 CLI 自动执行。分析器和导出逻辑与 Desktop 共用；v0.1.0
-面向公众发布的仍然只有 Desktop。命令、环境、验收记录和 SHA-256 哈希见 [`manifest.json`](./manifest.json)。
+为了记录准确命令与全部导出格式，本案例通过 Desktop 标签 `v0.1.0` 对应的 CLI 源码构建自动执行。该案例早于可安装的
+`design-imprint` npm 包，不能作为 npm 包的发布证据。命令、环境、验收记录和 SHA-256 哈希见
+[`manifest.json`](./manifest.json)。
 
 ## 验收与边界
 

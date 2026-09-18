@@ -9,8 +9,8 @@
     Extract colors, typography, spacing, radii, shadows, and component styles, then reuse the same visual language
     across multiple pages. Desktop defaults to one self-contained DESIGN.md and also exports CSS Variables
     and Tailwind v4 @theme.
-    CLI and MCP automation entry points are currently available from source; installable distribution is planned for a
-    later release.
+    The design-imprint npm package provides standalone CLI and local MCP automation entry points without installing the
+    Desktop application or cloning this repository.
   </p>
 
   <p>
@@ -84,26 +84,30 @@ fact. The target product's requirements and final implementation remain the resp
 
 ## Features
 
-| Feature                  | Description                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| Website analysis         | Analyze visual styles directly from a URL                                                        |
-| Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes               |
-| Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations  |
-| Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence                |
-| Screenshot evidence      | Capture analyzed pages and viewports as traceable visual evidence                                |
-| Design system generation | Generate observed colors, typography, spacing, radii, shadows, and component guidance            |
-| AI-ready documentation   | Export a self-contained DESIGN.md with evidence-backed rules, scope, and limitations             |
-| Code export              | Export CSS Variables and Tailwind v4 `@theme` from Desktop or source-built CLI/MCP               |
-| Agent integration        | Use Desktop artifacts now; installable local CLI/MCP distribution is planned for a later release |
-| Local-first storage      | Keep analysis records and generated assets on-device; structured records use SQLite              |
-| Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios       |
-| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                      |
-| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states            |
+| Feature                  | Description                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Website analysis         | Analyze visual styles directly from a URL                                                       |
+| Diverse page discovery   | Combine navigation links and sitemaps, then sample representative same-site routes              |
+| Traceable evidence       | Record page topology, section geometry, component instances, viewport coverage, and limitations |
+| Token confidence         | Preserve per-token provenance, source-page coverage, and deterministic confidence               |
+| Screenshot evidence      | Capture analyzed pages and viewports as traceable visual evidence                               |
+| Design system generation | Generate observed colors, typography, spacing, radii, shadows, and component guidance           |
+| AI-ready documentation   | Export a self-contained DESIGN.md with evidence-backed rules, scope, and limitations            |
+| Code export              | Export CSS Variables and Tailwind v4 `@theme` from Desktop, CLI, or MCP                         |
+| Agent integration        | Install the local CLI/MCP package for scripts and MCP-compatible coding agents                  |
+| Local-first storage      | Keep analysis records and generated assets on-device; structured records use SQLite             |
+| Saved website themes     | Save analysis snapshots and preview their tokens inside scoped, fixed validation scenarios      |
+| Built-in themes          | Chinese ink painting, cyberpunk, Nordic minimalism, glassmorphism, and more                     |
+| Validation scenarios     | Test theme hierarchy, density, and legibility across workflows and interaction states           |
 
 ## Download
 
-Download the latest Desktop version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest). CLI and
-MCP installable packages are planned for a later release.
+Download the latest Desktop version from [GitHub Releases](https://github.com/woai3c/imprint/releases/latest). Install
+the CLI and local MCP server from npm:
+
+```bash
+npm install --global design-imprint
+```
 
 Desktop analysis requires an installed Chrome, Edge, or compatible Chromium browser.
 
@@ -132,9 +136,9 @@ external coding agent produced the page. The example documents one workflow, not
 
 ### Which format should I export?
 
-Desktop and the source-built CLI/MCP entry points share `DESIGN.md`, CSS Variables, and Tailwind v4 `@theme`.
+Desktop, CLI, and MCP share `DESIGN.md`, CSS Variables, and Tailwind v4 `@theme`.
 `DESIGN.md` is the default for AI workflows; CSS and Tailwind are implementation outputs. CLI/MCP additionally expose
-Tokens JSON (DTCG) for structured toolchain integrations. Their installable distribution is planned for a later release.
+Tokens JSON (DTCG) for structured toolchain integrations.
 
 | Goal                                               | Recommended output                                 | Include with it                      |
 | -------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
@@ -170,35 +174,37 @@ the completed artifacts through files or MCP, but they never participate in extr
 
 ## CLI and MCP
 
-> **Release status:** GitHub Releases currently distribute the Desktop application only. The CLI and local stdio MCP
-> server are implemented and tested source-build previews. Installable packages and supported MCP client setup will be
-> provided in a later release; they are not included in the current Desktop installers.
+The `design-imprint` npm package installs the `design-imprint` and `imprint` CLI aliases plus the `imprint-mcp` local
+stdio server. It is independent from the Desktop installers.
 
 ```bash
-pnpm build:cli
-node dist/cli/index.js doctor
-node dist/cli/index.js doctor --browser-path "/path/to/chrome" --json
-node dist/cli/index.js https://example.com
-node dist/cli/index.js https://example.com --format css
-node dist/cli/index.js https://example.com --format tailwind
-node dist/cli/index.js https://example.com --format json
-node dist/cli/index.js https://example.com --format all
-node dist/cli/index.js https://example.com --output ./design
-node dist/cli/index.js https://example.com --format all --output ./design-all
+npm install --global design-imprint
+imprint doctor
+imprint doctor --browser-path "/path/to/chrome" --json
+imprint https://example.com
+imprint https://example.com --format css
+imprint https://example.com --format tailwind
+imprint https://example.com --format json
+imprint https://example.com --format all
+imprint https://example.com --output ./design
+imprint https://example.com --format all --output ./design-all
+
+# Run the CLI without a persistent global installation
+npx --yes design-imprint https://example.com
 ```
 
-The source-built MCP entry point is `node dist/mcp/server.js`; use that command when configuring an MCP-compatible
-client. The shorter `imprint` and `imprint-mcp` commands are package bin names and are not installed globally by
-`pnpm build:cli` alone.
-
-For a host's stdio server configuration, use `node` as the command and the absolute compiled server path as its argument:
+For an MCP-compatible host, let `npx` download and start the local stdio server. Pin a package version instead of
+`latest` when the host configuration must remain reproducible:
 
 ```json
-{ "command": "node", "args": ["/absolute/path/to/imprint/dist/mcp/server.js"] }
+{
+  "command": "npx",
+  "args": ["--yes", "--package=design-imprint@latest", "imprint-mcp"]
+}
 ```
 
-On Windows, a path such as `D:/projects/imprint/dist/mcp/server.js` works. Place these process settings in the server
-configuration format required by your MCP host.
+The MCP host starts and owns this process; users do not run a remote Imprint service. On Windows hosts that do not
+resolve npm command shims directly, use `cmd` with `args: ["/c", "npx", ...]` for the same command.
 
 **URL is the only required extraction parameter.** CLI returns complete `DESIGN.md` content on stdout; MCP
 `imprint_extract` returns that content in its first text block. No file-read step is needed. Progress and diagnostics
@@ -252,9 +258,9 @@ options fail before analysis. Example MCP arguments:
 Add `"format": "css"` to consume CSS directly, or `"format": "all"` and an absolute `outputDir` to save all artifacts.
 
 The CLI and MCP server do not require an Imprint-hosted service, a running Desktop application, a model provider, or an
-API key. Both run locally. Source builds currently require Node.js 20.19 or newer and an installed Chrome, Edge, or
-compatible Chromium executable; analyzing a public URL also requires normal network access to that website. A future
-package install will provide the JavaScript dependencies, but it will not bundle the browser.
+API key. Both run locally. The npm package requires Node.js 20.19 or newer and an installed Chrome, Edge, or compatible
+Chromium executable; analyzing a public URL also requires normal network access to that website. Package installation
+provides the JavaScript dependencies but does not bundle a browser.
 
 MCP additionally requires an MCP-compatible coding agent or client. That client starts the compiled server with `node`
 as a local process
@@ -302,6 +308,10 @@ pnpm dev
 # Package the app
 pnpm build
 
+# Build or install-test the publishable CLI/MCP package
+pnpm check:npm-package
+pnpm test:npm-package
+
 # Build distributable (zip on Windows, DMG on macOS)
 pnpm make
 
@@ -314,12 +324,24 @@ pnpm test:e2e
 From a clean `main` branch, run:
 
 ```bash
-pnpm release
+# Desktop only: vX.Y.Z
+pnpm release:desktop
+
+# CLI and MCP only: cli-vX.Y.Z
+pnpm release:cli
 ```
 
-The release command runs the repository checks, updates the version and changelog, creates an annotated version tag,
-and pushes it after confirmation. The tag currently triggers Desktop-only Windows x64 and macOS arm64/x64 builds in
-GitHub Actions. CLI and MCP package publication will be added in a later stage.
+Desktop and `design-imprint` use independent versions and release tags. `pnpm release:desktop` updates only the Desktop
+version and changelog; its `vX.Y.Z` tag builds Windows x64 and macOS arm64/x64 installers. `pnpm release:cli` updates only
+the CLI/MCP package version and changelog; its `cli-vX.Y.Z` tag tests and publishes npm plus a separate GitHub Release.
+CLI/MCP releases are explicitly not marked as GitHub's latest release, so the Desktop download link remains stable.
+
+For the first `cli-vX.Y.Z` tag, let the CLI/MCP verification and package job finish before the expected initial npm publish
+failure. An npm owner then publishes that workflow's exact tarball once, configures npm Trusted Publishing for this
+repository and `.github/workflows/cli-release.yml`, explicitly allows the `npm publish` action, and reruns the failed
+publish job. Later CLI/MCP releases use short-lived GitHub OIDC credentials and npm provenance; they do not require a
+long-lived npm token in GitHub. The first CLI changelog is anchored to Desktop tag `v0.1.2`, where this package work
+began, so a later Desktop release cannot move the CLI baseline.
 
 ## Project Structure
 
@@ -345,6 +367,9 @@ src/
     ├── pages/
     ├── stores/
     └── i18n/
+
+packages/
+└── design-imprint/      # Publish manifest for the standalone npm package
 ```
 
 ## License

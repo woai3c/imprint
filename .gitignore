@@ -3,9 +3,16 @@ dist/
 out/
 .vite/
 release-assets/
+release-packages/
 release-notes.md
 test-results/
 coverage/
+
+# Generated npm distribution contents
+/packages/design-imprint/dist/
+/packages/design-imprint/LICENSE
+/packages/design-imprint/README.md
+/packages/design-imprint/README.zh-CN.md
 
 # Local competitive product research (kept for repeat analysis, never shipped)
 /research/competitive-design-md/

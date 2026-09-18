@@ -8,7 +8,7 @@
   <p>
     提取颜色、字体、间距、圆角、阴影和组件风格，再将同一套视觉语言复用于多个页面。
     Desktop 默认导出一份完整的 DESIGN.md，也支持 CSS Variables 和 Tailwind v4 @theme。
-    CLI 与 MCP 自动化入口目前可从源码构建，正式安装包计划在后续版本发布。
+    design-imprint npm 包提供独立的 CLI 与本地 MCP 自动化入口，无需安装 Desktop，也不会克隆本仓库源码。
   </p>
 
   <p>
@@ -77,26 +77,30 @@ Imprint 记录实际观察结果、保留可追溯性，并为开发者和外部
 
 ## 功能
 
-| 功能           | 说明                                                                        |
-| -------------- | --------------------------------------------------------------------------- |
-| 网站分析       | 输入 URL，自动分析网页视觉风格                                              |
-| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                              |
-| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制                        |
-| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                               |
-| 截图证据       | 自动捕获已分析页面和视口，作为可追溯的视觉证据                              |
-| 设计系统生成   | 提取已观察到的颜色、字体、间距、圆角、阴影和组件风格                        |
-| AI 友好文档    | 导出包含证据规则、适用范围和局限的完整 DESIGN.md                            |
-| 代码导出       | Desktop 与源码构建的 CLI/MCP 均可导出 CSS Variables 和 Tailwind v4 `@theme` |
-| Agent 集成     | 当前使用 Desktop 导出物；可安装的本地 CLI/MCP 计划在后续版本发布            |
-| 本地优先存储   | 分析记录与生成资源均保存在本机，结构化记录使用 SQLite，无需注册账号         |
-| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌                        |
-| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                          |
-| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性                  |
+| 功能           | 说明                                                                |
+| -------------- | ------------------------------------------------------------------- |
+| 网站分析       | 输入 URL，自动分析网页视觉风格                                      |
+| 多样化页面发现 | 联合导航链接与 sitemap，选择有代表性的同站页面                      |
+| 可追溯证据     | 记录页面拓扑、区块几何、组件实例、视口覆盖和证据限制                |
+| Token 置信度   | 保存每个 token 的来源、页面覆盖和确定性置信度                       |
+| 截图证据       | 自动捕获已分析页面和视口，作为可追溯的视觉证据                      |
+| 设计系统生成   | 提取已观察到的颜色、字体、间距、圆角、阴影和组件风格                |
+| AI 友好文档    | 导出包含证据规则、适用范围和局限的完整 DESIGN.md                    |
+| 代码导出       | Desktop、CLI 与 MCP 均可导出 CSS Variables 和 Tailwind v4 `@theme`  |
+| Agent 集成     | 安装本地 CLI/MCP 软件包，接入脚本和支持 MCP 的 Coding Agent         |
+| 本地优先存储   | 分析记录与生成资源均保存在本机，结构化记录使用 SQLite，无需注册账号 |
+| 网站主题库     | 保存分析快照，并在隔离的固定验证场景中预览其设计令牌                |
+| 内置主题       | 国风山水、赛博朋克、极简北欧、毛玻璃等多种设计风格                  |
+| 验证场景       | 在工作流、内容展示与交互状态中检验主题的层级、密度和可读性          |
 
 ## 下载安装
 
-从 [GitHub Releases](https://github.com/woai3c/imprint/releases/latest) 下载最新 Desktop 版本。CLI 与 MCP 的
-正式安装包计划在后续版本发布。
+从 [GitHub Releases](https://github.com/woai3c/imprint/releases/latest) 下载最新 Desktop 版本。CLI 与本地 MCP
+服务器通过 npm 安装：
+
+```bash
+npm install --global design-imprint
+```
 
 Desktop 分析需要本机安装 Chrome、Edge 或兼容的 Chromium 浏览器。
 
@@ -124,9 +128,8 @@ Desktop 分析需要本机安装 Chrome、Edge 或兼容的 Chromium 浏览器�
 
 ### 应该导出哪一种？
 
-Desktop 与从源码构建的 CLI/MCP 共用 `DESIGN.md`、CSS Variables 和 Tailwind v4 `@theme`。`DESIGN.md` 是 AI
-工作流的默认产物；CSS 和 Tailwind 是直接实现所需的辅助产物。CLI/MCP 另外提供 Tokens JSON（DTCG）供结构化
-工具链使用，其正式安装包计划在后续版本发布。
+Desktop、CLI 与 MCP 共用 `DESIGN.md`、CSS Variables 和 Tailwind v4 `@theme`。`DESIGN.md` 是 AI 工作流的
+默认产物；CSS 和 Tailwind 是直接实现所需的辅助产物。CLI/MCP 另外提供 Tokens JSON（DTCG）供结构化工具链使用。
 
 | 目标                                  | 推荐输出                                           | 一起提供             |
 | ------------------------------------- | -------------------------------------------------- | -------------------- |
@@ -159,32 +162,36 @@ Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外�
 
 ## CLI 与 MCP
 
-> **发布状态：** GitHub Releases 当前只发布 Desktop 应用。CLI 与本地 stdio MCP 已实现并经过测试，但目前仍是
-> 源码构建预览。可安装的软件包和受支持的 MCP 客户端配置计划在后续版本发布，不包含在当前 Desktop 安装包中。
+`design-imprint` npm 包会安装 `design-imprint`、`imprint` 两个 CLI 别名，以及本地 stdio 服务
+`imprint-mcp`。它与 Desktop 安装包相互独立。
 
 ```bash
-pnpm build:cli
-node dist/cli/index.js doctor
-node dist/cli/index.js doctor --browser-path "/path/to/chrome" --json
-node dist/cli/index.js https://example.com
-node dist/cli/index.js https://example.com --format css
-node dist/cli/index.js https://example.com --format tailwind
-node dist/cli/index.js https://example.com --format json
-node dist/cli/index.js https://example.com --format all
-node dist/cli/index.js https://example.com --output ./design
-node dist/cli/index.js https://example.com --format all --output ./design-all
+npm install --global design-imprint
+imprint doctor
+imprint doctor --browser-path "/path/to/chrome" --json
+imprint https://example.com
+imprint https://example.com --format css
+imprint https://example.com --format tailwind
+imprint https://example.com --format json
+imprint https://example.com --format all
+imprint https://example.com --output ./design
+imprint https://example.com --format all --output ./design-all
+
+# 不进行持久的全局安装，直接运行 CLI
+npx --yes design-imprint https://example.com
 ```
 
-从源码构建的 MCP 入口是 `node dist/mcp/server.js`，配置支持 MCP 的客户端时应使用该命令。`imprint` 和
-`imprint-mcp` 是软件包安装后的 bin 名称，仅执行 `pnpm build:cli` 不会将它们安装为全局命令。
-
-配置宿主的 stdio 服务时，将命令设为 `node`，参数设为编译后服务文件的绝对路径：
+对于支持 MCP 的宿主，让 `npx` 下载并启动本地 stdio 服务。需要固定运行环境时，应将 `latest` 换成明确版本：
 
 ```json
-{ "command": "node", "args": ["/absolute/path/to/imprint/dist/mcp/server.js"] }
+{
+  "command": "npx",
+  "args": ["--yes", "--package=design-imprint@latest", "imprint-mcp"]
+}
 ```
 
-Windows 可使用 `D:/projects/imprint/dist/mcp/server.js` 这样的路径。请将这些进程设置填入所用 MCP 宿主要求的服务配置结构。
+MCP 宿主负责启动和管理该进程，用户无需运行远程 Imprint 服务。Windows 宿主如果不能直接解析 npm 命令 shim，
+可使用 `cmd`，并将参数写成 `["/c", "npx", ...]`。
 
 **URL 是唯一必填的提取参数。** CLI 在 stdout 直接输出完整 `DESIGN.md` 正文，MCP `imprint_extract`
 在首个文本块中返回正文，不需要再读取文件。进度和诊断放在产物之外（CLI stderr 或 MCP 元数据）。
@@ -239,8 +246,8 @@ MCP 工具执行失败时返回 `isError: true` 和错误文本块。
 增加 `"format": "css"` 可直接消费 CSS，增加 `"format": "all"` 和绝对路径 `outputDir` 可保存全部产物。
 
 CLI 与 MCP 不依赖 Imprint 托管服务、正在运行的 Desktop 应用、模型厂商或 API Key，二者都在用户电脑本地运行。
-当前从源码构建时仍需要 Node.js 20.19 或更高版本，以及本机已安装的 Chrome、Edge 或兼容的 Chromium；分析公网
-URL 时还需要能够正常访问目标网站。未来的软件包会安装所需的 JavaScript 依赖，但不会捆绑浏览器。
+npm 包需要 Node.js 20.19 或更高版本，以及本机已安装的 Chrome、Edge 或兼容的 Chromium；分析公网 URL 时还需要
+能够正常访问目标网站。软件包会安装所需的 JavaScript 依赖，但不会捆绑浏览器。
 
 MCP 还需要支持 MCP 的 Coding Agent 或客户端。客户端会使用 `node` 在本地启动编译后的服务，并通过 stdin/stdout 与其
 通信。这里的“服务器”只是本地工具进程，不需要远程部署，也不需要由 Imprint 运营服务器。
@@ -280,6 +287,10 @@ pnpm dev
 # 打包应用
 pnpm build
 
+# 构建或安装验证可发布的 CLI/MCP 包
+pnpm check:npm-package
+pnpm test:npm-package
+
 # 构建分发包（Windows 输出 zip，macOS 输出 DMG）
 pnpm make
 
@@ -292,12 +303,23 @@ pnpm test:e2e
 在干净的 `main` 分支执行：
 
 ```bash
-pnpm release
+# 仅发布 Desktop：vX.Y.Z
+pnpm release:desktop
+
+# 仅发布 CLI 与 MCP：cli-vX.Y.Z
+pnpm release:cli
 ```
 
-发布命令会运行仓库检查、更新版本与 changelog、创建带注释的版本标签，并在确认后推送。标签会触发 GitHub Actions，
-当前只构建 Windows x64、macOS arm64 和 macOS x64 的 Desktop 原生发行产物。CLI 与 MCP 的软件包发布流程将在
-后续阶段加入。
+Desktop 与 `design-imprint` 使用相互独立的版本和发布标签。`pnpm release:desktop` 只更新 Desktop 版本与
+changelog；其 `vX.Y.Z` 标签构建 Windows x64、macOS arm64 和 macOS x64 安装包。`pnpm release:cli` 只更新
+CLI/MCP 软件包版本与 changelog；其 `cli-vX.Y.Z` 标签验证并发布 npm，同时创建单独的 GitHub Release。
+CLI/MCP Release 明确不会被标记为 GitHub 的 Latest，因此 Desktop 下载链接不会被 npm tarball 替代。
+
+首次推送 `cli-vX.Y.Z` 标签时，应先让 CLI/MCP 验证和软件包任务全部完成；发布任务会因为尚未配置 Trusted
+Publisher 而按预期失败。npm 所有者随后只发布该次工作流生成的 tarball，为本仓库及
+`.github/workflows/cli-release.yml` 配置 npm Trusted Publishing，明确允许 `npm publish` 操作，再重跑失败的
+发布任务。后续 CLI/MCP 发布使用 GitHub OIDC 短期凭据和 npm provenance，不需要在 GitHub 中保存长期 npm token。
+首次 CLI changelog 固定以开始引入该软件包的 Desktop 标签 `v0.1.2` 为基线，因此后续 Desktop 发布不会移动 CLI 基线。
 
 ## 项目结构
 
@@ -323,6 +345,9 @@ src/
     ├── pages/
     ├── stores/
     └── i18n/
+
+packages/
+└── design-imprint/      # 独立 npm 软件包的发布清单
 ```
 
 ## 许可证

@@ -55,9 +55,9 @@ async function main(): Promise<number> {
 
   const { url, options } = command
   const analysisController = new AbortController()
+  let cancellationHold: ReturnType<typeof setInterval> | undefined
   const cancelAnalysis = () => {
-    process.exitCode = CLI_EXIT_CODES.cancelled
-    process.stderr.write(cliT('errors.cancelled') + '\n')
+    cancellationHold ??= setInterval(() => undefined, 1_000)
     analysisController.abort(new CliCancellationError())
   }
   process.once('SIGINT', cancelAnalysis)
@@ -83,6 +83,7 @@ async function main(): Promise<number> {
     return CLI_EXIT_CODES.success
   } finally {
     process.removeListener('SIGINT', cancelAnalysis)
+    if (cancellationHold) clearInterval(cancellationHold)
   }
 }
 
@@ -125,7 +126,7 @@ main()
       })
     } else if (isCancellationError(error)) {
       exitCode = CLI_EXIT_CODES.cancelled
-      message = process.exitCode === CLI_EXIT_CODES.cancelled ? '' : cliT('errors.cancelled')
+      message = cliT('errors.cancelled')
     } else if (error instanceof NoUsableCapturesError) {
       const baseMessage = cliT('errors.noUsableCaptures')
       const details = formatExtractionIssueDiagnosticsForDisplay(error.extractionIssues, diagnosticInputUrls)

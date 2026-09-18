@@ -1,0 +1,174 @@
+name: CLI and MCP Release
+
+on:
+  push:
+    tags:
+      - 'cli-v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Verify and package CLI/MCP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag, package version, and changelog
+        run: pnpm release:verify:cli "${{ github.ref_name }}"
+
+      - name: Run release checks
+        run: pnpm release:check
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: Run CLI and MCP process tests
+        run: |
+          pnpm build:cli
+          node --test --test-concurrency=1 \
+            tests/e2e/cli-reliability.test.mjs \
+            tests/e2e/mcp-stdio.test.mjs \
+            tests/e2e/cli-mcp-output.test.mjs
+
+      - name: Pack and smoke test installed CLI/MCP
+        run: pnpm test:npm-package
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-imprint-${{ github.ref_name }}
+          path: release-packages/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish npm and CLI/MCP GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js for trusted publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          registry-url: https://registry.npmjs.org
+
+      - name: Download npm package
+        uses: actions/download-artifact@v4
+        with:
+          name: design-imprint-${{ github.ref_name }}
+          path: release-assets
+
+      - name: Extract release notes
+        run: >-
+          node scripts/extract-release-notes.mjs "${{ github.ref_name }}" release-notes.md
+          packages/design-imprint/CHANGELOG.md
+
+      - name: Append contributors to release notes
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          prev_tag="$(
+            git tag --list 'cli-v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname \
+              | grep -E '^cli-v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -v "^${tag}$" | head -1 || true
+          )"
+          if [ -z "$prev_tag" ]; then
+            prev_tag='v0.1.2'
+          fi
+          range="${prev_tag:+${prev_tag}..}${tag}"
+
+          contributors="$(
+            git log --no-merges --pretty='format:%aN%x1f%aE' "$range" \
+              | awk -F$'\x1f' '!seen[tolower($2)]++ { print $1 "\x1f" $2 }' \
+              | sort -t$'\x1f' -k1,1f \
+              | while IFS=$'\x1f' read -r name email; do
+                  gh_user="$(
+                    gh api "/search/users?q=${email}+in:email" \
+                      --jq '.items[0].login // empty' 2>/dev/null || true
+                  )"
+                  if [ -n "$gh_user" ]; then
+                    echo "- @${gh_user}"
+                  else
+                    echo "- ${name}"
+                  fi
+                done
+          )"
+
+          if [ -n "$contributors" ]; then
+            printf '\n## Contributors\n\n%s\n' "$contributors" >> release-notes.md
+          fi
+
+      - name: Generate SHA-256 checksum
+        working-directory: release-assets
+        run: sha256sum *.tgz > SHA256SUMS.txt
+
+      - name: Publish CLI/MCP package to npm
+        shell: bash
+        run: |
+          npm_package="$(find release-assets -maxdepth 1 -type f -name 'design-imprint-*.tgz' -print -quit)"
+          if [ -z "$npm_package" ]; then
+            echo "::error::The design-imprint npm package was not downloaded."
+            exit 1
+          fi
+          npm_package="$(realpath "$npm_package")"
+          npm_version="${GITHUB_REF_NAME#cli-v}"
+          if published_integrity="$(npm view "design-imprint@${npm_version}" dist.integrity 2>/dev/null)"; then
+            if ! node scripts/verify-npm-tarball-integrity.mjs "$npm_package" "$published_integrity"; then
+              echo "::error::design-imprint@${npm_version} exists, but its registry integrity does not match the verified workflow tarball."
+              exit 1
+            fi
+            echo "design-imprint@${npm_version} is already published with the verified tarball; skipping the idempotent retry."
+          else
+            npx --yes --package npm@11 npm publish "$npm_package" --provenance --access public
+          fi
+
+      - name: Create or update CLI/MCP GitHub Release
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#cli-v}"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-assets/* --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --draft=false \
+              --prerelease=false \
+              --latest=false \
+              --title "design-imprint v${version} (CLI + MCP)" \
+              --notes-file release-notes.md
+          else
+            gh release create "${GITHUB_REF_NAME}" release-assets/* \
+              --verify-tag \
+              --latest=false \
+              --title "design-imprint v${version} (CLI + MCP)" \
+              --notes-file release-notes.md
+          fi

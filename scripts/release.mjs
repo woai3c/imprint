@@ -6,10 +6,44 @@ import readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const packagePath = path.join(repoRoot, 'package.json')
-const changelogPath = path.join(repoRoot, 'CHANGELOG.md')
 const semverPattern = /^v?(\d+)\.(\d+)\.(\d+)$/
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const releaseChannel = process.argv[2]
+
+const releaseConfigs = {
+  desktop: {
+    displayName: 'Imprint Desktop',
+    packagePath: path.join(repoRoot, 'package.json'),
+    changelogPath: path.join(repoRoot, 'CHANGELOG.md'),
+    changelogFallback:
+      '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\nand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\nRelease notes are generated from Conventional Commits by `pnpm release:desktop`.\n',
+    tagPrefix: 'v',
+    tagPattern: 'v[0-9]*.[0-9]*.[0-9]*',
+    initialBaselineTag: '',
+    commitMessage: (tag) => `release: ${tag}`,
+    tagMessage: (tag) => `Imprint ${tag}`,
+    completionMessage: 'GitHub Actions is now building the Desktop release artifacts.',
+  },
+  cli: {
+    displayName: 'design-imprint CLI/MCP',
+    packagePath: path.join(repoRoot, 'packages', 'design-imprint', 'package.json'),
+    changelogPath: path.join(repoRoot, 'packages', 'design-imprint', 'CHANGELOG.md'),
+    changelogFallback:
+      '# design-imprint Changelog\n\nAll notable changes to the standalone CLI and MCP package are documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this package follows\n[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release notes are generated from Conventional Commits by\n`pnpm release:cli`.\n',
+    tagPrefix: 'cli-v',
+    tagPattern: 'cli-v[0-9]*.[0-9]*.[0-9]*',
+    initialBaselineTag: 'v0.1.2',
+    commitMessage: (tag) => `release(cli): ${tag}`,
+    tagMessage: (_tag, version) => `design-imprint v${version}`,
+    completionMessage: 'GitHub Actions is now verifying and publishing the CLI/MCP release.',
+  },
+}
+
+const config = releaseConfigs[releaseChannel]
+if (!config) {
+  console.error('Usage: node scripts/release.mjs desktop|cli [version|patch|minor|major] [options]')
+  process.exit(1)
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -81,8 +115,15 @@ function assertCleanWorktree() {
   }
 }
 
-function getLatestTag() {
-  return git('tag', '--list', 'v[0-9]*.[0-9]*.[0-9]*', '--sort=-version:refname').split('\n').find(Boolean) || ''
+function getLatestTag(pattern) {
+  if (!pattern) return ''
+  const escapedPrefix = config.tagPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const stableTagPattern = new RegExp(`^${escapedPrefix}\\d+\\.\\d+\\.\\d+$`)
+  return (
+    git('tag', '--list', pattern, '--sort=-version:refname')
+      .split('\n')
+      .find((tag) => stableTagPattern.test(tag)) || ''
+  )
 }
 
 function readCommits(previousTag) {
@@ -139,9 +180,9 @@ function buildChangelogSection(version, commits) {
 }
 
 function insertChangelogSection(section) {
-  const fallback =
-    '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\nand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\nRelease notes are generated from Conventional Commits by `pnpm release`.\n'
-  const current = fs.existsSync(changelogPath) ? fs.readFileSync(changelogPath, 'utf8').trimEnd() : fallback.trimEnd()
+  const current = fs.existsSync(config.changelogPath)
+    ? fs.readFileSync(config.changelogPath, 'utf8').trimEnd()
+    : config.changelogFallback.trimEnd()
   const nextReleaseIndex = current.search(/^## \[/m)
 
   if (nextReleaseIndex === -1) return `${current}\n\n${section}`
@@ -150,28 +191,19 @@ function insertChangelogSection(section) {
 }
 
 async function selectVersion(currentVersion, latestTag) {
-  const canReleaseCurrent = !git('tag', '--list', `v${currentVersion}`)
+  const currentTag = `${config.tagPrefix}${currentVersion}`
+  const canReleaseCurrent = !git('tag', '--list', currentTag)
   const choices = []
-  if (canReleaseCurrent) choices.push({ label: `current  v${currentVersion}`, value: currentVersion })
-  choices.push(
-    {
-      label: `patch    v${incrementVersion(currentVersion, 'patch')}`,
-      value: incrementVersion(currentVersion, 'patch'),
-    },
-    {
-      label: `minor    v${incrementVersion(currentVersion, 'minor')}`,
-      value: incrementVersion(currentVersion, 'minor'),
-    },
-    {
-      label: `major    v${incrementVersion(currentVersion, 'major')}`,
-      value: incrementVersion(currentVersion, 'major'),
-    },
-  )
+  if (canReleaseCurrent) choices.push({ label: `current  ${currentTag}`, value: currentVersion })
+  for (const type of ['patch', 'minor', 'major']) {
+    const version = incrementVersion(currentVersion, type)
+    choices.push({ label: `${type.padEnd(8)}${config.tagPrefix}${version}`, value: version })
+  }
 
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
-    console.log(`Current package version: v${currentVersion}`)
-    console.log(`Latest release tag: ${latestTag || 'none'}`)
+    console.log(`${config.displayName} version: ${config.tagPrefix}${currentVersion}`)
+    console.log(`Latest ${releaseChannel} release tag: ${latestTag || 'none'}`)
     console.log('')
     choices.forEach((choice, index) => console.log(`  ${index + 1}) ${choice.label}`))
     console.log(`  ${choices.length + 1}) custom`)
@@ -198,9 +230,10 @@ async function confirmRelease(details, assumeYes) {
   const terminal = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
     console.log('')
-    console.log(`Version: v${details.currentVersion} -> v${details.targetVersion}`)
+    console.log(`Channel: ${config.displayName}`)
+    console.log(`Version: ${config.tagPrefix}${details.currentVersion} -> ${config.tagPrefix}${details.targetVersion}`)
     console.log(`Changelog range: ${details.previousTag ? `${details.previousTag}..HEAD` : 'all commits'}`)
-    console.log(`Git action: create chore(release) commit and annotated tag ${details.tag}`)
+    console.log(`Git action: create release commit and annotated tag ${details.tag}`)
     console.log(`Publish: ${details.push ? `push the commit and ${details.tag} atomically to origin` : 'local only'}`)
     console.log('')
     const answer = (await terminal.question('Continue? [y/N]: ')).trim()
@@ -211,14 +244,15 @@ async function confirmRelease(details, assumeYes) {
 }
 
 function printHelp() {
-  console.log(`Imprint release
+  const command = releaseChannel === 'desktop' ? 'release:desktop' : 'release:cli'
+  console.log(`${config.displayName} release
 
 Usage:
-  pnpm release
-  pnpm release patch|minor|major
-  pnpm release 0.2.0
-  pnpm release current --no-push
-  pnpm release current --dry-run
+  pnpm ${command}
+  pnpm ${command} patch|minor|major
+  pnpm ${command} 0.2.0
+  pnpm ${command} current --no-push
+  pnpm ${command} current --dry-run
 
 Options:
   --no-push  Create the release commit and tag locally without pushing.
@@ -226,13 +260,12 @@ Options:
   --yes      Skip the final confirmation (requires an explicit version argument).
   --help     Show this help.
 
-The command requires a clean main branch, runs release checks, updates package.json
-and CHANGELOG.md, creates an annotated vX.Y.Z tag, and pushes the commit and tag.
-The tag triggers native Windows and macOS packaging in GitHub Actions.`)
+The command requires a clean main branch, updates only the ${releaseChannel} version and changelog,
+creates an annotated ${config.tagPrefix}X.Y.Z tag, and optionally pushes the commit and tag.`)
 }
 
 async function main() {
-  const args = process.argv.slice(2)
+  const args = process.argv.slice(3)
   if (args.includes('--help') || args.includes('-h')) {
     printHelp()
     return
@@ -244,14 +277,16 @@ async function main() {
   const versionArgument = args.find((arg) => !arg.startsWith('--'))
   if (assumeYes && !versionArgument) throw new Error('--yes requires an explicit version or bump type.')
 
-  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+  const packageJson = JSON.parse(fs.readFileSync(config.packagePath, 'utf8'))
   const currentVersion = normalizeVersion(packageJson.version)
   const branch = git('branch', '--show-current')
-  if (branch !== 'main')
+  if (branch !== 'main') {
     throw new Error(`Releases must be created from main; the current branch is "${branch || 'detached'}".`)
+  }
   if (!dryRun) assertCleanWorktree()
 
-  const latestTag = getLatestTag()
+  const latestTag = getLatestTag(config.tagPattern)
+  const previousTag = latestTag || config.initialBaselineTag
   let targetVersion
   if (!versionArgument) {
     targetVersion = await selectVersion(currentVersion, latestTag)
@@ -263,26 +298,23 @@ async function main() {
     targetVersion = normalizeVersion(versionArgument)
   }
 
-  const tag = `v${targetVersion}`
+  const tag = `${config.tagPrefix}${targetVersion}`
   if (git('tag', '--list', tag)) throw new Error(`Tag ${tag} already exists.`)
   if (compareVersions(targetVersion, currentVersion) < 0) {
-    throw new Error(`Target version v${targetVersion} is older than package version v${currentVersion}.`)
+    throw new Error(`Target version ${tag} is older than ${config.displayName} ${config.tagPrefix}${currentVersion}.`)
   }
   if (targetVersion === currentVersion && latestTag === tag) {
-    throw new Error(`${tag} is already the latest release.`)
+    throw new Error(`${tag} is already the latest ${releaseChannel} release.`)
   }
 
   if (dryRun) {
-    const commits = readCommits(latestTag)
+    const commits = readCommits(previousTag)
     console.log(buildChangelogSection(targetVersion, commits))
     console.log('Dry run only: no files, commits, tags, or remotes were changed.')
     return
   }
 
-  const confirmed = await confirmRelease(
-    { currentVersion, targetVersion, previousTag: latestTag, tag, push: !noPush },
-    assumeYes,
-  )
+  const confirmed = await confirmRelease({ currentVersion, targetVersion, previousTag, tag, push: !noPush }, assumeYes)
   if (!confirmed) {
     console.log('Release cancelled.')
     return
@@ -292,15 +324,16 @@ async function main() {
   run(pnpmCommand, ['run', 'release:check'], { inherit: true })
   assertCleanWorktree()
 
-  const commits = readCommits(latestTag)
+  const commits = readCommits(previousTag)
   const section = buildChangelogSection(targetVersion, commits)
   packageJson.version = targetVersion
-  fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
-  fs.writeFileSync(changelogPath, `${insertChangelogSection(section).trimEnd()}\n`)
+  fs.writeFileSync(config.packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
+  fs.writeFileSync(config.changelogPath, `${insertChangelogSection(section).trimEnd()}\n`)
 
-  git('add', 'package.json', 'CHANGELOG.md')
-  git('commit', '-m', `release: ${tag}`)
-  git('tag', '-a', tag, '-m', `Imprint ${tag}`)
+  const stagedPaths = [path.relative(repoRoot, config.packagePath), path.relative(repoRoot, config.changelogPath)]
+  git('add', ...stagedPaths)
+  git('commit', '-m', config.commitMessage(tag))
+  git('tag', '-a', tag, '-m', config.tagMessage(tag, targetVersion))
 
   if (!noPush) {
     git('remote', 'get-url', 'origin')
@@ -311,9 +344,7 @@ async function main() {
   console.log('')
   console.log(`Release ${tag} prepared successfully.`)
   console.log(
-    noPush
-      ? `Push it with: git push --atomic origin HEAD:${branch} refs/tags/${tag}`
-      : 'GitHub Actions is now building the Windows and macOS release artifacts.',
+    noPush ? `Push it with: git push --atomic origin HEAD:${branch} refs/tags/${tag}` : config.completionMessage,
   )
 }
 

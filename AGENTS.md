@@ -14,8 +14,8 @@ for verified scopes, missing setup, and human fallbacks; a documented capability
 
 Imprint — Electron desktop app + standalone CLI + MCP server that extracts a website's design system (colors, typography, spacing...) from a URL and exports it as CSS variables / Tailwind v4 `@theme` / JSON tokens / Markdown docs. Package manager is pnpm (pinned); Node >= 20.19 required.
 
-The current public release target is Desktop. CLI and local stdio MCP are tested source-build entry points whose
-installable distribution is planned for the next stage; MCP does not require an Imprint-hosted server.
+Desktop and the `design-imprint` npm package have independent versions, tags, and release workflows. The package installs
+the standalone CLI and local stdio MCP entry points; MCP does not require an Imprint-hosted server.
 
 Analysis input is URL-only. Imprint does not analyze standalone screenshot files: screenshots are captured from the loaded website as traceable evidence, while the DOM, computed styles, responsive behavior, and interaction states provide the extractable source data. Do not describe screenshots as a supported analysis input in code comments, UI copy, or documentation.
 
@@ -46,6 +46,8 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - `pnpm dev` — run the Electron app (electron-forge + Vite)
 - `pnpm build` — package the desktop app (NOT the CLI)
 - `pnpm build:cli` — compile `src/cli`, `src/core`, and `src/mcp` to `dist/` via `tsconfig.cli.json`; run source builds with `node dist/cli/index.js` or `node dist/mcp/server.js` because this command alone does not install the `imprint` / `imprint-mcp` bin names
+- `pnpm check:npm-package` — build the publishable `design-imprint` package and verify its file allowlist, entry points, dependencies, and size limits
+- `pnpm test:npm-package` — pack `design-imprint`, install the tarball in an isolated directory, and exercise the installed CLI and MCP against a loopback fixture
 - `pnpm test` — run the Vitest unit suite for core analyzer behavior
 - `pnpm test:coverage` — run the unit suite and write V8 text/HTML/LCOV coverage reports
 - `pnpm test:e2e` — package the app, build the CLI, and run browser/Electron E2E coverage against local fixtures; requires installed Chrome or Edge
@@ -54,8 +56,8 @@ Analysis input is URL-only. Imprint does not analyze standalone screenshot files
 - `pnpm benchmark:comparison` — build the shared core, run the local controlled comparison corpus, and write ignored JSON/Markdown quality reports under `tmp/comparison-benchmark/`
 - `pnpm benchmark:comparison:prospective` — build the CLI and enforce the frozen Desktop P0 prospective comparison policy in a real browser
 - `pnpm run ci` — typecheck + lint + unit tests + build, the full local check (`pnpm ci` is a reserved pnpm command and will fail)
-- `pnpm release` — from a clean `main`, generate the changelog, release commit, and annotated tag, then push them to
-  trigger native Windows x64 and macOS arm64/x64 release builds
+- `pnpm release` / `pnpm release:desktop` — release only Desktop from a clean `main` with a `vX.Y.Z` tag
+- `pnpm release:cli` — independently release only the `design-imprint` CLI/MCP package with a `cli-vX.Y.Z` tag
 - Unit tests use Vitest. E2E tests use Node's test runner with `playwright-core`.
 
 ## Architecture

@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import test, { after } from 'node:test'
@@ -19,6 +20,7 @@ after(() => {
 })
 
 const serverPath = path.resolve('dist/mcp/server.js')
+const packageVersion = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')).version
 
 test('official MCP client initializes the stdio server and lists tools', { timeout: 15_000 }, async (t) => {
   const transport = new StdioClientTransport({
@@ -34,7 +36,7 @@ test('official MCP client initializes the stdio server and lists tools', { timeo
   })
 
   await client.connect(transport)
-  assert.deepEqual(client.getServerVersion(), { name: 'imprint', version: '0.0.3' })
+  assert.deepEqual(client.getServerVersion(), { name: 'imprint', version: packageVersion })
   assert.deepEqual(client.getServerCapabilities(), { tools: {} })
   await client.ping()
 
@@ -214,7 +216,7 @@ test(
       id: 9,
       result: {
         protocolVersion: '2025-11-25',
-        serverInfo: { name: 'imprint', version: '0.0.3' },
+        serverInfo: { name: 'imprint', version: packageVersion },
         capabilities: { tools: {} },
       },
     })

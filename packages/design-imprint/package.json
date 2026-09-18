@@ -1,6 +1,6 @@
 {
   "name": "design-imprint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Extract a website's observed design language and export reusable design-system artifacts",
   "type": "module",
   "license": "MIT",

@@ -20,6 +20,10 @@
     ·
     <a href="https://github.com/woai3c/imprint/releases/latest">Download</a>
     ·
+    <a href="#cli-and-mcp">CLI & MCP</a>
+    ·
+    <a href="https://www.npmjs.com/package/design-imprint">npm</a>
+    ·
     <a href="#features">Features</a>
     ·
     <a href="#development">Development</a>
@@ -174,37 +178,78 @@ the completed artifacts through files or MCP, but they never participate in extr
 
 ## CLI and MCP
 
-The `design-imprint` npm package installs the `design-imprint` and `imprint` CLI aliases plus the `imprint-mcp` local
-stdio server. It is independent from the Desktop installers.
+The [`design-imprint` npm package](https://www.npmjs.com/package/design-imprint) installs the `design-imprint` and
+`imprint` CLI aliases plus the `imprint-mcp` local stdio server. It is versioned and released independently from the
+Desktop installers.
+
+The global npm installation downloads the published package tarball and its runtime dependencies. It does not clone
+this repository, install the Desktop application, or download the project source tree. One installation provides both
+the `imprint` CLI shortcut and the `imprint-mcp` server command.
+
+Requirements: Node.js 20.19 or newer and an installed Chrome, Edge, or compatible Chromium browser. The package does
+not bundle a browser.
+
+### CLI quick start
+
+<p align="center">
+  <img src="./docs/media/imprint-cli-demo-en.gif" alt="Install design-imprint globally, then extract DESIGN.md from a website URL with the short imprint command" width="960" />
+</p>
+
+<p align="center"><sub>Recorded after installing the current package from npm and running <code>imprint https://example.com</code>. The real analysis wait is visibly compressed.</sub></p>
+
+Install once, then pass a website URL to the short `imprint` command:
 
 ```bash
 npm install --global design-imprint
-imprint doctor
-imprint doctor --browser-path "/path/to/chrome" --json
 imprint https://example.com
+```
+
+The default result is a complete `DESIGN.md` on stdout. Run `imprint doctor` if you need to check Node.js or browser
+discovery. Optional formats and file output remain available for automation:
+
+```bash
+imprint https://example.com                     # DESIGN.md on stdout
 imprint https://example.com --format css
 imprint https://example.com --format tailwind
 imprint https://example.com --format json
 imprint https://example.com --format all
-imprint https://example.com --output ./design
 imprint https://example.com --format all --output ./design-all
-
-# Run the CLI without a persistent global installation
-npx --yes design-imprint https://example.com
+imprint doctor --browser-path "/path/to/chrome" --json
 ```
 
-For an MCP-compatible host, let `npx` download and start the local stdio server. Pin a package version instead of
-`latest` when the host configuration must remain reproducible:
+### MCP quick start
+
+<p align="center">
+  <img src="./docs/media/imprint-mcp-demo-en.gif" alt="Configure X-Code to start the installed imprint-mcp command, then ask its Agent to analyze a website URL" width="960" />
+</p>
+
+<p align="center"><sub>Imprint works with any MCP-compatible Agent. This example records a real X-Code CLI session starting the globally installed <code>imprint-mcp</code> command and automatically calling <code>imprint__imprint_extract</code>. The real analysis wait is visibly compressed.</sub></p>
+
+The same global npm installation already provides `imprint-mcp`. Any Agent or host that supports local stdio MCP
+servers can start this command; no X-Code-specific runtime is required. The following configuration and conversation
+use X-Code CLI only as a concrete example. Add this entry to `~/.x-code/config.json`:
 
 ```json
 {
-  "command": "npx",
-  "args": ["--yes", "--package=design-imprint@latest", "imprint-mcp"]
+  "mcpServers": {
+    "imprint": {
+      "command": "imprint-mcp"
+    }
+  }
 }
 ```
 
-The MCP host starts and owns this process; users do not run a remote Imprint service. On Windows hosts that do not
-resolve npm command shims directly, use `cmd` with `args: ["/c", "npx", ...]` for the same command.
+Start X-Code and ask naturally—the user only needs to supply a URL:
+
+```text
+$ xc
+> Use Imprint to analyze https://example.com and describe its design language.
+```
+
+In this example, X-Code discovers `imprint_extract` and `imprint_compare`, chooses the appropriate tool, and passes the
+returned `DESIGN.md` to the Agent. Any other MCP-compatible Agent can use the same `command: "imprint-mcp"` server
+entry; only its outer configuration shape may vary. There is no remote Imprint service. On Windows hosts that cannot
+resolve global npm command shims directly, use `"command": "cmd"` with `"args": ["/c", "imprint-mcp"]`.
 
 **URL is the only required extraction parameter.** CLI returns complete `DESIGN.md` content on stdout; MCP
 `imprint_extract` returns that content in its first text block. No file-read step is needed. Progress and diagnostics

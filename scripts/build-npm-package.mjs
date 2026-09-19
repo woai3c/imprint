@@ -8,6 +8,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const packageRoot = path.join(repoRoot, 'packages', 'design-imprint')
 const outputDirectory = path.join(packageRoot, 'dist')
 const npmPackage = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+const repositoryRawBase = 'https://raw.githubusercontent.com/woai3c/imprint/main'
+const repositoryBlobBase = 'https://github.com/woai3c/imprint/blob/main'
 
 fs.rmSync(outputDirectory, { recursive: true, force: true })
 fs.mkdirSync(outputDirectory, { recursive: true })
@@ -28,8 +30,18 @@ const build = spawnSync(
 if (build.error) throw build.error
 if (build.status !== 0) process.exit(build.status ?? 1)
 
-for (const filename of ['LICENSE', 'README.md', 'README.zh-CN.md']) {
-  fs.copyFileSync(path.join(repoRoot, filename), path.join(packageRoot, filename))
+fs.copyFileSync(path.join(repoRoot, 'LICENSE'), path.join(packageRoot, 'LICENSE'))
+
+for (const filename of ['README.md', 'README.zh-CN.md']) {
+  const source = fs.readFileSync(path.join(repoRoot, filename), 'utf8')
+  const published = source
+    .replaceAll('./assets/', `${repositoryRawBase}/assets/`)
+    .replaceAll('./docs/media/', `${repositoryRawBase}/docs/media/`)
+    .replaceAll('./docs/', `${repositoryBlobBase}/docs/`)
+    .replaceAll('(docs/', `(${repositoryBlobBase}/docs/`)
+    .replaceAll('(AGENTS.md)', `(${repositoryBlobBase}/AGENTS.md)`)
+    .replaceAll('./README', `${repositoryBlobBase}/README`)
+  fs.writeFileSync(path.join(packageRoot, filename), published)
 }
 
 console.log(`Built npm package ${npmPackage.name}@${npmPackage.version}.`)

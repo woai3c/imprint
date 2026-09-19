@@ -9,6 +9,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const packageRoot = path.join(repoRoot, 'packages', 'design-imprint')
 const npmPackage = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const repositoryMediaBase = 'https://raw.githubusercontent.com/woai3c/imprint/main/docs/media'
 const result = spawnSync(npmCommand, ['pack', '.', '--dry-run', '--ignore-scripts', '--json'], {
   cwd: packageRoot,
   encoding: 'utf8',
@@ -91,6 +92,18 @@ for (const entrypoint of Object.values(expectedBins)) {
   const content = fs.readFileSync(path.join(packageRoot, entrypoint), 'utf8')
   if (!content.startsWith('#!/usr/bin/env node\n')) {
     violations.push(`bin entrypoint is missing its Node.js shebang: ${entrypoint}`)
+  }
+}
+
+for (const filename of ['README.md', 'README.zh-CN.md']) {
+  const content = fs.readFileSync(path.join(packageRoot, filename), 'utf8')
+  if (/<img\b[^>]*\bsrc=["']\.\//.test(content)) {
+    violations.push(`${filename} contains a relative image URL that will not render on npm`)
+  }
+  for (const demo of ['imprint-cli-demo', 'imprint-mcp-demo']) {
+    if (!content.includes(`${repositoryMediaBase}/${demo}-`)) {
+      violations.push(`${filename} does not link the published ${demo} media from the repository`)
+    }
   }
 }
 

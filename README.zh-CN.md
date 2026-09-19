@@ -18,6 +18,10 @@
     ·
     <a href="https://github.com/woai3c/imprint/releases/latest">下载安装</a>
     ·
+    <a href="#cli-与-mcp">CLI 与 MCP</a>
+    ·
+    <a href="https://www.npmjs.com/package/design-imprint">npm</a>
+    ·
     <a href="#功能">功能</a>
     ·
     <a href="#开发">开发</a>
@@ -162,36 +166,74 @@ Imprint 不包含模型厂商、API Key 设置或 Agent CLI 执行路径。外�
 
 ## CLI 与 MCP
 
-`design-imprint` npm 包会安装 `design-imprint`、`imprint` 两个 CLI 别名，以及本地 stdio 服务
-`imprint-mcp`。它与 Desktop 安装包相互独立。
+[`design-imprint` npm 包](https://www.npmjs.com/package/design-imprint)会安装 `design-imprint`、`imprint` 两个
+CLI 别名，以及本地 stdio 服务 `imprint-mcp`。它与 Desktop 安装包独立发版、独立维护版本。
+
+npm 全局安装只下载已发布的软件包 tarball 和运行依赖，不会克隆本仓库、安装 Desktop，也不会下载整个项目源码。
+一次安装会同时提供 `imprint` CLI 快捷命令和 `imprint-mcp` 服务命令。
+
+运行要求：Node.js 20.19 或更高版本，以及本机已安装的 Chrome、Edge 或兼容 Chromium 浏览器。npm 包不会捆绑浏览器。
+
+### CLI 快速上手
+
+<p align="center">
+  <img src="./docs/media/imprint-cli-demo-zh-CN.gif" alt="全局安装 design-imprint，再使用简短的 imprint 命令从网站 URL 提取 DESIGN.md" width="960" />
+</p>
+
+<p align="center"><sub>从 npm 安装当前版本后，真实执行 <code>imprint https://example.com</code> 录制；动图中已明确压缩分析等待时间。</sub></p>
+
+只需安装一次，之后把网站 URL 交给简短的 `imprint` 命令：
 
 ```bash
 npm install --global design-imprint
-imprint doctor
-imprint doctor --browser-path "/path/to/chrome" --json
 imprint https://example.com
+```
+
+默认会在 stdout 返回完整的 `DESIGN.md`。需要检查 Node.js 或浏览器发现情况时可运行 `imprint doctor`。
+自动化场景仍可选择其他格式或保存目录：
+
+```bash
+imprint https://example.com                     # 在 stdout 返回 DESIGN.md
 imprint https://example.com --format css
 imprint https://example.com --format tailwind
 imprint https://example.com --format json
 imprint https://example.com --format all
-imprint https://example.com --output ./design
 imprint https://example.com --format all --output ./design-all
-
-# 不进行持久的全局安装，直接运行 CLI
-npx --yes design-imprint https://example.com
+imprint doctor --browser-path "/path/to/chrome" --json
 ```
 
-对于支持 MCP 的宿主，让 `npx` 下载并启动本地 stdio 服务。需要固定运行环境时，应将 `latest` 换成明确版本：
+### MCP 快速上手
+
+<p align="center">
+  <img src="./docs/media/imprint-mcp-demo-zh-CN.gif" alt="配置 X-Code 启动已安装的 imprint-mcp 命令，再让 Agent 分析网站 URL" width="960" />
+</p>
+
+<p align="center"><sub>Imprint 可以接入任何支持 MCP 的 Agent；这里仅使用 X-Code CLI 录制一个真实示例：启动全局安装的 <code>imprint-mcp</code>，并根据自然语言请求自动调用 <code>imprint__imprint_extract</code>。动图中已明确压缩分析等待时间。</sub></p>
+
+同一次 npm 全局安装已经提供 `imprint-mcp`。任何支持本地 stdio MCP 服务的 Agent 或宿主都可以启动这个命令，
+不依赖 X-Code 专用运行时。下面只是以 X-Code CLI 为具体示例，将配置加入 `~/.x-code/config.json`：
 
 ```json
 {
-  "command": "npx",
-  "args": ["--yes", "--package=design-imprint@latest", "imprint-mcp"]
+  "mcpServers": {
+    "imprint": {
+      "command": "imprint-mcp"
+    }
+  }
 }
 ```
 
-MCP 宿主负责启动和管理该进程，用户无需运行远程 Imprint 服务。Windows 宿主如果不能直接解析 npm 命令 shim，
-可使用 `cmd`，并将参数写成 `["/c", "npx", ...]`。
+启动 X-Code 后直接用自然语言提出需求，用户只需提供 URL：
+
+```text
+$ xc
+> 请使用 Imprint 分析 https://example.com，并告诉我它的设计语言。
+```
+
+在这个示例中，X-Code 会发现 `imprint_extract` 和 `imprint_compare`，自动选择工具，并把返回的 `DESIGN.md`
+交给 Agent。其他任何支持 MCP 的 Agent 都可以使用同一个 `"command": "imprint-mcp"` 服务条目，区别通常只在
+最外层配置格式。整个过程不需要远程 Imprint 服务。Windows 宿主如果不能直接解析全局 npm 命令 shim，可使用
+`"command": "cmd"` 和 `"args": ["/c", "imprint-mcp"]`。
 
 **URL 是唯一必填的提取参数。** CLI 在 stdout 直接输出完整 `DESIGN.md` 正文，MCP `imprint_extract`
 在首个文本块中返回正文，不需要再读取文件。进度和诊断放在产物之外（CLI stderr 或 MCP 元数据）。

@@ -208,10 +208,35 @@ imprint doctor --browser-path "/path/to/chrome" --json
   <img src="./docs/media/imprint-mcp-demo-zh-CN.gif" alt="配置 X-Code 启动已安装的 imprint-mcp 命令，再让 Agent 分析网站 URL" width="960" />
 </p>
 
-<p align="center"><sub>Imprint 可以接入任何支持 MCP 的 Agent；这里仅使用 X-Code CLI 录制一个真实示例：启动全局安装的 <code>imprint-mcp</code>，并根据自然语言请求自动调用 <code>imprint__imprint_extract</code>。动图中已明确压缩分析等待时间。</sub></p>
+<p align="center"><sub>Imprint 可以接入任何支持 MCP 的 Agent；这里仅使用 X-Code CLI 录制一个真实示例：添加全局安装的 <code>imprint-mcp</code> 命令，再根据自然语言请求自动调用 <code>imprint__imprint_extract</code>。动图中已明确压缩分析等待时间。</sub></p>
 
 同一次 npm 全局安装已经提供 `imprint-mcp`。任何支持本地 stdio MCP 服务的 Agent 或宿主都可以启动这个命令，
-不依赖 X-Code 专用运行时。下面只是以 X-Code CLI 为具体示例，将配置加入 `~/.x-code/config.json`：
+不依赖 X-Code 专用运行时。
+
+#### X-Code CLI 示例
+
+X-Code 支持使用自身命令添加 MCP，也支持直接修改配置文件。日常使用更推荐命令方式；两种方式最终都会启动
+同一个本地 `imprint-mcp` 进程。
+
+| 方式                | 适用场景                          | 操作                                                          |
+| ------------------- | --------------------------------- | ------------------------------------------------------------- |
+| X-Code 命令（推荐） | 日常交互式添加，避免手动编辑 JSON | 启动 `xc`，再执行 `/mcp add --scope user imprint imprint-mcp` |
+| 修改配置文件        | 自动化或需要手动管理配置          | 将下方服务配置加入 `~/.x-code/config.json`                    |
+
+使用推荐方式时，先启动 `xc`，然后在 X-Code 会话中执行以下斜杠命令：
+
+```text
+$ xc
+> /mcp add --scope user imprint imprint-mcp
+> /mcp refresh
+> /mcp list
+imprint    connected — 2 tools, 0 resources
+```
+
+`/mcp add` 是 X-Code 会话内的斜杠命令，不是终端里的 `xc mcp add` 子命令。`--scope user` 会让所有 X-Code
+项目都能使用；如果只想当前项目使用，请改成 `--scope project`。
+
+也可以将以下内容加入 `~/.x-code/config.json`，然后在 X-Code 中执行 `/mcp refresh`：
 
 ```json
 {
@@ -223,17 +248,41 @@ imprint doctor --browser-path "/path/to/chrome" --json
 }
 ```
 
-启动 X-Code 后直接用自然语言提出需求，用户只需提供 URL：
+其他 MCP Agent 也是同样的思路：如果 Agent 自身提供 MCP 添加命令，就优先使用；否则在配置文件中将
+`imprint-mcp` 添加为本地 stdio 服务。连接后直接用自然语言提出需求：
 
 ```text
-$ xc
 > 请使用 Imprint 分析 https://example.com，并告诉我它的设计语言。
 ```
 
 在这个示例中，X-Code 会发现 `imprint_extract` 和 `imprint_compare`，自动选择工具，并把返回的 `DESIGN.md`
-交给 Agent。其他任何支持 MCP 的 Agent 都可以使用同一个 `"command": "imprint-mcp"` 服务条目，区别通常只在
-最外层配置格式。整个过程不需要远程 Imprint 服务。Windows 宿主如果不能直接解析全局 npm 命令 shim，可使用
-`"command": "cmd"` 和 `"args": ["/c", "imprint-mcp"]`。
+交给 Agent。
+
+#### Claude Code
+
+直接在终端添加同一个本地 stdio 服务，再检查连接状态：
+
+```bash
+claude mcp add --scope user --transport stdio imprint -- imprint-mcp
+claude mcp list
+```
+
+Scope 和管理命令详见 [Claude Code MCP 官方文档](https://code.claude.com/docs/en/mcp)。
+
+#### Codex CLI
+
+直接在终端添加并检查服务：
+
+```bash
+codex mcp add imprint -- imprint-mcp
+codex mcp list
+```
+
+当前命令参考详见 [Codex MCP 官方文档](https://developers.openai.com/codex/mcp)。
+
+其他任何支持 MCP 的 Agent 都可以使用同一个 `imprint-mcp` stdio 命令，区别通常只在添加命令或最外层配置格式。
+整个过程不需要远程 Imprint 服务。Windows 宿主如果不能直接解析全局 npm 命令 shim，可将 stdio 启动命令
+改成 `cmd /c imprint-mcp`。
 
 **URL 是唯一必填的提取参数。** CLI 在 stdout 直接输出完整 `DESIGN.md` 正文，MCP `imprint_extract`
 在首个文本块中返回正文，不需要再读取文件。进度和诊断放在产物之外（CLI stderr 或 MCP 元数据）。

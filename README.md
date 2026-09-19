@@ -223,11 +223,35 @@ imprint doctor --browser-path "/path/to/chrome" --json
   <img src="./docs/media/imprint-mcp-demo-en.gif" alt="Configure X-Code to start the installed imprint-mcp command, then ask its Agent to analyze a website URL" width="960" />
 </p>
 
-<p align="center"><sub>Imprint works with any MCP-compatible Agent. This example records a real X-Code CLI session starting the globally installed <code>imprint-mcp</code> command and automatically calling <code>imprint__imprint_extract</code>. The real analysis wait is visibly compressed.</sub></p>
+<p align="center"><sub>Imprint works with any MCP-compatible Agent. This example records X-Code CLI adding the globally installed <code>imprint-mcp</code> command, then automatically calling <code>imprint__imprint_extract</code>. The real analysis wait is visibly compressed.</sub></p>
 
 The same global npm installation already provides `imprint-mcp`. Any Agent or host that supports local stdio MCP
-servers can start this command; no X-Code-specific runtime is required. The following configuration and conversation
-use X-Code CLI only as a concrete example. Add this entry to `~/.x-code/config.json`:
+servers can start this command; no X-Code-specific runtime is required.
+
+#### X-Code CLI example
+
+X-Code supports both its own MCP command and direct configuration. The command is more convenient; both methods start
+the same local `imprint-mcp` process.
+
+| Method                       | When to use                                           | Setup                                                            |
+| ---------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| X-Code command (recommended) | Normal interactive setup; avoids editing JSON by hand | Start `xc`, then run `/mcp add --scope user imprint imprint-mcp` |
+| Edit the config file         | Automation or manually managed configuration          | Add the server entry below to `~/.x-code/config.json`            |
+
+For the recommended method, run these slash commands inside the X-Code session:
+
+```text
+$ xc
+> /mcp add --scope user imprint imprint-mcp
+> /mcp refresh
+> /mcp list
+imprint    connected — 2 tools, 0 resources
+```
+
+`/mcp add` is an X-Code slash command, not a shell subcommand. `--scope user` makes the server available in every
+X-Code project; use `--scope project` instead to limit it to the current project.
+
+Alternatively, add this entry to `~/.x-code/config.json`, then run `/mcp refresh` in X-Code:
 
 ```json
 {
@@ -239,17 +263,41 @@ use X-Code CLI only as a concrete example. Add this entry to `~/.x-code/config.j
 }
 ```
 
-Start X-Code and ask naturally—the user only needs to supply a URL:
+Other MCP Agents follow the same pattern: use the Agent's own MCP add command when it provides one, or add
+`imprint-mcp` as a local stdio server in its configuration. After connecting, ask naturally:
 
 ```text
-$ xc
 > Use Imprint to analyze https://example.com and describe its design language.
 ```
 
 In this example, X-Code discovers `imprint_extract` and `imprint_compare`, chooses the appropriate tool, and passes the
-returned `DESIGN.md` to the Agent. Any other MCP-compatible Agent can use the same `command: "imprint-mcp"` server
-entry; only its outer configuration shape may vary. There is no remote Imprint service. On Windows hosts that cannot
-resolve global npm command shims directly, use `"command": "cmd"` with `"args": ["/c", "imprint-mcp"]`.
+returned `DESIGN.md` to the Agent.
+
+#### Claude Code
+
+Add the same local stdio server directly from the shell, then verify it:
+
+```bash
+claude mcp add --scope user --transport stdio imprint -- imprint-mcp
+claude mcp list
+```
+
+See the [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp) for scope and server-management details.
+
+#### Codex CLI
+
+Add and verify the server directly from the shell:
+
+```bash
+codex mcp add imprint -- imprint-mcp
+codex mcp list
+```
+
+See the [Codex MCP documentation](https://developers.openai.com/codex/mcp) for the current CLI reference.
+
+Any other MCP-compatible Agent can use the same `imprint-mcp` stdio command; only its add command or outer
+configuration shape may vary. There is no remote Imprint service. On Windows hosts that cannot resolve global npm
+command shims directly, use `cmd /c imprint-mcp` as the stdio launch command.
 
 **URL is the only required extraction parameter.** CLI returns complete `DESIGN.md` content on stdout; MCP
 `imprint_extract` returns that content in its first text block. No file-read step is needed. Progress and diagnostics
